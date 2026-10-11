@@ -47,6 +47,17 @@ the session pooler or the direct host for a migration tool if one needs them.
 | Framework | Next.js (TypeScript), standard hosting only |
 | Created | 2026-10-11, from the command line (`vercel link`, `vercel git connect`) |
 
+**Two things learned connecting it (2026-10-11).** `vercel git connect` sets
+the project's **production branch to whatever branch the command is run
+from**. Run from a feature-branch worktree, it made that branch production and
+deployed it to `wavecenter.vercel.app` before any merge; reconnecting from a
+checkout on `main` fixed it, and a push to a feature branch then deployed as a
+preview. Run Vercel git commands from the main checkout, on `main`. Second:
+**preview deployments require a Vercel sign-in to view** (deployment
+protection, "all except custom domains"), so a preview link in a ticket works
+for Dane, who is signed in, and for nobody else. Production at
+`wavecenter.vercel.app` is public.
+
 **No Vercel-only features.** Dane's condition for choosing Next.js
 (2026-10-11): the whitepaper says any part of the stack is replaced if it
 threatens capture, so the site must stay movable to another host. Use only
