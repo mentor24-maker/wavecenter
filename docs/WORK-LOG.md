@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — How members' tools will plug into WaveCenter: options for Dane (#13)
+
+Before anyone outside is invited in, WaveCenter needs a plan for how a
+member's own tool, game or community connects to it and earns points. A new
+page, `docs/EXTENSION_MODEL.md`, quotes what the DEO whitepaper says, lays out
+three ways to do it in plain words, and recommends one: a published "door"
+into WaveCenter's core that any tool, hosted anywhere, can use, with WaveCenter
+alone deciding what each action is worth. Its first step costs almost nothing
+now and rules nothing out. Seven questions the whitepaper leaves open are
+waiting on Dane. No code changed.
+
+---
+
 ## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#6)
 
 There is now a WaveCenter website, deployed from `main` by Vercel, with a
