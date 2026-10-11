@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — A leaked key now turns the build red (#12)
+
+The rule "every key lives in Doppler, never in a file" used to be a promise in
+the docs. Now it is checked. `npm run doctor` lists every key WaveCenter
+expects and says whether Doppler has it, without ever showing a key itself.
+And the standard build check now refuses any change that contains a `.env`
+file or something shaped like a ClickUp or Supabase secret key, which matters
+because this repository is public. It was proved by planting a fake key and
+watching the check fail.
+
+---
+
 ## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#6)
 
 There is now a WaveCenter website, deployed from `main` by Vercel, with a
