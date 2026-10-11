@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#PR)
+
+Until now a WaveCenter loop only ran while someone had a session open that had
+started it. The Mac Mini, Dane's always-on machine, now runs both lanes the way
+it runs StarCaster's: every 30 minutes it pulls `main`, runs one build pass and
+one review pass, each in a fresh session with a two-hour limit, and restarts
+them after a crash or reboot. The queue drains overnight. Merges still wait
+for Dane's word and a session to carry it out.
+
+---
+
 ## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#6)
 
 There is now a WaveCenter website, deployed from `main` by Vercel, with a
