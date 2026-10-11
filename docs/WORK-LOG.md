@@ -7,7 +7,7 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
-## 2026-10-11 — WaveCenter gets its own database (#PR)
+## 2026-10-11 — WaveCenter gets its own database (#4)
 
 WaveCenter now has its own Supabase project, separate from StarCaster's, so a
 problem in one can never take the other down. Its address and keys are stored
@@ -18,7 +18,7 @@ instead. `docs/INFRASTRUCTURE.md` records all of it. No tables exist yet.
 
 ---
 
-## 2026-10-11 — The WaveCenter space gets its own development loop (#PR)
+## 2026-10-11 — The WaveCenter space gets its own development loop (#2)
 
 WaveCenter now has the same spec → build → review process StarCaster runs,
 pointed at its own ClickUp list, **Loop Queue** in the WaveCenter space. This
