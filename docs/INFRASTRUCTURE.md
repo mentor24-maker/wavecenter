@@ -81,6 +81,13 @@ where `protection.json` names `required_status_checks.contexts: ["verify"]`,
 `strict: true`, `enforce_admins: true` and
 `required_pull_request_reviews.required_approving_review_count: 0`.
 
+**Proved, not assumed (2026-10-11, PR #7):** a pull request carrying one
+deliberately failing test turned `verify` red; `gh pr merge` was refused with
+*"the base branch policy prohibits the merge"*, `gh pr merge --admin` was
+refused with *"Required status check 'verify' is failing"*, and the PR showed
+`BLOCKED`. It was closed unmerged and its branch deleted. Repeat that test
+whenever the protection settings are touched.
+
 ## The core is separate from the framework
 
 `core/` holds the task record, the points rules and the who-may-do-what

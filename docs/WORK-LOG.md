@@ -7,7 +7,7 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
-## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#PR)
+## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#6)
 
 There is now a WaveCenter website, deployed from `main` by Vercel, with a
 preview link for every pull request. The page says what WaveCenter is and that

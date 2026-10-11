@@ -106,6 +106,7 @@ StarCaster work never comes here.
     `npm run check:core-boundary` enforces it. (Dane, 2026-10-11.)
 11. **Standard hosting only, no Vercel-only features.** The stack must stay
     replaceable. Ask of every option: would this work on another host?
+
 ## Infrastructure
 
 WaveCenter has its **own** Supabase project, Vercel project and Doppler
