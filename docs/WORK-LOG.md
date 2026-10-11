@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — WaveCenter gets its own database (#PR)
+
+WaveCenter now has its own Supabase project, separate from StarCaster's, so a
+problem in one can never take the other down. Its address and keys are stored
+in the new `wavecenter` Doppler project, never in the repository. One thing
+learned the hard way: the default database address only works over IPv6, which
+Dane's network lacks, so WaveCenter connects through Supabase's IPv4 pooler
+instead. `docs/INFRASTRUCTURE.md` records all of it. No tables exist yet.
+
+---
+
 ## 2026-10-11 — The WaveCenter space gets its own development loop (#PR)
 
 WaveCenter now has the same spec → build → review process StarCaster runs,
