@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#PR)
+
+There is now a WaveCenter website, deployed from `main` by Vercel, with a
+preview link for every pull request. The page says what WaveCenter is and that
+it is coming soon. Under it sits the Next.js skeleton (TypeScript) that Dane
+chose after weighing it against a plain server like StarCaster's, on two
+conditions now enforced by code: the core of the system lives in its own
+folder that never imports the framework, and only standard hosting features
+are used so the site can move hosts if it ever must. `main` cannot be merged
+into unless the `verify` check passes.
+
+---
+
 ## 2026-10-11 — WaveCenter gets its own database (#4)
 
 WaveCenter now has its own Supabase project, separate from StarCaster's, so a

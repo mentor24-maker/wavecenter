@@ -37,6 +37,47 @@ A transaction pooler suits serverless functions, which is what Vercel runs. It
 does not support some session features (prepared statements, `LISTEN`); use
 the session pooler or the direct host for a migration tool if one needs them.
 
+## Hosting: Vercel
+
+| | |
+|---|---|
+| Team | Dane Christensen's projects (`dane-of-earth`) |
+| Project | `wavecenter` (id `prj_jo8rGoJlF55XwB2QuJ2srLVoqQdF`) |
+| Source | GitHub `mentor24-maker/wavecenter`, production from `main`, a preview for every pull request |
+| Framework | Next.js (TypeScript), standard hosting only |
+| Created | 2026-10-11, from the command line (`vercel link`, `vercel git connect`) |
+
+**No Vercel-only features.** Dane's condition for choosing Next.js
+(2026-10-11): the whitepaper says any part of the stack is replaced if it
+threatens capture, so the site must stay movable to another host. Use only
+what plain Next.js offers on any host. Before enabling anything in the Vercel
+dashboard or `next.config.ts`, ask whether it would work elsewhere.
+
+**Vercel bakes environment variables in at build time** (engineering rule 4).
+Changing one in the dashboard does nothing until a redeploy. The placeholder
+page needs none; later tickets add the Supabase names from Doppler.
+
+**`main` never deploys unchecked** (rule 1). Branch protection on `main`
+requires a pull request and the `verify` status check, with the branch up to
+date, and applies to administrators too. Force-pushes are refused. It was set
+on 2026-10-11 with:
+
+```bash
+gh api -X PUT repos/mentor24-maker/wavecenter/branches/main/protection --input protection.json
+```
+
+where `protection.json` names `required_status_checks.contexts: ["verify"]`,
+`strict: true`, `enforce_admins: true` and
+`required_pull_request_reviews.required_approving_review_count: 0`.
+
+## The core is separate from the framework
+
+`core/` holds the task record, the points rules and the who-may-do-what
+rules: plain TypeScript, its own tests, and **never an import of Next.js,
+React or Vercel**. The website in `app/` is the first client of the core;
+member-built tools are later clients. `npm run check:core-boundary` enforces
+it and `verify` runs it. (Dane's condition, 2026-10-11.)
+
 ## Keys: Doppler
 
 Doppler project **`wavecenter`**, workplace Alphire. Configs: `dev`, `stg`,
