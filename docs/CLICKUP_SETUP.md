@@ -3,24 +3,37 @@
 The **Loop Queue** list in the **WaveCenter** space was created on 2026-10-11
 (list id `901422159126`). A list made through the API starts with the space's
 default statuses (`to do`, `in progress`, `complete`). The loop needs seven
-specific names, and **ClickUp's API has no way to edit a list's status set**,
+specific names, and **ClickUp's API has no way to edit a status set**,
 so this one step is done by hand in the ClickUp web app. It takes about three
 minutes. Everything else is automated.
 
 ClickUp moves its menu labels around between releases. The paths below are
 what to look for, not a guarantee of exact wording.
 
-## 1. Open the list's status settings
+## 1. Edit the statuses on the SPACE, not the list
 
-1. Click this link: https://app.clickup.com/90141423066/v/l/li/901422159126
-2. In the left sidebar, hover **Loop Queue** (under the WaveCenter space),
-   click the **`…`** that appears, then **List settings** → **Statuses**.
-3. If it offers to inherit statuses from the Space, choose the option to use
-   **custom** statuses for this list.
+All three lists in the WaveCenter space share the space's statuses, and the
+whole space exists for this project, so one status set on the space is the
+simplest arrangement. (2026-10-11: Dane opened the space-level dialog, "Edit
+WaveCenter statuses", and that is the right one.)
+
+1. In the left sidebar, hover the **WaveCenter** space, click the **`…`**,
+   then **Space settings** → **Statuses** (ClickUp sometimes calls it
+   **Edit statuses**).
+2. The dialog is titled **Edit WaveCenter statuses** and shows four groups:
+   Not started, Active, Done, Closed.
 
 **Rename in place — never delete a status and re-create it.** Renaming carries
 the existing tickets across untouched; deleting forces every ticket in that
 status into some other one. The queue already holds tickets.
+
+**Make one change, then click Apply changes, then the next.** The dialog's
+duplicate check ("Status name is already taken") fires on any two rows with
+the same name, including a half-typed "Add status" row left over from earlier
+in the same session. If it fires on the first rename with no visible
+duplicate, close the dialog with the X (nothing is saved until Apply), reopen
+it, and if needed rename to a temporary name (`Queued2`), Apply, then rename
+again.
 
 ## 2. Rename the three defaults
 
@@ -60,7 +73,7 @@ ClickUp sorts statuses into groups — **Not started**, **Active**, **Done**,
 **Closed** group.
 
 **`Live` must sit in the Closed group.** Renaming `complete` (which is already
-the list's Closed status) is what makes this true without any dragging. If
+the space's Closed status) is what makes this true without any dragging. If
 `Live` ends up anywhere else, finished work piles up in the open view forever.
 Leave `Queued` in Not started and the rest in Active.
 
@@ -77,11 +90,11 @@ Click the coloured circle to the left of a status name:
 
 ### If the Edit Statuses dialog opens EMPTY
 
-On StarCaster's list this dialog once opened with all four groups blank, from
-three different doors. It is a display bug, not data loss — but **do not press
-Apply on an empty dialog**; it could strip the list's statuses. Instead, in
-List view, hover the status pill at the head of any group, open its `…` menu
-and use **+ New status** and **Rename** there; those work inline.
+On StarCaster's list-level status set this dialog once opened with all four
+groups blank, from three different doors. It is a display bug, not data loss —
+but **do not press Apply on an empty dialog**; it could strip the statuses.
+Instead, in List view, hover the status pill at the head of any group, open
+its `…` menu and use **+ New status** and **Rename** there; those work inline.
 
 ## 4. Tell the session the rename is done
 
