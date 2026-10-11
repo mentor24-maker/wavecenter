@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — Dane can sign in, and each person sees only their own tasks (#11)
+
+WaveCenter now has sign-in. You type your email and get a link that signs you
+in, with no password to remember. Once signed in, the home page says "Your
+tasks"; signed out, it is the same "coming soon" page as before. Every request
+for data runs as the person who is signed in, so the database's own rules hand
+back only that person's tasks. A test with two throwaway accounts proved it:
+one could not see the other's task. No key is sent to the browser at all, and
+a new automatic check fails the build if one ever is. Two settings have to be
+filled in on the Vercel and Supabase websites before it works online; until
+then, the sign-in page says plainly that it isn't switched on yet.
+
+---
+
 ## 2026-10-11 — WaveCenter is live: a placeholder page on Vercel (#6)
 
 There is now a WaveCenter website, deployed from `main` by Vercel, with a
