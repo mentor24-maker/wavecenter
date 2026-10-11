@@ -7,7 +7,7 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
-## 2026-10-11 — The WaveCenter space gets its own development loop (#PR)
+## 2026-10-11 — The WaveCenter space gets its own development loop (#2)
 
 WaveCenter now has the same spec → build → review process StarCaster runs,
 pointed at its own ClickUp list, **Loop Queue** in the WaveCenter space. This
