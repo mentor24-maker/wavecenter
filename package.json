@@ -1,0 +1,16 @@
+{
+  "name": "wavecenter",
+  "version": "0.0.1",
+  "private": true,
+  "description": "WaveCenter — the hub of the DEO movement, and the original DEO.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clickup": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/clickup.mjs",
+    "check:syntax": "node scripts/check_syntax.mjs",
+    "test": "node --test scripts/lib/*.test.mjs",
+    "verify": "npm run check:syntax && npm test"
+  }
+}
