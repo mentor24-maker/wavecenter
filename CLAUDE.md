@@ -75,8 +75,8 @@ StarCaster work never comes here.
   the shape `loop-spec` prescribes **before** building, even when Dane only
   asked for a plan. Work that lives only in a session is invisible to him.
 - A pull request's title is the ticket's name, byte for byte, and its body
-  carries the ticket link. `npm run verify` is the definition of done; CI
-  runs it on every pull request.
+  carries the ticket link. `npm run verify` is the definition of done (syntax, core
+  boundary, tests, typecheck, build); CI runs it on every pull request.
 - Two statuses are Dane's: `Needs your input` and `Ready to launch`. Only
   `ask` may set them, and no loop ever takes a ticket back out of them.
 
@@ -99,6 +99,13 @@ StarCaster work never comes here.
 8. **Generated files are never committed.** Build them from source in CI.
 9. **One topic, one folder.** Two sessions in one folder overwrite each
    other's work. Use a separate git worktree per thread.
+
+10. **The core never imports the framework.** `core/` (task record, points
+    rules, who-may-do-what rules) is plain TypeScript with its own tests and
+    never imports Next.js, React or Vercel; `app/` is its first client.
+    `npm run check:core-boundary` enforces it. (Dane, 2026-10-11.)
+11. **Standard hosting only, no Vercel-only features.** The stack must stay
+    replaceable. Ask of every option: would this work on another host?
 
 ## Infrastructure
 

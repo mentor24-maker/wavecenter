@@ -8,3 +8,7 @@ dist/
 *.log
 .claude/worktrees/
 .claude/settings.local.json
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
