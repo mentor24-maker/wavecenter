@@ -58,6 +58,28 @@ status, a parent task and a points value from the very first version.
   sentence saying which screen you opened and what you saw. "It should work"
   is not done.
 
+## Where the work is tracked
+
+Every piece of work on this repository is a ticket in the **Loop Queue** list
+of the **WaveCenter** space in ClickUp (list id `901422159126`). StarCaster
+has its own Loop Queue (`901418546619`); WaveCenter work never goes there, and
+StarCaster work never comes here.
+
+- The process is the spec → build → review loop: `docs/LOOP_ENGINEERING.md`.
+  The three skills are `loop-spec`, `loop-build` and `loop-review` in
+  `.claude/skills/`.
+- Every ClickUp touch goes through `npm run clickup -- <command>` (Doppler
+  supplies the token). Never the claude.ai connector, unless the script is
+  broken, and then say so.
+- When a plan produces more than one shippable unit, file each as a ticket in
+  the shape `loop-spec` prescribes **before** building, even when Dane only
+  asked for a plan. Work that lives only in a session is invisible to him.
+- A pull request's title is the ticket's name, byte for byte, and its body
+  carries the ticket link. `npm run verify` is the definition of done; CI
+  runs it on every pull request.
+- Two statuses are Dane's: `Needs your input` and `Ready to launch`. Only
+  `ask` may set them, and no loop ever takes a ticket back out of them.
+
 ## Engineering rules (each one learned from a StarCaster outage)
 
 1. **`main` never deploys unchecked.** Work on branches. A change reaches
@@ -81,6 +103,8 @@ status, a parent task and a points value from the very first version.
 ## Infrastructure
 
 WaveCenter has its **own** Supabase project, Vercel project and Doppler
-project, kept separate from StarCaster so a failure in one cannot take down
+project (`wavecenter`, created 2026-10-11; its `dev` config holds the ClickUp
+token as a reference to StarCaster's, so there is one token to rotate), kept
+separate from StarCaster so a failure in one cannot take down
 the other. (StarCaster's shared database disk filled up on 2026-08-17 and took
 every client site down with it.)

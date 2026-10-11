@@ -75,13 +75,16 @@ WaveCenter is in **Winter**.
 | 1 | Create the GitHub repo | Done |
 | 2 | Founding documents (`CLAUDE.md`, this file) | In progress |
 | 3 | Separate Supabase project for WaveCenter | Not started |
-| 4 | Keys in Doppler from day one | Not started |
+| 4 | Keys in Doppler from day one | Started 2026-10-11: project `wavecenter` exists, ClickUp token in `dev` |
 | 5 | Vercel project, placeholder page live, build check before deploy | Not started |
 | 6 | Task record designed for growth: owner, status, parent task, points | Not started |
 | 7 | Sign-in plus per-user data protection (row-level security) | Not started |
 | 8 | Build the simple to-do list | Not started |
 | 9 | Make the site presentable; pick a domain | Not started |
 | 10 | Move WaveCenter's own tasks from ClickUp into WaveCenter | Not started |
+
+Steps 3–10 are filed as tickets in the WaveCenter **Loop Queue** in ClickUp
+(2026-10-11). The queue is the live status; this table is the plan.
 
 ### Points are the seed of the game layer
 
