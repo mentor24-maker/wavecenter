@@ -19,7 +19,12 @@ GRACE=${RUN_WITH_TIME_LIMIT_GRACE:-30}
 "$@" &
 PID=$!
 START=$(date +%s)
-stop() { pkill "-$1" -P "$PID" 2>/dev/null; kill "-$1" "$PID" 2>/dev/null; }
+# Stop the WHOLE tree, not just direct children: a hung `next build` started
+# through Claude's Bash tool is a grandchild or deeper. The tree is listed
+# before anything is killed, because a killed parent's children are re-parented
+# and could no longer be found by walking down from it.
+tree() { local p; for p in $(pgrep -P "$1" 2>/dev/null); do tree "$p"; done; echo "$1"; }
+stop() { local pids; pids="$(tree "$PID")"; kill "-$1" $pids 2>/dev/null; }
 while kill -0 "$PID" 2>/dev/null; do
   if [ $(( $(date +%s) - START )) -ge "$LIMIT" ]; then
     echo "[run_with_time_limit] $(date "+%Y-%m-%d %H:%M:%S") stopped after ${LIMIT}s — still running at the limit, which a working pass never reaches: $*"

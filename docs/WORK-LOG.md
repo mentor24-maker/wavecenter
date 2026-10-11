@@ -7,7 +7,7 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
-## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#PR)
+## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#9)
 
 Until now a WaveCenter loop only ran while someone had a session open that had
 started it. The Mac Mini, Dane's always-on machine, now runs both lanes the way

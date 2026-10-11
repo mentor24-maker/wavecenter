@@ -214,6 +214,13 @@ from its **main checkout** (never a worktree). It refuses if `npm`, `doppler`,
 installing on a second machine, uninstall on the first: two machines claiming
 is the collision the lock exists to prevent.
 
+**The checkout must sit on a clean `main`.** The runner pulls only a clean
+`main`; on any other branch every pass runs that branch's code and never sees
+merged work. `--status` prints a `WARNING` when this is so, and the installer
+warns too. The runner was first installed from its own branch (it was not on
+`main` yet), so once that pull request merges, put the Mini back:
+`git -C ~/WebApps/wavecenter checkout main && git -C ~/WebApps/wavecenter pull`.
+
 Your day:
 
 1. **Morning:** run `loop-spec` in a session, answer its questions, approve

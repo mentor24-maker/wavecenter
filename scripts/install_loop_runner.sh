@@ -27,6 +27,9 @@ interval_of() {
   esac
 }
 label_of() { echo "com.wavecenter.$1"; }
+# The PATH launchd gives the runner. The installer checks the tools against
+# THIS, not its own shell's PATH, because launchd is what will run them.
+LAUNCHD_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
 plist_of() { echo "$HOME/Library/LaunchAgents/$(label_of "$1").plist"; }
 
 status_one() {
@@ -35,8 +38,14 @@ status_one() {
   lock="$HOME/loop-logs/wavecenter-$skill.lock"; log="$HOME/loop-logs/wavecenter-$skill.log"
   echo "── $skill"
   if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist"; else echo "schedule: not installed on this machine"; fi
-  if launchctl list | grep -q "$label"; then
-    echo "loaded:   yes — $(launchctl list | grep "$label")"
+  # Read launchctl's list into a variable first. Piping it straight into
+  # `grep -q` under pipefail reported a live lane as "loaded: no": grep quits
+  # at the first match, launchctl dies of SIGPIPE, and the pipeline "fails".
+  local listing line
+  listing="$(launchctl list 2>/dev/null || true)"
+  line="$(awk -v l="$label" '$3 == l' <<<"$listing")"
+  if [ -n "$line" ]; then
+    echo "loaded:   yes — $line"
     echo "          (columns: PID, last exit code, label. A PID here means the runner is alive right now.)"
   else
     echo "loaded:   no"
@@ -56,7 +65,23 @@ status_one() {
   fi
 }
 
-status() { for s in "${SKILLS[@]}"; do status_one "$s"; done; }
+# The runner only pulls when the checkout is a clean main. On anything else
+# every pass runs stale code and says so in one quiet log line, so say it
+# loudly here instead.
+checkout_state() {
+  local branch dirty
+  branch="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+  dirty="$(git -C "$REPO" status --porcelain 2>/dev/null)"
+  if [ "$branch" = "main" ] && [ -z "$dirty" ]; then
+    echo "checkout: $REPO on a clean main — each pass pulls the latest merged work"
+  else
+    echo "checkout: $REPO on branch '$branch'$([ -n "$dirty" ] && echo ', with uncommitted changes')"
+    echo "WARNING:  the runner only pulls a clean main, so every pass runs THIS code and never"
+    echo "          picks up merged work. Put it back: git -C $REPO checkout main && git -C $REPO pull"
+  fi
+}
+
+status() { checkout_state; for s in "${SKILLS[@]}"; do status_one "$s"; done; }
 
 uninstall() {
   for s in "${SKILLS[@]}"; do
@@ -74,11 +99,16 @@ install() {
   fi
   mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HOME/loop-logs"
   for bin in npm doppler claude git; do
-    if ! command -v "$bin" >/dev/null && [ ! -x "$HOME/.local/bin/$bin" ]; then
-      echo "Cannot find $bin on this machine — the loops would install and then fail on every pass." >&2
+    if ! (PATH="$LAUNCHD_PATH" command -v "$bin" >/dev/null); then
+      echo "Cannot find $bin on launchd's PATH ($LAUNCHD_PATH) — the loops would install and then fail on every pass." >&2
       exit 1
     fi
   done
+  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" != "main" ]; then
+    echo "WARNING: $REPO is not on main. The runner will install, but it never pulls" >&2
+    echo "         anything but a clean main, so it will run this branch's code until" >&2
+    echo "         the checkout is put back on main." >&2
+  fi
   chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh"
 
   for s in "${SKILLS[@]}"; do
@@ -108,7 +138,7 @@ install() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin</string>
+        <string>$LAUNCHD_PATH</string>
         <key>HOME</key>
         <string>$HOME</string>
     </dict>
