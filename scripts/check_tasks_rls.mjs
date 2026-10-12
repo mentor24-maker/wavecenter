@@ -11,9 +11,18 @@
  * Run it with the keys from Doppler:
  *   doppler run --project wavecenter --config dev -- node scripts/check_tasks_rls.mjs
  *
+ * Members' own writes go through core/ (createTask, updateTask), the same path
+ * every tool uses. The attacks (changing or forging someone else's task) go
+ * straight to the table on purpose: they play a hostile client that ignores
+ * core, which is exactly what row-level security must stop.
+ *
  * Exit 0 = every check held. Exit 1 = a check failed or the run broke.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { createTask, updateTask } from '../core/tasks.ts';
+import { restTaskStore } from './lib/restTaskStore.mjs';
+
+const TOOL = 'check-tasks-rls';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -51,7 +60,8 @@ async function makeUser(tag) {
   users.push(made.json.id);
   const signin = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
-  return { tag, id: made.json.id, token: signin.json.access_token };
+  const token = signin.json.access_token;
+  return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token }) };
 }
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
@@ -61,11 +71,11 @@ try {
   const b = await makeUser('b');
   console.log(`two test users made and signed in: A=${a.id}  B=${b.id}\n`);
 
-  const insA = await call('/rest/v1/tasks', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title: 'A’s task', points: 3 } });
-  const insB = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'B’s task', points: 5 } });
-  check('A can add a task', insA.status === 201 && insA.json?.[0]?.owner_id === a.id, `HTTP ${insA.status}, owner ${insA.json?.[0]?.owner_id}`);
-  check('B can add a task', insB.status === 201 && insB.json?.[0]?.owner_id === b.id, `HTTP ${insB.status}, owner ${insB.json?.[0]?.owner_id}`);
-  const taskB = insB.json?.[0]?.id;
+  const insA = await createTask(a.store, { title: 'A’s task', points: 3 }, TOOL);
+  const insB = await createTask(b.store, { title: 'B’s task', points: 5 }, TOOL);
+  check('A can add a task through core', insA.ownerId === a.id && insA.tool === TOOL, `owner ${insA.ownerId}, tool ${insA.tool}`);
+  check('B can add a task through core', insB.ownerId === b.id && insB.tool === TOOL, `owner ${insB.ownerId}, tool ${insB.tool}`);
+  const taskB = insB.id;
 
   const readA = await call('/rest/v1/tasks?select=title,owner_id,status,points', { token: a.token });
   const readB = await call('/rest/v1/tasks?select=title,owner_id,status,points', { token: b.token });
@@ -89,10 +99,12 @@ try {
   const anon = await call('/rest/v1/tasks?select=title');
   check('a signed-out visitor sees no tasks', anon.status >= 400 || (Array.isArray(anon.json) && anon.json.length === 0), `HTTP ${anon.status} ${anon.json?.message ?? JSON.stringify(anon.json)}`);
 
-  const taskA = insA.json?.[0]?.id;
-  const done = await call(`/rest/v1/tasks?id=eq.${taskA}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { status: 'done' } });
-  const row = done.json?.[0];
-  check('A can finish A’s own task, and it is stamped done', done.status === 200 && row?.status === 'done' && !!row?.completed_at && row.updated_at >= row.created_at, `HTTP ${done.status}, completed_at ${row?.completed_at}`);
+  const row = await updateTask(a.store, insA.id, { status: 'done' }, TOOL);
+  check('A can finish A’s own task through core, and it is stamped done', row.status === 'done' && !!row.completedAt && row.updatedAt >= row.createdAt, `completed_at ${row.completedAt}`);
+
+  let refused = '';
+  try { await updateTask(b.store, insA.id, { title: 'taken over' }, TOOL); } catch (err) { refused = err.message; }
+  check('B cannot change A’s task through core either', /No task .* you may change/.test(refused), refused || 'the change went through');
 
   const still = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=points`);
   check('B’s task is untouched afterwards', still.json?.[0]?.points === 5, `points ${still.json?.[0]?.points}`);

@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — Points can only change through one front door (#15)
+
+A task's points are the start of the engagement ledger, so they should never
+be changed by just editing the database. Now there is one front door: a small
+set of functions in WaveCenter's core. Every change must say which tool made
+it (WaveCenter's own app is "wavecenter"), and a change that does not say is
+refused. Each task now records which tool last changed it. Two changes to the
+same task's points at the same moment can no longer quietly cancel each other
+out. This is the groundwork for members' own tools: when they arrive, they
+earn points through the same door as everything else. Nothing on screen
+changed.
+---
+
 ## 2026-10-11 — Writing "merge" on a ticket now merges it (#14)
 
 On StarCaster, Dane writes `merge` on a finished ticket and it ships. On
