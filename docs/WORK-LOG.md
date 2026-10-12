@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — Dane can choose which tasks AI agents work on (#18)
+
+The to-do list has a "Launch AI Agents" switch, a box on every open task
+that says "AI may work on this", a tick-all box above the list, and a
+priority (Urgent, High, Normal, Low) on every task. With the switch on, each
+ticked task shows its place in line, highest priority first, then oldest
+first. These are Dane's choices only, saved and protected so no other member
+can see or change them; actually handing the ticked tasks to the agents is
+the next ticket, and until it ships the screen says so.
+
 ## 2026-10-12 — WaveCenter is a to-do list Dane can use (#16)
 
 "Your tasks" now works as a to-do list. Type a task and press Enter to add
