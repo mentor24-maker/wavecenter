@@ -17,6 +17,8 @@ first. These are Dane's choices only, saved and protected so no other member
 can see or change them; actually handing the ticked tasks to the agents is
 the next ticket, and until it ships the screen says so.
 
+---
+
 ## 2026-10-12 — WaveCenter is a to-do list Dane can use (#16)
 
 "Your tasks" now works as a to-do list. Type a task and press Enter to add
