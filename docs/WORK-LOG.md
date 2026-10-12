@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — WaveCenter's first table: a task record built to grow (#10)
+
+WaveCenter now has its first piece of stored data: a `tasks` table. Even
+though the first screen will just be a to-do list, every task already records
+who owns it, where it stands (to do, doing, done), which bigger task it is
+part of, and how many points it is worth. Those four are what the project
+management tool and the game layer will need later, so adding them now avoids
+a rebuild. Members can only ever see and change their own tasks, and that was
+switched on in the same step that made the table. A small check makes two
+throwaway members and proves neither can touch the other's tasks.
+`docs/DATA_MODEL.md` explains it all in plain words and lists three questions
+about points that only Dane can answer.
+---
+
 ## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#9)
 
 Until now a WaveCenter loop only ran while someone had a session open that had
