@@ -30,8 +30,11 @@ No screen, script or tool writes to this table directly. They all call the
 functions in `core/` (Dane's decision D on the extension model, 2026-10-11;
 see `docs/EXTENSION_MODEL.md`):
 
-- `createTask` and `updateTask` in `core/tasks.ts` are the only way to make or
-  change a task.
+- `createTask`, `updateTask` and `deleteTask` in `core/tasks.ts` are the only
+  way to make, change or delete a task. A task can only be put under a parent
+  the member can see (their own), and never under one of its own sub-tasks,
+  so the tree cannot loop. The to-do list itself only offers one level of
+  sub-tasks for now; that is a limit of the screen, not of the table.
 - `setPoints` and `awardPoints` in `core/points.ts` are the only way to change
   a task's points. `updateTask` refuses to touch them. Each one reports what
   changed: the points before, after, the difference, and the tool.

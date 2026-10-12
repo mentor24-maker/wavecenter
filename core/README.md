@@ -14,11 +14,11 @@ clients. If the framework is ever replaced, this folder does not change.
 
 | File | What it does |
 |---|---|
-| `tasks.ts` | The task record, and `createTask` / `updateTask`: the only path for making or changing a task. |
+| `tasks.ts` | The task record, and `createTask` / `updateTask` / `deleteTask`: the only path for making, changing or deleting a task. A parent must be a task you can see, and a task can never end up under its own sub-task. |
 | `points.ts` | `setPoints` / `awardPoints`: the only functions that may change a task's points. |
 | `tool.ts` | Every change names the tool that made it; a change with no tool name is refused. |
 | `memoryTaskStore.ts` | Keeps tasks in memory so the tests can check the rules without a database. |
 
 Core does not talk to Supabase. Each client hands it a `TaskStore`, a thin
 adapter that reads and writes rows and decides nothing (the scripts' one is
-`scripts/lib/restTaskStore.mjs`). The tests (`*.test.ts`) run in `npm test`.
+`scripts/lib/restTaskStore.mjs`; the website's is `app/lib/taskStore.ts`). The tests (`*.test.ts`) run in `npm test`.
