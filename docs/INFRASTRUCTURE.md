@@ -43,8 +43,7 @@ the session pooler or the direct host for a migration tool if one needs them.
 |---|---|
 | Team | Dane Christensen's projects (`dane-of-earth`) |
 | Project | `app-wavecenter` (id `prj_jo8rGoJlF55XwB2QuJ2srLVoqQdF`; named `wavecenter` until 2026-10-11) |
-| Address today | https://app-wavecenter.vercel.app |
-| Address later | `app.wavecenter.com`, once the domain is transferred |
+| Address | https://app.wavecenter.com (also answers at https://app-wavecenter.vercel.app) |
 | Source | GitHub `mentor24-maker/wavecenter`, production from `main`, a preview for every pull request |
 | Framework | Next.js (TypeScript), standard hosting only |
 | Created | 2026-10-11, from the command line (`vercel link`, `vercel git connect`) |
@@ -123,10 +122,16 @@ link asked for from the live site landed on localhost (checked 2026-10-11).
 
 | Setting | Value |
 |---|---|
-| Site URL | `https://app-wavecenter.vercel.app` (later `https://app.wavecenter.com`) |
-| Redirect URLs | `https://app-wavecenter.vercel.app/**` |
+| Site URL | `https://app.wavecenter.com` |
+| Redirect URLs | `https://app.wavecenter.com/**` |
+| | `https://app-wavecenter.vercel.app/**` |
 | | `https://app-wavecenter-*-dane-of-earth.vercel.app/**` (every preview) |
 | | `http://localhost:3000/**` (local development) |
+
+**Add every new address to the list.** When `app.wavecenter.com` went live
+(2026-10-12) it was missing from Redirect URLs, so a link asked for there
+silently fell back to the Site URL and opened `app-wavecenter.vercel.app`.
+Any new domain the app answers on needs a Redirect URL entry the same day.
 
 **A link only works in the browser that asked for it** (Supabase's PKCE flow:
 the request leaves a matching cookie). Opening the email on a phone after
