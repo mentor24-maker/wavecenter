@@ -19,9 +19,12 @@
     "check:core-boundary": "node scripts/check_core_boundary.mjs",
     "check:tasks-rls": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/check_tasks_rls.mjs",
     "test": "node --test scripts/lib/*.test.mjs",
-    "verify": "npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build"
+    "verify": "npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build && npm run check:browser-secrets",
+    "check:browser-secrets": "node scripts/check_browser_secrets.mjs"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.117.3",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
