@@ -17,6 +17,41 @@ into WaveCenter's core that any tool, hosted anywhere, can use, with WaveCenter
 alone deciding what each action is worth. Its first step costs almost nothing
 now and rules nothing out. Seven questions the whitepaper leaves open are
 waiting on Dane. No code changed.
+---
+
+## 2026-10-11 — A leaked key now turns the build red (#12)
+
+The rule "every key lives in Doppler, never in a file" used to be a promise in
+the docs. Now it is checked. `npm run doctor` lists every key WaveCenter
+expects and says whether Doppler has it, without ever showing a key itself.
+And the standard build check now refuses any change that contains a `.env`
+file or something shaped like a ClickUp or Supabase secret key, which matters
+because this repository is public. It was proved by planting a fake key and
+watching the check fail.
+---
+
+## 2026-10-11 — WaveCenter's first table: a task record built to grow (#10)
+
+WaveCenter now has its first piece of stored data: a `tasks` table. Even
+though the first screen will just be a to-do list, every task already records
+who owns it, where it stands (to do, doing, done), which bigger task it is
+part of, and how many points it is worth. Those four are what the project
+management tool and the game layer will need later, so adding them now avoids
+a rebuild. Members can only ever see and change their own tasks, and that was
+switched on in the same step that made the table. A small check makes two
+throwaway members and proves neither can touch the other's tasks.
+`docs/DATA_MODEL.md` explains it all in plain words and lists three questions
+about points that only Dane can answer.
+---
+
+## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#9)
+
+Until now a WaveCenter loop only ran while someone had a session open that had
+started it. The Mac Mini, Dane's always-on machine, now runs both lanes the way
+it runs StarCaster's: every 30 minutes it pulls `main`, runs one build pass and
+one review pass, each in a fresh session with a two-hour limit, and restarts
+them after a crash or reboot. The queue drains overnight. Merges still wait
+for Dane's word and a session to carry it out.
 
 ---
 
