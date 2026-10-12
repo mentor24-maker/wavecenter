@@ -1,6 +1,6 @@
 ---
 name: loop-review
-description: Pick the next "In review" task from the WaveCenter "Loop Queue" ClickUp list, independently verify its pull request (`npm run verify` + code review + a real test pass), then either mark it "Ready to launch" and ping Dane to merge, or send it back to "Rework" with notes. Designed to be run on a timer with `/loop 30m loop-review`. Never merges on its own.
+description: Pick the next "In review" task from the WaveCenter "Loop Queue" ClickUp list, independently verify its pull request (`npm run verify` + code review + a real test pass), then either mark it "Ready to launch" and ask Dane to write merge on it, or send it back to "Rework" with notes. Designed to be run on a timer with `/loop 30m loop-review`. Never merges on its own.
 ---
 
 # Loop: Review
@@ -106,8 +106,9 @@ look at; this is a check that runs in CI"*).
      instruction the ticket came from; `@@CONTEXT` says in 50-100 words what
      changed and what he will see; `@@NEEDED` is the merge approval, with the
      PR link, the preview link, the exact address and clicks to check it, and
-     the line **"Tell a session to merge PR #N when you're ready."** Do
-     **NOT** merge.
+     the line **"Write merge on this ticket when you're ready."** (The merge
+     lane carries out his written `merge` within 10 minutes.) Do **NOT**
+     merge.
    - **Fail, and a machine can fix it** → `verdict --fail` first (its FIRST
      LINE is the reason the board shows — one short clause), then
      `status --status Rework --if-status "In review"`. Do not fix it yourself
@@ -127,7 +128,8 @@ look at; this is a check that runs in CI"*).
 ## Guardrails
 
 - **Never merge autonomously.** `Ready to launch` ≠ merged. Dane merges by
-  telling a session to, and only with the `verify` check green.
+  writing `merge` on the ticket; the merge lane carries it out, and only with
+  the `verify` check green.
 - **Only Dane moves a task out of `Ready to launch` or `Needs your input`.**
 - **Independence is the whole point.** Re-run everything; don't rubber-stamp.
 - **Never write a verdict past a refused guard.**
