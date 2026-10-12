@@ -258,6 +258,12 @@ page assumes an answer.
 
 1. **Which option?** A, B or C, or the first step of A now and the rest
    later.
+
+   **Decided (Dane, 2026-10-11): D, the first step of Option A now.** Every
+   points change goes through named functions in `core/`, and every record
+   names the tool that made it. The rest of Option A (the published door,
+   registration, points rules per tool) is decided later, ticket by ticket.
+   The remaining questions below stay open.
 2. **Who may connect a tool, and who may undo its points?** Any member,
    members above some reputation, or only after a vote? And if a tool turns
    out to have reported fraudulent points, who may reverse them, and how?
