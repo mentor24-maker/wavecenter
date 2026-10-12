@@ -15,9 +15,21 @@ tasks"; signed out, it is the same "coming soon" page as before. Every request
 for data runs as the person who is signed in, so the database's own rules hand
 back only that person's tasks. A test with two throwaway accounts proved it:
 one could not see the other's task. No key is sent to the browser at all, and
-a new automatic check fails the build if one ever is. Two settings have to be
-filled in on the Vercel and Supabase websites before it works online; until
-then, the sign-in page says plainly that it isn't switched on yet.
+a new automatic check fails the build if one ever is. If WaveCenter cannot
+reach the sign-in service, the page says so in a plain sentence instead of
+quietly looking signed out.
+---
+
+## 2026-10-11 — How members' tools will plug into WaveCenter: options for Dane (#13)
+
+Before anyone outside is invited in, WaveCenter needs a plan for how a
+member's own tool, game or community connects to it and earns points. A new
+page, `docs/EXTENSION_MODEL.md`, quotes what the DEO whitepaper says, lays out
+three ways to do it in plain words, and recommends one: a published "door"
+into WaveCenter's core that any tool, hosted anywhere, can use, with WaveCenter
+alone deciding what each action is worth. Its first step costs almost nothing
+now and rules nothing out. Seven questions the whitepaper leaves open are
+waiting on Dane. No code changed.
 ---
 
 ## 2026-10-11 — A leaked key now turns the build red (#12)
