@@ -147,8 +147,41 @@ it and `verify` runs it. (Dane's condition, 2026-10-11.)
 
 ## Keys: Doppler
 
-Doppler project **`wavecenter`**, workplace Alphire. Configs: `dev`, `stg`,
-`prd`, and a personal `dev_personal`.
+**What Doppler is.** Doppler is an online safe for keys: passwords, tokens and
+connection strings. Instead of keeping keys in a file on a computer (where they
+get copied, committed or screenshotted by accident), WaveCenter keeps every key
+in Doppler and hands them to a program only at the moment it runs. Nothing
+secret is ever written into this repository.
+
+A Doppler **project** holds the keys for one product; a **config** is one set
+of those keys for one setting. WaveCenter's project is **`wavecenter`**
+(workplace Alphire). `dev` is what agent sessions and scripts use, `prd` is
+what the live site uses, `stg` is for a future staging copy, and
+`dev_personal` is a personal scratch copy.
+
+**How an agent session runs a command with keys.** Wrap the command in
+`doppler run`, which starts it with the keys loaded and forgets them when it
+ends:
+
+```bash
+doppler run --project wavecenter --config dev -- <command>
+```
+
+`npm run clickup` already does this for the ClickUp script.
+
+**Checking the setup: `npm run doctor`.** It asks Doppler which key NAMES each
+config holds (never the values) and prints a table of every expected name
+against `dev` and `prd`: `present`, `MISSING`, or `not needed` for a key that
+config does not use. It exits 0 when everything is there and 1 otherwise. The
+expected names live in one place, `scripts/lib/expectedSecrets.mjs`; a ticket
+that adds a key adds its line there.
+
+**Catching a leaked key: `check:secrets`.** Part of `npm run verify`, so it
+runs locally and in CI on every pull request. It fails if any file in the
+repository is a `.env` file, or contains something shaped like a ClickUp
+`pk_` token or a Supabase service key. If it ever fires on a real key, removing
+the file is not enough: the repository is public, so rotate the key in its own
+dashboard.
 
 | Secret name | What it is | Where it may be used |
 |---|---|---|
@@ -162,13 +195,8 @@ Doppler project **`wavecenter`**, workplace Alphire. Configs: `dev`, `stg`,
 (`${wavecenter.dev.<NAME>}`), because there is one Supabase project for now.
 When WaveCenter gets a separate production database, replace the `prd`
 references with that project's own values. `DATABASE_URL` is stored as a plain
-value in each config.
-
-Run any command with the keys by wrapping it in Doppler:
-
-```bash
-doppler run --project wavecenter --config dev -- <command>
-```
+value in each config. `CLICKUP_API_TOKEN` is only in `dev`, because only
+scripts use it.
 
 **A secret value is only ever entered through the Doppler dashboard**, never
 typed into a terminal and never pasted into a chat, a file or a commit.
