@@ -3,13 +3,14 @@
 How WaveCenter is built: a **spec → build → review** loop, the same process
 StarCaster runs, pointed at WaveCenter's own ClickUp queue. Dane specs work in
 plain language; agent sessions build it into pull requests and independently
-review them; Dane merges. Nothing reaches `main` without a passing CI check
-and his word.
+review them; Dane writes `merge` on the ticket and a lane carries it out.
+Nothing reaches `main` without a passing CI check and his written word.
 
 This is the seed version. StarCaster grew a bus relay, auto-merge lanes,
 pacing curves and a heartbeat over three months of incidents; WaveCenter
 starts with the parts that were right from day one and adds the rest only
-when a real cost shows up. Where a rule here was learned on StarCaster, its
+when a real cost shows up. The first such cost: on 2026-10-11 three written
+`merge`s sat unread for up to three hours, so the merge lane came over. Where a rule here was learned on StarCaster, its
 guide (`~/WebApps/starcaster/docs/LOOP_ENGINEERING.md`) has the incident.
 
 ## The three steps
@@ -102,13 +103,13 @@ started, it is finished.
 
 Two rules keep it honest:
 
-- **No loop ever puts a ticket into `Live`.** Only a merge does, and only you
-  authorize a merge.
-- **No loop ever takes a ticket out of `Needs your input` or `Ready to
-  launch`.** Once handed to you it stays yours until you act. (StarCaster has
-  a relay that reads your reply and moves the ticket for you. WaveCenter does
-  not yet: when you answer a question, also drag the ticket back to `Queued`,
-  or tell a session to.)
+- **Nothing puts a ticket into `Live` but a merge**, and only you authorize a
+  merge: by writing `merge` on the ticket (see "The merge lane" below).
+- **No build or review loop ever takes a ticket out of `Needs your input` or
+  `Ready to launch`.** Once handed to you it stays yours until you act. Your
+  own comment is the act: the merge lane carries out a `merge` on `Ready to
+  launch`, and moves a `Needs your input` ticket back to `Queued` once your
+  plain answer is the newest comment on it, so you never have to drag it.
 
 `Live` is a **closed**-type status in ClickUp. That is what makes finished
 work disappear from the open view. The click-by-click setup of this status
@@ -192,9 +193,45 @@ Three things the log can say that need a person:
 - **Nothing written for hours** while the queue has work: `--status` says
   whether the runner is alive. A stale lock clears itself on the next start.
 
-**Merges still need a session.** There is no relay yet: when you comment
-`merge` on a `Ready to launch` ticket, a Claude Code session has to see it and
-merge. Tell one, or leave one watching.
+### The merge lane
+
+A third launchd agent, `com.wavecenter.merge-on-comment`, runs
+`scripts/merge_lane.sh` every **10 minutes** (StarCaster's interval for the
+same lane: a `merge` is the one thing you wait on with the app open). It is a
+plain `node` script under Doppler (`npm run clickup -- merge-on-comment`), not
+a Claude session, so it costs no model usage. Its log is
+`~/loop-logs/wavecenter-merge-on-comment.log`.
+
+**What counts as your `merge`.** On a `Ready to launch` ticket, your newest
+own comment (your user id, without the `[machine]` stamp the loops put on
+theirs) must be, **as the whole message**, one of: `merge`, `merge it`,
+`ship it`, `approve`. Case and a trailing `!` or `.` do not matter, and the
+code fence or bold ClickUp adds to a pasted word is stripped first. "do not
+merge this yet" is not a merge. A later plain comment from you ("wait")
+cancels it. It must also be newer than the newest review PASS: a `merge`
+written for an earlier round does not release a rebuilt PR. The rules are
+`scripts/lib/mergeWords.mjs`, every one of them a test.
+
+**What it does with it**, in this order: reads the recorded PR from GitHub;
+if `main` has moved on, merges `main` into the branch and waits for `verify`
+to pass again on the combined code; when the PR is open, conflict-free and
+`verify` is green, squash-merges it and deletes the branch; reads GitHub back
+until it says MERGED; only then comments the merge commit on the ticket and
+sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
+
+**When it will not merge** (a red check, a conflict, no check at all), it
+posts **one** comment saying exactly why and what has to happen, and does not
+repeat it. Your `merge` still stands: every pass checks again and merges the
+moment the reason is gone.
+
+**Answers.** On a `Needs your input` ticket, when your plain answer is the
+newest comment, the same pass comments "Dane answered; back in the queue" and
+moves it to `Queued`, so the build loop reads your answer on its next pass.
+
+```bash
+ssh mac-mini 'tail -30 ~/loop-logs/wavecenter-merge-on-comment.log'     # what the last merge pass did
+npm run clickup -- merge-on-comment --dry-run                            # what it WOULD do now, writing nothing
+```
 
 ### Starting one by hand — only when the Mini's agents are unloaded
 
@@ -209,8 +246,9 @@ loop makes its own worktree per task):
 ### Installing or moving the runner
 
 `./scripts/install_loop_runner.sh` on the machine that will own the loops,
-from its **main checkout** (never a worktree). It refuses if `npm`, `doppler`,
-`claude` or `git` is missing. `--uninstall` removes both agents. Before
+from its **main checkout** (never a worktree). It installs all three lanes and
+refuses if `npm`, `node`, `doppler`, `claude`, `git` or `gh` is missing, or if
+`gh` is not signed in to GitHub. `--uninstall` removes all three agents. Before
 installing on a second machine, uninstall on the first: two machines claiming
 is the collision the lock exists to prevent.
 
@@ -227,10 +265,12 @@ Your day:
    the task list.
 2. **During the day:** the loops build and review. Each `Ready to launch`
    ticket lands in *Assigned to me* with a preview link and test steps.
-3. **When you're ready:** tell a session **"merge PR #N"**. It merges only
-   with the `verify` check green, then sets the ticket `Live`.
+3. **When you're ready:** write **`merge`** on the ticket. Within 10 minutes
+   the merge lane merges it (only with the `verify` check green) and sets the
+   ticket `Live`, with a comment naming the merge commit.
 4. **When a ticket asks you a question** (`Needs your input`): answer as a
-   comment on the ticket and move it back to `Queued` (or tell a session to).
+   comment on the ticket. Within 10 minutes it goes back to `Queued` on its
+   own.
 
 ### What the `verify` gate is
 
@@ -244,7 +284,9 @@ added to that script, and every lane inherits it at once.
 
 - `main` is what ships. A hook refuses edits on `main`; every change is a
   branch, a PR and a green check.
-- No loop merges. Ever. `Ready to launch` is a request, not an action.
+- No loop merges without Dane's own written word on the ticket. `Ready to
+  launch` is a request, not an action; his `merge` is the action, and the
+  merge lane only carries it out with `verify` green.
 - Every write to ClickUp is verified by reading it back.
 - Urgent priority is yours alone; the script refuses to set it without a
   written claim that you asked.
@@ -275,3 +317,6 @@ work, confirm the value, then widen.
 5. ⬜ A dry run: one `loop-build` pass on the smallest ticket, then one
    `loop-review` pass, before trusting it with the rest.
 6. ✅ The scheduled runner on the Mac Mini (2026-10-11).
+7. ⬜ The merge lane on the Mac Mini: after its pull request merges, run
+   `./scripts/install_loop_runner.sh` again from the main checkout;
+   `--status` then shows three lanes.

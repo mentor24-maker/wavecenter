@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — Writing "merge" on a ticket now merges it (#14)
+
+On StarCaster, Dane writes `merge` on a finished ticket and it ships. On
+WaveCenter nothing was reading that word, so three of his merges sat for up
+to three hours. Now a small script on the Mac Mini checks every 10 minutes.
+When his own newest comment on a `Ready to launch` ticket is `merge` (or
+`merge it`, `ship it`, `approve`), it merges the pull request, but only if
+the automatic checks are green, and marks the ticket `Live` once GitHub
+confirms the merge. If something blocks it, it says why on the ticket once.
+The same script also notices when he answers a question on a `Needs your
+input` ticket and puts it back in the queue, so he no longer has to move it
+by hand. It does not use Claude, so it costs nothing to run.
+---
+
 ## 2026-10-11 — Dane can sign in, and each person sees only their own tasks (#11)
 
 WaveCenter now has sign-in. You type your email and get a link that signs you

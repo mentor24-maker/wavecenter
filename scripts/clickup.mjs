@@ -8,7 +8,8 @@
  * A seed-sized copy of StarCaster's scripts/clickup_direct.mjs: the same
  * commands, the same guards, the same ids, with the StarCaster-only machinery
  * (bus relay, auto-merge lanes, pacing, heartbeat) left out until WaveCenter
- * needs it.
+ * needs it. One lane came over on 2026-10-11 at Dane's request: his written
+ * "merge" on a Ready to launch ticket is carried out (`merge-on-comment`).
  *
  * The token comes from the environment, never printed and never logged.
  * package.json wraps this in `doppler run --project wavecenter --config dev`,
@@ -22,10 +23,12 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import {
   DISPLAY, STAGE_ORDER, CLAIMABLE_BY_BUILD, OPERATOR_STATUSES, BUILDING, PRIORITY_VALUE,
-  isClaimableByBuild, isOperatorStatus, isReadyToLaunch, claimOrder, compareWithinStatus,
+  READY_TO_LAUNCH, NEEDS_YOUR_INPUT, QUEUED, LIVE,
+  isClaimableByBuild, isOperatorStatus, isReadyToLaunch, claimOrder, compareWithinStatus, statusOf,
 } from './lib/loopStatuses.mjs';
 import {
   prOpenedComment, verdictComment, commentsReadable, prTrailLanded, bodyNamesTicket,
@@ -34,6 +37,9 @@ import {
 } from './lib/loopTrail.mjs';
 import { buildCard, cardSurvived, findBlockquoteLines, CONTEXT_MIN_WORDS, CONTEXT_MAX_WORDS } from './lib/operatorCard.mjs';
 import { stampCommentBody, isCommentPostPath, isMachineComment, stripMachineMarker } from './lib/machineComment.mjs';
+import {
+  findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
+} from './lib/mergeWords.mjs';
 
 // ── The ids, written down once ───────────────────────────────────────────────
 // Everything here is overridable from the environment, so a moved list or a
@@ -152,6 +158,8 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   verdict --task <id> --pass|--fail --if-status "In review" [--body-file <f|->] [--no-guard] [--fourth-round-anyway]
   priority --task <id> --priority urgent|high|normal|low [--operator-asked]
   tag --task <id> --add <name> | --remove <name>  e.g. wont-do, deferred, an epic name
+  merge-on-comment [--dry-run]                    the merge lane: carry out Dane's written "${MERGE_PHRASES[0]}" on Ready to launch
+                                                  tickets, and requeue Needs your input tickets he has answered
 
 Statuses (matched case-insensitively): ${STAGE_ORDER.join(' / ')}.
 Two are Dane's and only \`ask\` may set them: ${OPERATOR_STATUSES.map((s) => DISPLAY[s]).join(', ')}.
@@ -195,8 +203,8 @@ function clock(ms) {
   return new Date(Number(ms)).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function gh(args) {
-  const out = spawnSync('gh', args, { encoding: 'utf8' });
+function gh(args, { cwd } = {}) {
+  const out = spawnSync('gh', args, { encoding: 'utf8', cwd });
   return { ok: out.status === 0, stdout: String(out.stdout || ''), stderr: String(out.stderr || '') };
 }
 
@@ -626,6 +634,153 @@ if (cmd === 'whoami') {
   if (now.toLowerCase() !== status.toLowerCase()) { console.error(`Card posted (comment ${cardId}), but the status did NOT stick: asked "${status}", got "${now}".`); process.exit(1); }
   if (!(moved.json.assignees || []).some((a) => a.id === OPERATOR_ID)) { console.error(`Card posted and status moved to "${now}", but Dane is NOT assigned — the handoff is incomplete.`); process.exit(1); }
   console.log(`Task ${task}: card ${cardId} posted, "${was}" -> "${now}", assigned: ${assigneeNames(moved.json)}.`);
+  reportLimits();
+
+} else if (cmd === 'merge-on-comment') {
+  // THE MERGE LANE. Dane's decision, 2026-10-11: "On the StarCaster loop
+  // queue I simply say 'merge' on any given Ready to launch ticket. I'd like
+  // to be consistent." launchd runs this every 10 minutes on the Mac Mini
+  // (scripts/install_loop_runner.sh). It is plain node, no Claude session.
+  //
+  // The guards, in order: the ticket is in Ready to launch (only a passed
+  // review puts it there); his NEWEST own comment, unstamped, is a whole
+  // merge phrase and is newer than the PASS verdict; the PR is open,
+  // mergeable, caught up with main and its `verify` check green. `Live` is
+  // set only after GitHub is read back saying MERGED.
+  //
+  // gh runs from a temp folder with --repo, so it never touches a local
+  // checkout: --delete-branch deletes the branch on GitHub only, and never
+  // tries to switch or delete a branch a worktree has checked out.
+  const dry = flag('dry-run');
+  const outside = tmpdir();
+  const log = (line) => console.log(`[${clock(Date.now())} MT] ${line}`);
+  const ghJson = (args) => {
+    const out = gh(args, { cwd: outside });
+    if (!out.ok) return { error: out.stderr.trim().slice(0, 300) || 'gh failed with no message' };
+    try { return { value: JSON.parse(out.stdout) }; } catch { return { error: 'gh returned something that is not JSON' }; }
+  };
+  const write = async (label, fn) => {
+    if (dry) { log(`  (dry run) would ${label}`); return true; }
+    return fn();
+  };
+  /** Post a comment; on failure say so and return false (never exit mid-pass). */
+  const note = (task, text) => write(`comment on ${task}: ${text.split('\n')[0]}`, async () => {
+    const out = await call('POST', `/api/v2/task/${task}/comment`, { comment_text: text });
+    if (!out.res.ok) { log(`  COMMENT FAILED on ${task}: HTTP ${out.res.status}`); return false; }
+    return true;
+  });
+  /** Move to a machine (or terminal) status, clearing assignees, and read it back. */
+  const moveTo = (t, status) => write(`move ${t.id} to ${status}`, async () => {
+    const rem = (t.assignees || []).map((a) => a.id);
+    const out = await call('PUT', `/api/v2/task/${t.id}`, { status, ...(rem.length ? { assignees: { add: [], rem } } : {}) });
+    const now = out.json?.status?.status ?? '?';
+    if (!out.res.ok || now.toLowerCase() !== status.toLowerCase()) {
+      log(`  STATUS DID NOT STICK on ${t.id}: asked "${status}", got "${now}" (HTTP ${out.res.status})`);
+      return false;
+    }
+    log(`  ${t.id}: "${t.status?.status}" -> "${now}" (read back from the write)`);
+    return true;
+  });
+  const refuse = async (t, comments, authorizationId, code, why, todo) => {
+    log(`  NOT MERGED ${t.id} (${code}): ${why}`);
+    if (alreadyNoticed(comments, authorizationId, code)) { log('  (Dane was already told this; not repeating it)'); return; }
+    await note(t.id, refusalNotice({ authorizationId, code, why, todo }));
+  };
+
+  const tasks = await fetchAllTasks(LOOP_QUEUE_LIST);
+  const ready = tasks.filter((t) => statusOf(t) === READY_TO_LAUNCH);
+  const asking = tasks.filter((t) => statusOf(t) === NEEDS_YOUR_INPUT);
+  log(`merge lane${dry ? ' (DRY RUN — nothing is written)' : ''}: ${ready.length} Ready to launch, ${asking.length} Needs your input`);
+  let merged = 0, requeued = 0;
+
+  for (const t of ready) {
+    const comments = await readComments(t.id);
+    const auth = findAuthorization({ status: t.status?.status, comments, operatorId: OPERATOR_ID });
+    if (!auth.ok) {
+      if (auth.code) await refuse(t, comments, auth.comment.id, auth.code, auth.why, auth.todo);
+      else log(`  ${t.id}: waiting for Dane (${auth.why}) — ${t.name}`);
+      continue;
+    }
+    const authId = String(auth.comment.id);
+    log(`  ${t.id}: Dane wrote "${stripMachineMarker(auth.comment.comment_text).trim()}" (comment ${authId}) — ${t.name}`);
+    const pr = findPullRequest(comments);
+    if (!pr) {
+      await refuse(t, comments, authId, 'no-pr', 'this ticket has no "PR opened:" line, so there is no pull request to merge.',
+        'A session must record the PR with `npm run clickup -- pr-opened`.');
+      continue;
+    }
+    const repo = `${pr.owner}/${pr.repo}`;
+    const viewArgs = ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'number,state,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,mergeCommit,url'];
+    const view = ghJson(viewArgs);
+    if (view.error) { log(`  could not read PR #${pr.number} from GitHub (${view.error}) — trying again next pass`); continue; }
+    const p = view.value;
+    let behindBy = 0;
+    if (p.state === 'OPEN') {
+      const cmp = gh(['api', `repos/${repo}/compare/${p.baseRefName}...${p.headRefOid}`, '--jq', '.behind_by'], { cwd: outside });
+      if (!cmp.ok || !/^\d+$/.test(cmp.stdout.trim())) { log(`  could not tell how far PR #${p.number} is behind ${p.baseRefName} — trying again next pass`); continue; }
+      behindBy = Number(cmp.stdout.trim());
+    }
+    const decision = prDecision(p, { behindBy });
+
+    if (decision.act === 'wait') { log(`  waiting: ${decision.why}`); continue; }
+    if (decision.act === 'refuse') { await refuse(t, comments, authId, decision.code, decision.why, decision.todo); continue; }
+    if (decision.act === 'update-branch') {
+      log(`  PR #${p.number} is ${behindBy} commit(s) behind ${p.baseRefName}: merging ${p.baseRefName} into it so verify runs on the combined code`);
+      await write(`merge ${p.baseRefName} into ${p.headRefName}`, async () => {
+        const up = gh(['api', '-X', 'PUT', `repos/${repo}/pulls/${p.number}/update-branch`, '-f', `expected_head_sha=${p.headRefOid}`], { cwd: outside });
+        if (!up.ok) {
+          await refuse(t, comments, authId, 'catch-up-failed', `PR #${p.number} is behind ${p.baseRefName}, and GitHub refused to merge ${p.baseRefName} into it (${up.stderr.trim().slice(0, 200)}).`,
+            'The branch has to be caught up by hand. Move the ticket to Rework to have the build loop do it.');
+          return false;
+        }
+        log('  caught up; verify runs again, and a later pass merges once it is green');
+        return true;
+      });
+      continue;
+    }
+
+    let commit;
+    if (decision.act === 'already-merged') {
+      commit = p.mergeCommit?.oid;
+      log(`  PR #${p.number} is already merged (${commit || 'commit unknown'}) — nothing left to merge`);
+    } else {
+      log(`  merging PR #${p.number} (squash, branch deleted)`);
+      const ok = await write(`squash-merge PR #${p.number}`, async () => {
+        const m = gh(['pr', 'merge', String(p.number), '--repo', repo, '--squash', '--delete-branch', '--match-head-commit', p.headRefOid], { cwd: outside });
+        if (!m.ok) log(`  gh pr merge said: ${m.stderr.trim().slice(0, 300)}`);
+        return true;
+      });
+      if (!ok || dry) continue;
+      const back = ghJson(viewArgs);
+      if (back.error || back.value.state !== 'MERGED') {
+        // Never Live before MERGED is read back. Whatever went wrong, the next
+        // pass re-reads GitHub and either merges or says why.
+        log(`  PR #${p.number} does NOT read back as MERGED (${back.error || back.value.state}) — ticket left in Ready to launch`);
+        continue;
+      }
+      commit = back.value.mergeCommit?.oid;
+    }
+
+    const short = String(commit || 'unknown').slice(0, 7);
+    if (!mergeRecorded(comments, pr.url)) {
+      const body = decision.act === 'already-merged'
+        ? `Your "merge" (comment ${authId}) was read, but PR #${p.number} had already been merged outside this lane, as commit ${short}. Nothing was merged twice. Setting this ticket Live.`
+        : `Merged on your word (comment ${authId}): PR #${p.number} squash-merged into ${p.baseRefName} as commit ${short}, with \`verify\` green, and the branch deleted. Setting this ticket Live.`;
+      if (!await note(t.id, mergedComment({ prUrl: pr.url, commit: short, body }))) continue;
+    }
+    if (await moveTo(t, DISPLAY[LIVE])) merged += 1;
+  }
+
+  for (const t of asking) {
+    const comments = await readComments(t.id);
+    const answer = danesAnswer({ status: t.status?.status, comments, operatorId: OPERATOR_ID });
+    if (!answer) { log(`  ${t.id}: still waiting on Dane — ${t.name}`); continue; }
+    log(`  ${t.id}: Dane answered (comment ${answer.id}) — back to Queued — ${t.name}`);
+    if (!await note(t.id, `Dane answered (comment ${answer.id}); back in the queue so the build loop reads his answer.`)) continue;
+    if (await moveTo(t, DISPLAY[QUEUED])) requeued += 1;
+  }
+
+  log(`merge lane done: ${merged} merged and set Live, ${requeued} answered ticket(s) requeued${dry ? ' (dry run: counts are what WOULD happen)' : ''}`);
   reportLimits();
 
 } else {
