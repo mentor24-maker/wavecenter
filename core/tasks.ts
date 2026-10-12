@@ -4,7 +4,8 @@
  * `app/`, scripts and any future member-built tool create and update tasks
  * through these functions, never by writing to the `tasks` table themselves.
  * Each call names its tool, and that name is stored on the record
- * (`tasks.tool`). Points are not changed here: that is `core/points.ts`.
+ * (`tasks.tool`); a delete names its tool too, though no record is left to
+ * carry it. Points are not changed here: that is `core/points.ts`.
  *
  * Core does not know about Supabase. It talks to a `TaskStore`, which a
  * client supplies: a thin adapter that reads and writes rows and makes no
@@ -62,6 +63,11 @@ export interface TaskStore {
    * the caller may change.
    */
   update(id: string, changes: TaskRowChanges, onlyIfPoints?: number): Promise<Task | null>;
+  /**
+   * Delete one task. Its sub-tasks stay and become top-level. Returns false
+   * if there is no such task the caller may delete.
+   */
+  remove(id: string): Promise<boolean>;
 }
 
 export interface NewTask {
@@ -104,6 +110,23 @@ function requirePosition(position: unknown): number {
   return position;
 }
 
+/**
+ * A parent must be a task the caller can see. The store only returns the
+ * caller's own tasks, so this also stops a task being hung under someone
+ * else's. When `childId` is given (a task being moved), the parent may not be
+ * the task itself or anything beneath it, so the tree never loops.
+ */
+async function requireParent(store: TaskStore, parentTaskId: string, childId?: string): Promise<string> {
+  if (parentTaskId === childId) throw new CoreError('A task cannot be its own parent.');
+  const parent = await store.get(parentTaskId);
+  if (!parent) throw new CoreError(`No task ${parentTaskId} was found that you may put a sub-task under.`);
+  for (let up = parent.parentTaskId, seen = 0; up && seen < 1000; seen += 1) {
+    if (up === childId) throw new CoreError('A task cannot be put under one of its own sub-tasks.');
+    up = (await store.get(up))?.parentTaskId ?? null;
+  }
+  return parentTaskId;
+}
+
 /** Create a task on behalf of `tool`. */
 export async function createTask(store: TaskStore, input: NewTask, tool: string): Promise<Task> {
   const row: NewTaskRow = {
@@ -111,7 +134,7 @@ export async function createTask(store: TaskStore, input: NewTask, tool: string)
     title: requireTitle(input.title),
     notes: input.notes ?? null,
     status: requireStatus(input.status ?? 'todo'),
-    parentTaskId: input.parentTaskId ?? null,
+    parentTaskId: input.parentTaskId ? await requireParent(store, input.parentTaskId) : null,
     points: requirePointsValue(input.points ?? 0),
     position: requirePosition(input.position ?? 0),
   };
@@ -132,11 +155,19 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
   if (changes.notes !== undefined) row.notes = changes.notes;
   if (changes.status !== undefined) row.status = requireStatus(changes.status);
   if (changes.parentTaskId !== undefined) {
-    if (changes.parentTaskId === id) throw new CoreError('A task cannot be its own parent.');
-    row.parentTaskId = changes.parentTaskId;
+    row.parentTaskId = changes.parentTaskId ? await requireParent(store, changes.parentTaskId, id) : null;
   }
   if (changes.position !== undefined) row.position = requirePosition(changes.position);
   const updated = await store.update(id, row);
   if (!updated) throw new CoreError(`No task ${id} was found that you may change.`);
   return updated;
+}
+
+/**
+ * Delete a task on behalf of `tool`. Its sub-tasks are kept and become
+ * top-level, so no record of work disappears with its parent.
+ */
+export async function deleteTask(store: TaskStore, id: string, tool: string): Promise<void> {
+  requireTool(tool);
+  if (!(await store.remove(id))) throw new CoreError(`No task ${id} was found that you may delete.`);
 }

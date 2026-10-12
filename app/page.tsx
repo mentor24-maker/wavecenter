@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { signOut } from "./auth/actions";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
+import TaskList from "./tasks/TaskList";
 
 /**
  * Signed out: the placeholder page, which says what this is, plus a way to
- * sign in. Signed in: "Your tasks", read through the member's own session so
- * row-level security returns only their rows. Every empty or failed state
- * says why (engineering rule 7).
+ * sign in. Signed in: "Your tasks", the to-do list, read through the member's
+ * own session so row-level security returns only their rows. Every empty or
+ * failed state says why (engineering rule 7).
  */
 export default async function Home() {
   const supabase = await supabaseForRequest();
@@ -25,7 +26,7 @@ export default async function Home() {
         operating fuel and the purpose.
       </p>
       <p className="note">
-        This page will become a simple to-do list, then a project management tool,
+        Today it is a simple to-do list. It will become a project management tool,
         then the platform the DEO builds itself with.
       </p>
       {checkFailed && (
@@ -45,7 +46,7 @@ type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 async function YourTasks({ supabase, email }: { supabase: Supabase; email: string }) {
   const { data: tasks, error } = await supabase
     .from("tasks")
-    .select("id, title, status, points")
+    .select("id, title, status, points, parent_task_id")
     .order("position")
     .order("created_at");
 
@@ -62,16 +63,16 @@ async function YourTasks({ supabase, email }: { supabase: Supabase; email: strin
         <p className="error" role="alert">
           Your tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
         </p>
-      ) : !tasks?.length ? (
-        <p className="note">No tasks yet — add your first one above.</p>
       ) : (
-        <ul>
-          {tasks.map((t) => (
-            <li key={t.id}>
-              {t.title} <span className="note">({t.status}, {t.points} points)</span>
-            </li>
-          ))}
-        </ul>
+        <TaskList
+          tasks={(tasks ?? []).map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            points: t.points ?? 0,
+            parentTaskId: t.parent_task_id,
+          }))}
+        />
       )}
     </main>
   );

@@ -87,5 +87,9 @@ export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
       const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${guard}`, 'PATCH', toRow(changes));
       return row ? fromRow(row) : null;
     },
+    async remove(id) {
+      const rows = await call(`tasks?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+      return rows.length > 0;
+    },
   };
 }

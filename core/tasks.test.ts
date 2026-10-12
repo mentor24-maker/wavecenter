@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, updateTask } from './tasks.ts';
+import { createTask, deleteTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
@@ -68,4 +68,36 @@ test('updateTask refuses to make a task its own parent', async () => {
 test('updateTask on a missing task says so', async () => {
   const store = new MemoryTaskStore();
   await assert.rejects(updateTask(store, 'task-404', { title: 'x' }, 'wavecenter'), /No task task-404/);
+});
+
+test('a parent must be a task you can see', async () => {
+  const store = new MemoryTaskStore();
+  await assert.rejects(createTask(store, { title: 'Orphan', parentTaskId: 'someone-elses' }, 'wavecenter'), /No task someone-elses/);
+  const task = await createTask(store, { title: 'Mine' }, 'wavecenter');
+  await assert.rejects(updateTask(store, task.id, { parentTaskId: 'someone-elses' }, 'wavecenter'), /No task someone-elses/);
+  assert.equal(store.rows.size, 1);
+  assert.equal((await store.get(task.id))?.parentTaskId, null);
+});
+
+test('a task cannot be put under its own sub-task, and can be made top-level again', async () => {
+  const store = new MemoryTaskStore();
+  const plan = await createTask(store, { title: 'Plan' }, 'wavecenter');
+  const step = await createTask(store, { title: 'Step', parentTaskId: plan.id }, 'wavecenter');
+  const detail = await createTask(store, { title: 'Detail', parentTaskId: step.id }, 'wavecenter');
+  await assert.rejects(updateTask(store, plan.id, { parentTaskId: detail.id }, 'wavecenter'), /own sub-tasks/);
+  assert.equal((await store.get(plan.id))?.parentTaskId, null);
+  const loose = await updateTask(store, step.id, { parentTaskId: null }, 'wavecenter');
+  assert.equal(loose.parentTaskId, null);
+});
+
+test('deleteTask removes the task, keeps its sub-tasks as top-level, and names its tool', async () => {
+  const store = new MemoryTaskStore();
+  const plan = await createTask(store, { title: 'Plan' }, 'wavecenter');
+  const step = await createTask(store, { title: 'Step', parentTaskId: plan.id }, 'wavecenter');
+  await assert.rejects(deleteTask(store, plan.id, ''), /must name the tool/);
+  assert.ok(await store.get(plan.id), 'a refused delete deletes nothing');
+  await deleteTask(store, plan.id, 'wavecenter');
+  assert.equal(await store.get(plan.id), null);
+  assert.equal((await store.get(step.id))?.parentTaskId, null);
+  await assert.rejects(deleteTask(store, plan.id, 'wavecenter'), /No task .* you may delete/);
 });

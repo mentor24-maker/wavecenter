@@ -1,7 +1,8 @@
 /**
  * A `TaskStore` that keeps tasks in memory. Core's tests use it so the rules
  * can be checked without a database; it behaves like the real table on the
- * points it matters to (owner set for you, timestamps kept, the points guard).
+ * points it matters to (owner set for you, timestamps kept, the points guard,
+ * sub-tasks kept as top-level when their parent is deleted).
  */
 import type { NewTaskRow, Task, TaskRowChanges, TaskStore } from './tasks.ts';
 
@@ -43,5 +44,11 @@ export class MemoryTaskStore implements TaskStore {
     if (updated.status !== 'done') updated.completedAt = null;
     this.rows.set(id, updated);
     return { ...updated };
+  }
+
+  async remove(id: string): Promise<boolean> {
+    if (!this.rows.delete(id)) return false;
+    for (const task of this.rows.values()) if (task.parentTaskId === id) task.parentTaskId = null;
+    return true;
   }
 }
