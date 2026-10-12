@@ -1,0 +1,142 @@
+/**
+ * The task record, and the only path for creating and changing one.
+ *
+ * `app/`, scripts and any future member-built tool create and update tasks
+ * through these functions, never by writing to the `tasks` table themselves.
+ * Each call names its tool, and that name is stored on the record
+ * (`tasks.tool`). Points are not changed here: that is `core/points.ts`.
+ *
+ * Core does not know about Supabase. It talks to a `TaskStore`, which a
+ * client supplies: a thin adapter that reads and writes rows and makes no
+ * decisions of its own. The plain-words description of the table is
+ * docs/DATA_MODEL.md.
+ */
+import { CoreError, requireTool } from './tool.ts';
+import { requirePointsValue } from './points.ts';
+
+export const TASK_STATUSES = ['todo', 'doing', 'done'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** One row of `tasks`, in core's own names. */
+export interface Task {
+  id: string;
+  title: string;
+  notes: string | null;
+  ownerId: string;
+  status: TaskStatus;
+  parentTaskId: string | null;
+  points: number;
+  position: number;
+  /** The tool that last changed this record. */
+  tool: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+/** The fields a store writes for a new task. The owner is the signed-in member. */
+export interface NewTaskRow {
+  title: string;
+  notes: string | null;
+  status: TaskStatus;
+  parentTaskId: string | null;
+  points: number;
+  position: number;
+  tool: string;
+}
+
+/** The fields a store writes when a task changes. `tool` is always present. */
+export type TaskRowChanges = Partial<Omit<NewTaskRow, 'tool'>> & { tool: string };
+
+/**
+ * What core needs from storage. An adapter translates these calls to the
+ * database and nothing more; every value it writes was decided here.
+ */
+export interface TaskStore {
+  insert(row: NewTaskRow): Promise<Task>;
+  get(id: string): Promise<Task | null>;
+  /**
+   * Apply `changes` to one task. When `onlyIfPoints` is given, apply them only
+   * if the task's points still equal that number, and return null if they do
+   * not (someone else changed them first). Also null if there is no such task
+   * the caller may change.
+   */
+  update(id: string, changes: TaskRowChanges, onlyIfPoints?: number): Promise<Task | null>;
+}
+
+export interface NewTask {
+  title: string;
+  notes?: string | null;
+  status?: TaskStatus;
+  parentTaskId?: string | null;
+  /** Points the task starts with. Defaults to 0. */
+  points?: number;
+  position?: number;
+}
+
+/** What may change through `updateTask`. Points are deliberately absent. */
+export interface TaskChanges {
+  title?: string;
+  notes?: string | null;
+  status?: TaskStatus;
+  parentTaskId?: string | null;
+  position?: number;
+}
+
+function requireTitle(title: unknown): string {
+  if (typeof title !== 'string' || title.trim() === '') {
+    throw new CoreError('A task needs a title, and it cannot be blank.');
+  }
+  return title.trim();
+}
+
+function requireStatus(status: unknown): TaskStatus {
+  if (!TASK_STATUSES.includes(status as TaskStatus)) {
+    throw new CoreError(`A task's status must be one of ${TASK_STATUSES.join(', ')}; got "${String(status)}".`);
+  }
+  return status as TaskStatus;
+}
+
+function requirePosition(position: unknown): number {
+  if (typeof position !== 'number' || !Number.isFinite(position)) {
+    throw new CoreError(`A task's position must be a number; got "${String(position)}".`);
+  }
+  return position;
+}
+
+/** Create a task on behalf of `tool`. */
+export async function createTask(store: TaskStore, input: NewTask, tool: string): Promise<Task> {
+  const row: NewTaskRow = {
+    tool: requireTool(tool),
+    title: requireTitle(input.title),
+    notes: input.notes ?? null,
+    status: requireStatus(input.status ?? 'todo'),
+    parentTaskId: input.parentTaskId ?? null,
+    points: requirePointsValue(input.points ?? 0),
+    position: requirePosition(input.position ?? 0),
+  };
+  return store.insert(row);
+}
+
+/**
+ * Change a task's title, notes, status, parent or position on behalf of
+ * `tool`. Points cannot be changed here; use `setPoints` or `awardPoints`.
+ */
+export async function updateTask(store: TaskStore, id: string, changes: TaskChanges, tool: string): Promise<Task> {
+  const named = requireTool(tool);
+  if ('points' in changes) {
+    throw new CoreError('Points can only be changed with setPoints or awardPoints in core/points.ts, not with updateTask.');
+  }
+  const row: TaskRowChanges = { tool: named };
+  if (changes.title !== undefined) row.title = requireTitle(changes.title);
+  if (changes.notes !== undefined) row.notes = changes.notes;
+  if (changes.status !== undefined) row.status = requireStatus(changes.status);
+  if (changes.parentTaskId !== undefined) {
+    if (changes.parentTaskId === id) throw new CoreError('A task cannot be its own parent.');
+    row.parentTaskId = changes.parentTaskId;
+  }
+  if (changes.position !== undefined) row.position = requirePosition(changes.position);
+  const updated = await store.update(id, row);
+  if (!updated) throw new CoreError(`No task ${id} was found that you may change.`);
+  return updated;
+}

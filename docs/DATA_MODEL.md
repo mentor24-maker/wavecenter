@@ -1,8 +1,9 @@
 # WaveCenter data model
 
 What WaveCenter stores, in plain words. Today that is one table, `tasks`.
-The exact definition is the migration
-`supabase/migrations/20261011120000_tasks.sql`; this page explains it.
+The exact definition is the migrations in `supabase/migrations/`
+(`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
+added `tool`); this page explains them.
 
 ## The `tasks` table
 
@@ -21,6 +22,29 @@ One row is one task: something a member means to do, is doing, or has done.
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
 | `completed_at` | When it was marked `done`. Stamped automatically, and cleared if the task is reopened. |
+| `tool` | **Which tool last changed the task.** WaveCenter's own app is `wavecenter`, which is also the starting value and what every task made before this column existed got. Never blank. |
+
+### Every change goes through core, and names its tool
+
+No screen, script or tool writes to this table directly. They all call the
+functions in `core/` (Dane's decision D on the extension model, 2026-10-11;
+see `docs/EXTENSION_MODEL.md`):
+
+- `createTask` and `updateTask` in `core/tasks.ts` are the only way to make or
+  change a task.
+- `setPoints` and `awardPoints` in `core/points.ts` are the only way to change
+  a task's points. `updateTask` refuses to touch them. Each one reports what
+  changed: the points before, after, the difference, and the tool.
+
+Every one of these functions takes the name of the tool making the change and
+refuses with a plain message if it is missing. The name is saved in `tool`, so
+every record says where its last change came from. This is the first step
+towards member-built tools: when they arrive, they get points the same way
+WaveCenter's own app does, through core, never by editing the number.
+
+Two changes to the same task's points at the same moment cannot quietly
+cancel each other out: a points change only saves if the points are still
+what it read, and otherwise says "try again" and saves nothing.
 
 ### Who can see what
 
