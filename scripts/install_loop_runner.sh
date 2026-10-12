@@ -1,11 +1,13 @@
 #!/bin/bash
 #
-# Install (or remove) the WaveCenter loop runners on THIS machine: loop-build
-# and loop-review, each a launchd agent that keeps the committed runner alive.
+# Install (or remove) the WaveCenter loop lanes on THIS machine, as launchd
+# agents: loop-build and loop-review (each keeps the committed runner alive),
+# and merge-on-comment (a plain node pass every 10 minutes that carries out
+# Dane's written "merge"; no Claude session).
 #
-#   ./scripts/install_loop_runner.sh              # install both loops here
+#   ./scripts/install_loop_runner.sh              # install all three lanes here
 #   ./scripts/install_loop_runner.sh --status     # installed? running? locks? last pass?
-#   ./scripts/install_loop_runner.sh --uninstall  # remove both from here
+#   ./scripts/install_loop_runner.sh --uninstall  # remove all three from here
 #
 # Copied from StarCaster's installer. launchd starts the runner at load,
 # restarts it if it dies, and survives a reboot; a screen session does none of
@@ -18,11 +20,14 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS=(loop-build loop-review)
+MERGE_LANE=merge-on-comment
+LANES=("${SKILLS[@]}" "$MERGE_LANE")
 
 interval_of() {
   case "$1" in
     loop-build)  echo 1800 ;;
     loop-review) echo 1800 ;;
+    merge-on-comment) echo 600 ;;
     *)           echo 3600 ;;
   esac
 }
@@ -37,7 +42,7 @@ status_one() {
   label="$(label_of "$skill")"; plist="$(plist_of "$skill")"
   lock="$HOME/loop-logs/wavecenter-$skill.lock"; log="$HOME/loop-logs/wavecenter-$skill.log"
   echo "── $skill"
-  if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist"; else echo "schedule: not installed on this machine"; fi
+  if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist — every $(( $(interval_of "$skill") / 60 )) minutes"; else echo "schedule: not installed on this machine"; fi
   # Read launchctl's list into a variable first. Piping it straight into
   # `grep -q` under pipefail reported a live lane as "loaded: no": grep quits
   # at the first match, launchctl dies of SIGPIPE, and the pipeline "fails".
@@ -81,10 +86,10 @@ checkout_state() {
   fi
 }
 
-status() { checkout_state; for s in "${SKILLS[@]}"; do status_one "$s"; done; }
+status() { checkout_state; for s in "${LANES[@]}"; do status_one "$s"; done; }
 
 uninstall() {
-  for s in "${SKILLS[@]}"; do
+  for s in "${LANES[@]}"; do
     launchctl bootout "gui/$(id -u)/$(label_of "$s")" 2>/dev/null || true
     rm -f "$(plist_of "$s")"
     echo "Removed $(label_of "$s") from this machine."
@@ -98,7 +103,7 @@ install() {
     exit 1
   fi
   mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HOME/loop-logs"
-  for bin in npm doppler claude git; do
+  for bin in npm node doppler claude git gh; do
     if ! (PATH="$LAUNCHD_PATH" command -v "$bin" >/dev/null); then
       echo "Cannot find $bin on launchd's PATH ($LAUNCHD_PATH) — the loops would install and then fail on every pass." >&2
       exit 1
@@ -109,7 +114,12 @@ install() {
     echo "         anything but a clean main, so it will run this branch's code until" >&2
     echo "         the checkout is put back on main." >&2
   fi
-  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh"
+  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/merge_lane.sh"
+  if ! (PATH="$LAUNCHD_PATH" gh auth status >/dev/null 2>&1); then
+    echo "gh is not signed in to GitHub on this machine — the merge lane would read every \"merge\" and fail to act." >&2
+    echo "A person signs in once with: gh auth login" >&2
+    exit 1
+  fi
 
   for s in "${SKILLS[@]}"; do
     local_label="$(label_of "$s")"; local_plist="$(plist_of "$s")"
@@ -153,6 +163,45 @@ PLIST_BODY
     launchctl bootstrap "gui/$(id -u)" "$local_plist"
     echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s)."
   done
+
+  # The merge lane: one short pass every 10 minutes (StartInterval), not a
+  # kept-alive loop. launchd never runs two copies of one job at once.
+  local_label="$(label_of "$MERGE_LANE")"; local_plist="$(plist_of "$MERGE_LANE")"
+  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
+  cat > "$local_plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$local_label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REPO/scripts/merge_lane.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartInterval</key>
+    <integer>$(interval_of "$MERGE_LANE")</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$LAUNCHD_PATH</string>
+        <key>HOME</key>
+        <string>$HOME</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>$local_llog</string>
+    <key>StandardErrorPath</key>
+    <string>$local_llog</string>
+</dict>
+</plist>
+PLIST_BODY
+  launchctl bootout "gui/$(id -u)/$local_label" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$local_plist"
+  echo "Installed $local_label — one pass every $(interval_of "$MERGE_LANE")s from $REPO."
   echo
   status
 }

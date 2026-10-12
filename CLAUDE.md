@@ -78,7 +78,9 @@ StarCaster work never comes here.
   carries the ticket link. `npm run verify` is the definition of done (syntax, core
   boundary, tests, typecheck, build); CI runs it on every pull request.
 - Two statuses are Dane's: `Needs your input` and `Ready to launch`. Only
-  `ask` may set them, and no loop ever takes a ticket back out of them.
+  `ask` may set them, and no loop takes a ticket back out of them except the
+  merge lane carrying out his own written word: his `merge` on `Ready to
+  launch`, his answer on `Needs your input`.
 
 ## Engineering rules (each one learned from a StarCaster outage)
 
