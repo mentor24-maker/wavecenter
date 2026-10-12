@@ -73,8 +73,11 @@ what plain Next.js offers on any host. Before enabling anything in the Vercel
 dashboard or `next.config.ts`, ask whether it would work elsewhere.
 
 **Vercel bakes environment variables in at build time** (engineering rule 4).
-Changing one in the dashboard does nothing until a redeploy. The placeholder
-page needs none; later tickets add the Supabase names from Doppler.
+Changing one in the dashboard does nothing until a redeploy. Sign-in needs
+two, `SUPABASE_URL` and `SUPABASE_ANON_KEY`, set for **Production and
+Preview**. Neither is `NEXT_PUBLIC_`: the app reads them on the server only,
+and a deployment without them says so on `/sign-in` instead of breaking.
+
 
 **`main` never deploys unchecked** (rule 1). Branch protection on `main`
 requires a pull request and the `verify` status check, with the branch up to
@@ -95,6 +98,44 @@ deliberately failing test turned `verify` red; `gh pr merge` was refused with
 refused with *"Required status check 'verify' is failing"*, and the PR showed
 `BLOCKED`. It was closed unmerged and its branch deleted. Repeat that test
 whenever the protection settings are touched.
+
+## Sign-in: Supabase Auth, email magic link
+
+Members sign in with a one-time link emailed to them (a "magic link"): no
+password. Dane chose this on 2026-10-11 over Google sign-in because it fits
+the invitation model to come.
+
+**How it works.** `/sign-in` takes an email; a server action asks Supabase to
+email a link. The link goes to Supabase, which checks it and sends the browser
+to `/auth/confirm` on the same site with a one-time code; that route trades
+the code for a session cookie and sends the member to `/`. `proxy.ts` renews
+the session cookie before each page request (a session token lasts an hour).
+Everything runs on the server: the browser holds **no Supabase key at all**,
+only the session cookie, and app code never reads the service role key. Every
+query runs as the signed-in member, so row-level security decides what comes
+back. `npm run check:browser-secrets` (part of `verify`) fails the build if a
+server-only secret's name appears in anything shipped to the browser.
+
+**Supabase dashboard settings** (Authentication → URL Configuration). Supabase
+only sends a link back to an address on its list; anything else falls back to
+the Site URL. Out of the box the Site URL was `http://localhost:3000`, so a
+link asked for from the live site landed on localhost (checked 2026-10-11).
+
+| Setting | Value |
+|---|---|
+| Site URL | `https://app-wavecenter.vercel.app` (later `https://app.wavecenter.com`) |
+| Redirect URLs | `https://app-wavecenter.vercel.app/**` |
+| | `https://app-wavecenter-*-dane-of-earth.vercel.app/**` (every preview) |
+| | `http://localhost:3000/**` (local development) |
+
+**A link only works in the browser that asked for it** (Supabase's PKCE flow:
+the request leaves a matching cookie). Opening the email on a phone after
+asking on a laptop shows "That sign-in link did not work".
+
+**Email limits.** Until WaveCenter has its own email service (custom SMTP in
+Supabase), Supabase's built-in sender only delivers to members of the Supabase
+organisation and only a few emails an hour. That is enough for Dane; it must
+change before anyone else is invited.
 
 ## The core is separate from the framework
 

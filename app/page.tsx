@@ -1,9 +1,18 @@
+import Link from "next/link";
+import { signOut } from "./auth/actions";
+import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
+
 /**
- * The placeholder page: the only page WaveCenter has until the to-do list
- * ships. It says what this is, so a visitor who lands here early does not
- * see a blank screen (engineering rule 7: an empty screen says why).
+ * Signed out: the placeholder page, which says what this is, plus a way to
+ * sign in. Signed in: "Your tasks", read through the member's own session so
+ * row-level security returns only their rows. Every empty or failed state
+ * says why (engineering rule 7).
  */
-export default function Home() {
+export default async function Home() {
+  const supabase = await supabaseForRequest();
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
+  if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} />;
+
   return (
     <main>
       <h1>WaveCenter</h1>
@@ -16,9 +25,54 @@ export default function Home() {
         operating fuel and the purpose.
       </p>
       <p className="note">
-        Nothing to sign in to yet. This page will become a simple to-do list, then a
-        project management tool, then the platform the DEO builds itself with.
+        This page will become a simple to-do list, then a project management tool,
+        then the platform the DEO builds itself with.
       </p>
+      {checkFailed && (
+        <p className="error" role="alert">
+          {SIGN_IN_CHECK_FAILED}
+        </p>
+      )}
+      <p>
+        <Link href="/sign-in">Sign in</Link>
+      </p>
+    </main>
+  );
+}
+
+type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
+
+async function YourTasks({ supabase, email }: { supabase: Supabase; email: string }) {
+  const { data: tasks, error } = await supabase
+    .from("tasks")
+    .select("id, title, status, points")
+    .order("position")
+    .order("created_at");
+
+  return (
+    <main>
+      <header className="bar">
+        <span className="note">Signed in as {email}</span>
+        <form action={signOut}>
+          <button type="submit" className="link">Sign out</button>
+        </form>
+      </header>
+      <h1>Your tasks</h1>
+      {error ? (
+        <p className="error" role="alert">
+          Your tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
+        </p>
+      ) : !tasks?.length ? (
+        <p className="note">No tasks yet — add your first one above.</p>
+      ) : (
+        <ul>
+          {tasks.map((t) => (
+            <li key={t.id}>
+              {t.title} <span className="note">({t.status}, {t.points} points)</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }

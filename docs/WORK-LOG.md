@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-11 — Dane can sign in, and each person sees only their own tasks (#11)
+
+WaveCenter now has sign-in. You type your email and get a link that signs you
+in, with no password to remember. Once signed in, the home page says "Your
+tasks"; signed out, it is the same "coming soon" page as before. Every request
+for data runs as the person who is signed in, so the database's own rules hand
+back only that person's tasks. A test with two throwaway accounts proved it:
+one could not see the other's task. No key is sent to the browser at all, and
+a new automatic check fails the build if one ever is. If WaveCenter cannot
+reach the sign-in service, the page says so in a plain sentence instead of
+quietly looking signed out.
+---
+
 ## 2026-10-11 — How members' tools will plug into WaveCenter: options for Dane (#13)
 
 Before anyone outside is invited in, WaveCenter needs a plan for how a
