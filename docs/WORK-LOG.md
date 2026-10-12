@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — WaveCenter is a to-do list Dane can use (#16)
+
+"Your tasks" now works as a to-do list. Type a task and press Enter to add
+it, tick it off to move it under Done, untick it to bring it back, rename it,
+delete it, give it points, and tuck it under another task as a sub-task. This
+is the seed the project manager grows from, so every task already carries
+its owner, status, parent and points. Every change goes through the same
+front door a member's own tool will use later. If a save fails, for example
+because the internet dropped, the screen says so in red and keeps what you
+typed, instead of pretending it worked. It fits a phone screen.
+---
+
 ## 2026-10-11 — Points can only change through one front door (#15)
 
 A task's points are the start of the engagement ledger, so they should never
