@@ -9,6 +9,7 @@
  * ignores row-level security, is never read by app code (engineering rule 3).
  */
 import { createServerClient } from "@supabase/ssr";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 /** The two settings sign-in needs, read when a request arrives, not at build. */
@@ -44,3 +45,21 @@ export async function supabaseForRequest() {
     },
   });
 }
+
+type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
+
+/**
+ * Who is signed in. "No session" is the ordinary signed-out answer; any other
+ * error (Supabase unreachable, a bad response) means we could not tell, and
+ * the caller must say so rather than show a signed-in member the signed-out
+ * page (engineering rule 7).
+ */
+export async function currentUser(supabase: Client) {
+  const { data, error } = await supabase.auth.getUser();
+  if (error && !isAuthSessionMissingError(error)) return { user: null, checkFailed: true as const };
+  return { user: data.user, checkFailed: false as const };
+}
+
+/** Shown when currentUser() could not tell. Never shown to plain signed-out visitors. */
+export const SIGN_IN_CHECK_FAILED =
+  "WaveCenter could not check whether you are signed in. Try reloading in a minute.";

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { sendMagicLink } from "../auth/actions";
-import { supabaseForRequest, supabaseSettings } from "../lib/supabase";
+import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../lib/supabase";
 
 // Every message is fixed text chosen by a code, so nothing typed into the
 // address bar is ever echoed onto the page.
@@ -18,10 +18,8 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
   const { sent, error } = await searchParams;
 
   const supabase = await supabaseForRequest();
-  if (supabase) {
-    const { data } = await supabase.auth.getUser();
-    if (data.user) redirect("/");
-  }
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
+  if (user) redirect("/");
   const settings = supabaseSettings();
   const missing = "missing" in settings ? settings.missing : [];
 
@@ -34,6 +32,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
         <p className="lede">Enter your email and we will send you a link that signs you in. No password.</p>
       )}
       {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
+      {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
       {missing.length > 0 ? (
         <p className="error" role="alert">
           {ERRORS.setup} Missing: {missing.join(", ")}.

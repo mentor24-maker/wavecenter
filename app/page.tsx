@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { signOut } from "./auth/actions";
-import { supabaseForRequest } from "./lib/supabase";
+import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 
 /**
  * Signed out: the placeholder page, which says what this is, plus a way to
@@ -10,7 +10,7 @@ import { supabaseForRequest } from "./lib/supabase";
  */
 export default async function Home() {
   const supabase = await supabaseForRequest();
-  const user = supabase ? (await supabase.auth.getUser()).data.user : null;
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} />;
 
   return (
@@ -28,6 +28,11 @@ export default async function Home() {
         This page will become a simple to-do list, then a project management tool,
         then the platform the DEO builds itself with.
       </p>
+      {checkFailed && (
+        <p className="error" role="alert">
+          {SIGN_IN_CHECK_FAILED}
+        </p>
+      )}
       <p>
         <Link href="/sign-in">Sign in</Link>
       </p>
