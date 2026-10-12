@@ -64,8 +64,8 @@ how tools attach.
 
 **The ledger is the part that must never be in doubt.**
 
-> "Blockchain at the core so that engagement records, valuations, votes, and
-> reputational history live on an immutably private, publicly auditable
+> "[B]lockchain at the core so that engagement records, valuations, votes,
+> and reputational history live on an immutably private, publicly auditable
 > ledger."
 
 **Any part of the stack can be replaced.**
@@ -76,8 +76,8 @@ how tools attach.
 
 **DEOs ally with each other, and value can move between them.**
 
-> "Alliances carry provisions allowing a member's stored value to transfer
-> into allied or successor organizations when a DEO expires."
+> "[T]hose alliances carry provisions allowing a member's stored value to
+> transfer into allied or successor organizations when a DEO expires."
 
 Dane's own rule for this repository (2026-10-11, `core/README.md`) already
 points the same way: *"the website in `app/` is the first client of this
@@ -120,8 +120,9 @@ tool generates (a decision for Dane, question 4).
 
 **Removing a bad or abandoned tool.** Switch off its key. The tool stops
 being able to read or write anything. Points it already reported stay in the
-ledger, marked with the tool's name, so the members can vote to reverse them
-if they were fraudulent. Nothing in the core needs to change.
+ledger, marked with the tool's name, so they could be reversed if they were
+fraudulent (how, and by whom, is a decision for Dane, question 2). Nothing
+in the core needs to change.
 
 **Staying replaceable.** Strongest of the three. The door is plain web
 requests that any host and any language can make. The core and each tool can
@@ -135,8 +136,8 @@ documented and kept stable, because changing it breaks other people's tools.
 **What it is.** Each tool is its own app, and all of them use the same
 member accounts, so a member signs in once and is known everywhere. The
 tools talk to the same database directly, each limited by rules in the
-database about which rows it may touch (the same row-level security that
-already protects each member's tasks).
+database about which rows it may touch (the same row-level security every
+WaveCenter table will have).
 
 **How a member ships a tool.** They are given access to WaveCenter's
 database under their tool's own restricted role, build their app (most
@@ -257,8 +258,9 @@ page assumes an answer.
 
 1. **Which option?** A, B or C, or the first step of A now and the rest
    later.
-2. **Who may connect a tool?** Any member, members above some reputation, or
-   only after a vote?
+2. **Who may connect a tool, and who may undo its points?** Any member,
+   members above some reputation, or only after a vote? And if a tool turns
+   out to have reported fraudulent points, who may reverse them, and how?
 3. **Who approves a new kind of engagement?** When a tool reports something
    new ("finished a poll"), does it earn nothing until the members vote it a
    value, or does it start with a provisional value?
