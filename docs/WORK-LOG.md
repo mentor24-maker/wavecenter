@@ -19,6 +19,16 @@ switched on in the same step that made the table. A small check makes two
 throwaway members and proves neither can touch the other's tasks.
 `docs/DATA_MODEL.md` explains it all in plain words and lists three questions
 about points that only Dane can answer.
+---
+
+## 2026-10-11 — The WaveCenter loops run by themselves on the Mac Mini (#9)
+
+Until now a WaveCenter loop only ran while someone had a session open that had
+started it. The Mac Mini, Dane's always-on machine, now runs both lanes the way
+it runs StarCaster's: every 30 minutes it pulls `main`, runs one build pass and
+one review pass, each in a fresh session with a two-hour limit, and restarts
+them after a crash or reboot. The queue drains overnight. Merges still wait
+for Dane's word and a session to carry it out.
 
 ---
 

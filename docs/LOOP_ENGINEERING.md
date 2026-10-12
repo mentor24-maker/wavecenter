@@ -163,19 +163,63 @@ three reasons listed and named options (respec / split / drop).
 
 ## How to run it
 
-**Nothing runs on a schedule yet.** StarCaster's loops run unattended on the
-Mac Mini as launchd agents; installing the same for WaveCenter is a ticket in
-the queue. Until it lands, a loop runs when a session starts one by hand, and
-**only one build loop and one review loop may run at a time** — claiming is
-check-then-act, which is only sound with a single claimant.
+**They run on the Mac Mini.** Since 2026-10-11 both lanes run unattended on
+the Mac Mini (account `daneofearth`, checkout `~/WebApps/wavecenter`) as
+launchd agents, `com.wavecenter.loop-build` and `com.wavecenter.loop-review`,
+beside StarCaster's. Each keeps the committed `scripts/loop_runner.sh` alive
+across crashes and reboots; each pass is a fresh headless Claude Code session
+that pulls `main`, runs one skill, and sleeps 30 minutes. A pass has a
+two-hour time limit. Nobody starts a loop by hand while those are loaded: a
+second claimant makes the check-then-act claim unsound.
+
+So the question is never "shall I start one", it is "what is it doing":
+
+```bash
+ssh mac-mini 'cd ~/WebApps/wavecenter && ./scripts/install_loop_runner.sh --status'   # installed? alive? lock? last pass?
+ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-build.log'                          # what the last build pass said
+ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-review.log'
+```
+
+Three things the log can say that need a person:
+
+- **"THIS PASS COULD NOT SIGN IN TO CLAUDE."** The Mini's Claude sign-in
+  expired. Only Dane can sign in, at the Mini's own screen or Screen Sharing
+  (an ssh sign-in does not reach launchd). Then restart the jobs:
+  `launchctl kickstart -k gui/$(id -u)/com.wavecenter.loop-build` and the same
+  for `loop-review`.
+- **"hit the time limit"** twice on one ticket: a gate that will not go green.
+  Read the ticket and hand it back or `ask`.
+- **Nothing written for hours** while the queue has work: `--status` says
+  whether the runner is alive. A stale lock clears itself on the next start.
+
+**Merges still need a session.** There is no relay yet: when you comment
+`merge` on a `Ready to launch` ticket, a Claude Code session has to see it and
+merge. Tell one, or leave one watching.
+
+### Starting one by hand — only when the Mini's agents are unloaded
+
+Two commands, each in **its own session**, from any folder in the repo (the
+loop makes its own worktree per task):
 
 ```
-# In session A (any folder in the repo — the loop makes its own worktree per task):
 /loop 30m loop-build
-
-# In session B:
 /loop 30m loop-review
 ```
+
+### Installing or moving the runner
+
+`./scripts/install_loop_runner.sh` on the machine that will own the loops,
+from its **main checkout** (never a worktree). It refuses if `npm`, `doppler`,
+`claude` or `git` is missing. `--uninstall` removes both agents. Before
+installing on a second machine, uninstall on the first: two machines claiming
+is the collision the lock exists to prevent.
+
+**The checkout must sit on a clean `main`.** The runner pulls only a clean
+`main`; on any other branch every pass runs that branch's code and never sees
+merged work. `--status` prints a `WARNING` when this is so, and the installer
+warns too. The runner was first installed from its own branch (it was not on
+`main` yet), so once that pull request merges, put the Mini back:
+`git -C ~/WebApps/wavecenter checkout main && git -C ~/WebApps/wavecenter pull`.
 
 Your day:
 
@@ -230,4 +274,4 @@ work, confirm the value, then widen.
    prints "Token valid. Acting as: …".
 5. ⬜ A dry run: one `loop-build` pass on the smallest ticket, then one
    `loop-review` pass, before trusting it with the rest.
-6. ⬜ The scheduled runner on the Mac Mini (ticket in the queue).
+6. ✅ The scheduled runner on the Mac Mini (2026-10-11).
