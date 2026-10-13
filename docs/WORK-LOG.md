@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — Adding a task takes details, a parent and a priority (#21)
+
+Adding a task used to mean typing a title and nothing else. The add box is
+now a small form: the title (Enter still adds it), a box for details, a
+choice of which task it sits under, and its priority. If the add fails, for
+example because the internet dropped, the form says so and keeps everything
+typed. Each task in the list shows the first line of its details, with a
+"more" link for the rest, and "edit" changes the title and details together.
+Attaching files and images comes next, in its own ticket.
+
+---
+
 ## 2026-10-12 — Dane can choose which tasks AI agents work on (#18)
 
 The to-do list has a "Launch AI Agents" switch, a box on every open task
