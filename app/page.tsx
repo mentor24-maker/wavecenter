@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
+import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
 import SiteHeader from "./SiteHeader";
 import TaskList from "./tasks/TaskList";
 
@@ -12,7 +13,7 @@ import TaskList from "./tasks/TaskList";
 export default async function Home() {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
-  if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} />;
+  if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} userId={user.id} />;
 
   return (
     <>
@@ -46,12 +47,20 @@ export default async function Home() {
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
-async function YourTasks({ supabase, email }: { supabase: Supabase; email: string }) {
-  const { data: tasks, error } = await supabase
-    .from("tasks")
-    .select("id, title, status, points, parent_task_id")
-    .order("position")
-    .order("created_at");
+async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
+  const [{ data: tasks, error }, settings] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("id, title, status, points, parent_task_id, priority, agent_selected, created_at")
+      .order("position")
+      .order("created_at"),
+    supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
+  ]);
+  // A member who has never touched the switch has no row yet: that is "off",
+  // not an error. A failed read is an error, and the switch says so.
+  const agents = settings.error
+    ? { on: null, error: settings.error.message }
+    : { on: settings.data?.agents_on ?? DEFAULT_MEMBER_SETTINGS.agentsOn, error: null };
 
   return (
     <>
@@ -70,7 +79,11 @@ async function YourTasks({ supabase, email }: { supabase: Supabase; email: strin
               status: t.status,
               points: t.points ?? 0,
               parentTaskId: t.parent_task_id,
+              priority: t.priority,
+              agentSelected: t.agent_selected,
+              createdAt: t.created_at,
             }))}
+            agents={agents}
           />
         )}
       </main>

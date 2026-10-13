@@ -15,6 +15,7 @@ clients. If the framework is ever replaced, this folder does not change.
 | File | What it does |
 |---|---|
 | `tasks.ts` | The task record, and `createTask` / `updateTask` / `deleteTask`: the only path for making, changing or deleting a task. A parent must be a task you can see, and a task can never end up under its own sub-task. |
+| `agents.ts` | The "Launch AI Agents" switch (`setAgentsOn`) and `agentOrder`: the order agents take ticked tasks in, highest priority first, then oldest first. |
 | `points.ts` | `setPoints` / `awardPoints`: the only functions that may change a task's points. |
 | `tool.ts` | Every change names the tool that made it; a change with no tool name is refused. |
 | `memoryTaskStore.ts` | Keeps tasks in memory so the tests can check the rules without a database. |

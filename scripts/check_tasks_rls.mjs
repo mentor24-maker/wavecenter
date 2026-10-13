@@ -19,6 +19,7 @@
  * Exit 0 = every check held. Exit 1 = a check failed or the run broke.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { setAgentsOn } from '../core/agents.ts';
 import { createTask, updateTask } from '../core/tasks.ts';
 import { restTaskStore } from './lib/restTaskStore.mjs';
 
@@ -62,6 +63,24 @@ async function makeUser(tag) {
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
   const token = signin.json.access_token;
   return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token }) };
+}
+
+/** A MemberSettingsStore (core/agents.ts) over REST, acting as one member. */
+function settingsStore(member) {
+  return {
+    async get() {
+      const got = await call(`/rest/v1/member_settings?owner_id=eq.${member.id}&select=agents_on,tool`, { token: member.token });
+      return got.json?.[0] ? { agentsOn: got.json[0].agents_on, tool: got.json[0].tool } : null;
+    },
+    async save({ agentsOn, tool }) {
+      const saved = await call('/rest/v1/member_settings?on_conflict=owner_id', {
+        method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation',
+        body: { owner_id: member.id, agents_on: agentsOn, tool },
+      });
+      if (saved.status >= 300) throw new Error(`member_settings save failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+      return saved.json?.[0] ? { agentsOn: saved.json[0].agents_on, tool: saved.json[0].tool } : null;
+    },
+  };
 }
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
@@ -108,6 +127,26 @@ try {
 
   const still = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=points`);
   check('B’s task is untouched afterwards', still.json?.[0]?.points === 5, `points ${still.json?.[0]?.points}`);
+
+  // member_settings: the "Launch AI Agents" switch is the member's own.
+  const onA = await setAgentsOn(settingsStore(a), true, TOOL);
+  await setAgentsOn(settingsStore(b), false, TOOL);
+  check('A can turn A’s own AI agents switch on through core', onA.agentsOn === true && onA.tool === TOOL, JSON.stringify(onA));
+
+  const setB = await call('/rest/v1/member_settings?select=owner_id,agents_on', { token: b.token });
+  check('B sees only B’s own settings', setB.status === 200 && setB.json.length === 1 && setB.json[0].owner_id === b.id, `sees ${JSON.stringify(setB.json)}`);
+
+  const flip = await call(`/rest/v1/member_settings?owner_id=eq.${a.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { agents_on: false } });
+  check('B cannot turn A’s switch off', flip.status === 200 && flip.json.length === 0, `HTTP ${flip.status}, rows changed ${Array.isArray(flip.json) ? flip.json.length : JSON.stringify(flip.json)}`);
+
+  const forgeSet = await call('/rest/v1/member_settings', { method: 'POST', token: b.token, body: { owner_id: a.id, agents_on: false } });
+  check('B cannot write settings in A’s name', forgeSet.status >= 400, `HTTP ${forgeSet.status} ${forgeSet.json?.message ?? ''}`);
+
+  const anonSet = await call('/rest/v1/member_settings?select=owner_id');
+  check('a signed-out visitor sees no settings', anonSet.status >= 400 || (Array.isArray(anonSet.json) && anonSet.json.length === 0), `HTTP ${anonSet.status} ${anonSet.json?.message ?? JSON.stringify(anonSet.json)}`);
+
+  const stillOn = await admin(`/rest/v1/member_settings?owner_id=eq.${a.id}&select=agents_on`);
+  check('A’s switch is still on afterwards', stillOn.json?.[0]?.agents_on === true, `agents_on ${stillOn.json?.[0]?.agents_on}`);
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);

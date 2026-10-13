@@ -19,6 +19,8 @@ const COLUMNS: Record<keyof NewTaskRow, string> = {
   parentTaskId: "parent_task_id",
   points: "points",
   position: "position",
+  priority: "priority",
+  agentSelected: "agent_selected",
   tool: "tool",
 };
 
@@ -38,6 +40,8 @@ export function fromRow(row: any): Task {
     parentTaskId: row.parent_task_id,
     points: row.points,
     position: row.position,
+    priority: row.priority,
+    agentSelected: row.agent_selected,
     tool: row.tool,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -1,8 +1,10 @@
 "use client";
 
 /**
- * The to-do list: add, rename, tick off, reopen, delete, set points, and put
- * a task under another one. Every change is a server action that goes
+ * The to-do list: add, rename, tick off, reopen, delete, set points and
+ * priority, and put a task under another one. Above it, the "Launch AI
+ * Agents" switch; on every open task, a box that hands it to AI agents, with
+ * a tick-all box in the header row. Every change is a server action that goes
  * through core (app/tasks/actions.ts).
  *
  * A save that fails says so next to where it happened and keeps what was
@@ -10,7 +12,20 @@
  * (engineering rule 6). Every empty section says why it is empty (rule 7).
  */
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { addTask, changePoints, markDone, moveUnder, removeTask, renameTask, type SaveResult } from "./actions";
+import { agentOrder } from "../../core/agents.ts";
+import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
+import {
+  addTask,
+  changePoints,
+  changePriority,
+  chooseForAgents,
+  markDone,
+  moveUnder,
+  removeTask,
+  renameTask,
+  switchAgents,
+  type SaveResult,
+} from "./actions";
 
 export interface ListTask {
   id: string;
@@ -18,15 +33,26 @@ export interface ListTask {
   status: string;
   points: number;
   parentTaskId: string | null;
+  priority: TaskPriority;
+  agentSelected: boolean;
+  createdAt: string;
 }
 
-/** Where a failed save happened: "new" for the add box, or a task id. */
+/** The member's "Launch AI Agents" switch; `on` is null if it could not be read. */
+export interface AgentsSwitch {
+  on: boolean | null;
+  error: string | null;
+}
+
+const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
+
+/** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
 
 const UNREACHABLE =
   "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
 
-export default function TaskList({ tasks }: { tasks: ListTask[] }) {
+export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents: AgentsSwitch }) {
   const [failure, setFailure] = useState<Failure>(null);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState("");
@@ -58,6 +84,10 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
   const topLevel = tasks.filter((t) => !t.parentTaskId);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const hasChildren = new Set(tasks.map((t) => t.parentTaskId).filter(Boolean));
+  const inLine = agentOrder(tasks);
+  const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
+  const allTicked = open.length > 0 && open.every((t) => t.agentSelected);
+  const someTicked = open.some((t) => t.agentSelected);
 
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
     <TaskRow
@@ -67,6 +97,7 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
       sub={sub}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
+      place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
       pending={pending}
       run={(action) => run(t.id, action)}
@@ -93,6 +124,32 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
 
   return (
     <>
+      <section className="agents" aria-label="AI agents">
+        {agents.on === null ? (
+          <p className="error" role="alert">
+            Could not read whether AI agents are on: {agents.error}. Agents are treated as off; try reloading the page.
+          </p>
+        ) : (
+          <label className="switch">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={agents.on}
+              disabled={pending}
+              onChange={() => run("agents", () => switchAgents(!agents.on))}
+            />
+            <span>Launch AI Agents</span>
+          </label>
+        )}
+        {agents.on !== null && <p className="note">{agentsLine(agents.on, inLine.length)}</p>}
+        <p className="note">
+          The hand-off to the agents is still being built (ticket &ldquo;Ticked tasks never reach the AI agents: hand
+          them to the Loop Queue in priority order&rdquo;). Until it ships, your choices here are saved but nothing is
+          handed over yet.
+        </p>
+        {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
+      </section>
+
       <form onSubmit={add} className="add">
         <input
           aria-label="New task"
@@ -109,7 +166,29 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
       ) : (
         <>
           <h2>Open</h2>
-          {open.length ? <ul className="tasks">{section(open)}</ul> : <p className="note">Nothing open — every task is done.</p>}
+          {open.length ? (
+            <ul className="tasks">
+              <li className="task head">
+                <label className="cell">
+                  <input
+                    type="checkbox"
+                    aria-label={allTicked ? "Untick every task for AI agents" : "Tick every open task for AI agents"}
+                    checked={allTicked}
+                    ref={(el) => { if (el) el.indeterminate = someTicked && !allTicked; }}
+                    disabled={pending}
+                    onChange={() => run("all", () => chooseForAgents(open.map((t) => t.id), !allTicked))}
+                  />
+                  <small>AI</small>
+                </label>
+                <span className="cell note"><small>Done</small></span>
+                <span className="grow note">Tick the AI box on each task agents should work on; the top box ticks them all.</span>
+                {failure?.at === "all" && <p className="error full" role="alert">{failure.message}</p>}
+              </li>
+              {section(open)}
+            </ul>
+          ) : (
+            <p className="note">Nothing open — every task is done.</p>
+          )}
           <h2>Done</h2>
           {done.length ? <ul className="tasks">{section(done)}</ul> : <p className="note">Nothing done yet. Tick a task&rsquo;s box when you finish it.</p>}
         </>
@@ -118,11 +197,21 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
   );
 }
 
+/** The line under the switch: what the agents will do, in plain words. */
+function agentsLine(on: boolean, ticked: number): string {
+  const count = `${ticked} ticked task${ticked === 1 ? "" : "s"}`;
+  if (on && ticked) return `Agents are on. They will work on ${count}, highest priority first, then oldest first.`;
+  if (on) return "Agents are on, but no tasks are ticked for them. Tick a task's AI box to hand it over.";
+  if (ticked) return `Agents are off. ${count[0].toUpperCase()}${count.slice(1)} will wait until you turn them on.`;
+  return "Agents are off. Tick the tasks you want AI agents to work on, then turn this on.";
+}
+
 function TaskRow({
   task,
   sub,
   parentTitle,
   parents,
+  place,
   failure,
   pending,
   run,
@@ -134,6 +223,8 @@ function TaskRow({
   parentTitle?: string;
   /** Tasks this one may go under, or null when it has sub-tasks of its own. */
   parents: ListTask[] | null;
+  /** Its place in the agents' line, shown while agents are on. */
+  place?: number;
   failure: string | null;
   pending: boolean;
   run: (action: () => Promise<SaveResult>) => Promise<boolean>;
@@ -161,13 +252,27 @@ function TaskRow({
 
   return (
     <li className={["task", done && "done", sub && "sub"].filter(Boolean).join(" ")}>
-      <input
-        type="checkbox"
-        aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
-        checked={done}
-        disabled={pending}
-        onChange={() => run(() => markDone(task.id, !done))}
-      />
+      <span className="cell">
+        {!done && (
+          <input
+            type="checkbox"
+            className="ai"
+            aria-label={task.agentSelected ? `Take "${task.title}" back from AI agents` : `Hand "${task.title}" to AI agents`}
+            checked={task.agentSelected}
+            disabled={pending}
+            onChange={() => run(() => chooseForAgents([task.id], !task.agentSelected))}
+          />
+        )}
+      </span>
+      <span className="cell">
+        <input
+          type="checkbox"
+          aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
+          checked={done}
+          disabled={pending}
+          onChange={() => run(() => markDone(task.id, !done))}
+        />
+      </span>
       {editing ? (
         <form onSubmit={rename} className="grow">
           <input aria-label="Task title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
@@ -175,10 +280,21 @@ function TaskRow({
       ) : (
         <span className="grow">
           {task.title} <span className="note">· {task.points} pts</span>
+          {place && <span className="badge"> AI #{place}</span>}
           {parentTitle && <span className="note"> · sub-task of &ldquo;{parentTitle}&rdquo;</span>}
         </span>
       )}
       <span className="controls">
+        <select
+          aria-label={`Priority of "${task.title}"`}
+          value={task.priority}
+          disabled={pending}
+          onChange={(e) => run(() => changePriority(task.id, e.target.value as TaskPriority))}
+        >
+          {TASK_PRIORITIES.map((p) => (
+            <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+          ))}
+        </select>
         <form onSubmit={savePoints}>
           <input
             aria-label={`Points for "${task.title}"`}

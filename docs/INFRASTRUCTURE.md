@@ -43,8 +43,8 @@ the session pooler or the direct host for a migration tool if one needs them.
 |---|---|
 | Team | Dane Christensen's projects (`dane-of-earth`) |
 | Project | `app-wavecenter` (id `prj_jo8rGoJlF55XwB2QuJ2srLVoqQdF`; named `wavecenter` until 2026-10-11) |
-| Address today | https://app-wavecenter.vercel.app |
-| Address later | `app.wavecenter.com`, once its DNS record is in (see "The domain" below) |
+| Address | https://app.wavecenter.com (live 2026-10-12, HTTPS by Let's Encrypt via Vercel) |
+| Vercel address | https://app-wavecenter.vercel.app, the same app; keeps working |
 | Source | GitHub `mentor24-maker/wavecenter`, production from `main`, a preview for every pull request |
 | Framework | Next.js (TypeScript), standard hosting only |
 | Created | 2026-10-11, from the command line (`vercel link`, `vercel git connect`) |
@@ -61,7 +61,7 @@ for Dane, who is signed in, and for nobody else. Production at
 `app-wavecenter.vercel.app` is public.
 
 **Two sites, two homes (Dane, 2026-10-11).** This repository is **the app**,
-and its address is `app.wavecenter.com` (interim: `app-wavecenter.vercel.app`).
+and its address is `app.wavecenter.com` (also `app-wavecenter.vercel.app`).
 WaveCenter's **public website** — the DEO story, the invitation — is a separate
 site built on **StarCaster** at `wavecenter.com` / `www.wavecenter.com`. The
 bare and `www` names never point at this project.
@@ -132,6 +132,18 @@ different CNAME value when the name is added, use the one it shows. Once both ar
 HTTPS certificate on its own within minutes. A plain CNAME is an ordinary DNS
 record, so the address moves with the app to any other host.
 
+**Live since 2026-10-12.** Both steps are done: the Hostinger record is in and
+the name is attached to the project. Checked 2026-10-12, 7:35 pm MT:
+`https://app.wavecenter.com` answers `200` from Vercel with a Let's Encrypt
+certificate for `app.wavecenter.com`.
+
+**"DNS Change Recommended" on Vercel's Domains page is not an error.** Vercel
+now hands each project its own CNAME target (shown under "View DNS
+configuration") and nudges older `cname.vercel-dns.com` records toward it. The
+old target keeps working and the yellow badge stays until the record is
+changed. Swapping it is optional: change the Hostinger `app` record's value to
+the target Vercel shows, then click Refresh.
+
 **Never move the name servers while email depends on them.** Moving DNS to
 Vercel (as `starcaster.pro` does) would mean copying both MX records and the
 SPF record across first; a missed record silently stops email. The GoDaddy
@@ -163,9 +175,9 @@ link asked for from the live site landed on localhost (checked 2026-10-11).
 
 | Setting | Value |
 |---|---|
-| Site URL | `https://app-wavecenter.vercel.app` (later `https://app.wavecenter.com`) |
+| Site URL | `https://app.wavecenter.com` |
 | Redirect URLs | `https://app-wavecenter.vercel.app/**` |
-| | `https://app.wavecenter.com/**` (once the domain is live) |
+| | `https://app.wavecenter.com/**` |
 | | `https://app-wavecenter-*-dane-of-earth.vercel.app/**` (every preview) |
 | | `http://localhost:3000/**` (local development) |
 

@@ -2,7 +2,7 @@
 
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
- * core (createTask, updateTask, setPoints, deleteTask) as the tool
+ * core (createTask, updateTask, setPoints, deleteTask, setAgentsOn) as the tool
  * `wavecenter`, acting as the signed-in member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
@@ -10,10 +10,12 @@
  * screen shows it and keeps what was typed (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
+import { setAgentsOn } from "../../core/agents.ts";
 import { setPoints } from "../../core/points.ts";
-import { createTask, deleteTask, updateTask } from "../../core/tasks.ts";
+import { createTask, deleteTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
+import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -21,7 +23,10 @@ export type SaveResult = { ok: true } | { ok: false; error: string };
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 type Store = ReturnType<typeof supabaseTaskStore>;
 
-async function save(what: string, change: (store: Store, supabase: Supabase) => Promise<unknown>): Promise<SaveResult> {
+async function save(
+  what: string,
+  change: (store: Store, supabase: Supabase, memberId: string) => Promise<unknown>,
+): Promise<SaveResult> {
   try {
     const supabase = await supabaseForRequest();
     if (!supabase) return { ok: false, error: "This copy of WaveCenter has no database settings, so nothing can be saved." };
@@ -34,7 +39,7 @@ async function save(what: string, change: (store: Store, supabase: Supabase) => 
           : "You are signed out, so this was not saved. Reload the page and sign in again.",
       };
     }
-    await change(supabaseTaskStore(supabase), supabase);
+    await change(supabaseTaskStore(supabase), supabase, user.id);
   } catch (err) {
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error(`tasks: could not ${what}:`, err);
@@ -83,4 +88,35 @@ export async function moveUnder(id: string, parentTaskId: string | null): Promis
 
 export async function removeTask(id: string): Promise<SaveResult> {
   return save("delete the task", (store) => deleteTask(store, id, WAVECENTER_TOOL));
+}
+
+export async function changePriority(id: string, priority: TaskPriority): Promise<SaveResult> {
+  return save("change the priority", (store) => updateTask(store, id, { priority }, WAVECENTER_TOOL));
+}
+
+/**
+ * Tick or untick tasks for AI agents: one task, or every open task at once
+ * from the tick-all box. Each is saved on its own; if any fail, the answer
+ * says how many, and the screen reloads to show what actually saved.
+ */
+export async function chooseForAgents(ids: string[], selected: boolean): Promise<SaveResult> {
+  const what = selected ? "tick the task for AI agents" : "untick the task";
+  let failed = 0;
+  let firstError = "";
+  for (const id of ids) {
+    const result = await save(what, (store) => updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL));
+    if (!result.ok) {
+      failed += 1;
+      firstError ||= result.error;
+    }
+  }
+  if (!failed) return { ok: true };
+  if (ids.length === 1) return { ok: false, error: firstError };
+  revalidatePath("/");
+  return { ok: false, error: `${failed} of ${ids.length} tasks were not saved: ${firstError} The boxes now show what did save.` };
+}
+
+export async function switchAgents(on: boolean): Promise<SaveResult> {
+  return save(on ? "turn AI agents on" : "turn AI agents off", (_store, supabase, memberId) =>
+    setAgentsOn(supabaseMemberSettingsStore(supabase, memberId), on, WAVECENTER_TOOL));
 }

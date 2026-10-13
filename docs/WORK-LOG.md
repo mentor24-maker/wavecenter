@@ -16,7 +16,20 @@ Error messages sit in a tinted box so they cannot be missed; before, they
 were hard to read on a light screen. On a phone, each task's buttons now sit
 neatly under its name. The infrastructure notes now record where the
 wavecenter.com domain is registered, who runs its DNS and email, and the one
-record that will put the app at app.wavecenter.com.
+record that put the app at app.wavecenter.com, where it is now live.
+
+---
+
+## 2026-10-12 — Dane can choose which tasks AI agents work on (#18)
+
+The to-do list has a "Launch AI Agents" switch, a box on every open task
+that says "AI may work on this", a tick-all box above the list, and a
+priority (Urgent, High, Normal, Low) on every task. With the switch on, each
+ticked task shows its place in line, highest priority first, then oldest
+first. These are Dane's choices only, saved and protected so no other member
+can see or change them; actually handing the ticked tasks to the agents is
+the next ticket, and until it ships the screen says so.
+
 ---
 
 ## 2026-10-12 — WaveCenter is a to-do list Dane can use (#16)
