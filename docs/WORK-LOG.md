@@ -24,6 +24,35 @@ helper does not file it a third time.
 
 ---
 
+## 2026-10-12 — WaveCenter looks like a real place (#17)
+
+Every page now has a header with the WaveCenter name and a small wave mark,
+plus a way to sign in or out. The app uses one sea-blue accent colour,
+readable type and the same spacing throughout, in light and dark mode alike.
+Error messages sit in a tinted box so they cannot be missed; before, they
+were hard to read on a light screen. On a phone, each task's buttons now sit
+neatly under its name, and neither a long task title nor a long file
+name can push the page sideways; the attach links and file thumbnails wear
+the same look. The infrastructure notes now record where the
+wavecenter.com domain is registered, who runs its DNS and email, and the one
+record that put the app at app.wavecenter.com, where it is now live.
+
+---
+
+## 2026-10-12 — Dane can attach files and pictures to a task (#22)
+
+Every task now has an "attach" link, and so does the add box. Pick a file
+and it is saved with the task: pictures show as small thumbnails you can
+click to open, other files as a name you click to download, and each has a
+"remove" link. A file over 10 MB is refused straight away with a message
+saying so. The files are stored privately in the database's own file
+storage, never on the web host's disk, and each member can reach only their
+own. If an upload fails part-way, the screen says so and nothing
+half-saved is left behind. Deleting a task deletes its files too. This is
+what Dane needs to hand over the WaveCenter logo and favicon.
+
+---
+
 ## 2026-10-12 — Adding a task takes details, a parent and a priority (#21)
 
 Adding a task used to mean typing a title and nothing else. The add box is

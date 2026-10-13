@@ -16,10 +16,12 @@ clients. If the framework is ever replaced, this folder does not change.
 |---|---|
 | `tasks.ts` | The task record, and `createTask` / `updateTask` / `deleteTask`: the only path for making, changing or deleting a task. A parent must be a task you can see, and a task can never end up under its own sub-task. |
 | `agents.ts` | The "Launch AI Agents" switch (`setAgentsOn`), `agentOrder` (the order agents take ticked tasks in, highest priority first, then oldest first), and the hand-off to the Loop Queue: `handOffTask`, `completeHandOff`, `returnHandOff`. |
+| `files.ts` | `attachFile` / `removeFile` / `deleteTaskWithFiles`: files attached to a task. A name, at most 10 MB, a task you can see, and a tool name are required; the stored copy and its record are kept in step, so a failure leaves nothing half-saved. |
 | `points.ts` | `setPoints` / `awardPoints`: the only functions that may change a task's points. |
 | `tool.ts` | Every change names the tool that made it; a change with no tool name is refused. |
-| `memoryTaskStore.ts` | Keeps tasks in memory so the tests can check the rules without a database. |
+| `memoryTaskStore.ts`, `memoryTaskFileStore.ts` | Keep tasks and files in memory so the tests can check the rules without a database. |
 
 Core does not talk to Supabase. Each client hands it a `TaskStore`, a thin
 adapter that reads and writes rows and decides nothing (the scripts' one is
-`scripts/lib/restTaskStore.mjs`; the website's is `app/lib/taskStore.ts`). The tests (`*.test.ts`) run in `npm test`.
+`scripts/lib/restTaskStore.mjs`; the website's is `app/lib/taskStore.ts`), and
+for files a `TaskFileStore` (the website's is `app/lib/taskFileStore.ts`). The tests (`*.test.ts`) run in `npm test`.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { sendMagicLink } from "../auth/actions";
+import SiteHeader from "../SiteHeader";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../lib/supabase";
 
 // Every message is fixed text chosen by a code, so nothing typed into the
@@ -24,29 +25,32 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
   const missing = "missing" in settings ? settings.missing : [];
 
   return (
-    <main>
-      <h1>Sign in</h1>
-      {sent ? (
-        <p className="lede">Check your email. We sent you a sign-in link; open it in this browser.</p>
-      ) : (
-        <p className="lede">Enter your email and we will send you a link that signs you in. No password.</p>
-      )}
-      {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
-      {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
-      {missing.length > 0 ? (
-        <p className="error" role="alert">
-          {ERRORS.setup} Missing: {missing.join(", ")}.
+    <>
+      <SiteHeader showSignIn={false} />
+      <main>
+        <h1>Sign in</h1>
+        {sent ? (
+          <p className="lede">Check your email. We sent you a sign-in link; open it in this browser.</p>
+        ) : (
+          <p className="lede">Enter your email and we will send you a link that signs you in. No password.</p>
+        )}
+        {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
+        {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
+        {missing.length > 0 ? (
+          <p className="error" role="alert">
+            {ERRORS.setup} Missing: {missing.join(", ")}.
+          </p>
+        ) : (
+          <form action={sendMagicLink} className="stack">
+            <label htmlFor="email">Email</label>
+            <input id="email" name="email" type="email" autoComplete="email" required />
+            <button type="submit">{sent ? "Send another link" : "Email me a sign-in link"}</button>
+          </form>
+        )}
+        <p className="note">
+          <Link href="/">Back to WaveCenter</Link>
         </p>
-      ) : (
-        <form action={sendMagicLink} className="stack">
-          <label htmlFor="email">Email</label>
-          <input id="email" name="email" type="email" autoComplete="email" required />
-          <button type="submit">{sent ? "Send another link" : "Email me a sign-in link"}</button>
-        </form>
-      )}
-      <p className="note">
-        <Link href="/">Back to WaveCenter</Link>
-      </p>
-    </main>
+      </main>
+    </>
   );
 }

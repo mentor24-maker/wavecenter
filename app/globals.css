@@ -1,17 +1,35 @@
+/*
+ * WaveCenter's look: one accent colour (a sea blue), the system's own
+ * typeface, and the same spacing everywhere. Dark and light each get their
+ * own values, so both stay readable. Error messages have their own colour,
+ * chosen to stand out against either background.
+ */
 :root {
   --bg: #0b1020;
+  --surface: #121a30;
   --fg: #e8ecf5;
   --muted: #9aa5bd;
+  --line: #26304a;
   --accent: #5ad1ff;
+  --on-accent: #06243a;
+  --error: #ff8f8f;
+  --error-bg: #3a1620;
+  --space: 1rem;
+  --radius: 0.5rem;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f7f9fd;
+    --surface: #ffffff;
     --fg: #121a2b;
     --muted: #55617a;
+    --line: #dde3ee;
     --accent: #0a6fb3;
+    --on-accent: #ffffff;
+    --error: #b42318;
+    --error-bg: #fdecea;
     color-scheme: light;
   }
 }
@@ -23,76 +41,127 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  line-height: 1.55;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
 }
 
+/* The bar across the top of every page. */
+.site { border-bottom: 1px solid var(--line); background: var(--surface); }
+.site-inner {
+  max-width: 44rem; margin: 0 auto; padding: 0.75rem var(--space);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space);
+}
+.brand {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  color: var(--fg); text-decoration: none; font-size: 1.2rem; letter-spacing: -0.01em;
+}
+.brand b { color: var(--accent); font-weight: 700; }
+.mark { width: 1.75rem; height: 1.75rem; flex: none; }
+.mark circle { fill: var(--accent); }
+.mark path { fill: none; stroke: var(--on-accent); stroke-width: 2.5; stroke-linecap: round; }
+.who { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.who .email { color: var(--muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 main {
-  max-width: 40rem;
+  max-width: 44rem;
   margin: 0 auto;
-  padding: 4rem 1rem;
+  padding: calc(var(--space) * 3) var(--space) calc(var(--space) * 4);
 }
 
 h1 {
-  font-size: 2.5rem;
+  font-size: 2.25rem;
+  line-height: 1.2;
   letter-spacing: -0.02em;
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.5rem;
 }
 
-.lede {
-  color: var(--accent);
-  font-size: 1.25rem;
-  margin: 0 0 2rem;
+h2 {
+  font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;
+  margin: calc(var(--space) * 2) 0 0.5rem; color: var(--muted);
 }
+
+p { margin: 0 0 var(--space); }
+
+.lede { color: var(--accent); font-size: 1.25rem; margin-bottom: calc(var(--space) * 1.5); }
 
 .note { color: var(--muted); }
 
-a { color: var(--accent); }
+a { color: var(--accent); text-underline-offset: 0.15em; }
 
-.error { color: #ff7a7a; }
+/* A failed save or a problem: tinted box, own colour, never hidden. */
+.error {
+  color: var(--error); background: var(--error-bg);
+  border-left: 3px solid var(--error); border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+}
 
-.stack { display: flex; flex-direction: column; gap: 0.5rem; max-width: 24rem; }
+.stack { display: flex; flex-direction: column; gap: 0.5rem; max-width: 24rem; margin-bottom: calc(var(--space) * 1.5); }
+label { font-weight: 600; font-size: 0.95rem; }
 
-input, button { font: inherit; padding: 0.5rem 0.75rem; border-radius: 0.375rem; }
-input { border: 1px solid var(--muted); background: transparent; color: var(--fg); }
-button { border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
-button.link { background: none; color: var(--accent); padding: 0; text-decoration: underline; }
-
-.bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 2rem; }
-.bar button { white-space: nowrap; }
-
-h2 { font-size: 1.1rem; margin: 2rem 0 0.5rem; color: var(--muted); }
-
-/* The to-do list. Wraps cleanly down to a phone-width screen. */
-textarea { font: inherit; padding: 0.5rem 0.75rem; border-radius: 0.375rem; resize: vertical;
-  border: 1px solid var(--muted); background: transparent; color: var(--fg); width: 100%; }
-select { font: inherit; padding: 0.25rem; border-radius: 0.375rem; max-width: 14rem;
-  background: var(--bg); color: var(--fg); border: 1px solid var(--muted); }
-.add { display: flex; flex-direction: column; gap: 0.5rem; margin: 1.5rem 0 0.5rem; }
-.add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.add .line input { flex: 1; min-width: 0; }
-.add select { flex: 1 1 10rem; max-width: none; padding: 0.4rem; }
-.add p { margin: 0; }
+input, button, select, textarea { font: inherit; }
+input, select, textarea {
+  padding: 0.55rem 0.75rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+button, .button {
+  display: inline-block; padding: 0.55rem 1.1rem; border-radius: var(--radius);
+  border: 0; background: var(--accent); color: var(--on-accent);
+  font-weight: 600; text-decoration: none; cursor: pointer;
+}
+/* Small text-only actions: sign out, edit, attach, delete. */
+button.link, label.link, button.quiet, a.quiet {
+  background: none; padding: 0; font-weight: 400; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 0.15em;
+}
+button.quiet, a.quiet { text-decoration: none; font-size: 0.95rem; white-space: nowrap; }
+button.quiet:hover, a.quiet:hover { text-decoration: underline; }
+textarea { width: 100%; resize: vertical; }
 button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default; }
 
-.tasks { list-style: none; padding: 0; margin: 0; }
+/* The to-do list. Wraps cleanly down to a phone-width screen. */
+/* The add form: title on one line, details below, then parent and priority. */
+.add { display: flex; flex-direction: column; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+.add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.add .line input { flex: 1; min-width: 0; }
+.add select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
+.add p { margin: 0; }
+
+.tasks {
+  list-style: none; padding: 0 var(--space); margin: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
 .task {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem;
-  padding: 0.6rem 0; border-bottom: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  padding: 0.7rem 0; border-bottom: 1px solid var(--line);
 }
+.task:last-child { border-bottom: 0; }
 .task.sub { margin-left: 1.75rem; }
 .task.done .grow { text-decoration: line-through; color: var(--muted); }
-.task input[type="checkbox"] { width: 1.15rem; height: 1.15rem; margin: 0; }
+.task input[type="checkbox"] { width: 1.15rem; height: 1.15rem; margin: 0; accent-color: var(--accent); }
 .task .grow { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .task .grow input { width: 100%; }
-.task .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
-.task .points { width: 5rem; padding: 0.25rem 0.5rem; }
+/* Each task's controls sit on their own line, lined up under its title. */
+.task .controls {
+  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
+  min-width: 0; padding-left: 1.9rem; font-size: 0.9rem;
+}
+.task .points { width: 4rem; padding: 0.25rem 0.5rem; flex: none; }
+.task select { padding: 0.25rem 0.4rem; flex: 1 1 0; max-width: 16rem; min-width: 7rem; }
 .task .details { display: block; white-space: pre-wrap; color: var(--muted); font-size: 0.9rem; }
 .task .edit { display: flex; flex-direction: column; gap: 0.4rem; }
 .task .full { flex-basis: 100%; margin: 0.25rem 0 0; }
 
 @media (max-width: 30rem) {
-  main { padding: 2rem 0.75rem; }
-  h1 { font-size: 2rem; }
+  main { padding: calc(var(--space) * 2) 0.75rem calc(var(--space) * 3); }
+  .site-inner { padding: 0.6rem 0.75rem; }
+  h1 { font-size: 1.85rem; }
+  .tasks { padding: 0 0.75rem; }
+  .task.sub { margin-left: 1rem; }
+  .who .email { max-width: 9rem; }
 }
 
 /* Handing tasks to AI agents: the switch above the list, the tick-box columns. */
@@ -114,3 +183,14 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task.head .grow { font-size: 0.85rem; }
 .task input.ai { accent-color: var(--accent); }
 .badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+
+/* Attached files: pictures as small thumbnails, other files as links. A long
+   file name wraps instead of pushing the page sideways on a phone. */
+label.attach { cursor: pointer; align-self: center; }
+label.attach:has(input:disabled) { opacity: 0.5; cursor: default; }
+.files { list-style: none; padding: 0; margin: 0.25rem 0 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.task .files { padding-left: 1.9rem; font-size: 0.9rem; }
+.files li { display: flex; align-items: center; gap: 0.4rem; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.files .thumb { display: block; width: 3.5rem; height: 3.5rem; object-fit: contain; border-radius: 0.375rem; border: 1px solid var(--line); background: var(--surface); }
+.files li > :last-child { flex: none; overflow-wrap: normal; }
+.chip { display: inline-block; max-width: 100%; overflow-wrap: anywhere; margin-right: 0.5rem; }

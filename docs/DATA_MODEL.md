@@ -1,13 +1,16 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is two tables: `tasks`,
-and `member_settings`, which holds each member's "Launch AI Agents" switch.
+What WaveCenter stores, in plain words. Today that is three tables: `tasks`;
+`member_settings`, which holds each member's "Launch AI Agents" switch; and
+`task_files`, the files attached to tasks, whose stored copies live in a
+private file-storage bucket.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 `agent_selected` and the `member_settings` table;
-`20261012230000_agent_handoff.sql` added `agent_ticket_url`); this page
-explains them.
+`20261012230000_agent_handoff.sql` added `agent_ticket_url`;
+`20261013040000_task_files.sql` added `task_files` and the `task-files`
+bucket); this page explains them.
 
 ## The `tasks` table
 
@@ -90,6 +93,44 @@ security was on from the moment this table was made: a member reads and
 changes only their own row, and a signed-out visitor gets nothing.
 `npm run check:tasks-rls` proves it for this table too.
 
+### Files attached to a task
+
+A member can attach files to a task: a logo, a screenshot, a document. Each
+file has two halves. The **stored copy** sits in a private Supabase Storage
+bucket called `task-files`, never on the web host's own disk (engineering
+rule 5), in a folder named after its owner:
+`<owner id>/<task id>/<random id>-<file name>`. The **record** is one row in
+`task_files`:
+
+| Column | What it holds |
+|---|---|
+| `id` | The file's permanent identifier. |
+| `task_id` | The task it is attached to. If the task is deleted, the row goes with it. |
+| `owner_id` | The member it belongs to. Filled in automatically. |
+| `path` | Where the stored copy is. It must sit in its owner's folder for its own task. |
+| `name` | The file's name as the member chose it. Never blank. |
+| `content_type` | What kind of file it is, for example `image/png`. Pictures show as thumbnails. |
+| `size_bytes` | How big it is. At most 10 MB; the bucket refuses anything bigger too. |
+| `tool` | Which tool attached it. |
+| `created_at` | When it was attached. |
+
+Files only change through `core/files.ts`: `attachFile`, `removeFile` and
+`deleteTaskWithFiles`. They keep the two halves in step. A record is only
+written for a copy that is already stored, and if the record cannot be
+written the copy is deleted again. Removing a file, or deleting its task,
+deletes the stored copy, not just the record.
+
+A file goes from the browser straight to storage, using a one-time upload
+link the server asks for as the signed-in member. No key reaches the
+browser, and a big file never passes through the web server (Vercel refuses
+requests over about 4.5 MB; this way also works on any host). Viewing a file
+uses a signed link that stops working after an hour; the bucket has no
+public links at all.
+
+Row-level security was on from the moment `task_files` was made, and the
+bucket has its own rules: a member reads, adds and deletes only their own
+files, only in their own folder, and only on their own tasks.
+
 ### Who can see what
 
 Row-level security (the database's own rule about which rows each person may
@@ -103,7 +144,8 @@ never goes to the browser.
 
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
 members, has each write a task, checks that neither can read, change or delete
-the other's, and then deletes them both.
+the other's (tasks, settings and attached files alike), and then deletes them
+both along with their files.
 
 ## Why the four fields are there from day one
 
