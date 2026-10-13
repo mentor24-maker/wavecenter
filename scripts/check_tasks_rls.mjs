@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * Prove, through the real Supabase API, that one member cannot see or change
- * another member's tasks (row-level security on `public.tasks`).
+ * another member's tasks (row-level security on `public.tasks`), settings, or
+ * attached files (`public.task_files` and the private `task-files` bucket).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
- * can read, change and delete. The users and their tasks are deleted at the
- * end, pass or fail.
+ * can read, change and delete. The users, their tasks and their stored files
+ * are deleted at the end, pass or fail.
  *
  * Run it with the keys from Doppler:
  *   doppler run --project wavecenter --config dev -- node scripts/check_tasks_rls.mjs
@@ -20,6 +21,7 @@
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
+import { attachFile, filePath, removeFile } from '../core/files.ts';
 import { createTask, updateTask } from '../core/tasks.ts';
 import { restTaskStore } from './lib/restTaskStore.mjs';
 
@@ -82,6 +84,50 @@ function settingsStore(member) {
     },
   };
 }
+
+const BUCKET = 'task-files';
+
+/** A TaskFileStore (core/files.ts) over REST, acting as one member. */
+function fileStore(member) {
+  const fromRow = (r) => r && {
+    id: r.id, taskId: r.task_id, ownerId: r.owner_id, path: r.path, name: r.name,
+    contentType: r.content_type, sizeBytes: r.size_bytes, tool: r.tool, createdAt: r.created_at,
+  };
+  return {
+    async insert(row) {
+      const got = await call('/rest/v1/task_files', {
+        method: 'POST', token: member.token, prefer: 'return=representation',
+        body: { task_id: row.taskId, path: row.path, name: row.name, content_type: row.contentType, size_bytes: row.sizeBytes, tool: row.tool },
+      });
+      if (got.status >= 300) throw new Error(`task_files insert failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json[0]);
+    },
+    async get(id) {
+      return fromRow((await call(`/rest/v1/task_files?id=eq.${id}`, { token: member.token })).json?.[0]) ?? null;
+    },
+    async listForTask(taskId) {
+      return ((await call(`/rest/v1/task_files?task_id=eq.${taskId}&order=created_at`, { token: member.token })).json ?? []).map(fromRow);
+    },
+    async remove(id) {
+      const got = await call(`/rest/v1/task_files?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+      return Array.isArray(got.json) && got.json.length > 0;
+    },
+    async deleteObjects(paths) {
+      const got = await call(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', token: member.token, body: { prefixes: paths } });
+      if (got.status >= 300) throw new Error(`storage delete failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    },
+  };
+}
+
+/** Upload a file the way the browser does: a one-time signed link asked for as `member`, then a keyless PUT. */
+async function upload(member, path, text) {
+  const signed = await call(`/storage/v1/object/upload/sign/${BUCKET}/${path}`, { method: 'POST', token: member.token, body: {} });
+  if (signed.status >= 300) return { status: signed.status, json: signed.json };
+  const res = await fetch(`${URL_}/storage/v1${signed.json.url}`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: text });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+const storedPaths = [];
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
 
@@ -147,10 +193,74 @@ try {
 
   const stillOn = await admin(`/rest/v1/member_settings?owner_id=eq.${a.id}&select=agents_on`);
   check('A’s switch is still on afterwards', stillOn.json?.[0]?.agents_on === true, `agents_on ${stillOn.json?.[0]?.agents_on}`);
+
+  // task_files and the task-files bucket: a member's attached files are their own.
+  const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
+  storedPaths.push(pathA);
+  const upA = await upload(a, pathA, 'A’s file');
+  check('A can upload a file into A’s own folder with a one-time link', upA.status === 200, `HTTP ${upA.status} ${JSON.stringify(upA.json)}`);
+  const fileA = await attachFile(a.store, fileStore(a), { taskId: insA.id, path: pathA, name: 'a-logo.txt', contentType: 'text/plain', sizeBytes: 8 }, TOOL);
+  check('A can attach it to A’s task through core', fileA.ownerId === a.id && fileA.tool === TOOL, JSON.stringify(fileA));
+
+  const filesB = await call('/rest/v1/task_files?select=name', { token: b.token });
+  check('B sees none of A’s file rows', filesB.status === 200 && filesB.json.length === 0, `sees ${JSON.stringify(filesB.json)}`);
+
+  const readObj = await call(`/storage/v1/object/authenticated/${BUCKET}/${pathA}`, { token: b.token });
+  check('B cannot read A’s stored file', readObj.status >= 400, `HTTP ${readObj.status}`);
+
+  const signObj = await call(`/storage/v1/object/sign/${BUCKET}/${pathA}`, { method: 'POST', token: b.token, body: { expiresIn: 60 } });
+  check('B cannot get a link to A’s stored file', signObj.status >= 400, `HTTP ${signObj.status} ${JSON.stringify(signObj.json)}`);
+
+  const anonObj = await call(`/storage/v1/object/public/${BUCKET}/${pathA}`);
+  check('the bucket is private: no public link works', anonObj.status >= 400, `HTTP ${anonObj.status}`);
+
+  const intoA = filePath(a.id, insA.id, randomUUID(), 'b-sneaks-in.txt');
+  storedPaths.push(intoA);
+  const upB = await upload(b, intoA, 'B’s file');
+  check('B cannot upload into A’s folder', upB.status >= 400, `HTTP ${upB.status} ${JSON.stringify(upB.json)}`);
+
+  const delObj = await call(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', token: b.token, body: { prefixes: [pathA] } });
+  check('B cannot delete A’s stored file', Array.isArray(delObj.json) && delObj.json.length === 0, `HTTP ${delObj.status} ${JSON.stringify(delObj.json)}`);
+
+  const delRow = await call(`/rest/v1/task_files?id=eq.${fileA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('B cannot delete A’s file row', delRow.status === 200 && delRow.json.length === 0, `HTTP ${delRow.status} ${JSON.stringify(delRow.json)}`);
+
+  const pathB = filePath(b.id, insA.id, randomUUID(), 'b.txt');
+  const forgeFile = await call('/rest/v1/task_files', { method: 'POST', token: b.token, body: { task_id: insA.id, path: pathB, name: 'b.txt', size_bytes: 1 } });
+  check('B cannot attach a file to A’s task', forgeFile.status >= 400, `HTTP ${forgeFile.status} ${forgeFile.json?.message ?? ''}`);
+
+  const forgeOwner = await call('/rest/v1/task_files', { method: 'POST', token: b.token, body: { task_id: insA.id, owner_id: a.id, path: pathA, name: 'x', size_bytes: 1 } });
+  check('B cannot add a file row in A’s name', forgeOwner.status >= 400, `HTTP ${forgeOwner.status} ${forgeOwner.json?.message ?? ''}`);
+
+  let refusedFile = '';
+  try { await removeFile(fileStore(b), fileA.id, TOOL); } catch (err) { refusedFile = err.message; }
+  check('B cannot remove A’s file through core either', /No file .* you may remove/.test(refusedFile), refusedFile || 'the remove went through');
+
+  const anonFiles = await call('/rest/v1/task_files?select=name');
+  check('a signed-out visitor sees no file rows', anonFiles.status >= 400 || (Array.isArray(anonFiles.json) && anonFiles.json.length === 0), `HTTP ${anonFiles.status}`);
+
+  const stillThere = await call(`/storage/v1/object/authenticated/${BUCKET}/${pathA}`, { token: a.token });
+  check('A can still read A’s own file afterwards', stillThere.status === 200, `HTTP ${stillThere.status}`);
+
+  await removeFile(fileStore(a), fileA.id, TOOL);
+  // Look in the folder listing, not at the file itself: storage may serve a
+  // just-read file from its cache for a short while after it is deleted.
+  const folder = await admin(`/storage/v1/object/list/${BUCKET}`, { method: 'POST', body: { prefix: `${a.id}/${insA.id}/` } });
+  const goneRow = await admin(`/rest/v1/task_files?id=eq.${fileA.id}&select=id`);
+  const left = Array.isArray(folder.json) ? folder.json.map((o) => o.name) : folder.json;
+  check('A can remove A’s own file through core: the stored copy and the row both go', Array.isArray(left) && left.length === 0 && goneRow.json?.length === 0, `left in the folder ${JSON.stringify(left)}, rows ${JSON.stringify(goneRow.json)}`);
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
 } finally {
+  // Deleting a user does not delete their stored files, so clear them first.
+  if (storedPaths.length) {
+    const cleared = await admin(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', body: { prefixes: storedPaths } });
+    if (cleared.status >= 300) {
+      failures += 1;
+      console.error(`could not delete the test files ${storedPaths.join(', ')}: HTTP ${cleared.status} — delete them by hand in the Supabase dashboard`);
+    }
+  }
   for (const id of users) {
     const gone = await admin(`/auth/v1/admin/users/${id}`, { method: 'DELETE' });
     if (gone.status >= 300) {
@@ -158,7 +268,7 @@ try {
       console.error(`could not delete test user ${id}: HTTP ${gone.status} — delete it by hand in the Supabase dashboard`);
     }
   }
-  console.log(`\n${users.length} test user(s) and their tasks deleted.`);
+  console.log(`\n${users.length} test user(s), their tasks and their files deleted.`);
 }
 
 console.log(failures ? `\ncheck_tasks_rls: ${failures} check(s) FAILED.` : '\ncheck_tasks_rls: every check held.');

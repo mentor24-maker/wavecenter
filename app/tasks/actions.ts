@@ -2,20 +2,24 @@
 
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
- * core (createTask, updateTask, setPoints, deleteTask, setAgentsOn) as the tool
- * `wavecenter`, acting as the signed-in member.
+ * core (createTask, updateTask, setPoints, setAgentsOn, attachFile, removeFile,
+ * deleteTaskWithFiles) as the tool `wavecenter`, acting as the signed-in
+ * member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it and keeps what was typed (engineering rule 6).
  */
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { setAgentsOn } from "../../core/agents.ts";
+import { attachFile, checkFile, deleteTaskWithFiles, filePath, removeFile } from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
-import { createTask, deleteTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
+import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
+import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -76,15 +80,19 @@ export interface NewTaskFields {
   priority: TaskPriority;
 }
 
-export async function addTask(fields: NewTaskFields): Promise<SaveResult> {
-  return save("add the task", async (store, supabase) => {
+/** Adding a task also says its id, so files picked in the add form can follow it. */
+export async function addTask(fields: NewTaskFields): Promise<SaveResult & { id?: string }> {
+  let id = "";
+  const result = await save("add the task", async (store, supabase) => {
     if (fields.parentTaskId) await requireOneLevel(store, supabase, null, fields.parentTaskId);
-    await createTask(
+    const task = await createTask(
       store,
       { title: fields.title, notes: cleanNotes(fields.notes), parentTaskId: fields.parentTaskId, priority: fields.priority },
       WAVECENTER_TOOL,
     );
+    id = task.id;
   });
+  return result.ok ? { ok: true, id } : result;
 }
 
 /** Change a task's title and details together, from the row's edit form. */
@@ -108,8 +116,10 @@ export async function moveUnder(id: string, parentTaskId: string | null): Promis
   });
 }
 
+/** Deleting a task deletes its attached files from storage too, not just the rows. */
 export async function removeTask(id: string): Promise<SaveResult> {
-  return save("delete the task", (store) => deleteTask(store, id, WAVECENTER_TOOL));
+  return save("delete the task", (store, supabase) =>
+    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase), id, WAVECENTER_TOOL));
 }
 
 export async function changePriority(id: string, priority: TaskPriority): Promise<SaveResult> {
@@ -141,4 +151,46 @@ export async function chooseForAgents(ids: string[], selected: boolean): Promise
 export async function switchAgents(on: boolean): Promise<SaveResult> {
   return save(on ? "turn AI agents on" : "turn AI agents off", (_store, supabase, memberId) =>
     setAgentsOn(supabaseMemberSettingsStore(supabase, memberId), on, WAVECENTER_TOOL));
+}
+
+/**
+ * Attaching a file takes three steps, so a big file never passes through the
+ * web server (Vercel refuses requests over about 4.5 MB, and this works the
+ * same on any host):
+ *
+ * 1. `startUpload` checks the file (a name, at most 10 MB, a task of your
+ *    own) and asks storage, as you, for a one-time link to put it in your
+ *    own folder. No key goes to the browser, only that link.
+ * 2. The browser sends the file straight to storage with the link.
+ * 3. `finishUpload` records it on the task through core. If that fails, core
+ *    deletes the stored copy again, so nothing is left half-saved.
+ */
+export type UploadTicket = { ok: true; path: string; uploadUrl: string } | { ok: false; error: string };
+
+export async function startUpload(taskId: string, name: string, sizeBytes: number): Promise<UploadTicket> {
+  let ticket = { path: "", uploadUrl: "" };
+  const result = await save("get the file ready to upload", async (store, supabase, memberId) => {
+    checkFile(name, sizeBytes);
+    if (!(await store.get(taskId))) throw new CoreError(`No task ${taskId} was found that you may attach a file to.`);
+    const path = filePath(memberId, taskId, randomUUID(), name);
+    const { data, error } = await supabase.storage.from(TASK_FILES_BUCKET).createSignedUploadUrl(path);
+    if (error) throw new Error(`File storage refused the upload: ${error.message}`);
+    ticket = { path, uploadUrl: data.signedUrl };
+  });
+  return result.ok ? { ok: true, ...ticket } : result;
+}
+
+export async function finishUpload(file: {
+  taskId: string;
+  path: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+}): Promise<SaveResult> {
+  return save("attach the file", (store, supabase) =>
+    attachFile(store, supabaseTaskFileStore(supabase), file, WAVECENTER_TOOL));
+}
+
+export async function removeAttachment(fileId: string): Promise<SaveResult> {
+  return save("remove the file", (_store, supabase) => removeFile(supabaseTaskFileStore(supabase), fileId, WAVECENTER_TOOL));
 }

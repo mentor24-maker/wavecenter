@@ -112,8 +112,8 @@ button, .button {
   border: 0; background: var(--accent); color: var(--on-accent);
   font-weight: 600; text-decoration: none; cursor: pointer;
 }
-/* Small text-only actions: sign out, edit, delete. */
-button.link, button.quiet, a.quiet {
+/* Small text-only actions: sign out, edit, attach, delete. */
+button.link, label.link, button.quiet, a.quiet {
   background: none; padding: 0; font-weight: 400; color: var(--accent);
   text-decoration: underline; text-underline-offset: 0.15em;
 }
@@ -183,3 +183,14 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task.head .grow { font-size: 0.85rem; }
 .task input.ai { accent-color: var(--accent); }
 .badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+
+/* Attached files: pictures as small thumbnails, other files as links. A long
+   file name wraps instead of pushing the page sideways on a phone. */
+label.attach { cursor: pointer; align-self: center; }
+label.attach:has(input:disabled) { opacity: 0.5; cursor: default; }
+.files { list-style: none; padding: 0; margin: 0.25rem 0 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.task .files { padding-left: 1.9rem; font-size: 0.9rem; }
+.files li { display: flex; align-items: center; gap: 0.4rem; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.files .thumb { display: block; width: 3.5rem; height: 3.5rem; object-fit: contain; border-radius: 0.375rem; border: 1px solid var(--line); background: var(--surface); }
+.files li > :last-child { flex: none; overflow-wrap: normal; }
+.chip { display: inline-block; max-width: 100%; overflow-wrap: anywhere; margin-right: 0.5rem; }
