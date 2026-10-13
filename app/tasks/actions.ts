@@ -54,20 +54,42 @@ async function save(
  * and a task that already has sub-tasks cannot become one. Core allows deeper
  * trees; this is the to-do list's own limit, so the screen stays simple.
  */
-async function requireOneLevel(store: Store, supabase: Supabase, id: string, parentTaskId: string) {
+async function requireOneLevel(store: Store, supabase: Supabase, id: string | null, parentTaskId: string) {
   const parent = await store.get(parentTaskId);
   if (parent?.parentTaskId) throw new CoreError(`"${parent.title}" is already a sub-task, and sub-tasks cannot have sub-tasks of their own yet.`);
+  if (!id) return; // A task being added has no sub-tasks yet.
   const { count, error } = await supabase.from("tasks").select("id", { count: "exact", head: true }).eq("parent_task_id", id);
   if (error) throw new Error(error.message);
   if (count) throw new CoreError("This task has sub-tasks of its own, so it cannot become a sub-task yet.");
 }
 
-export async function addTask(title: string): Promise<SaveResult> {
-  return save("add the task", (store) => createTask(store, { title }, WAVECENTER_TOOL));
+/** Details that are only blank space are no details: saved as empty. */
+function cleanNotes(notes: string): string | null {
+  return notes.trim() ? notes.trim() : null;
 }
 
-export async function renameTask(id: string, title: string): Promise<SaveResult> {
-  return save("rename the task", (store) => updateTask(store, id, { title }, WAVECENTER_TOOL));
+/** What the add form sends. */
+export interface NewTaskFields {
+  title: string;
+  notes: string;
+  parentTaskId: string | null;
+  priority: TaskPriority;
+}
+
+export async function addTask(fields: NewTaskFields): Promise<SaveResult> {
+  return save("add the task", async (store, supabase) => {
+    if (fields.parentTaskId) await requireOneLevel(store, supabase, null, fields.parentTaskId);
+    await createTask(
+      store,
+      { title: fields.title, notes: cleanNotes(fields.notes), parentTaskId: fields.parentTaskId, priority: fields.priority },
+      WAVECENTER_TOOL,
+    );
+  });
+}
+
+/** Change a task's title and details together, from the row's edit form. */
+export async function editTask(id: string, title: string, notes: string): Promise<SaveResult> {
+  return save("save the task", (store) => updateTask(store, id, { title, notes: cleanNotes(notes) }, WAVECENTER_TOOL));
 }
 
 export async function markDone(id: string, done: boolean): Promise<SaveResult> {

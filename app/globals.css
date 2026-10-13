@@ -99,12 +99,12 @@ a { color: var(--accent); text-underline-offset: 0.15em; }
 .stack { display: flex; flex-direction: column; gap: 0.5rem; max-width: 24rem; margin-bottom: calc(var(--space) * 1.5); }
 label { font-weight: 600; font-size: 0.95rem; }
 
-input, button, select { font: inherit; }
-input, select {
+input, button, select, textarea { font: inherit; }
+input, select, textarea {
   padding: 0.55rem 0.75rem; border-radius: var(--radius);
   border: 1px solid var(--line); background: var(--surface); color: var(--fg);
 }
-input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 button, .button {
@@ -119,11 +119,16 @@ button.link, button.quiet, a.quiet {
 }
 button.quiet, a.quiet { text-decoration: none; font-size: 0.95rem; white-space: nowrap; }
 button.quiet:hover, a.quiet:hover { text-decoration: underline; }
+textarea { width: 100%; resize: vertical; }
 button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default; }
 
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
-.add { display: flex; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
-.add input { flex: 1; min-width: 0; }
+/* The add form: title on one line, details below, then parent and priority. */
+.add { display: flex; flex-direction: column; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+.add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.add .line input { flex: 1; min-width: 0; }
+.add select { flex: 1 1 10rem; }
+.add p { margin: 0; }
 
 .tasks {
   list-style: none; padding: 0 var(--space); margin: 0;
@@ -141,11 +146,13 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task .grow input { width: 100%; }
 /* Each task's controls sit on their own line, lined up under its title. */
 .task .controls {
-  flex-basis: 100%; display: flex; align-items: center; gap: 0.75rem;
+  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
   min-width: 0; padding-left: 1.9rem; font-size: 0.9rem;
 }
 .task .points { width: 4rem; padding: 0.25rem 0.5rem; flex: none; }
-.task select { padding: 0.25rem 0.4rem; flex: 1 1 0; max-width: 16rem; min-width: 0; }
+.task select { padding: 0.25rem 0.4rem; flex: 1 1 0; max-width: 16rem; min-width: 7rem; }
+.task .details { display: block; white-space: pre-wrap; color: var(--muted); font-size: 0.9rem; }
+.task .edit { display: flex; flex-direction: column; gap: 0.4rem; }
 .task .full { flex-basis: 100%; margin: 0.25rem 0 0; }
 
 @media (max-width: 30rem) {

@@ -148,8 +148,9 @@ the target Vercel shows, then click Refresh.
 Vercel (as `starcaster.pro` does) would mean copying both MX records and the
 SPF record across first; a missed record silently stops email. The GoDaddy
 transfer changes only the registrar and does not need the name servers to
-move. When `app.wavecenter.com` is live, add `https://app.wavecenter.com/**`
-to Supabase's Redirect URLs and make it the Site URL (see the table below).
+move. Supabase's sign-in links follow the app to its new name: Dane made
+`https://app.wavecenter.com` the Site URL and added it to the Redirect URLs on
+2026-10-12, 7:48 pm MT (see the table below).
 
 ## Sign-in: Supabase Auth, email magic link
 
