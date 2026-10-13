@@ -107,3 +107,11 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task.head .grow { font-size: 0.85rem; }
 .task input.ai { accent-color: var(--accent); }
 .badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+
+/* Attached files: pictures as small thumbnails, other files as links. */
+label.attach { color: var(--accent); text-decoration: underline; cursor: pointer; align-self: center; }
+label.attach:has(input:disabled) { opacity: 0.5; cursor: default; }
+.files { list-style: none; padding: 0; margin: 0.25rem 0 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.files li { display: flex; align-items: center; gap: 0.4rem; }
+.files .thumb { display: block; width: 3.5rem; height: 3.5rem; object-fit: contain; border-radius: 0.25rem; border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); }
+.chip { white-space: nowrap; margin-right: 0.5rem; }

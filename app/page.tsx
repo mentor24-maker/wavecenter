@@ -2,7 +2,9 @@ import Link from "next/link";
 import { signOut } from "./auth/actions";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
-import TaskList from "./tasks/TaskList";
+import { isImage } from "../core/files.ts";
+import { TASK_FILES_BUCKET } from "./lib/taskFileStore";
+import TaskList, { type ListFile } from "./tasks/TaskList";
 
 /**
  * Signed out: the placeholder page, which says what this is, plus a way to
@@ -44,14 +46,49 @@ export default async function Home() {
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
+/** How long a link to view or download an attached file works: one hour. */
+const FILE_LINK_SECONDS = 60 * 60;
+
+/**
+ * Every attached file, with a short-lived signed link to it: the bucket is
+ * private, so a link is the only way in, and it stops working after an hour.
+ * Pictures get a link that opens them; other files a link that downloads.
+ */
+async function loadFiles(supabase: Supabase): Promise<{ files: ListFile[]; error: string | null }> {
+  const { data: rows, error } = await supabase.from("task_files").select("id, task_id, path, name, content_type").order("created_at");
+  if (error) return { files: [], error: error.message };
+  if (!rows?.length) return { files: [], error: null };
+  const bucket = supabase.storage.from(TASK_FILES_BUCKET);
+  const images = rows.filter((r) => isImage(r.content_type));
+  const others = rows.filter((r) => !isImage(r.content_type));
+  const [shown, downloads] = await Promise.all([
+    images.length ? bucket.createSignedUrls(images.map((r) => r.path), FILE_LINK_SECONDS) : { data: [], error: null },
+    others.length ? bucket.createSignedUrls(others.map((r) => r.path), FILE_LINK_SECONDS, { download: true }) : { data: [], error: null },
+  ]);
+  const linkError = shown.error ?? downloads.error;
+  if (linkError) return { files: [], error: linkError.message };
+  const links = new Map([...(shown.data ?? []), ...(downloads.data ?? [])].map((l) => [l.path, l.signedUrl]));
+  return {
+    files: rows.map((r) => ({
+      id: r.id,
+      taskId: r.task_id,
+      name: r.name,
+      image: isImage(r.content_type),
+      url: links.get(r.path) ?? null,
+    })),
+    error: null,
+  };
+}
+
 async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
-  const [{ data: tasks, error }, settings] = await Promise.all([
+  const [{ data: tasks, error }, settings, files] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, status, points, parent_task_id, priority, agent_selected, created_at")
       .order("position")
       .order("created_at"),
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
+    loadFiles(supabase),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
   // not an error. A failed read is an error, and the switch says so.
@@ -85,6 +122,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
             createdAt: t.created_at,
           }))}
           agents={agents}
+          files={files}
         />
       )}
     </main>

@@ -2,7 +2,8 @@
 
 /**
  * The to-do list: add, rename, tick off, reopen, delete, set points and
- * priority, and put a task under another one. Above it, the "Launch AI
+ * priority, put a task under another one, and attach files to it (pictures
+ * show as small thumbnails). Above it, the "Launch AI
  * Agents" switch; on every open task, a box that hands it to AI agents, with
  * a tick-all box in the header row. Every change is a server action that goes
  * through core (app/tasks/actions.ts).
@@ -11,18 +12,22 @@
  * typed, including when the network is down and the server never answered
  * (engineering rule 6). Every empty section says why it is empty (rule 7).
  */
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
+import { checkFile } from "../../core/files.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
 import {
   addTask,
   changePoints,
   changePriority,
   chooseForAgents,
+  finishUpload,
   markDone,
   moveUnder,
+  removeAttachment,
   removeTask,
   renameTask,
+  startUpload,
   switchAgents,
   type SaveResult,
 } from "./actions";
@@ -36,6 +41,15 @@ export interface ListTask {
   priority: TaskPriority;
   agentSelected: boolean;
   createdAt: string;
+}
+
+/** A file attached to a task, with a short-lived link to it (null if none could be made). */
+export interface ListFile {
+  id: string;
+  taskId: string;
+  name: string;
+  image: boolean;
+  url: string | null;
 }
 
 /** The member's "Launch AI Agents" switch; `on` is null if it could not be read. */
@@ -52,10 +66,66 @@ type Failure = { at: string; message: string } | null;
 const UNREACHABLE =
   "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
 
-export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents: AgentsSwitch }) {
+/**
+ * Attach files to a task, one after another (app/tasks/actions.ts explains
+ * the three steps). A file over 10 MB is refused here, before anything is
+ * sent. Resolves ok only if every file was attached; otherwise the answer
+ * names what failed, and a failed file leaves nothing behind.
+ */
+async function uploadFiles(taskId: string, files: File[]): Promise<SaveResult> {
+  const problems: string[] = [];
+  for (const file of files) {
+    const result = await uploadFile(taskId, file).catch((): SaveResult => ({ ok: false, error: UNREACHABLE }));
+    if (!result.ok) problems.push(result.error);
+  }
+  if (!problems.length) return { ok: true };
+  const attached = files.length - problems.length;
+  return { ok: false, error: `${attached ? `${attached} of ${files.length} files were attached. ` : ""}${problems.join(" ")}` };
+}
+
+async function uploadFile(taskId: string, file: File): Promise<SaveResult> {
+  try {
+    checkFile(file.name, file.size);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const ticket = await startUpload(taskId, file.name, file.size);
+  if (!ticket.ok) return ticket;
+  const notSent = `"${file.name}" could not be sent to file storage, so it was not attached. Check your connection and try again.`;
+  try {
+    const sent = await fetch(ticket.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!sent.ok) return { ok: false, error: `File storage refused "${file.name}" (error ${sent.status}), so it was not attached. Try again.` };
+  } catch {
+    return { ok: false, error: notSent };
+  }
+  return finishUpload({ taskId, path: ticket.path, name: file.name, contentType: file.type, sizeBytes: file.size });
+}
+
+/** The files picked in a file box, then the box emptied so the same file can be picked again. */
+function picked(e: ChangeEvent<HTMLInputElement>): File[] {
+  const files = [...(e.target.files ?? [])];
+  e.target.value = "";
+  return files;
+}
+
+export default function TaskList({
+  tasks,
+  agents,
+  files,
+}: {
+  tasks: ListTask[];
+  agents: AgentsSwitch;
+  /** Every attached file, or why they could not be loaded. */
+  files: { files: ListFile[]; error: string | null };
+}) {
   const [failure, setFailure] = useState<Failure>(null);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState("");
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
 
   /** Run one save; report how it went. Resolves true only on a confirmed save. */
   function run(at: string, action: () => Promise<SaveResult>): Promise<boolean> {
@@ -73,10 +143,40 @@ export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents:
     });
   }
 
+  /** Add the task, then attach any files picked for it. */
   async function add(e: FormEvent) {
     e.preventDefault();
     if (!draft.trim()) return;
-    if (await run("new", () => addTask(draft))) setDraft("");
+    const added = await run("new", async () => {
+      const result = await addTask(draft);
+      if (!result.ok || !result.id || !draftFiles.length) return result;
+      // The task exists now, so clear the box even if a file fails: adding again would make it twice.
+      setDraft("");
+      const attached = await uploadFiles(result.id, draftFiles);
+      setDraftFiles([]);
+      return attached.ok ? attached : { ok: false, error: `The task was added, but not every file: ${attached.error}` };
+    });
+    if (added) {
+      setDraft("");
+      setDraftFiles([]);
+    }
+  }
+
+  /** Pick files for the task being added. A file over 10 MB is refused straight away. */
+  function pickForNew(e: ChangeEvent<HTMLInputElement>) {
+    const chosen = picked(e);
+    const refused: string[] = [];
+    const ok = chosen.filter((f) => {
+      try {
+        checkFile(f.name, f.size);
+        return true;
+      } catch (err) {
+        refused.push((err as Error).message);
+        return false;
+      }
+    });
+    setDraftFiles((now) => [...now, ...ok]);
+    setFailure(refused.length ? { at: "new", message: refused.join(" ") } : null);
   }
 
   const done = tasks.filter((t) => t.status === "done");
@@ -86,6 +186,8 @@ export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents:
   const hasChildren = new Set(tasks.map((t) => t.parentTaskId).filter(Boolean));
   const inLine = agentOrder(tasks);
   const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
+  const filesByTask = new Map<string, ListFile[]>();
+  for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
   const allTicked = open.length > 0 && open.every((t) => t.agentSelected);
   const someTicked = open.some((t) => t.agentSelected);
 
@@ -97,6 +199,7 @@ export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents:
       sub={sub}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
+      files={filesByTask.get(t.id) ?? []}
       place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
       pending={pending}
@@ -157,9 +260,29 @@ export default function TaskList({ tasks, agents }: { tasks: ListTask[]; agents:
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
         />
+        <label className="link attach">
+          attach
+          <input type="file" multiple hidden disabled={pending} onChange={pickForNew} />
+        </label>
         <button type="submit" disabled={pending || !draft.trim()}>Add</button>
       </form>
+      {draftFiles.length > 0 && (
+        <p className="note">
+          To attach when you add:{" "}
+          {draftFiles.map((f, i) => (
+            <span key={i} className="chip">
+              {f.name}{" "}
+              <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
+            </span>
+          ))}
+        </p>
+      )}
       {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
+      {files.error && (
+        <p className="error" role="alert">
+          Attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.
+        </p>
+      )}
 
       {tasks.length === 0 ? (
         <p className="note">No tasks yet — add your first one above.</p>
@@ -211,6 +334,7 @@ function TaskRow({
   sub,
   parentTitle,
   parents,
+  files,
   place,
   failure,
   pending,
@@ -223,6 +347,8 @@ function TaskRow({
   parentTitle?: string;
   /** Tasks this one may go under, or null when it has sub-tasks of its own. */
   parents: ListTask[] | null;
+  /** The files attached to it. */
+  files: ListFile[];
   /** Its place in the agents' line, shown while agents are on. */
   place?: number;
   failure: string | null;
@@ -325,8 +451,44 @@ function TaskRow({
         ) : (
           <button type="button" className="link" onClick={() => setEditing(true)}>edit</button>
         )}
+        <label className="link attach">
+          attach
+          <input
+            type="file"
+            multiple
+            hidden
+            aria-label={`Attach files to "${task.title}"`}
+            disabled={pending}
+            onChange={(e) => {
+              const chosen = picked(e);
+              if (chosen.length) void run(() => uploadFiles(task.id, chosen));
+            }}
+          />
+        </label>
         <button type="button" className="link" disabled={pending} onClick={() => run(() => removeTask(task.id))}>delete</button>
       </span>
+      {files.length > 0 && (
+        <ul className="files full">
+          {files.map((f) => (
+            <li key={f.id}>
+              {!f.url ? (
+                <span className="note">{f.name} (no link could be made; try reloading)</span>
+              ) : f.image ? (
+                <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
+                  {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.url} alt={f.name} className="thumb" />
+                </a>
+              ) : (
+                <a href={f.url}>{f.name}</a>
+              )}
+              <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
+                remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {failure && <p className="error full" role="alert">{failure}</p>}
     </li>
   );
