@@ -2,6 +2,7 @@
 # Run one WaveCenter loop skill on a fixed interval, forever.
 #
 #   loop_runner.sh <skill-name> [interval-seconds]
+#   loop_runner.sh <skill-name> --once    # one pass now, its report printed here too
 #
 # A seed-sized copy of StarCaster's scripts/loop_runner.sh: the lock, the
 # pull-before-pass, the time limit and the honest END line are kept; the
@@ -9,7 +10,7 @@
 # WaveCenter has an incident that needs them.
 #
 # Each iteration is a FRESH headless Claude Code session started in the main
-# checkout. Both loop skills pick the next ticket from ClickUp on every run,
+# checkout. The loop skills (loop-build, loop-review, loop-handoff) pick the next ticket from ClickUp on every run,
 # so there is no state to carry between runs, and a crashed run costs one
 # interval rather than the whole night.
 #
@@ -22,13 +23,16 @@ set -u
 # launchd hands the job almost no environment. Set the PATH once, here.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
-SKILL=${1:?usage: loop_runner.sh <skill-name> [interval-seconds]}
-INTERVAL=${2:-1800}
+SKILL=${1:?usage: loop_runner.sh <skill-name> [interval-seconds | --once]}
+ONCE=0
+if [ "${2:-}" = "--once" ]; then ONCE=1; INTERVAL=0; else INTERVAL=${2:-1800}; fi
 
 # The repo is WHERE THIS SCRIPT LIVES, never a path typed from memory, and it
-# must be the MAIN checkout: a worktree is deleted when its work ships.
+# must be the MAIN checkout: a worktree is deleted when its work ships. A
+# single --once pass may run from a worktree (it is gone when the pass ends),
+# which is how a branch's lane is tried before it merges.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ -f "$REPO/.git" ] && grep -q '^gitdir:.*worktrees' "$REPO/.git" 2>/dev/null; then
+if [ "$ONCE" = 0 ] && [ -f "$REPO/.git" ] && grep -q '^gitdir:.*worktrees' "$REPO/.git" 2>/dev/null; then
   echo "[loop-runner] Refusing to run from a worktree ($REPO) — worktrees are deleted when their work ships." >&2
   exit 1
 fi
@@ -52,8 +56,8 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo "$$" > "$LOCK/pid"
 
-# The sync lock both lanes take around pull + npm ci. Wait up to 10 minutes
-# for the other lane; a lock whose pid is gone is cleared, as above.
+# The sync lock every lane takes around pull + npm ci. Wait up to 10 minutes
+# for another lane; a lock whose pid is gone is cleared, as above.
 SYNC_LOCK="$HOME/loop-logs/wavecenter-sync.lock"
 take_sync_lock() {
   local waited=0 holder
@@ -73,7 +77,7 @@ cd "$REPO" || exit 1
 
 while true; do
   # 1. A timid pull: only main, only a clean tree, only fast-forward. A refusal
-  #    is logged but never blocks the pass. Both lanes share this checkout, so
+  #    is logged but never blocks the pass. Every lane shares this checkout, so
   #    the pull and `npm ci` happen under one shared lock: two at once collide
   #    on .git/index.lock and rebuild node_modules under each other.
   if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "main" ] && [ -z "$(git status --porcelain)" ]; then
@@ -92,11 +96,12 @@ while true; do
   echo "" >> "$LOG"
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL =====" >> "$LOG"
   # The pass's output goes to the log as it happens AND to its own file, so
-  # the sign-in check below reads this pass only, not an older one.
+  # the sign-in check below reads this pass only, not an older one. A --once
+  # pass also prints it here, for whoever ran it.
   "$REPO/scripts/run_with_time_limit.sh" "${LOOP_PASS_LIMIT_SECONDS:-7200}" -- \
     "$CLAUDE_BIN" -p "/$SKILL" \
     --allowedTools Bash Edit Write Read Glob Grep Task TodoWrite WebFetch \
-    2>&1 | tee "$PASS_OUT" >> "$LOG"
+    2>&1 | tee "$PASS_OUT" | if [ "$ONCE" = 1 ]; then tee -a "$LOG"; else cat >> "$LOG"; fi
   CODE=${PIPESTATUS[0]}
   # `claude -p` exits 0 whenever it produced output, so the code is a fact
   # about the process, not a verdict on the pass. The pass's own report is.
@@ -110,6 +115,7 @@ while true; do
     echo "[loop-runner] $(date "+%H:%M:%S") THIS PASS COULD NOT SIGN IN TO CLAUDE. Nothing will change until a person signs in on this machine (claude login) and restarts this job: launchctl kickstart -k gui/$(id -u)/com.wavecenter.$SKILL" >> "$LOG"
   fi
 
+  [ "$ONCE" = 1 ] && exit "$CODE"
   echo "[loop-runner] $(date "+%H:%M:%S") sleeping ${INTERVAL}s before the next /$SKILL" >> "$LOG"
   sleep "$INTERVAL"
 done

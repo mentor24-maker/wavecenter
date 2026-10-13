@@ -7,6 +7,23 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — Tasks Dane ticks for AI agents now reach them (#20)
+
+Ticking a task and turning on "Launch AI Agents" now actually hands the task
+over. A new helper on the Mac Mini checks every 30 minutes. It takes the
+first ticked task in line (most urgent first, then oldest), writes it up as
+a proper work ticket in the Loop Queue, and the usual build, review and
+merge steps do the rest, so nothing ships without review and Dane's
+written "merge". The task then says "With AI agents" with a link to its
+ticket. When the ticket ships, the task is ticked off by itself; if the
+ticket is dropped, the task comes back with a note saying why. Turning the
+switch off stops new hand-offs, and the screen says so. A task can never be
+handed over twice. Dane's task about the add form, which a session had
+already filed by hand as two tickets, is marked as with the agents so the
+helper does not file it a third time.
+
+---
+
 ## 2026-10-12 — WaveCenter looks like a real place (#17)
 
 Every page now has a header with the WaveCenter name and a small wave mark,

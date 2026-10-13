@@ -19,6 +19,7 @@ const COLUMNS = {
   position: 'position',
   priority: 'priority',
   agentSelected: 'agent_selected',
+  agentTicketUrl: 'agent_ticket_url',
   tool: 'tool',
 };
 
@@ -46,6 +47,7 @@ export function fromRow(row) {
     position: row.position,
     priority: row.priority,
     agentSelected: row.agent_selected,
+    agentTicketUrl: row.agent_ticket_url ?? null,
     tool: row.tool,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -54,9 +56,23 @@ export function fromRow(row) {
 }
 
 /**
+ * The query-string conditions for an update guard (core/tasks.ts `UpdateGuard`).
+ * @param {import('../../core/tasks.ts').UpdateGuard} [guard]
+ */
+export function guardQuery(guard = {}) {
+  let q = '';
+  if (guard.points !== undefined) q += `&points=eq.${guard.points}`;
+  if (guard.agentTicketUrl === null) q += '&agent_ticket_url=is.null';
+  else if (guard.agentTicketUrl !== undefined) q += `&agent_ticket_url=eq.${encodeURIComponent(guard.agentTicketUrl)}`;
+  return q;
+}
+
+/**
  * @param {{ url: string, apiKey: string, token: string, fetch?: typeof fetch }} options
- *   `token` is the signed-in member's access token, so row-level security
- *   applies exactly as it does in the browser.
+ *   `token` is normally the signed-in member's access token, so row-level
+ *   security applies exactly as it does in the browser. The loop-handoff
+ *   lane on the Mini passes the service key instead, which sees every
+ *   member's tasks; that key never leaves the server (engineering rule 3).
  * @returns {TaskStore}
  */
 export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
@@ -86,9 +102,8 @@ export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
       const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}&select=*`, 'GET');
       return row ? fromRow(row) : null;
     },
-    async update(id, changes, onlyIfPoints) {
-      const guard = onlyIfPoints === undefined ? '' : `&points=eq.${onlyIfPoints}`;
-      const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${guard}`, 'PATCH', toRow(changes));
+    async update(id, changes, guard) {
+      const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${guardQuery(guard)}`, 'PATCH', toRow(changes));
       return row ? fromRow(row) : null;
     },
     async remove(id) {

@@ -6,7 +6,8 @@
  * priority, put a task under another one, and attach files to it (pictures
  * show as small thumbnails). Above it, the "Launch AI
  * Agents" switch; on every open task, a box that hands it to AI agents, with
- * a tick-all box in the header row. Every change is a server action that goes
+ * a tick-all box in the header row. A task the hand-off lane has filed as a
+ * Loop Queue ticket shows "With AI agents" and a link to it. Every change is a server action that goes
  * through core (app/tasks/actions.ts).
  *
  * A save that fails says so next to where it happened and keeps what was
@@ -42,6 +43,8 @@ export interface ListTask {
   parentTaskId: string | null;
   priority: TaskPriority;
   agentSelected: boolean;
+  /** The Loop Queue ticket the task was handed to, if any. */
+  agentTicketUrl: string | null;
   createdAt: string;
 }
 
@@ -197,8 +200,11 @@ export default function TaskList({
   const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
   const filesByTask = new Map<string, ListFile[]>();
   for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
-  const allTicked = open.length > 0 && open.every((t) => t.agentSelected);
-  const someTicked = open.some((t) => t.agentSelected);
+  const withAgents = open.filter((t) => t.agentTicketUrl).length;
+  // Tick-all covers the tasks still waiting; one already handed over stays with its ticket.
+  const tickable = open.filter((t) => !t.agentTicketUrl);
+  const allTicked = tickable.length > 0 && tickable.every((t) => t.agentSelected);
+  const someTicked = tickable.some((t) => t.agentSelected);
 
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
     <TaskRow
@@ -253,11 +259,9 @@ export default function TaskList({
             <span>Launch AI Agents</span>
           </label>
         )}
-        {agents.on !== null && <p className="note">{agentsLine(agents.on, inLine.length)}</p>}
+        {agents.on !== null && <p className="note">{agentsLine(agents.on, inLine.length, withAgents)}</p>}
         <p className="note">
-          The hand-off to the agents is still being built (ticket &ldquo;Ticked tasks never reach the AI agents: hand
-          them to the Loop Queue in priority order&rdquo;). Until it ships, your choices here are saved but nothing is
-          handed over yet.
+          Turning this off stops new hand-offs; tasks already with the AI agents carry on until they are finished.
         </p>
         {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
       </section>
@@ -337,8 +341,8 @@ export default function TaskList({
                     aria-label={allTicked ? "Untick every task for AI agents" : "Tick every open task for AI agents"}
                     checked={allTicked}
                     ref={(el) => { if (el) el.indeterminate = someTicked && !allTicked; }}
-                    disabled={pending}
-                    onChange={() => run("all", () => chooseForAgents(open.map((t) => t.id), !allTicked))}
+                    disabled={pending || !tickable.length}
+                    onChange={() => run("all", () => chooseForAgents(tickable.map((t) => t.id), !allTicked))}
                   />
                   <small>AI</small>
                 </label>
@@ -360,12 +364,15 @@ export default function TaskList({
 }
 
 /** The line under the switch: what the agents will do, in plain words. */
-function agentsLine(on: boolean, ticked: number): string {
+function agentsLine(on: boolean, ticked: number, handed: number): string {
   const count = `${ticked} ticked task${ticked === 1 ? "" : "s"}`;
-  if (on && ticked) return `Agents are on. They will work on ${count}, highest priority first, then oldest first.`;
-  if (on) return "Agents are on, but no tasks are ticked for them. Tick a task's AI box to hand it over.";
-  if (ticked) return `Agents are off. ${count[0].toUpperCase()}${count.slice(1)} will wait until you turn them on.`;
-  return "Agents are off. Tick the tasks you want AI agents to work on, then turn this on.";
+  const busy = handed ? ` ${handed} task${handed === 1 ? " is" : "s are"} with them now.` : "";
+  if (on && ticked) {
+    return `Agents are on. ${count[0].toUpperCase()}${count.slice(1)} waiting: they are handed over one at a time, highest priority first, then oldest first.${busy}`;
+  }
+  if (on) return `Agents are on, but no tasks are waiting for them. Tick a task's AI box to hand it over.${busy}`;
+  if (ticked) return `Agents are off. ${count[0].toUpperCase()}${count.slice(1)} will wait until you turn them on.${busy}`;
+  return `Agents are off. Tick the tasks you want AI agents to work on, then turn this on.${busy}`;
 }
 
 function TaskRow({
@@ -428,7 +435,7 @@ function TaskRow({
   return (
     <li className={["task", done && "done", sub && "sub"].filter(Boolean).join(" ")}>
       <span className="cell">
-        {!done && (
+        {!done && !task.agentTicketUrl && (
           <input
             type="checkbox"
             className="ai"
@@ -466,6 +473,14 @@ function TaskRow({
         <span className="grow">
           {task.title} <span className="note">· {task.points} pts</span>
           {place && <span className="badge"> AI #{place}</span>}
+          {task.agentTicketUrl && (
+            <span className="badge">
+              {" "}
+              {done ? "Was with AI agents" : "With AI agents"} ·{" "}
+              <a href={task.agentTicketUrl} target="_blank" rel="noreferrer">ticket</a>
+              {done && " · reopening it forgets this ticket, so ticking it again files a new one"}
+            </span>
+          )}
           {parentTitle && <span className="note"> · sub-task of &ldquo;{parentTitle}&rdquo;</span>}
           {task.notes && (
             <span className="details">

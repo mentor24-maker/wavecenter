@@ -233,6 +233,49 @@ ssh mac-mini 'tail -30 ~/loop-logs/wavecenter-merge-on-comment.log'     # what t
 npm run clickup -- merge-on-comment --dry-run                            # what it WOULD do now, writing nothing
 ```
 
+### The hand-off lane
+
+A fourth launchd agent, `com.wavecenter.loop-handoff`, is how the tasks you
+tick on your WaveCenter to-do list reach the agents. It runs the
+`loop-handoff` skill (`.claude/skills/loop-handoff/SKILL.md`) every 30
+minutes, through the same `scripts/loop_runner.sh` as build and review. Your
+words (2026-10-12): "If I turn on the Launch AI Agents toggle, they will begin
+working on tasks in priority, then chronological order." You chose the same
+day to route that work through this Loop Queue, so nothing ships without
+review and your written `merge`.
+
+Each pass does two things:
+
+1. **Sync back.** Every task already handed off is checked against its
+   ticket. A ticket that went `Live` marks its task done. One closed `Live`
+   with the `wont-do` or `deferred` tag puts its task back to todo, unticked,
+   with a note on the task saying why. Anything else is still being worked.
+2. **At most one hand-off.** If your "Launch AI Agents" switch is on, the
+   first ticked task in line (Urgent, High, Normal, Low, then oldest first:
+   `agentOrder` in `core/agents.ts`) becomes a Queued ticket here, tagged
+   `from-wavecenter`, with a spec in the `loop-spec` shape written from its
+   title and notes and the line `WaveCenter task: <id>`. Its priority is the
+   task's own; Urgent only carries over when you set it yourself. If the
+   title is too thin to build without guessing, the ticket is still filed and
+   you get one question on it in `Needs your input`. The task then shows
+   **With AI agents** and a link to its ticket.
+
+Turning the switch off stops new hand-offs. Tickets already filed carry on.
+
+Safety: the lane reads every member's tasks with the Supabase service key,
+which lives in Doppler on the Mini and never reaches the website or a browser.
+It changes a task only through core, as the tool `loop-handoff`
+(`npm run clickup -- handoff-record` and `handoff-sync`). Recording a ticket
+only lands if the task has none yet, so a task is never handed off twice, and
+a ticket is only recorded after it is read back from ClickUp. One hand-off per
+pass limits how far a mistake can spread.
+
+```bash
+ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-handoff.log'   # what the last hand-off pass did
+npm run clickup -- handoff-next                                     # which task is next in line, writing nothing
+bash scripts/loop_runner.sh loop-handoff --once                     # one pass now, its report printed here
+```
+
 ### Starting one by hand — only when the Mini's agents are unloaded
 
 Two commands, each in **its own session**, from any folder in the repo (the
@@ -246,9 +289,9 @@ loop makes its own worktree per task):
 ### Installing or moving the runner
 
 `./scripts/install_loop_runner.sh` on the machine that will own the loops,
-from its **main checkout** (never a worktree). It installs all three lanes and
+from its **main checkout** (never a worktree). It installs all four lanes and
 refuses if `npm`, `node`, `doppler`, `claude`, `git` or `gh` is missing, or if
-`gh` is not signed in to GitHub. `--uninstall` removes all three agents. Before
+`gh` is not signed in to GitHub. `--uninstall` removes all four agents. Before
 installing on a second machine, uninstall on the first: two machines claiming
 is the collision the lock exists to prevent.
 
@@ -320,3 +363,6 @@ work, confirm the value, then widen.
 7. ⬜ The merge lane on the Mac Mini: after its pull request merges, run
    `./scripts/install_loop_runner.sh` again from the main checkout;
    `--status` then shows three lanes.
+8. ⬜ The hand-off lane on the Mac Mini: after its pull request merges, run
+   `./scripts/install_loop_runner.sh` again from the main checkout;
+   `--status` then shows four lanes.

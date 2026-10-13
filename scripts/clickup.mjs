@@ -38,6 +38,10 @@ import {
 import { buildCard, cardSurvived, findBlockquoteLines, CONTEXT_MIN_WORDS, CONTEXT_MAX_WORDS } from './lib/operatorCard.mjs';
 import { stampCommentBody, isCommentPostPath, isMachineComment, stripMachineMarker } from './lib/machineComment.mjs';
 import {
+  nextHandOff, recordHandOff, serviceDb, syncBack, taskLine, ticketPriority as ticketPriorityOf, ticketUrl, FROM_WAVECENTER_TAG,
+} from './lib/handoff.mjs';
+import { CoreError, LOOP_HANDOFF_TOOL } from '../core/tool.ts';
+import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
 } from './lib/mergeWords.mjs';
 
@@ -160,6 +164,13 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   tag --task <id> --add <name> | --remove <name>  e.g. wont-do, deferred, an epic name
   merge-on-comment [--dry-run]                    the merge lane: carry out Dane's written "${MERGE_PHRASES[0]}" on Ready to launch
                                                   tickets, and requeue Needs your input tickets he has answered
+  handoff-next                                    the loop-handoff lane: the next ticked WaveCenter task, as JSON
+                                                  (exit 0), or why there is none (exit 3)
+  handoff-record --task <wavecenter-id> --ticket <clickup-id>
+                                                  record a filed ticket on its task, through core (exit 3: it
+                                                  already had one — close the duplicate ticket)
+  handoff-sync                                    finished tickets back to their tasks: Live -> done; Live with
+                                                  wont-do or deferred -> todo, unticked, with a note
 
 Statuses (matched case-insensitively): ${STAGE_ORDER.join(' / ')}.
 Two are Dane's and only \`ask\` may set them: ${OPERATOR_STATUSES.map((s) => DISPLAY[s]).join(', ')}.
@@ -781,6 +792,56 @@ if (cmd === 'whoami') {
   }
 
   log(`merge lane done: ${merged} merged and set Live, ${requeued} answered ticket(s) requeued${dry ? ' (dry run: counts are what WOULD happen)' : ''}`);
+  reportLimits();
+
+} else if (cmd === 'handoff-next' || cmd === 'handoff-record' || cmd === 'handoff-sync') {
+  // THE HAND-OFF LANE's database side (.claude/skills/loop-handoff). The
+  // service key comes from Doppler on the Mini and is never printed.
+  let db;
+  try {
+    db = serviceDb({ url: process.env.SUPABASE_URL, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY });
+  } catch (err) { console.error(err.message); process.exit(1); }
+
+  if (cmd === 'handoff-next') {
+    let next;
+    try { next = await nextHandOff(db); } catch (err) { console.error(`Could not read the ticked tasks: ${err.message}`); process.exit(1); }
+    if (!next.task) { console.error(next.why); process.exit(3); }
+    const t = next.task;
+    console.log(JSON.stringify({
+      id: t.id, title: t.title, notes: t.notes, priority: t.priority, ticketPriority: ticketPriorityOf(t),
+      createdAt: t.createdAt, taskLine: taskLine(t.id), tag: FROM_WAVECENTER_TAG,
+    }, null, 2));
+    console.error(`${next.waiting} ticked task(s) waiting; this is the first in line.`);
+
+  } else if (cmd === 'handoff-record') {
+    const task = arg('task'), ticket = arg('ticket');
+    if (!task || !ticket) usage();
+    const out = await call('GET', `/api/v2/task/${encodeURIComponent(ticket)}?include_markdown_description=true`);
+    if (!out.res.ok) die(`read ticket ${ticket} back (the task was NOT changed)`, out);
+    try {
+      const saved = await recordHandOff({ db, ticket: out.json, taskId: task, listId: LOOP_QUEUE_LIST, tool: LOOP_HANDOFF_TOOL });
+      console.log(`Task ${task} "${saved.title}": now with AI agents, status ${saved.status}, ticket ${saved.agentTicketUrl}.`);
+    } catch (err) {
+      if (err instanceof CoreError && /already handed|another pass first/.test(err.message)) {
+        console.error(`NOT recorded: ${err.message}`);
+        console.error(`Ticket ${ticketUrl(ticket)} is a duplicate. Close it: tag wont-do, comment why, status Live.`);
+        process.exit(3);
+      }
+      console.error(`NOT recorded, and task ${task} was left as it was: ${err.message}`);
+      process.exit(1);
+    }
+
+  } else {
+    const readTicket = async (id) => {
+      const out = await call('GET', `/api/v2/task/${encodeURIComponent(id)}`);
+      if (!out.res.ok) throw new Error(`reading ticket ${id} failed: HTTP ${out.res.status} ${String(out.json?.err || out.text || '').slice(0, 200)}`);
+      return out.json;
+    };
+    let tally;
+    try { tally = await syncBack({ db, readTicket, tool: LOOP_HANDOFF_TOOL }); } catch (err) { console.error(`Could not read the handed-off tasks: ${err.message}`); process.exit(1); }
+    console.log(`sync: ${tally.done} done, ${tally.returned} handed back, ${tally.waiting} still with the agents, ${tally.failed} failed`);
+    if (tally.failed) process.exitCode = 1;
+  }
   reportLimits();
 
 } else {

@@ -1,10 +1,10 @@
 /**
  * A `TaskStore` that keeps tasks in memory. Core's tests use it so the rules
  * can be checked without a database; it behaves like the real table on the
- * points it matters to (owner set for you, timestamps kept, the points guard,
+ * points it matters to (owner set for you, timestamps kept, the update guards,
  * sub-tasks kept as top-level when their parent is deleted).
  */
-import type { NewTaskRow, Task, TaskRowChanges, TaskStore } from './tasks.ts';
+import type { NewTaskRow, Task, TaskRowChanges, TaskStore, UpdateGuard } from './tasks.ts';
 
 export class MemoryTaskStore implements TaskStore {
   readonly rows = new Map<string, Task>();
@@ -34,10 +34,11 @@ export class MemoryTaskStore implements TaskStore {
     return task ? { ...task } : null;
   }
 
-  async update(id: string, changes: TaskRowChanges, onlyIfPoints?: number): Promise<Task | null> {
+  async update(id: string, changes: TaskRowChanges, guard: UpdateGuard = {}): Promise<Task | null> {
     const task = this.rows.get(id);
     if (!task) return null;
-    if (onlyIfPoints !== undefined && task.points !== onlyIfPoints) return null;
+    if (guard.points !== undefined && task.points !== guard.points) return null;
+    if (guard.agentTicketUrl !== undefined && task.agentTicketUrl !== guard.agentTicketUrl) return null;
     const now = new Date().toISOString();
     const updated: Task = { ...task, ...changes, updatedAt: now };
     if (updated.status === 'done' && task.status !== 'done') updated.completedAt = now;
