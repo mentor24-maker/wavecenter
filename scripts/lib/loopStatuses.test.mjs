@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  claimOrder, isClaimableByBuild, isOperatorStatus, claimTier, compareWithinStatus, STAGE_ORDER, DISPLAY,
+  claimOrder, buildOrder, isClaimableByBuild, isOperatorStatus, claimTier, compareWithinStatus, STAGE_ORDER, DISPLAY,
 } from './loopStatuses.mjs';
 
 const t = (id, status, priority, created) => ({
@@ -55,4 +55,19 @@ test('claimOrder never mutates its input', () => {
   claimOrder(tasks);
   assert.deepEqual(tasks.map((x) => x.id), before);
   assert.deepEqual([t('x', 'Queued', 'low', 1), t('y', 'Queued', 'high', 2)].sort(compareWithinStatus).map((x) => x.id), ['y', 'x']);
+});
+
+test('build order: Rework, then Ready to launch tickets owed a conflict fix (oldest first), then Queued', () => {
+  const tasks = [
+    t('q-urgent', 'Queued', 'urgent', 10),
+    t('rtl-conflict-new', 'Ready to launch', 'low', 300),
+    t('rtl-waiting', 'Ready to launch', 'urgent', 5),
+    t('rework', 'Rework', null, 400),
+    t('rtl-conflict-old', 'ready to launch', null, 200),
+    t('in-review', 'In review', 'urgent', 1),
+  ];
+  assert.deepEqual(buildOrder(tasks, ['rtl-conflict-new', 'rtl-conflict-old', 'in-review']).map((x) => x.id), [
+    'rework', 'rtl-conflict-old', 'rtl-conflict-new', 'q-urgent',
+  ]);
+  assert.deepEqual(buildOrder(tasks).map((x) => x.id), claimOrder(tasks).map((x) => x.id));
 });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isMergePhrase, findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, verifyState, prDecision,
-  mergedComment, mergeRecorded,
+  mergedComment, mergeRecorded, conflictToSettle, settledLine, notSettledLine, SETTLE_TODO,
 } from './mergeWords.mjs';
 import { stampMachineComment } from './machineComment.mjs';
 import { verdictComment } from './loopTrail.mjs';
@@ -134,4 +134,52 @@ test('a merge is recorded once per PR', () => {
   assert.equal(mergeRecorded([done], url), true);
   assert.equal(mergeRecorded([done], 'https://github.com/o/r/pull/70'), false);
   assert.equal(mergeRecorded([], url), false);
+});
+
+// ── The build loop settles a conflict on an approved PR ─────────────────────
+
+function conflicted(code = 'conflict') {
+  const pass = passed();
+  const merge = say('merge');
+  const notice = say(refusalNotice({ authorizationId: merge.id, code, why: 'conflicts', todo: SETTLE_TODO }), { machine: true });
+  return { merge, notice, comments: [pass, merge, notice] };
+}
+const owed = (comments, status = 'Ready to launch') => conflictToSettle({ status, comments, operatorId: DANE });
+
+test('a standing "merge" refused for a conflict or a failed catch-up is owed a fix', () => {
+  for (const code of ['conflict', 'catch-up-failed']) {
+    const { merge, comments } = conflicted(code);
+    assert.deepEqual(owed(comments), { ok: true, authorizationId: merge.id, code });
+  }
+});
+
+test('other refusals, a missing refusal, a lapsed "merge" or another status are not owed a fix', () => {
+  assert.equal(owed(conflicted('verify-red').comments).ok, false);
+  assert.equal(owed([passed(), say('merge')]).ok, false);
+  assert.equal(owed([...conflicted().comments, say('wait, not yet')]).ok, false);
+  assert.equal(owed(conflicted().comments, 'In review').ok, false);
+});
+
+test('once settled or asked about, the build loop does not take it again', () => {
+  const { merge, comments } = conflicted();
+  const head = { authorizationId: merge.id, code: 'conflict' };
+  assert.equal(owed([...comments, say(`${settledLine(head)}\n\nkept both`, { machine: true })]).ok, false);
+  assert.equal(owed([...comments, say(`${notSettledLine(head)}\n\nNEEDED FROM DANE`, { machine: true })]).ok, false);
+});
+
+test('a conflict that comes back after a fix is noticed afresh, and owed a fix again', () => {
+  const { merge, notice, comments } = conflicted();
+  const settled = say(`${settledLine({ authorizationId: merge.id, code: 'conflict' })}\n\nkept both`, { machine: true });
+  assert.equal(alreadyNoticed([...comments], merge.id, 'conflict'), true);
+  assert.equal(alreadyNoticed([...comments, settled], merge.id, 'conflict'), false);
+  const again = say(notice.comment_text, { machine: true });
+  assert.equal(alreadyNoticed([...comments, settled, again], merge.id, 'conflict'), true);
+  assert.equal(owed([...comments, settled, again]).ok, true);
+});
+
+test('the conflict refusal no longer asks Dane to move the ticket', () => {
+  const d = prDecision(pr({ mergeable: 'CONFLICTING' }));
+  assert.equal(d.todo, SETTLE_TODO);
+  assert.doesNotMatch(SETTLE_TODO, /move the ticket|Rework/i);
+  assert.match(SETTLE_TODO, /build loop/);
 });

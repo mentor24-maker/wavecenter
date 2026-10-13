@@ -1,6 +1,6 @@
 ---
 name: loop-build
-description: Pick the next claimable task (all "Rework" first, then "Queued") from the WaveCenter "Loop Queue" ClickUp list and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 30m loop-build`. Never edits main, never merges.
+description: Pick the next claimable task (all "Rework" first, then a "Ready to launch" ticket whose approved PR conflicts with main — settled in place, status untouched — then "Queued") from the WaveCenter "Loop Queue" ClickUp list and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 30m loop-build`. Never edits main, never merges.
 ---
 
 # Loop: Build
@@ -75,8 +75,12 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    npm run clickup -- claim --task <id>
    ```
 
-   `--claimable` returns every `Rework` ticket before any `Queued` one —
-   rework oldest-first, then queued by priority-then-oldest. A `Rework` ticket
+   `--claimable` returns every `Rework` ticket, then every `Ready to launch`
+   ticket whose approved PR has a conflict to settle, then `Queued` —
+   rework oldest-first, conflicts oldest-first, queued by
+   priority-then-oldest. **If the first line is `ready to launch`, do NOT
+   `claim` it** (claim refuses it anyway): follow "Settling a conflict on an
+   approved PR" below instead, and that is the whole pass. A `Rework` ticket
    is a send-back: it already has a branch, an open PR and review notes.
    Finishing one is cheaper than starting something new. If the list comes
    back empty, report "queue empty" and stop — do not invent work.
@@ -188,6 +192,43 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 
 9. **Report** which task you built and the PR number, then finish.
 
+## Settling a conflict on an approved PR
+
+Dane wrote `merge`, but the merge lane refused with `MERGE NOT DONE (…
+reason conflict)` or `reason catch-up-failed`: the branch clashes with
+`main`. He does nothing here; this pass settles it **in place**.
+
+1. `npm run clickup -- settle --task <id>` — exit 0 prints the PR and its
+   branch; exit 3 means it is not owed a fix (take the next line).
+2. Check the branch out into a worktree (as for Rework:
+   `git worktree add .claude/worktrees/<slug> -b <branch> origin/<branch>`,
+   or reuse one that is still there), then `git merge origin/main --no-edit`.
+3. Settle each conflict **keeping both sides**: both changes were meant to
+   ship. Read what each side was for (the two PRs / tickets) before you edit.
+4. `npm run verify`, then commit the merge and push — an ordinary push,
+   never a force-push, never a rebase.
+5. `npm run clickup -- settled --task <id> --body-file -` with a plain note:
+   which files conflicted and how both sides were kept. It refuses unless
+   GitHub reads the PR `MERGEABLE`.
+
+**Never change the status** — `Ready to launch` is Dane's, and his `merge`
+still stands; the merge lane merges once `verify` is green. **Never merge the
+PR yourself.**
+
+If the two sides changed **the same behaviour** and keeping both is not
+possible without a real choice, do not guess and do not push a half-merge
+(`git merge --abort`). Post a card instead — it assigns Dane and leaves the
+status alone, and the build loop will not pick the ticket again for this
+`merge`:
+
+```bash
+npm run clickup -- settle-blocked --task <id> --body-file -   # @@ASKED / @@CONTEXT / @@NEEDED, a decision only he can make
+```
+
+Name the two behaviours as options in `@@NEEDED`. When he answers and
+writes `merge` again, the lane refuses afresh and the next pass settles it
+his way.
+
 ## Guardrails
 
 - **A PASS MAY NOT END WITH ITS TICKET STILL IN `Building`.** `Building` is a
@@ -201,7 +242,9 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 - **One task, one worktree, one PR.** Never build two tasks in one branch.
 - **The PR and the ticket must name each other.** `pr-opened` enforces both
   directions.
-- **Never touch a task that is not `Rework` or `Queued`.** `claim` refuses them.
+- **Never touch a task that is not `Rework` or `Queued`**, except a
+  `Ready to launch` ticket `settle` says is owed a conflict fix, and then
+  only its branch, never its status. `claim` refuses the rest.
 - **Never set `Ready to launch` and never clear `Needs your input`.** Those
   are Dane's. A build loop never sets either one and never merges.
 - If the task description is too vague to build safely, `ask` for a

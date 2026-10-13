@@ -134,16 +134,86 @@ export function refusalNotice({ authorizationId, code, why, todo }) {
   ].join('\n');
 }
 
-/** Was this exact refusal already posted on the ticket? */
+/**
+ * Was this exact refusal already posted on the ticket? A notice that the build
+ * loop has since answered (settled the conflict, or asked Dane about it) no
+ * longer counts: if the same refusal comes back after that, it is news, and
+ * the build loop needs a fresh notice to pick the ticket up again.
+ */
 export function alreadyNoticed(comments, authorizationId, code) {
+  const answeredAt = dateOf(newestSettleMark(comments, authorizationId));
   return (comments || []).some((c) => {
     if (!isMachineComment(c && c.comment_text)) return false;
     const m = NOTICE_LINE.exec(String(c.comment_text));
-    return Boolean(m && m[1] === String(authorizationId) && m[2] === code);
+    return Boolean(m && m[1] === String(authorizationId) && m[2] === code && dateOf(c) > answeredAt);
   });
 }
 
+// ── The build loop settles a conflict on an approved PR ─────────────────────
+// On 2026-10-12 Dane wrote "merge" on a ticket whose PR conflicted with main.
+// The lane refused, told him to move the ticket to Rework, and nothing else
+// acted on a Ready to launch ticket, so it sat for twelve hours. Now
+// loop-build takes such a ticket (after Rework, before Queued), merges main
+// into the branch, keeps both sides, and records one of two lines. It never
+// changes the status: his "merge" still stands, and this lane carries it out
+// once verify is green on the combined code.
+
+/** The refusals the build loop settles. Anything else stays Dane's to read. */
+export const SETTLE_CODES = Object.freeze(['conflict', 'catch-up-failed']);
+
+const SETTLE_LINE = /^\s*CONFLICT (SETTLED|NOT SETTLED) \(authorization (\S+), reason ([a-z-]+)\)/m;
+
+/** First line of the build loop's note once main is merged in and pushed. */
+export function settledLine({ authorizationId, code }) {
+  return `CONFLICT SETTLED (authorization ${authorizationId}, reason ${code})`;
+}
+
+/** First line of the card the build loop posts when settling needs his choice. */
+export function notSettledLine({ authorizationId, code }) {
+  return `CONFLICT NOT SETTLED (authorization ${authorizationId}, reason ${code})`;
+}
+
+function newestSettleMark(comments, authorizationId) {
+  return newestFirst(comments).find((c) => {
+    if (!isMachineComment(c && c.comment_text)) return false;
+    const m = SETTLE_LINE.exec(String(c.comment_text));
+    return Boolean(m && m[2] === String(authorizationId));
+  }) || null;
+}
+
+/**
+ * Does the build loop owe this ticket a conflict fix? Returns
+ * { ok: true, authorizationId, code } or { ok: false, why }.
+ *
+ * Yes only when: Dane's "merge" stands (findAuthorization), the newest merge
+ * lane refusal for THAT authorization is a conflict or a failed catch-up, and
+ * the build loop has not already answered that refusal. A "wait" from him
+ * cancels the authorization, so the build loop leaves the PR alone.
+ */
+export function conflictToSettle({ status, comments, operatorId }) {
+  const auth = findAuthorization({ status, comments, operatorId });
+  if (!auth.ok) return { ok: false, why: auth.why };
+  const authorizationId = String(auth.comment.id);
+  const notice = newestFirst(comments).find((c) => {
+    if (!isMachineComment(c && c.comment_text)) return false;
+    const m = NOTICE_LINE.exec(String(c.comment_text));
+    return Boolean(m && m[1] === authorizationId);
+  });
+  if (!notice) return { ok: false, why: 'the merge lane has not refused this "merge"' };
+  const code = NOTICE_LINE.exec(String(notice.comment_text))[2];
+  if (!SETTLE_CODES.includes(code)) return { ok: false, why: `the merge lane's newest refusal is "${code}", which is not a conflict` };
+  const mark = newestSettleMark(comments, authorizationId);
+  if (mark && dateOf(mark) > dateOf(notice)) {
+    const settled = SETTLE_LINE.exec(String(mark.comment_text))[1] === 'SETTLED';
+    return { ok: false, why: settled ? 'the build loop already settled this conflict; the merge lane merges once verify is green' : 'the build loop already asked Dane how to settle this conflict' };
+  }
+  return { ok: true, authorizationId, code };
+}
+
 // ── What GitHub says about the PR, reduced to one decision ─────────────────
+
+/** What a conflict refusal tells Dane. Nothing for him to do: no ticket to move. */
+export const SETTLE_TODO = 'Nothing from you. The build loop settles this on its next pass (within about 30 minutes): it merges main into the branch, keeps both sides, and runs verify again. It leaves the ticket in Ready to launch, and this lane merges on your standing word once verify is green. If the two sides need a real choice, the build loop asks you here instead of guessing.';
 
 export const VERIFY_CHECK = 'verify';
 
@@ -181,7 +251,7 @@ export function prDecision(pr, { behindBy = 0 } = {}) {
   }
   const mergeable = String(pr.mergeable || '').toUpperCase();
   if (mergeable === 'CONFLICTING') {
-    return { act: 'refuse', code: 'conflict', why: `PR #${pr.number} conflicts with main — the same lines were changed on both sides.`, todo: 'A build pass or a session must merge main into the branch and settle the conflict by hand. Move the ticket to Rework to have the build loop do it.' };
+    return { act: 'refuse', code: 'conflict', why: `PR #${pr.number} conflicts with main — the same lines were changed on both sides.`, todo: SETTLE_TODO };
   }
   if (mergeable !== 'MERGEABLE') return { act: 'wait', why: `GitHub has not finished working out whether PR #${pr.number} can merge (${mergeable || 'unknown'})` };
   const checks = verifyState(pr.statusCheckRollup);

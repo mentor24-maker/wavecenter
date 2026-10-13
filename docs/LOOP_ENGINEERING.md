@@ -99,7 +99,9 @@ merge only you authorize. On a normal day you can ignore the other five.
 **`Rework` exists** so a half-built ticket is never mistaken for one nobody
 has started. loop-build drains every `Rework` ticket before any `Queued` one,
 oldest first, priority ignored: priority says what to *start*; rework is not
-started, it is finished.
+started, it is finished. Between the two it takes any `Ready to launch`
+ticket whose approved PR the merge lane could not merge because of a
+conflict (see "When the PR conflicts with main" below), without moving it.
 
 Two rules keep it honest:
 
@@ -223,6 +225,19 @@ sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
 posts **one** comment saying exactly why and what has to happen, and does not
 repeat it. Your `merge` still stands: every pass checks again and merges the
 moment the reason is gone.
+
+**When the PR conflicts with main** (reason `conflict`, or `catch-up-failed`
+when GitHub could not merge `main` in by itself), you have nothing to do.
+On 2026-10-12 a PR sat twelve hours after your `merge` because the note
+asked you to move the ticket. Now the next build pass takes the ticket where
+it stands: merges `main` into the branch, keeps both sides, runs `verify`,
+pushes, and posts `CONFLICT SETTLED` saying what conflicted. It never
+changes the status, so your `merge` still stands and this lane merges once
+`verify` is green on the combined code. If the two sides changed the same
+behaviour and a real choice is needed, it posts `CONFLICT NOT SETTLED` with
+a question for you instead of guessing. (`npm run clickup -- settle`,
+`settled` and `settle-blocked`; the rules are `conflictToSettle` in
+`scripts/lib/mergeWords.mjs`.)
 
 **Answers.** On a `Needs your input` ticket, when your plain answer is the
 newest comment, the same pass comments "Dane answered; back in the queue" and
