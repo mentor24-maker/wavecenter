@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — Dane can attach files and pictures to a task (#22)
+
+Every task now has an "attach" link, and so does the add box. Pick a file
+and it is saved with the task: pictures show as small thumbnails you can
+click to open, other files as a name you click to download, and each has a
+"remove" link. A file over 10 MB is refused straight away with a message
+saying so. The files are stored privately in the database's own file
+storage, never on the web host's disk, and each member can reach only their
+own. If an upload fails part-way, the screen says so and nothing
+half-saved is left behind. Deleting a task deletes its files too. This is
+what Dane needs to hand over the WaveCenter logo and favicon.
+
+---
+
 ## 2026-10-12 — Adding a task takes details, a parent and a priority (#21)
 
 Adding a task used to mean typing a title and nothing else. The add box is
