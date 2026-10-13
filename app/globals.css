@@ -87,3 +87,23 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
   main { padding: 2rem 0.75rem; }
   h1 { font-size: 2rem; }
 }
+
+/* Handing tasks to AI agents: the switch above the list, the tick-box columns. */
+.agents { margin: 1.5rem 0 0; padding: 0.75rem 1rem; border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); }
+.agents p { margin: 0.25rem 0 0; }
+.switch { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 600; cursor: pointer; }
+.switch input { appearance: none; width: 2.5rem; height: 1.4rem; margin: 0; border-radius: 1rem; position: relative;
+  background: color-mix(in srgb, var(--muted) 45%, transparent); cursor: pointer; transition: background 0.15s; }
+.switch input::after { content: ""; position: absolute; top: 0.2rem; left: 0.2rem; width: 1rem; height: 1rem;
+  border-radius: 50%; background: var(--fg); transition: left 0.15s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { left: 1.3rem; background: var(--bg); }
+.switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.task .cell { flex: 0 0 1.5rem; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.task .cell small { font-size: 0.7rem; color: var(--muted); }
+.task.head { padding-top: 0; }
+.task.head .grow { font-size: 0.85rem; }
+.task input.ai { accent-color: var(--accent); }
+.badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
