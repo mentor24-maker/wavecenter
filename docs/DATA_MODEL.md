@@ -5,7 +5,9 @@ and `member_settings`, which holds each member's "Launch AI Agents" switch.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
-`agent_selected` and the `member_settings` table); this page explains them.
+`agent_selected` and the `member_settings` table;
+`20261012230000_agent_handoff.sql` added `agent_ticket_url`); this page
+explains them.
 
 ## The `tasks` table
 
@@ -26,6 +28,7 @@ One row is one task: something a member means to do, is doing, or has done.
 | `completed_at` | When it was marked `done`. Stamped automatically, and cleared if the task is reopened. |
 | `priority` | **How urgent the task is:** `urgent`, `high`, `normal` or `low`, the same four ClickUp uses. Starts at `normal`. |
 | `agent_selected` | **The member has ticked this task for AI agents to work on.** Starts unticked. A done task cannot be ticked, and finishing a task unticks it. |
+| `agent_ticket_url` | **The Loop Queue ticket the task was handed to**, if any. Empty until the hand-off lane files it; while set, the task shows "With AI agents" and a link. Kept when the ticket goes Live and the task is done, as the record of who did it; cleared if the ticket is closed without being built, or the task is reopened. |
 | `tool` | **Which tool last changed the task.** WaveCenter's own app is `wavecenter`, which is also the starting value and what every task made before this column existed got. Never blank. |
 
 ### Every change goes through core, and names its tool
@@ -70,6 +73,17 @@ The switch lives in `member_settings`, one row per member:
 | `agents_on` | **The "Launch AI Agents" switch.** Off until the member turns it on. A member with no row yet counts as off. |
 | `tool` | Which tool last changed the row, as on `tasks`. |
 | `updated_at` | When it last changed. Kept current automatically. |
+
+When the switch is on, the hand-off lane on the Mac Mini (tool
+`loop-handoff`; `docs/LOOP_ENGINEERING.md`, "The hand-off lane") files the
+first ticked task in that order as a Loop Queue ticket and records its link
+in `agent_ticket_url`, making the task `doing`. A task with a link is no
+longer in line, so it is never handed off twice; the write that records the
+link only lands if the task still has none. When the ticket goes Live the
+task becomes `done`; when it is closed as `wont-do` or `deferred` the task
+goes back to `todo`, unticked, with a note saying why. Only three functions
+in `core/agents.ts` change the link: `handOffTask`, `completeHandOff` and
+`returnHandOff`.
 
 The switch only changes through `setAgentsOn` in `core/agents.ts`. Row-level
 security was on from the moment this table was made: a member reads and

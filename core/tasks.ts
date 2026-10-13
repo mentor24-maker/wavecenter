@@ -35,6 +35,8 @@ export interface Task {
   priority: TaskPriority;
   /** The member has ticked this task for AI agents to work on. */
   agentSelected: boolean;
+  /** The Loop Queue ticket the task was handed to, or null if it has not been handed off. */
+  agentTicketUrl: string | null;
   /** The tool that last changed this record. */
   tool: string;
   createdAt: string;
@@ -52,11 +54,23 @@ export interface NewTaskRow {
   position: number;
   priority: TaskPriority;
   agentSelected: boolean;
+  agentTicketUrl: string | null;
   tool: string;
 }
 
 /** The fields a store writes when a task changes. `tool` is always present. */
 export type TaskRowChanges = Partial<Omit<NewTaskRow, 'tool'>> & { tool: string };
+
+/**
+ * A condition an update only lands under, so two changes at once can never
+ * silently overwrite each other. Each field given must still hold.
+ */
+export interface UpdateGuard {
+  /** The task's points still equal this number. */
+  points?: number;
+  /** The task's ticket link still equals this (null: the task still has none). */
+  agentTicketUrl?: string | null;
+}
 
 /**
  * What core needs from storage. An adapter translates these calls to the
@@ -66,12 +80,12 @@ export interface TaskStore {
   insert(row: NewTaskRow): Promise<Task>;
   get(id: string): Promise<Task | null>;
   /**
-   * Apply `changes` to one task. When `onlyIfPoints` is given, apply them only
-   * if the task's points still equal that number, and return null if they do
-   * not (someone else changed them first). Also null if there is no such task
-   * the caller may change.
+   * Apply `changes` to one task. When `guard` is given, apply them only if
+   * everything it names still holds, and return null if not (someone else
+   * changed the task first). Also null if there is no such task the caller
+   * may change.
    */
-  update(id: string, changes: TaskRowChanges, onlyIfPoints?: number): Promise<Task | null>;
+  update(id: string, changes: TaskRowChanges, guard?: UpdateGuard): Promise<Task | null>;
   /**
    * Delete one task. Its sub-tasks stay and become top-level. Returns false
    * if there is no such task the caller may delete.
@@ -160,6 +174,7 @@ export async function createTask(store: TaskStore, input: NewTask, tool: string)
     position: requirePosition(input.position ?? 0),
     priority: requirePriority(input.priority ?? 'normal'),
     agentSelected: false,
+    agentTicketUrl: null,
   };
   return store.insert(row);
 }
@@ -192,6 +207,9 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
   }
   // Finishing a task takes it off the agents' list.
   if (row.status === 'done' && changes.agentSelected === undefined) row.agentSelected = false;
+  // Reopening a task forgets any ticket it was handed to, so ticking it again
+  // hands it over afresh. The ticket link itself only changes in core/agents.ts.
+  if (row.status === 'todo') row.agentTicketUrl = null;
   const updated = await store.update(id, row);
   if (!updated) throw new CoreError(`No task ${id} was found that you may change.`);
   return updated;

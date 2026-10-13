@@ -21,6 +21,7 @@ const COLUMNS: Record<keyof NewTaskRow, string> = {
   position: "position",
   priority: "priority",
   agentSelected: "agent_selected",
+  agentTicketUrl: "agent_ticket_url",
   tool: "tool",
 };
 
@@ -42,6 +43,7 @@ export function fromRow(row: any): Task {
     position: row.position,
     priority: row.priority,
     agentSelected: row.agent_selected,
+    agentTicketUrl: row.agent_ticket_url ?? null,
     tool: row.tool,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -65,9 +67,11 @@ export function supabaseTaskStore(supabase: Client): TaskStore {
       if (error) failed("read the task", error);
       return data ? fromRow(data) : null;
     },
-    async update(id, changes: TaskRowChanges, onlyIfPoints) {
+    async update(id, changes: TaskRowChanges, guard = {}) {
       let query = supabase.from("tasks").update(toRow(changes)).eq("id", id);
-      if (onlyIfPoints !== undefined) query = query.eq("points", onlyIfPoints);
+      if (guard.points !== undefined) query = query.eq("points", guard.points);
+      if (guard.agentTicketUrl === null) query = query.is("agent_ticket_url", null);
+      else if (guard.agentTicketUrl !== undefined) query = query.eq("agent_ticket_url", guard.agentTicketUrl);
       const { data, error } = await query.select();
       if (error) failed("save the change", error);
       return data?.[0] ? fromRow(data[0]) : null;
