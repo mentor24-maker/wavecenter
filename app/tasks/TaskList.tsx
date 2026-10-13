@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The to-do list: add, rename, tick off, reopen, delete, set points and
+ * The to-do list: add a task with details, a parent, a priority and files;
+ * edit its title and details, tick it off, reopen, delete, set points and
  * priority, put a task under another one, and attach files to it (pictures
  * show as small thumbnails). Above it, the "Launch AI
  * Agents" switch; on every open task, a box that hands it to AI agents, with
@@ -21,12 +22,12 @@ import {
   changePoints,
   changePriority,
   chooseForAgents,
+  editTask,
   finishUpload,
   markDone,
   moveUnder,
   removeAttachment,
   removeTask,
-  renameTask,
   startUpload,
   switchAgents,
   type SaveResult,
@@ -35,6 +36,7 @@ import {
 export interface ListTask {
   id: string;
   title: string;
+  notes: string | null;
   status: string;
   points: number;
   parentTaskId: string | null;
@@ -62,6 +64,9 @@ const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "
 
 /** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
+
+/** The add form when empty: no details, no parent, Normal priority. */
+const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
 
 const UNREACHABLE =
   "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
@@ -124,7 +129,7 @@ export default function TaskList({
 }) {
   const [failure, setFailure] = useState<Failure>(null);
   const [pending, startTransition] = useTransition();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
 
   /** Run one save; report how it went. Resolves true only on a confirmed save. */
@@ -146,18 +151,22 @@ export default function TaskList({
   /** Add the task, then attach any files picked for it. */
   async function add(e: FormEvent) {
     e.preventDefault();
-    if (!draft.trim()) return;
+    if (!draft.title.trim()) return;
+    // A parent deleted since it was picked shows as "Not a sub-task", so send that.
+    const parentTaskId = topLevel.some((p) => p.id === draft.parentTaskId) ? draft.parentTaskId : null;
+    const sent = { ...draft, parentTaskId };
+    // Cleared only on a confirmed save; a failed one keeps every field as typed.
     const added = await run("new", async () => {
-      const result = await addTask(draft);
+      const result = await addTask(sent);
       if (!result.ok || !result.id || !draftFiles.length) return result;
-      // The task exists now, so clear the box even if a file fails: adding again would make it twice.
-      setDraft("");
+      // The task exists now, so clear the form even if a file fails: adding again would make it twice.
+      setDraft(EMPTY_DRAFT);
       const attached = await uploadFiles(result.id, draftFiles);
       setDraftFiles([]);
       return attached.ok ? attached : { ok: false, error: `The task was added, but not every file: ${attached.error}` };
     });
     if (added) {
-      setDraft("");
+      setDraft(EMPTY_DRAFT);
       setDraftFiles([]);
     }
   }
@@ -194,7 +203,7 @@ export default function TaskList({
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
     <TaskRow
       // A fresh row whenever the saved values change, so the boxes show them.
-      key={`${t.id}:${t.title}:${t.points}:${t.parentTaskId}`}
+      key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.parentTaskId}`}
       task={t}
       sub={sub}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
@@ -253,31 +262,61 @@ export default function TaskList({
         {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
       </section>
 
-      <form onSubmit={add} className="add">
-        <input
-          aria-label="New task"
-          placeholder="Add a task and press Enter"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+      <form onSubmit={add} className="add" aria-label="Add a task">
+        <div className="line">
+          <input
+            aria-label="New task"
+            placeholder="Add a task and press Enter"
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          />
+          <button type="submit" disabled={pending || !draft.title.trim()}>Add</button>
+        </div>
+        <textarea
+          aria-label="Details of the new task"
+          placeholder="Details (optional)"
+          rows={2}
+          value={draft.notes}
+          onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
         />
-        <label className="link attach">
-          attach
-          <input type="file" multiple hidden disabled={pending} onChange={pickForNew} />
-        </label>
-        <button type="submit" disabled={pending || !draft.trim()}>Add</button>
+        <div className="line">
+          <select
+            aria-label="Parent of the new task"
+            value={draft.parentTaskId}
+            onChange={(e) => setDraft({ ...draft, parentTaskId: e.target.value })}
+          >
+            <option value="">Not a sub-task</option>
+            {topLevel.map((p) => (
+              <option key={p.id} value={p.id}>Sub-task of: {p.title}</option>
+            ))}
+          </select>
+          <select
+            aria-label="Priority of the new task"
+            value={draft.priority}
+            onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
+          >
+            {TASK_PRIORITIES.map((p) => (
+              <option key={p} value={p}>{PRIORITY_LABEL[p]} priority</option>
+            ))}
+          </select>
+          <label className="link attach">
+            attach
+            <input type="file" multiple hidden aria-label="Attach files to the new task" disabled={pending} onChange={pickForNew} />
+          </label>
+        </div>
+        {draftFiles.length > 0 && (
+          <p className="note">
+            To attach when you add:{" "}
+            {draftFiles.map((f, i) => (
+              <span key={i} className="chip">
+                {f.name}{" "}
+                <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
+              </span>
+            ))}
+          </p>
+        )}
+        {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
       </form>
-      {draftFiles.length > 0 && (
-        <p className="note">
-          To attach when you add:{" "}
-          {draftFiles.map((f, i) => (
-            <span key={i} className="chip">
-              {f.name}{" "}
-              <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
-            </span>
-          ))}
-        </p>
-      )}
-      {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
       {files.error && (
         <p className="error" role="alert">
           Attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.
@@ -357,14 +396,24 @@ function TaskRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
+  const [notes, setNotes] = useState(task.notes ?? "");
+  const [expanded, setExpanded] = useState(false);
   const [points, setPointsText] = useState(String(task.points));
   const done = task.status === "done";
 
-  async function rename(e: FormEvent) {
+  async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    if (title.trim() === task.title) return setEditing(false);
-    if (await run(() => renameTask(task.id, title))) setEditing(false);
+    if (title.trim() === task.title && notes.trim() === (task.notes ?? "")) return setEditing(false);
+    if (await run(() => editTask(task.id, title, notes))) setEditing(false);
   }
+
+  function cancelEdit() {
+    setTitle(task.title);
+    setNotes(task.notes ?? "");
+    setEditing(false);
+  }
+
+  const [firstLine, ...moreLines] = (task.notes ?? "").split("\n");
 
   function savePoints(e?: FormEvent) {
     e?.preventDefault();
@@ -400,14 +449,37 @@ function TaskRow({
         />
       </span>
       {editing ? (
-        <form onSubmit={rename} className="grow">
+        <form onSubmit={saveEdit} className="grow edit">
           <input aria-label="Task title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
+          <textarea
+            aria-label={`Details of "${task.title}"`}
+            placeholder="Details (optional)"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <span>
+            <button type="submit" disabled={pending || !title.trim()}>Save</button>
+          </span>
         </form>
       ) : (
         <span className="grow">
           {task.title} <span className="note">· {task.points} pts</span>
           {place && <span className="badge"> AI #{place}</span>}
           {parentTitle && <span className="note"> · sub-task of &ldquo;{parentTitle}&rdquo;</span>}
+          {task.notes && (
+            <span className="details">
+              {expanded ? task.notes : firstLine}
+              {moreLines.length > 0 && (
+                <>
+                  {" "}
+                  <button type="button" className="link" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+                    {expanded ? "less" : "more"}
+                  </button>
+                </>
+              )}
+            </span>
+          )}
         </span>
       )}
       <span className="controls">
@@ -447,7 +519,7 @@ function TaskRow({
           </select>
         )}
         {editing ? (
-          <button type="button" className="link" onClick={() => { setTitle(task.title); setEditing(false); }}>cancel</button>
+          <button type="button" className="link" onClick={cancelEdit}>cancel</button>
         ) : (
           <button type="button" className="link" onClick={() => setEditing(true)}>edit</button>
         )}

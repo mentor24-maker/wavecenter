@@ -84,7 +84,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
   const [{ data: tasks, error }, settings, files] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, status, points, parent_task_id, priority, agent_selected, created_at")
+      .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, created_at")
       .order("position")
       .order("created_at"),
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
@@ -114,6 +114,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
           tasks={(tasks ?? []).map((t) => ({
             id: t.id,
             title: t.title,
+            notes: t.notes,
             status: t.status,
             points: t.points ?? 0,
             parentTaskId: t.parent_task_id,
