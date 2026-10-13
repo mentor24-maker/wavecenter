@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — WaveCenter looks like a real place (#17)
+
+Every page now has a header with the WaveCenter name and a small wave mark,
+plus a way to sign in or out. The app uses one sea-blue accent colour,
+readable type and the same spacing throughout, in light and dark mode alike.
+Error messages sit in a tinted box so they cannot be missed; before, they
+were hard to read on a light screen. On a phone, each task's buttons now sit
+neatly under its name, and neither a long task title nor a long file
+name can push the page sideways; the attach links and file thumbnails wear
+the same look. The infrastructure notes now record where the
+wavecenter.com domain is registered, who runs its DNS and email, and the one
+record that put the app at app.wavecenter.com, where it is now live.
+
+---
+
 ## 2026-10-12 — Dane can attach files and pictures to a task (#22)
 
 Every task now has an "attach" link, and so does the add box. Pick a file

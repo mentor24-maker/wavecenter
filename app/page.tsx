@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { signOut } from "./auth/actions";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
 import { isImage } from "../core/files.ts";
 import { TASK_FILES_BUCKET } from "./lib/taskFileStore";
+import SiteHeader from "./SiteHeader";
 import TaskList, { type ListFile } from "./tasks/TaskList";
 
 /**
@@ -18,29 +18,32 @@ export default async function Home() {
   if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} userId={user.id} />;
 
   return (
-    <main>
-      <h1>WaveCenter</h1>
-      <p className="lede">The hub of the DEO movement. Coming soon.</p>
-      <p>
-        WaveCenter&rsquo;s mission is to build a modern alternative to the World Wide
-        Web, and a platform on which other DEOs can extend that mission or develop
-        new concepts. A DEO is a Decentralized Engagement Organization: one in which
-        human engagement, not capital investment, is the founding resource, the
-        operating fuel and the purpose.
-      </p>
-      <p className="note">
-        Today it is a simple to-do list. It will become a project management tool,
-        then the platform the DEO builds itself with.
-      </p>
-      {checkFailed && (
-        <p className="error" role="alert">
-          {SIGN_IN_CHECK_FAILED}
+    <>
+      <SiteHeader />
+      <main>
+        <h1>WaveCenter</h1>
+        <p className="lede">The hub of the DEO movement. Coming soon.</p>
+        <p>
+          WaveCenter&rsquo;s mission is to build a modern alternative to the World Wide
+          Web, and a platform on which other DEOs can extend that mission or develop
+          new concepts. A DEO is a Decentralized Engagement Organization: one in which
+          human engagement, not capital investment, is the founding resource, the
+          operating fuel and the purpose.
         </p>
-      )}
-      <p>
-        <Link href="/sign-in">Sign in</Link>
-      </p>
-    </main>
+        <p className="note">
+          Today it is a simple to-do list. It will become a project management tool,
+          then the platform the DEO builds itself with.
+        </p>
+        {checkFailed && (
+          <p className="error" role="alert">
+            {SIGN_IN_CHECK_FAILED}
+          </p>
+        )}
+        <p>
+          <Link href="/sign-in" className="button">Sign in</Link>
+        </p>
+      </main>
+    </>
   );
 }
 
@@ -97,35 +100,32 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     : { on: settings.data?.agents_on ?? DEFAULT_MEMBER_SETTINGS.agentsOn, error: null };
 
   return (
-    <main>
-      <header className="bar">
-        <span className="note">Signed in as {email}</span>
-        <form action={signOut}>
-          <button type="submit" className="link">Sign out</button>
-        </form>
-      </header>
-      <h1>Your tasks</h1>
-      {error ? (
-        <p className="error" role="alert">
-          Your tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
-        </p>
-      ) : (
-        <TaskList
-          tasks={(tasks ?? []).map((t) => ({
-            id: t.id,
-            title: t.title,
-            notes: t.notes,
-            status: t.status,
-            points: t.points ?? 0,
-            parentTaskId: t.parent_task_id,
-            priority: t.priority,
-            agentSelected: t.agent_selected,
-            createdAt: t.created_at,
-          }))}
-          agents={agents}
-          files={files}
-        />
-      )}
-    </main>
+    <>
+      <SiteHeader email={email} />
+      <main>
+        <h1>Your tasks</h1>
+        {error ? (
+          <p className="error" role="alert">
+            Your tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
+          </p>
+        ) : (
+          <TaskList
+            tasks={(tasks ?? []).map((t) => ({
+              id: t.id,
+              title: t.title,
+              notes: t.notes,
+              status: t.status,
+              points: t.points ?? 0,
+              parentTaskId: t.parent_task_id,
+              priority: t.priority,
+              agentSelected: t.agent_selected,
+              createdAt: t.created_at,
+            }))}
+            agents={agents}
+            files={files}
+          />
+        )}
+      </main>
+    </>
   );
 }
