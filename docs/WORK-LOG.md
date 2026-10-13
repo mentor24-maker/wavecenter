@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-12 — Tasks Dane ticks for AI agents now reach them (#20)
+
+Ticking a task and turning on "Launch AI Agents" now actually hands the task
+over. A new helper on the Mac Mini checks every 30 minutes. It takes the
+first ticked task in line (most urgent first, then oldest), writes it up as
+a proper work ticket in the Loop Queue, and the usual build, review and
+merge steps do the rest, so nothing ships without review and Dane's
+written "merge". The task then says "With AI agents" with a link to its
+ticket. When the ticket ships, the task is ticked off by itself; if the
+ticket is dropped, the task comes back with a note saying why. Turning the
+switch off stops new hand-offs, and the screen says so. A task can never be
+handed over twice.
+
+---
+
 ## 2026-10-12 — Dane can choose which tasks AI agents work on (#18)
 
 The to-do list has a "Launch AI Agents" switch, a box on every open task
