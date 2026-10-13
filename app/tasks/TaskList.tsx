@@ -293,6 +293,7 @@ function TaskRow({
               {" "}
               {done ? "Was with AI agents" : "With AI agents"} ·{" "}
               <a href={task.agentTicketUrl} target="_blank" rel="noreferrer">ticket</a>
+              {done && " · reopening it forgets this ticket, so ticking it again files a new one"}
             </span>
           )}
           {parentTitle && <span className="note"> · sub-task of &ldquo;{parentTitle}&rdquo;</span>}
