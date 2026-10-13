@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-13 — A conflict no longer stalls Dane's "merge" (#24)
+
+When Dane writes "merge" but the work clashes with something that reached
+the main code first, the merge helper cannot merge it. Until now it posted a
+note asking Dane to move the ticket back, and nothing else touched it: on
+2026-10-12 an approved change sat for twelve hours that way. Now the build
+agent picks such a ticket up on its next pass (within about 30 minutes),
+combines the two versions keeping both, re-runs every check, and leaves a
+note saying what clashed. The ticket stays in "Ready to launch" and Dane's
+"merge" still counts, so the merge helper finishes the job once the checks
+pass. If the two versions truly disagree, the agent asks Dane which one he
+wants instead of guessing. The helper's note no longer asks him to move
+anything.
+
+---
+
 ## 2026-10-12 — Tasks Dane ticks for AI agents now reach them (#20)
 
 Ticking a task and turning on "Launch AI Agents" now actually hands the task
