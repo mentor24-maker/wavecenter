@@ -127,7 +127,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .add { display: flex; flex-direction: column; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
 .add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .add .line input { flex: 1; min-width: 0; }
-.add select { flex: 1 1 10rem; }
+.add select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
 .add p { margin: 0; }
 
 .tasks {

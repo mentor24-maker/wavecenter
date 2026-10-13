@@ -14,7 +14,8 @@ plus a way to sign in or out. The app uses one sea-blue accent colour,
 readable type and the same spacing throughout, in light and dark mode alike.
 Error messages sit in a tinted box so they cannot be missed; before, they
 were hard to read on a light screen. On a phone, each task's buttons now sit
-neatly under its name. The infrastructure notes now record where the
+neatly under its name, and a long task title can no longer push the page
+sideways. The infrastructure notes now record where the
 wavecenter.com domain is registered, who runs its DNS and email, and the one
 record that put the app at app.wavecenter.com, where it is now live.
 
