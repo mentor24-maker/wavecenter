@@ -101,3 +101,19 @@ test('deleteTask removes the task, keeps its sub-tasks as top-level, and names i
   assert.equal((await store.get(step.id))?.parentTaskId, null);
   await assert.rejects(deleteTask(store, plan.id, 'wavecenter'), /No task .* you may delete/);
 });
+
+test('createTask saves details, a parent and a priority given together, and updateTask can clear the details', async () => {
+  const store = new MemoryTaskStore();
+  const parent = await createTask(store, { title: 'Plan' }, 'wavecenter');
+  const task = await createTask(
+    store,
+    { title: 'Try the new add form', notes: 'Line one\nLine two', parentTaskId: parent.id, priority: 'high' },
+    'wavecenter',
+  );
+  assert.equal(task.notes, 'Line one\nLine two');
+  assert.equal(task.parentTaskId, parent.id);
+  assert.equal(task.priority, 'high');
+  assert.equal(task.tool, 'wavecenter');
+  const cleared = await updateTask(store, task.id, { notes: null }, 'wavecenter');
+  assert.equal(cleared.notes, null);
+});

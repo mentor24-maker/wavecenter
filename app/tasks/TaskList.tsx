@@ -1,35 +1,139 @@
 "use client";
 
 /**
- * The to-do list: add, rename, tick off, reopen, delete, set points, and put
- * a task under another one. Every change is a server action that goes
+ * The to-do list: add a task with details, a parent, a priority and files;
+ * edit its title and details, tick it off, reopen, delete, set points and
+ * priority, put a task under another one, and attach files to it (pictures
+ * show as small thumbnails). Above it, the "Launch AI
+ * Agents" switch; on every open task, a box that hands it to AI agents, with
+ * a tick-all box in the header row. A task the hand-off lane has filed as a
+ * Loop Queue ticket shows "With AI agents" and a link to it. Every change is a server action that goes
  * through core (app/tasks/actions.ts).
  *
  * A save that fails says so next to where it happened and keeps what was
  * typed, including when the network is down and the server never answered
  * (engineering rule 6). Every empty section says why it is empty (rule 7).
  */
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { addTask, changePoints, markDone, moveUnder, removeTask, renameTask, type SaveResult } from "./actions";
+import { useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { agentOrder } from "../../core/agents.ts";
+import { checkFile } from "../../core/files.ts";
+import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
+import {
+  addTask,
+  changePoints,
+  changePriority,
+  chooseForAgents,
+  editTask,
+  finishUpload,
+  markDone,
+  moveUnder,
+  removeAttachment,
+  removeTask,
+  startUpload,
+  switchAgents,
+  type SaveResult,
+} from "./actions";
 
 export interface ListTask {
   id: string;
   title: string;
+  notes: string | null;
   status: string;
   points: number;
   parentTaskId: string | null;
+  priority: TaskPriority;
+  agentSelected: boolean;
+  /** The Loop Queue ticket the task was handed to, if any. */
+  agentTicketUrl: string | null;
+  createdAt: string;
 }
 
-/** Where a failed save happened: "new" for the add box, or a task id. */
+/** A file attached to a task, with a short-lived link to it (null if none could be made). */
+export interface ListFile {
+  id: string;
+  taskId: string;
+  name: string;
+  image: boolean;
+  url: string | null;
+}
+
+/** The member's "Launch AI Agents" switch; `on` is null if it could not be read. */
+export interface AgentsSwitch {
+  on: boolean | null;
+  error: string | null;
+}
+
+const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
+
+/** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
+
+/** The add form when empty: no details, no parent, Normal priority. */
+const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
 
 const UNREACHABLE =
   "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
 
-export default function TaskList({ tasks }: { tasks: ListTask[] }) {
+/**
+ * Attach files to a task, one after another (app/tasks/actions.ts explains
+ * the three steps). A file over 10 MB is refused here, before anything is
+ * sent. Resolves ok only if every file was attached; otherwise the answer
+ * names what failed, and a failed file leaves nothing behind.
+ */
+async function uploadFiles(taskId: string, files: File[]): Promise<SaveResult> {
+  const problems: string[] = [];
+  for (const file of files) {
+    const result = await uploadFile(taskId, file).catch((): SaveResult => ({ ok: false, error: UNREACHABLE }));
+    if (!result.ok) problems.push(result.error);
+  }
+  if (!problems.length) return { ok: true };
+  const attached = files.length - problems.length;
+  return { ok: false, error: `${attached ? `${attached} of ${files.length} files were attached. ` : ""}${problems.join(" ")}` };
+}
+
+async function uploadFile(taskId: string, file: File): Promise<SaveResult> {
+  try {
+    checkFile(file.name, file.size);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const ticket = await startUpload(taskId, file.name, file.size);
+  if (!ticket.ok) return ticket;
+  const notSent = `"${file.name}" could not be sent to file storage, so it was not attached. Check your connection and try again.`;
+  try {
+    const sent = await fetch(ticket.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!sent.ok) return { ok: false, error: `File storage refused "${file.name}" (error ${sent.status}), so it was not attached. Try again.` };
+  } catch {
+    return { ok: false, error: notSent };
+  }
+  return finishUpload({ taskId, path: ticket.path, name: file.name, contentType: file.type, sizeBytes: file.size });
+}
+
+/** The files picked in a file box, then the box emptied so the same file can be picked again. */
+function picked(e: ChangeEvent<HTMLInputElement>): File[] {
+  const files = [...(e.target.files ?? [])];
+  e.target.value = "";
+  return files;
+}
+
+export default function TaskList({
+  tasks,
+  agents,
+  files,
+}: {
+  tasks: ListTask[];
+  agents: AgentsSwitch;
+  /** Every attached file, or why they could not be loaded. */
+  files: { files: ListFile[]; error: string | null };
+}) {
   const [failure, setFailure] = useState<Failure>(null);
   const [pending, startTransition] = useTransition();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
 
   /** Run one save; report how it went. Resolves true only on a confirmed save. */
   function run(at: string, action: () => Promise<SaveResult>): Promise<boolean> {
@@ -47,10 +151,44 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
     });
   }
 
+  /** Add the task, then attach any files picked for it. */
   async function add(e: FormEvent) {
     e.preventDefault();
-    if (!draft.trim()) return;
-    if (await run("new", () => addTask(draft))) setDraft("");
+    if (!draft.title.trim()) return;
+    // A parent deleted since it was picked shows as "Not a sub-task", so send that.
+    const parentTaskId = topLevel.some((p) => p.id === draft.parentTaskId) ? draft.parentTaskId : null;
+    const sent = { ...draft, parentTaskId };
+    // Cleared only on a confirmed save; a failed one keeps every field as typed.
+    const added = await run("new", async () => {
+      const result = await addTask(sent);
+      if (!result.ok || !result.id || !draftFiles.length) return result;
+      // The task exists now, so clear the form even if a file fails: adding again would make it twice.
+      setDraft(EMPTY_DRAFT);
+      const attached = await uploadFiles(result.id, draftFiles);
+      setDraftFiles([]);
+      return attached.ok ? attached : { ok: false, error: `The task was added, but not every file: ${attached.error}` };
+    });
+    if (added) {
+      setDraft(EMPTY_DRAFT);
+      setDraftFiles([]);
+    }
+  }
+
+  /** Pick files for the task being added. A file over 10 MB is refused straight away. */
+  function pickForNew(e: ChangeEvent<HTMLInputElement>) {
+    const chosen = picked(e);
+    const refused: string[] = [];
+    const ok = chosen.filter((f) => {
+      try {
+        checkFile(f.name, f.size);
+        return true;
+      } catch (err) {
+        refused.push((err as Error).message);
+        return false;
+      }
+    });
+    setDraftFiles((now) => [...now, ...ok]);
+    setFailure(refused.length ? { at: "new", message: refused.join(" ") } : null);
   }
 
   const done = tasks.filter((t) => t.status === "done");
@@ -58,15 +196,26 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
   const topLevel = tasks.filter((t) => !t.parentTaskId);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const hasChildren = new Set(tasks.map((t) => t.parentTaskId).filter(Boolean));
+  const inLine = agentOrder(tasks);
+  const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
+  const filesByTask = new Map<string, ListFile[]>();
+  for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
+  const withAgents = open.filter((t) => t.agentTicketUrl).length;
+  // Tick-all covers the tasks still waiting; one already handed over stays with its ticket.
+  const tickable = open.filter((t) => !t.agentTicketUrl);
+  const allTicked = tickable.length > 0 && tickable.every((t) => t.agentSelected);
+  const someTicked = tickable.some((t) => t.agentSelected);
 
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
     <TaskRow
       // A fresh row whenever the saved values change, so the boxes show them.
-      key={`${t.id}:${t.title}:${t.points}:${t.parentTaskId}`}
+      key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.parentTaskId}`}
       task={t}
       sub={sub}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
+      files={filesByTask.get(t.id) ?? []}
+      place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
       pending={pending}
       run={(action) => run(t.id, action)}
@@ -93,23 +242,119 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
 
   return (
     <>
-      <form onSubmit={add} className="add">
-        <input
-          aria-label="New task"
-          placeholder="Add a task and press Enter"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+      <section className="agents" aria-label="AI agents">
+        {agents.on === null ? (
+          <p className="error" role="alert">
+            Could not read whether AI agents are on: {agents.error}. Agents are treated as off; try reloading the page.
+          </p>
+        ) : (
+          <label className="switch">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={agents.on}
+              disabled={pending}
+              onChange={() => run("agents", () => switchAgents(!agents.on))}
+            />
+            <span>Launch AI Agents</span>
+          </label>
+        )}
+        {agents.on !== null && <p className="note">{agentsLine(agents.on, inLine.length, withAgents)}</p>}
+        <p className="note">
+          Turning this off stops new hand-offs; tasks already with the AI agents carry on until they are finished.
+        </p>
+        {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
+      </section>
+
+      <form onSubmit={add} className="add" aria-label="Add a task">
+        <div className="line">
+          <input
+            aria-label="New task"
+            placeholder="Add a task and press Enter"
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          />
+          <button type="submit" disabled={pending || !draft.title.trim()}>Add</button>
+        </div>
+        <textarea
+          aria-label="Details of the new task"
+          placeholder="Details (optional)"
+          rows={2}
+          value={draft.notes}
+          onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
         />
-        <button type="submit" disabled={pending || !draft.trim()}>Add</button>
+        <div className="line">
+          <select
+            aria-label="Parent of the new task"
+            value={draft.parentTaskId}
+            onChange={(e) => setDraft({ ...draft, parentTaskId: e.target.value })}
+          >
+            <option value="">Not a sub-task</option>
+            {topLevel.map((p) => (
+              <option key={p.id} value={p.id}>Sub-task of: {p.title}</option>
+            ))}
+          </select>
+          <select
+            aria-label="Priority of the new task"
+            value={draft.priority}
+            onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
+          >
+            {TASK_PRIORITIES.map((p) => (
+              <option key={p} value={p}>{PRIORITY_LABEL[p]} priority</option>
+            ))}
+          </select>
+          <label className="link attach">
+            attach
+            <input type="file" multiple hidden aria-label="Attach files to the new task" disabled={pending} onChange={pickForNew} />
+          </label>
+        </div>
+        {draftFiles.length > 0 && (
+          <p className="note">
+            To attach when you add:{" "}
+            {draftFiles.map((f, i) => (
+              <span key={i} className="chip">
+                {f.name}{" "}
+                <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
+              </span>
+            ))}
+          </p>
+        )}
+        {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
       </form>
-      {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
+      {files.error && (
+        <p className="error" role="alert">
+          Attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.
+        </p>
+      )}
 
       {tasks.length === 0 ? (
         <p className="note">No tasks yet — add your first one above.</p>
       ) : (
         <>
           <h2>Open</h2>
-          {open.length ? <ul className="tasks">{section(open)}</ul> : <p className="note">Nothing open — every task is done.</p>}
+          {open.length ? (
+            <ul className="tasks">
+              <li className="task head">
+                <label className="cell">
+                  <input
+                    type="checkbox"
+                    aria-label={allTicked ? "Untick every task for AI agents" : "Tick every open task for AI agents"}
+                    checked={allTicked}
+                    ref={(el) => { if (el) el.indeterminate = someTicked && !allTicked; }}
+                    disabled={pending || !tickable.length}
+                    onChange={() => run("all", () => chooseForAgents(tickable.map((t) => t.id), !allTicked))}
+                  />
+                  <small>AI</small>
+                </label>
+                <span className="cell note"><small>Done</small></span>
+                <span className="grow note">Tick the AI box on each task agents should work on; the top box ticks them all.</span>
+                {failure?.at === "all" && <p className="error full" role="alert">{failure.message}</p>}
+              </li>
+              {section(open)}
+            </ul>
+          ) : (
+            <p className="note">Nothing open — every task is done.</p>
+          )}
           <h2>Done</h2>
           {done.length ? <ul className="tasks">{section(done)}</ul> : <p className="note">Nothing done yet. Tick a task&rsquo;s box when you finish it.</p>}
         </>
@@ -118,11 +363,25 @@ export default function TaskList({ tasks }: { tasks: ListTask[] }) {
   );
 }
 
+/** The line under the switch: what the agents will do, in plain words. */
+function agentsLine(on: boolean, ticked: number, handed: number): string {
+  const count = `${ticked} ticked task${ticked === 1 ? "" : "s"}`;
+  const busy = handed ? ` ${handed} task${handed === 1 ? " is" : "s are"} with them now.` : "";
+  if (on && ticked) {
+    return `Agents are on. ${count[0].toUpperCase()}${count.slice(1)} waiting: they are handed over one at a time, highest priority first, then oldest first.${busy}`;
+  }
+  if (on) return `Agents are on, but no tasks are waiting for them. Tick a task's AI box to hand it over.${busy}`;
+  if (ticked) return `Agents are off. ${count[0].toUpperCase()}${count.slice(1)} will wait until you turn them on.${busy}`;
+  return `Agents are off. Tick the tasks you want AI agents to work on, then turn this on.${busy}`;
+}
+
 function TaskRow({
   task,
   sub,
   parentTitle,
   parents,
+  files,
+  place,
   failure,
   pending,
   run,
@@ -134,20 +393,34 @@ function TaskRow({
   parentTitle?: string;
   /** Tasks this one may go under, or null when it has sub-tasks of its own. */
   parents: ListTask[] | null;
+  /** The files attached to it. */
+  files: ListFile[];
+  /** Its place in the agents' line, shown while agents are on. */
+  place?: number;
   failure: string | null;
   pending: boolean;
   run: (action: () => Promise<SaveResult>) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
+  const [notes, setNotes] = useState(task.notes ?? "");
+  const [expanded, setExpanded] = useState(false);
   const [points, setPointsText] = useState(String(task.points));
   const done = task.status === "done";
 
-  async function rename(e: FormEvent) {
+  async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    if (title.trim() === task.title) return setEditing(false);
-    if (await run(() => renameTask(task.id, title))) setEditing(false);
+    if (title.trim() === task.title && notes.trim() === (task.notes ?? "")) return setEditing(false);
+    if (await run(() => editTask(task.id, title, notes))) setEditing(false);
   }
+
+  function cancelEdit() {
+    setTitle(task.title);
+    setNotes(task.notes ?? "");
+    setEditing(false);
+  }
+
+  const [firstLine, ...moreLines] = (task.notes ?? "").split("\n");
 
   function savePoints(e?: FormEvent) {
     e?.preventDefault();
@@ -161,24 +434,80 @@ function TaskRow({
 
   return (
     <li className={["task", done && "done", sub && "sub"].filter(Boolean).join(" ")}>
-      <input
-        type="checkbox"
-        aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
-        checked={done}
-        disabled={pending}
-        onChange={() => run(() => markDone(task.id, !done))}
-      />
+      <span className="cell">
+        {!done && !task.agentTicketUrl && (
+          <input
+            type="checkbox"
+            className="ai"
+            aria-label={task.agentSelected ? `Take "${task.title}" back from AI agents` : `Hand "${task.title}" to AI agents`}
+            checked={task.agentSelected}
+            disabled={pending}
+            onChange={() => run(() => chooseForAgents([task.id], !task.agentSelected))}
+          />
+        )}
+      </span>
+      <span className="cell">
+        <input
+          type="checkbox"
+          aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
+          checked={done}
+          disabled={pending}
+          onChange={() => run(() => markDone(task.id, !done))}
+        />
+      </span>
       {editing ? (
-        <form onSubmit={rename} className="grow">
+        <form onSubmit={saveEdit} className="grow edit">
           <input aria-label="Task title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
+          <textarea
+            aria-label={`Details of "${task.title}"`}
+            placeholder="Details (optional)"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <span>
+            <button type="submit" disabled={pending || !title.trim()}>Save</button>
+          </span>
         </form>
       ) : (
         <span className="grow">
           {task.title} <span className="note">· {task.points} pts</span>
+          {place && <span className="badge"> AI #{place}</span>}
+          {task.agentTicketUrl && (
+            <span className="badge">
+              {" "}
+              {done ? "Was with AI agents" : "With AI agents"} ·{" "}
+              <a href={task.agentTicketUrl} target="_blank" rel="noreferrer">ticket</a>
+              {done && " · reopening it forgets this ticket, so ticking it again files a new one"}
+            </span>
+          )}
           {parentTitle && <span className="note"> · sub-task of &ldquo;{parentTitle}&rdquo;</span>}
+          {task.notes && (
+            <span className="details">
+              {expanded ? task.notes : firstLine}
+              {moreLines.length > 0 && (
+                <>
+                  {" "}
+                  <button type="button" className="link" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+                    {expanded ? "less" : "more"}
+                  </button>
+                </>
+              )}
+            </span>
+          )}
         </span>
       )}
       <span className="controls">
+        <select
+          aria-label={`Priority of "${task.title}"`}
+          value={task.priority}
+          disabled={pending}
+          onChange={(e) => run(() => changePriority(task.id, e.target.value as TaskPriority))}
+        >
+          {TASK_PRIORITIES.map((p) => (
+            <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+          ))}
+        </select>
         <form onSubmit={savePoints}>
           <input
             aria-label={`Points for "${task.title}"`}
@@ -205,12 +534,48 @@ function TaskRow({
           </select>
         )}
         {editing ? (
-          <button type="button" className="link" onClick={() => { setTitle(task.title); setEditing(false); }}>cancel</button>
+          <button type="button" className="link" onClick={cancelEdit}>cancel</button>
         ) : (
           <button type="button" className="link" onClick={() => setEditing(true)}>edit</button>
         )}
+        <label className="link attach">
+          attach
+          <input
+            type="file"
+            multiple
+            hidden
+            aria-label={`Attach files to "${task.title}"`}
+            disabled={pending}
+            onChange={(e) => {
+              const chosen = picked(e);
+              if (chosen.length) void run(() => uploadFiles(task.id, chosen));
+            }}
+          />
+        </label>
         <button type="button" className="link" disabled={pending} onClick={() => run(() => removeTask(task.id))}>delete</button>
       </span>
+      {files.length > 0 && (
+        <ul className="files full">
+          {files.map((f) => (
+            <li key={f.id}>
+              {!f.url ? (
+                <span className="note">{f.name} (no link could be made; try reloading)</span>
+              ) : f.image ? (
+                <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
+                  {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.url} alt={f.name} className="thumb" />
+                </a>
+              ) : (
+                <a href={f.url}>{f.name}</a>
+              )}
+              <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
+                remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {failure && <p className="error full" role="alert">{failure}</p>}
     </li>
   );

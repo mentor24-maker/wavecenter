@@ -2,18 +2,24 @@
 
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
- * core (createTask, updateTask, setPoints, deleteTask) as the tool
- * `wavecenter`, acting as the signed-in member.
+ * core (createTask, updateTask, setPoints, setAgentsOn, attachFile, removeFile,
+ * deleteTaskWithFiles) as the tool `wavecenter`, acting as the signed-in
+ * member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it and keeps what was typed (engineering rule 6).
  */
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { setAgentsOn } from "../../core/agents.ts";
+import { attachFile, checkFile, deleteTaskWithFiles, filePath, removeFile } from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
-import { createTask, deleteTask, updateTask } from "../../core/tasks.ts";
+import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
+import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
+import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -21,7 +27,10 @@ export type SaveResult = { ok: true } | { ok: false; error: string };
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 type Store = ReturnType<typeof supabaseTaskStore>;
 
-async function save(what: string, change: (store: Store, supabase: Supabase) => Promise<unknown>): Promise<SaveResult> {
+async function save(
+  what: string,
+  change: (store: Store, supabase: Supabase, memberId: string) => Promise<unknown>,
+): Promise<SaveResult> {
   try {
     const supabase = await supabaseForRequest();
     if (!supabase) return { ok: false, error: "This copy of WaveCenter has no database settings, so nothing can be saved." };
@@ -34,7 +43,7 @@ async function save(what: string, change: (store: Store, supabase: Supabase) => 
           : "You are signed out, so this was not saved. Reload the page and sign in again.",
       };
     }
-    await change(supabaseTaskStore(supabase), supabase);
+    await change(supabaseTaskStore(supabase), supabase, user.id);
   } catch (err) {
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error(`tasks: could not ${what}:`, err);
@@ -49,20 +58,46 @@ async function save(what: string, change: (store: Store, supabase: Supabase) => 
  * and a task that already has sub-tasks cannot become one. Core allows deeper
  * trees; this is the to-do list's own limit, so the screen stays simple.
  */
-async function requireOneLevel(store: Store, supabase: Supabase, id: string, parentTaskId: string) {
+async function requireOneLevel(store: Store, supabase: Supabase, id: string | null, parentTaskId: string) {
   const parent = await store.get(parentTaskId);
   if (parent?.parentTaskId) throw new CoreError(`"${parent.title}" is already a sub-task, and sub-tasks cannot have sub-tasks of their own yet.`);
+  if (!id) return; // A task being added has no sub-tasks yet.
   const { count, error } = await supabase.from("tasks").select("id", { count: "exact", head: true }).eq("parent_task_id", id);
   if (error) throw new Error(error.message);
   if (count) throw new CoreError("This task has sub-tasks of its own, so it cannot become a sub-task yet.");
 }
 
-export async function addTask(title: string): Promise<SaveResult> {
-  return save("add the task", (store) => createTask(store, { title }, WAVECENTER_TOOL));
+/** Details that are only blank space are no details: saved as empty. */
+function cleanNotes(notes: string): string | null {
+  return notes.trim() ? notes.trim() : null;
 }
 
-export async function renameTask(id: string, title: string): Promise<SaveResult> {
-  return save("rename the task", (store) => updateTask(store, id, { title }, WAVECENTER_TOOL));
+/** What the add form sends. */
+export interface NewTaskFields {
+  title: string;
+  notes: string;
+  parentTaskId: string | null;
+  priority: TaskPriority;
+}
+
+/** Adding a task also says its id, so files picked in the add form can follow it. */
+export async function addTask(fields: NewTaskFields): Promise<SaveResult & { id?: string }> {
+  let id = "";
+  const result = await save("add the task", async (store, supabase) => {
+    if (fields.parentTaskId) await requireOneLevel(store, supabase, null, fields.parentTaskId);
+    const task = await createTask(
+      store,
+      { title: fields.title, notes: cleanNotes(fields.notes), parentTaskId: fields.parentTaskId, priority: fields.priority },
+      WAVECENTER_TOOL,
+    );
+    id = task.id;
+  });
+  return result.ok ? { ok: true, id } : result;
+}
+
+/** Change a task's title and details together, from the row's edit form. */
+export async function editTask(id: string, title: string, notes: string): Promise<SaveResult> {
+  return save("save the task", (store) => updateTask(store, id, { title, notes: cleanNotes(notes) }, WAVECENTER_TOOL));
 }
 
 export async function markDone(id: string, done: boolean): Promise<SaveResult> {
@@ -81,6 +116,81 @@ export async function moveUnder(id: string, parentTaskId: string | null): Promis
   });
 }
 
+/** Deleting a task deletes its attached files from storage too, not just the rows. */
 export async function removeTask(id: string): Promise<SaveResult> {
-  return save("delete the task", (store) => deleteTask(store, id, WAVECENTER_TOOL));
+  return save("delete the task", (store, supabase) =>
+    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase), id, WAVECENTER_TOOL));
+}
+
+export async function changePriority(id: string, priority: TaskPriority): Promise<SaveResult> {
+  return save("change the priority", (store) => updateTask(store, id, { priority }, WAVECENTER_TOOL));
+}
+
+/**
+ * Tick or untick tasks for AI agents: one task, or every open task at once
+ * from the tick-all box. Each is saved on its own; if any fail, the answer
+ * says how many, and the screen reloads to show what actually saved.
+ */
+export async function chooseForAgents(ids: string[], selected: boolean): Promise<SaveResult> {
+  const what = selected ? "tick the task for AI agents" : "untick the task";
+  let failed = 0;
+  let firstError = "";
+  for (const id of ids) {
+    const result = await save(what, (store) => updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL));
+    if (!result.ok) {
+      failed += 1;
+      firstError ||= result.error;
+    }
+  }
+  if (!failed) return { ok: true };
+  if (ids.length === 1) return { ok: false, error: firstError };
+  revalidatePath("/");
+  return { ok: false, error: `${failed} of ${ids.length} tasks were not saved: ${firstError} The boxes now show what did save.` };
+}
+
+export async function switchAgents(on: boolean): Promise<SaveResult> {
+  return save(on ? "turn AI agents on" : "turn AI agents off", (_store, supabase, memberId) =>
+    setAgentsOn(supabaseMemberSettingsStore(supabase, memberId), on, WAVECENTER_TOOL));
+}
+
+/**
+ * Attaching a file takes three steps, so a big file never passes through the
+ * web server (Vercel refuses requests over about 4.5 MB, and this works the
+ * same on any host):
+ *
+ * 1. `startUpload` checks the file (a name, at most 10 MB, a task of your
+ *    own) and asks storage, as you, for a one-time link to put it in your
+ *    own folder. No key goes to the browser, only that link.
+ * 2. The browser sends the file straight to storage with the link.
+ * 3. `finishUpload` records it on the task through core. If that fails, core
+ *    deletes the stored copy again, so nothing is left half-saved.
+ */
+export type UploadTicket = { ok: true; path: string; uploadUrl: string } | { ok: false; error: string };
+
+export async function startUpload(taskId: string, name: string, sizeBytes: number): Promise<UploadTicket> {
+  let ticket = { path: "", uploadUrl: "" };
+  const result = await save("get the file ready to upload", async (store, supabase, memberId) => {
+    checkFile(name, sizeBytes);
+    if (!(await store.get(taskId))) throw new CoreError(`No task ${taskId} was found that you may attach a file to.`);
+    const path = filePath(memberId, taskId, randomUUID(), name);
+    const { data, error } = await supabase.storage.from(TASK_FILES_BUCKET).createSignedUploadUrl(path);
+    if (error) throw new Error(`File storage refused the upload: ${error.message}`);
+    ticket = { path, uploadUrl: data.signedUrl };
+  });
+  return result.ok ? { ok: true, ...ticket } : result;
+}
+
+export async function finishUpload(file: {
+  taskId: string;
+  path: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+}): Promise<SaveResult> {
+  return save("attach the file", (store, supabase) =>
+    attachFile(store, supabaseTaskFileStore(supabase), file, WAVECENTER_TOOL));
+}
+
+export async function removeAttachment(fileId: string): Promise<SaveResult> {
+  return save("remove the file", (_store, supabase) => removeFile(supabaseTaskFileStore(supabase), fileId, WAVECENTER_TOOL));
 }

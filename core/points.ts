@@ -54,7 +54,7 @@ async function changePoints(
   const after = requirePointsValue(next(current.points));
   // Only write if nobody changed the points since we read them, so two
   // changes at once can never silently lose one.
-  const task = await store.update(taskId, { points: after, tool: named }, current.points);
+  const task = await store.update(taskId, { points: after, tool: named }, { points: current.points });
   if (!task) {
     throw new CoreError(`Task ${taskId}'s points changed while this change was being made. Nothing was saved; try again.`);
   }

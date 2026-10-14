@@ -7,6 +7,88 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-13 — Sign-in links asked for on app.wavecenter.com now land there (#19)
+
+When the new address app.wavecenter.com went live, a sign-in link asked for
+there opened the old app-wavecenter.vercel.app address instead. Supabase,
+which sends the email, only sends people back to addresses on its approved
+list, and the new one was missing. It is now on the list and is the main
+address, so the link brings Dane back to app.wavecenter.com. The setup notes
+now say plainly that any new address the app answers on must be added to
+that list the same day.
+
+---
+
+## 2026-10-12 — Tasks Dane ticks for AI agents now reach them (#20)
+
+Ticking a task and turning on "Launch AI Agents" now actually hands the task
+over. A new helper on the Mac Mini checks every 30 minutes. It takes the
+first ticked task in line (most urgent first, then oldest), writes it up as
+a proper work ticket in the Loop Queue, and the usual build, review and
+merge steps do the rest, so nothing ships without review and Dane's
+written "merge". The task then says "With AI agents" with a link to its
+ticket. When the ticket ships, the task is ticked off by itself; if the
+ticket is dropped, the task comes back with a note saying why. Turning the
+switch off stops new hand-offs, and the screen says so. A task can never be
+handed over twice. Dane's task about the add form, which a session had
+already filed by hand as two tickets, is marked as with the agents so the
+helper does not file it a third time.
+
+---
+
+## 2026-10-12 — WaveCenter looks like a real place (#17)
+
+Every page now has a header with the WaveCenter name and a small wave mark,
+plus a way to sign in or out. The app uses one sea-blue accent colour,
+readable type and the same spacing throughout, in light and dark mode alike.
+Error messages sit in a tinted box so they cannot be missed; before, they
+were hard to read on a light screen. On a phone, each task's buttons now sit
+neatly under its name, and neither a long task title nor a long file
+name can push the page sideways; the attach links and file thumbnails wear
+the same look. The infrastructure notes now record where the
+wavecenter.com domain is registered, who runs its DNS and email, and the one
+record that put the app at app.wavecenter.com, where it is now live.
+
+---
+
+## 2026-10-12 — Dane can attach files and pictures to a task (#22)
+
+Every task now has an "attach" link, and so does the add box. Pick a file
+and it is saved with the task: pictures show as small thumbnails you can
+click to open, other files as a name you click to download, and each has a
+"remove" link. A file over 10 MB is refused straight away with a message
+saying so. The files are stored privately in the database's own file
+storage, never on the web host's disk, and each member can reach only their
+own. If an upload fails part-way, the screen says so and nothing
+half-saved is left behind. Deleting a task deletes its files too. This is
+what Dane needs to hand over the WaveCenter logo and favicon.
+
+---
+
+## 2026-10-12 — Adding a task takes details, a parent and a priority (#21)
+
+Adding a task used to mean typing a title and nothing else. The add box is
+now a small form: the title (Enter still adds it), a box for details, a
+choice of which task it sits under, and its priority. If the add fails, for
+example because the internet dropped, the form says so and keeps everything
+typed. Each task in the list shows the first line of its details, with a
+"more" link for the rest, and "edit" changes the title and details together.
+Attaching files and images comes next, in its own ticket.
+
+---
+
+## 2026-10-12 — Dane can choose which tasks AI agents work on (#18)
+
+The to-do list has a "Launch AI Agents" switch, a box on every open task
+that says "AI may work on this", a tick-all box above the list, and a
+priority (Urgent, High, Normal, Low) on every task. With the switch on, each
+ticked task shows its place in line, highest priority first, then oldest
+first. These are Dane's choices only, saved and protected so no other member
+can see or change them; actually handing the ticked tasks to the agents is
+the next ticket, and until it ships the screen says so.
+
+---
+
 ## 2026-10-12 — WaveCenter is a to-do list Dane can use (#16)
 
 "Your tasks" now works as a to-do list. Type a task and press Enter to add

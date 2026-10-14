@@ -1,9 +1,16 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is one table, `tasks`.
+What WaveCenter stores, in plain words. Today that is three tables: `tasks`;
+`member_settings`, which holds each member's "Launch AI Agents" switch; and
+`task_files`, the files attached to tasks, whose stored copies live in a
+private file-storage bucket.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
-added `tool`); this page explains them.
+added `tool`; `20261012180000_ai_agents.sql` added `priority`,
+`agent_selected` and the `member_settings` table;
+`20261012230000_agent_handoff.sql` added `agent_ticket_url`;
+`20261013040000_task_files.sql` added `task_files` and the `task-files`
+bucket); this page explains them.
 
 ## The `tasks` table
 
@@ -22,6 +29,9 @@ One row is one task: something a member means to do, is doing, or has done.
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
 | `completed_at` | When it was marked `done`. Stamped automatically, and cleared if the task is reopened. |
+| `priority` | **How urgent the task is:** `urgent`, `high`, `normal` or `low`, the same four ClickUp uses. Starts at `normal`. |
+| `agent_selected` | **The member has ticked this task for AI agents to work on.** Starts unticked. A done task cannot be ticked, and finishing a task unticks it. |
+| `agent_ticket_url` | **The Loop Queue ticket the task was handed to**, if any. Empty until the hand-off lane files it; while set, the task shows "With AI agents" and a link. Kept when the ticket goes Live and the task is done, as the record of who did it; cleared if the ticket is closed without being built, or the task is reopened. |
 | `tool` | **Which tool last changed the task.** WaveCenter's own app is `wavecenter`, which is also the starting value and what every task made before this column existed got. Never blank. |
 
 ### Every change goes through core, and names its tool
@@ -49,6 +59,78 @@ Two changes to the same task's points at the same moment cannot quietly
 cancel each other out: a points change only saves if the points are still
 what it read, and otherwise says "try again" and saves nothing.
 
+### Handing tasks to AI agents
+
+A member ticks the tasks AI agents may work on and turns on the **Launch AI
+Agents** switch. Agents take the ticked tasks highest priority first, and
+within a priority the oldest first (Dane, 2026-10-12: "in priority, then
+chronological order"). That order is worked out in one place,
+`agentOrder` in `core/agents.ts`, so the screen and the agents can never
+disagree about it.
+
+The switch lives in `member_settings`, one row per member:
+
+| Column | What it holds |
+|---|---|
+| `owner_id` | The member the settings belong to. |
+| `agents_on` | **The "Launch AI Agents" switch.** Off until the member turns it on. A member with no row yet counts as off. |
+| `tool` | Which tool last changed the row, as on `tasks`. |
+| `updated_at` | When it last changed. Kept current automatically. |
+
+When the switch is on, the hand-off lane on the Mac Mini (tool
+`loop-handoff`; `docs/LOOP_ENGINEERING.md`, "The hand-off lane") files the
+first ticked task in that order as a Loop Queue ticket and records its link
+in `agent_ticket_url`, making the task `doing`. A task with a link is no
+longer in line, so it is never handed off twice; the write that records the
+link only lands if the task still has none. When the ticket goes Live the
+task becomes `done`; when it is closed as `wont-do` or `deferred` the task
+goes back to `todo`, unticked, with a note saying why. Only three functions
+in `core/agents.ts` change the link: `handOffTask`, `completeHandOff` and
+`returnHandOff`.
+
+The switch only changes through `setAgentsOn` in `core/agents.ts`. Row-level
+security was on from the moment this table was made: a member reads and
+changes only their own row, and a signed-out visitor gets nothing.
+`npm run check:tasks-rls` proves it for this table too.
+
+### Files attached to a task
+
+A member can attach files to a task: a logo, a screenshot, a document. Each
+file has two halves. The **stored copy** sits in a private Supabase Storage
+bucket called `task-files`, never on the web host's own disk (engineering
+rule 5), in a folder named after its owner:
+`<owner id>/<task id>/<random id>-<file name>`. The **record** is one row in
+`task_files`:
+
+| Column | What it holds |
+|---|---|
+| `id` | The file's permanent identifier. |
+| `task_id` | The task it is attached to. If the task is deleted, the row goes with it. |
+| `owner_id` | The member it belongs to. Filled in automatically. |
+| `path` | Where the stored copy is. It must sit in its owner's folder for its own task. |
+| `name` | The file's name as the member chose it. Never blank. |
+| `content_type` | What kind of file it is, for example `image/png`. Pictures show as thumbnails. |
+| `size_bytes` | How big it is. At most 10 MB; the bucket refuses anything bigger too. |
+| `tool` | Which tool attached it. |
+| `created_at` | When it was attached. |
+
+Files only change through `core/files.ts`: `attachFile`, `removeFile` and
+`deleteTaskWithFiles`. They keep the two halves in step. A record is only
+written for a copy that is already stored, and if the record cannot be
+written the copy is deleted again. Removing a file, or deleting its task,
+deletes the stored copy, not just the record.
+
+A file goes from the browser straight to storage, using a one-time upload
+link the server asks for as the signed-in member. No key reaches the
+browser, and a big file never passes through the web server (Vercel refuses
+requests over about 4.5 MB; this way also works on any host). Viewing a file
+uses a signed link that stops working after an hour; the bucket has no
+public links at all.
+
+Row-level security was on from the moment `task_files` was made, and the
+bucket has its own rules: a member reads, adds and deletes only their own
+files, only in their own folder, and only on their own tasks.
+
 ### Who can see what
 
 Row-level security (the database's own rule about which rows each person may
@@ -62,7 +144,8 @@ never goes to the browser.
 
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
 members, has each write a task, checks that neither can read, change or delete
-the other's, and then deletes them both.
+the other's (tasks, settings and attached files alike), and then deletes them
+both along with their files.
 
 ## Why the four fields are there from day one
 

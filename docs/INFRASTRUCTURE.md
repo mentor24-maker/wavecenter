@@ -43,7 +43,8 @@ the session pooler or the direct host for a migration tool if one needs them.
 |---|---|
 | Team | Dane Christensen's projects (`dane-of-earth`) |
 | Project | `app-wavecenter` (id `prj_jo8rGoJlF55XwB2QuJ2srLVoqQdF`; named `wavecenter` until 2026-10-11) |
-| Address | https://app.wavecenter.com (also answers at https://app-wavecenter.vercel.app) |
+| Address | https://app.wavecenter.com (live 2026-10-12, HTTPS by Let's Encrypt via Vercel) |
+| Vercel address | https://app-wavecenter.vercel.app, the same app; keeps working |
 | Source | GitHub `mentor24-maker/wavecenter`, production from `main`, a preview for every pull request |
 | Framework | Next.js (TypeScript), standard hosting only |
 | Created | 2026-10-11, from the command line (`vercel link`, `vercel git connect`) |
@@ -60,7 +61,7 @@ for Dane, who is signed in, and for nobody else. Production at
 `app-wavecenter.vercel.app` is public.
 
 **Two sites, two homes (Dane, 2026-10-11).** This repository is **the app**,
-and its address is `app.wavecenter.com` (interim: `app-wavecenter.vercel.app`).
+and its address is `app.wavecenter.com` (also `app-wavecenter.vercel.app`).
 WaveCenter's **public website** — the DEO story, the invitation — is a separate
 site built on **StarCaster** at `wavecenter.com` / `www.wavecenter.com`. The
 bare and `www` names never point at this project.
@@ -98,6 +99,59 @@ refused with *"Required status check 'verify' is failing"*, and the PR showed
 `BLOCKED`. It was closed unmerged and its branch deleted. Repeat that test
 whenever the protection settings are touched.
 
+## The domain: wavecenter.com
+
+**Which name goes where (Dane, 2026-10-11).**
+
+| Name | What it is | Served by |
+|---|---|---|
+| `app.wavecenter.com` | **this app** (this repository) | Vercel project `app-wavecenter` |
+| `app-wavecenter.vercel.app` | the same app, its permanent Vercel address; keeps working | Vercel project `app-wavecenter` |
+| `wavecenter.com` | WaveCenter's **public website**, built on StarCaster | StarCaster, never this project |
+| `www.wavecenter.com` | the same public website | StarCaster, never this project |
+
+**Where the domain lives (checked 2026-10-12, 9:57 am MT).**
+
+| | |
+|---|---|
+| Registrar (who the name is rented from) | GoDaddy; renews by 2027-02-05; Dane is moving it, and no transfer is in progress yet |
+| DNS (the address book that says which server answers each name) | Hostinger (name servers `ns1.dns-parking.com`, `ns2.dns-parking.com`) |
+| Email on the domain | Hostinger email is live: `MX 5 mx1.hostinger.com`, `MX 10 mx2.hostinger.com`, SPF `v=spf1 include:_spf.mail.hostinger.com ~all` |
+
+**DNS stays at Hostinger (Dane chose option A, 2026-10-12).** The app needs
+just one record there, which leaves email untouched and costs nothing:
+
+| Type | Name | Value |
+|---|---|---|
+| `CNAME` | `app` | `cname.vercel-dns.com` |
+
+Vercel also has to be told the name belongs to the project (Project →
+Settings → Domains → add `app.wavecenter.com`, or `vercel domains add
+app.wavecenter.com app-wavecenter`). If Vercel's Domains page shows a
+different CNAME value when the name is added, use the one it shows. Once both are in, Vercel issues the
+HTTPS certificate on its own within minutes. A plain CNAME is an ordinary DNS
+record, so the address moves with the app to any other host.
+
+**Live since 2026-10-12.** Both steps are done: the Hostinger record is in and
+the name is attached to the project. Checked 2026-10-12, 7:35 pm MT:
+`https://app.wavecenter.com` answers `200` from Vercel with a Let's Encrypt
+certificate for `app.wavecenter.com`.
+
+**"DNS Change Recommended" on Vercel's Domains page is not an error.** Vercel
+now hands each project its own CNAME target (shown under "View DNS
+configuration") and nudges older `cname.vercel-dns.com` records toward it. The
+old target keeps working and the yellow badge stays until the record is
+changed. Swapping it is optional: change the Hostinger `app` record's value to
+the target Vercel shows, then click Refresh.
+
+**Never move the name servers while email depends on them.** Moving DNS to
+Vercel (as `starcaster.pro` does) would mean copying both MX records and the
+SPF record across first; a missed record silently stops email. The GoDaddy
+transfer changes only the registrar and does not need the name servers to
+move. Supabase's sign-in links follow the app to its new name: Dane made
+`https://app.wavecenter.com` the Site URL and added it to the Redirect URLs on
+2026-10-12, 7:48 pm MT (see the table below).
+
 ## Sign-in: Supabase Auth, email magic link
 
 Members sign in with a one-time link emailed to them (a "magic link"): no
@@ -123,8 +177,8 @@ link asked for from the live site landed on localhost (checked 2026-10-11).
 | Setting | Value |
 |---|---|
 | Site URL | `https://app.wavecenter.com` |
-| Redirect URLs | `https://app.wavecenter.com/**` |
-| | `https://app-wavecenter.vercel.app/**` |
+| Redirect URLs | `https://app-wavecenter.vercel.app/**` |
+| | `https://app.wavecenter.com/**` |
 | | `https://app-wavecenter-*-dane-of-earth.vercel.app/**` (every preview) |
 | | `http://localhost:3000/**` (local development) |
 
