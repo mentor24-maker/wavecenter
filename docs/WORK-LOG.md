@@ -24,6 +24,18 @@ asks him to move anything.
 
 ---
 
+## 2026-10-13 — Sign-in links asked for on app.wavecenter.com now land there (#19)
+
+When the new address app.wavecenter.com went live, a sign-in link asked for
+there opened the old app-wavecenter.vercel.app address instead. Supabase,
+which sends the email, only sends people back to addresses on its approved
+list, and the new one was missing. It is now on the list and is the main
+address, so the link brings Dane back to app.wavecenter.com. The setup notes
+now say plainly that any new address the app answers on must be added to
+that list the same day.
+
+---
+
 ## 2026-10-12 — Tasks Dane ticks for AI agents now reach them (#20)
 
 Ticking a task and turning on "Launch AI Agents" now actually hands the task

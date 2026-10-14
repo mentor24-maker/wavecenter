@@ -182,6 +182,11 @@ link asked for from the live site landed on localhost (checked 2026-10-11).
 | | `https://app-wavecenter-*-dane-of-earth.vercel.app/**` (every preview) |
 | | `http://localhost:3000/**` (local development) |
 
+**Add every new address to the list.** When `app.wavecenter.com` went live
+(2026-10-12) it was missing from Redirect URLs, so a link asked for there
+silently fell back to the Site URL and opened `app-wavecenter.vercel.app`.
+Any new domain the app answers on needs a Redirect URL entry the same day.
+
 **A link only works in the browser that asked for it** (Supabase's PKCE flow:
 the request leaves a matching cookie). Opening the email on a phone after
 asking on a laptop shows "That sign-in link did not work".
