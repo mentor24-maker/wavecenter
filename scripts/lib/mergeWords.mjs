@@ -165,12 +165,14 @@ export function refusalNotice({ authorizationId, code, why, todo }) {
 
 /**
  * Was this exact refusal already posted on the ticket? A notice that the build
- * loop has since answered (settled the conflict, or asked Dane about it) no
- * longer counts: if the same refusal comes back after that, it is news, and
- * the build loop needs a fresh notice to pick the ticket up again.
+ * loop has since settled no longer counts: if the same refusal comes back
+ * after that, it is news, and the build loop needs a fresh notice to pick the
+ * ticket up again. A NOT SETTLED card does not reset it: the conflict is the
+ * same one Dane is already being asked about, so neither loop posts again
+ * until he answers.
  */
 export function alreadyNoticed(comments, authorizationId, code) {
-  const answeredAt = dateOf(newestSettleMark(comments, authorizationId));
+  const answeredAt = dateOf(newestSettleMark(comments, authorizationId, { settledOnly: true }));
   return (comments || []).some((c) => {
     if (!isMachineComment(c && c.comment_text)) return false;
     const m = NOTICE_LINE.exec(String(c.comment_text));
@@ -202,11 +204,11 @@ export function notSettledLine({ authorizationId, code }) {
   return `CONFLICT NOT SETTLED (authorization ${authorizationId}, reason ${code})`;
 }
 
-function newestSettleMark(comments, authorizationId) {
+function newestSettleMark(comments, authorizationId, { settledOnly = false } = {}) {
   return newestFirst(comments).find((c) => {
     if (!isMachineComment(c && c.comment_text)) return false;
     const m = SETTLE_LINE.exec(String(c.comment_text));
-    return Boolean(m && m[2] === String(authorizationId));
+    return Boolean(m && m[2] === String(authorizationId) && (!settledOnly || m[1] === 'SETTLED'));
   }) || null;
 }
 

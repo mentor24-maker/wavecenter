@@ -193,6 +193,13 @@ test('a conflict that comes back after a fix is noticed afresh, and owed a fix a
   assert.equal(owed([...comments, settled, again]).ok, true);
 });
 
+test('after the build loop asks Dane, neither loop posts again until he answers', () => {
+  const { merge, comments } = conflicted();
+  const card = say(`${notSettledLine({ authorizationId: merge.id, code: 'conflict' })}\n\nboth sides changed the same thing`, { machine: true });
+  assert.equal(alreadyNoticed([...comments, card], merge.id, 'conflict'), true);
+  assert.equal(owed([...comments, card]).ok, false);
+});
+
 test('the conflict refusal no longer asks Dane to move the ticket', () => {
   const d = prDecision(pr({ mergeable: 'CONFLICTING' }));
   assert.equal(d.todo, SETTLE_TODO);

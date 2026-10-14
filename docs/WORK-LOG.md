@@ -18,8 +18,9 @@ combines the two versions keeping both, re-runs every check, and leaves a
 note saying what clashed. The ticket stays in "Ready to launch" and Dane's
 "merge" still counts, so the merge helper finishes the job once the checks
 pass. If the two versions truly disagree, the agent asks Dane which one he
-wants instead of guessing. The helper's note no longer asks him to move
-anything.
+wants instead of guessing, once: neither the agent nor the merge helper
+posts on that ticket again until he answers. The helper's note no longer
+asks him to move anything.
 
 ---
 
