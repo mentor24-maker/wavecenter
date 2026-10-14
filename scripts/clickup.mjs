@@ -28,7 +28,7 @@ import { spawnSync } from 'node:child_process';
 import {
   DISPLAY, STAGE_ORDER, CLAIMABLE_BY_BUILD, OPERATOR_STATUSES, BUILDING, PRIORITY_VALUE,
   READY_TO_LAUNCH, NEEDS_YOUR_INPUT, QUEUED, LIVE,
-  isClaimableByBuild, isOperatorStatus, isReadyToLaunch, claimOrder, compareWithinStatus, statusOf,
+  isClaimableByBuild, isOperatorStatus, isReadyToLaunch, claimOrder, buildOrder, compareWithinStatus, statusOf,
 } from './lib/loopStatuses.mjs';
 import {
   prOpenedComment, verdictComment, commentsReadable, prTrailLanded, bodyNamesTicket,
@@ -43,6 +43,7 @@ import {
 import { CoreError, LOOP_HANDOFF_TOOL } from '../core/tool.ts';
 import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
+  conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
 } from './lib/mergeWords.mjs';
 
 // ── The ids, written down once ───────────────────────────────────────────────
@@ -162,6 +163,10 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   verdict --task <id> --pass|--fail --if-status "In review" [--body-file <f|->] [--no-guard] [--fourth-round-anyway]
   priority --task <id> --priority urgent|high|normal|low [--operator-asked]
   tag --task <id> --add <name> | --remove <name>  e.g. wont-do, deferred, an epic name
+  settle --task <id>                              read-only: does this Ready to launch ticket's PR need its conflict
+                                                  settled by the build loop? exit 0 yes (prints the branch) / 3 no
+  settled --task <id> --body-file <f|->           record it settled (refuses unless GitHub reads MERGEABLE); no status change
+  settle-blocked --task <id> --body-file <f|->    the conflict needs his choice: an operator card, Dane assigned, no status change
   merge-on-comment [--dry-run]                    the merge lane: carry out Dane's written "${MERGE_PHRASES[0]}" on Ready to launch
                                                   tickets, and requeue Needs your input tickets he has answered
   handoff-next                                    the loop-handoff lane: the next ticked WaveCenter task, as JSON
@@ -321,8 +326,13 @@ if (cmd === 'whoami') {
   }
   const tasks = await fetchAllTasks(list);
   let wanted;
-  if (claimable) wanted = claimOrder(tasks);
-  else {
+  if (claimable) {
+    const owed = [];
+    for (const t of tasks.filter((x) => isReadyToLaunch(statusOf(x)))) {
+      if (conflictToSettle({ status: t.status?.status, comments: await readComments(t.id), operatorId: OPERATOR_ID }).ok) owed.push(t.id);
+    }
+    wanted = buildOrder(tasks, owed);
+  } else {
     wanted = status ? tasks.filter((t) => (t.status?.status ?? '').toLowerCase() === status.toLowerCase()) : tasks.slice();
     wanted.sort(compareWithinStatus);
   }
@@ -330,9 +340,12 @@ if (cmd === 'whoami') {
     const created = new Date(Number(t.date_created)).toISOString().slice(0, 10);
     console.log([t.id, t.status?.status ?? '?', t.priority?.priority ?? 'none', created, t.name].join('\t'));
   }
-  const scope = claimable ? ` claimable by loop-build (${CLAIMABLE_BY_BUILD.join(' then ')})` : (status ? ` with status "${status}"` : '');
+  const scope = claimable ? ' claimable by loop-build (rework, then ready to launch with a conflict to settle, then queued)' : (status ? ` with status "${status}"` : '');
   console.error(`${wanted.length} task(s)${scope} in list ${list} (first line is the one to take)`);
-  if (claimable && wanted.length) console.error(`  claim it: npm run clickup -- claim --task ${wanted[0].id}`);
+  if (claimable && wanted.length) {
+    if (isReadyToLaunch(statusOf(wanted[0]))) console.error(`  settle its conflict (never claim it, never move it): npm run clickup -- settle --task ${wanted[0].id}`);
+    else console.error(`  claim it: npm run clickup -- claim --task ${wanted[0].id}`);
+  }
   reportLimits();
 
 } else if (cmd === 'get') {
@@ -647,6 +660,78 @@ if (cmd === 'whoami') {
   console.log(`Task ${task}: card ${cardId} posted, "${was}" -> "${now}", assigned: ${assigneeNames(moved.json)}.`);
   reportLimits();
 
+} else if (cmd === 'settle' || cmd === 'settled' || cmd === 'settle-blocked') {
+  // A Ready to launch ticket whose approved PR conflicts with main. The build
+  // loop works it IN PLACE: no claim, no status change (Ready to launch is
+  // Dane's), because his "merge" still stands and the merge lane carries it
+  // out once the combined code passes verify.
+  //   settle          read-only: is it owed a fix, and which PR (exit 0 yes, 3 no)
+  //   settled         record the fix; refuses unless GitHub reads the PR MERGEABLE
+  //   settle-blocked  the two sides need a real choice: ask Dane with a card
+  const task = arg('task');
+  if (!task) usage();
+  const t = await readTask(task);
+  const comments = await readComments(task);
+  const owed = conflictToSettle({ status: t.status?.status, comments, operatorId: OPERATOR_ID });
+  if (!owed.ok) { console.error(`NOT owed a conflict fix: ${task} — ${owed.why}. Take the next task.`); process.exit(3); }
+  const pr = findPullRequest(comments);
+  if (!pr) { console.error(`${task} has no "PR opened:" line, so there is no branch to settle. Take the next task.`); process.exit(3); }
+  const repo = `${pr.owner}/${pr.repo}`;
+  const head = { authorizationId: owed.authorizationId, code: owed.code };
+
+  if (cmd === 'settle') {
+    const view = gh(['pr', 'view', String(pr.number), '--repo', repo, '--json', 'headRefName', '--jq', '.headRefName'], { cwd: tmpdir() });
+    if (!view.ok) { console.error(`Could not read PR #${pr.number} from GitHub: ${view.stderr.trim().slice(0, 300)}`); process.exit(1); }
+    console.log(`task:    ${t.id}  (status stays "${t.status?.status}" — do not claim or move it)`);
+    console.log(`name:    ${t.name}`);
+    console.log(`reason:  ${owed.code}  (Dane's "merge" is comment ${owed.authorizationId})`);
+    console.log(`pr:      ${pr.url}`);
+    console.log(`branch:  ${view.stdout.trim()}`);
+    console.error('\nMerge origin/main into that branch, keep both sides, run `npm run verify`, push (never force), then:');
+    console.error(`  npm run clickup -- settled --task ${t.id} --body-file -          what conflicted and how both sides were kept`);
+    console.error(`  npm run clickup -- settle-blocked --task ${t.id} --body-file -   if it needs his choice (an operator card)`);
+    reportLimits();
+    process.exit(0);
+  }
+
+  if (cmd === 'settled') {
+    const body = readBody(arg('body-file') || usage()).trim();
+    if (!body) { console.error('Say what conflicted and how both sides were kept. Nothing was posted.'); process.exit(2); }
+    // GitHub works mergeability out after a push; give it a minute. Right
+    // after a push it can still report the old CONFLICTING, so only believe
+    // CONFLICTING once it has held for a few readings.
+    let mergeable = 'UNKNOWN';
+    let conflicting = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const out = gh(['pr', 'view', String(pr.number), '--repo', repo, '--json', 'mergeable', '--jq', '.mergeable'], { cwd: tmpdir() });
+      mergeable = out.ok ? out.stdout.trim() : 'UNREADABLE';
+      if (mergeable === 'MERGEABLE') break;
+      conflicting = mergeable === 'CONFLICTING' ? conflicting + 1 : 0;
+      if (conflicting >= 4) break;
+      await sleep(5000);
+    }
+    if (mergeable !== 'MERGEABLE') {
+      console.error(`PR #${pr.number} reads "${mergeable}", not MERGEABLE, so the conflict is not settled. Nothing was posted.`);
+      process.exit(1);
+    }
+    const { id } = await postComment(task, { comment_text: `${settledLine(head)}\n\n${body}\n\nThe status stays Ready to launch and your "merge" still stands: the merge lane merges PR #${pr.number} once \`verify\` is green on the combined code.` });
+    console.log(`Task ${task}: settled note ${id} posted; PR #${pr.number} reads MERGEABLE; status untouched ("${t.status?.status}").`);
+    reportLimits();
+    process.exit(0);
+  }
+
+  let commentBody, card;
+  try { ({ card, comment: commentBody } = buildCard(readBody(arg('body-file') || usage()))); } catch (err) { console.error(`\n${err.message}\n`); process.exit(2); }
+  const unanswerable = settleCardProblem(card.needed);
+  if (unanswerable) { console.error(`\n${unanswerable}\n\nNothing was posted and Dane was not assigned.\n`); process.exit(2); }
+  const { id: cardId, stored } = await postComment(task, { comment: [{ text: `${notSettledLine(head)}\n\n` }, ...commentBody] });
+  const lost = cardSurvived(card, stored.comment_text);
+  if (lost) { console.error(`\n${lost}\nComment ${cardId} is on the task.`); process.exit(1); }
+  const moved = await call('PUT', `/api/v2/task/${task}`, { assignees: { add: [OPERATOR_ID], rem: [] } });
+  if (!moved.res.ok) { console.error(`Card ${cardId} posted, but Dane could NOT be assigned.`); die('assign Dane', moved); }
+  console.log(`Task ${task}: card ${cardId} posted, Dane assigned, status untouched ("${t.status?.status}"). The build loop will not pick it again for this "merge".`);
+  reportLimits();
+
 } else if (cmd === 'merge-on-comment') {
   // THE MERGE LANE. Dane's decision, 2026-10-11: "On the StarCaster loop
   // queue I simply say 'merge' on any given Ready to launch ticket. I'd like
@@ -741,7 +826,7 @@ if (cmd === 'whoami') {
         const up = gh(['api', '-X', 'PUT', `repos/${repo}/pulls/${p.number}/update-branch`, '-f', `expected_head_sha=${p.headRefOid}`], { cwd: outside });
         if (!up.ok) {
           await refuse(t, comments, authId, 'catch-up-failed', `PR #${p.number} is behind ${p.baseRefName}, and GitHub refused to merge ${p.baseRefName} into it (${up.stderr.trim().slice(0, 200)}).`,
-            'The branch has to be caught up by hand. Move the ticket to Rework to have the build loop do it.');
+            SETTLE_TODO);
           return false;
         }
         log('  caught up; verify runs again, and a later pass merges once it is green');

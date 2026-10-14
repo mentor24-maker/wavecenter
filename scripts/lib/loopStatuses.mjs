@@ -114,6 +114,25 @@ export function claimOrder(tasks) {
     .sort(compareForClaim);
 }
 
+/**
+ * Everything one loop-build pass may take, in order: every Rework ticket, then
+ * every Ready to launch ticket whose approved PR has a conflict to settle
+ * (oldest first; Dane already said "merge", so it is the nearest to done),
+ * then Queued. `settleIds` are the Ready to launch tickets the caller found
+ * owed a fix (mergeWords.conflictToSettle reads that off the comments); the
+ * ticket is worked in place and its status is never changed by the build loop.
+ */
+export function buildOrder(tasks, settleIds = []) {
+  const owed = new Set([...settleIds].map(String));
+  const ordered = claimOrder(tasks);
+  const settle = (Array.isArray(tasks) ? tasks : [])
+    .filter((t) => t && typeof t === 'object' && isReadyToLaunch(statusOf(t)) && owed.has(String(t.id)))
+    .slice()
+    .sort((a, b) => createdAt(a) - createdAt(b));
+  const rework = ordered.filter((t) => statusOf(t) === REWORK);
+  return [...rework, ...settle, ...ordered.filter((t) => statusOf(t) !== REWORK)];
+}
+
 /** Within one status: highest priority first, then oldest. */
 export function compareWithinStatus(a, b) {
   return priorityRank(a) - priorityRank(b) || createdAt(a) - createdAt(b);
