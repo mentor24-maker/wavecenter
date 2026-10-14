@@ -43,7 +43,7 @@ import {
 import { CoreError, LOOP_HANDOFF_TOOL } from '../core/tool.ts';
 import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
-  conflictToSettle, settledLine, notSettledLine, SETTLE_TODO,
+  conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
 } from './lib/mergeWords.mjs';
 
 // ── The ids, written down once ───────────────────────────────────────────────
@@ -697,12 +697,17 @@ if (cmd === 'whoami') {
   if (cmd === 'settled') {
     const body = readBody(arg('body-file') || usage()).trim();
     if (!body) { console.error('Say what conflicted and how both sides were kept. Nothing was posted.'); process.exit(2); }
-    // GitHub works mergeability out after a push; give it a minute.
+    // GitHub works mergeability out after a push; give it a minute. Right
+    // after a push it can still report the old CONFLICTING, so only believe
+    // CONFLICTING once it has held for a few readings.
     let mergeable = 'UNKNOWN';
+    let conflicting = 0;
     for (let i = 0; i < 12; i += 1) {
       const out = gh(['pr', 'view', String(pr.number), '--repo', repo, '--json', 'mergeable', '--jq', '.mergeable'], { cwd: tmpdir() });
       mergeable = out.ok ? out.stdout.trim() : 'UNREADABLE';
-      if (mergeable === 'MERGEABLE' || mergeable === 'CONFLICTING') break;
+      if (mergeable === 'MERGEABLE') break;
+      conflicting = mergeable === 'CONFLICTING' ? conflicting + 1 : 0;
+      if (conflicting >= 4) break;
       await sleep(5000);
     }
     if (mergeable !== 'MERGEABLE') {
@@ -717,6 +722,8 @@ if (cmd === 'whoami') {
 
   let commentBody, card;
   try { ({ card, comment: commentBody } = buildCard(readBody(arg('body-file') || usage()))); } catch (err) { console.error(`\n${err.message}\n`); process.exit(2); }
+  const unanswerable = settleCardProblem(card.needed);
+  if (unanswerable) { console.error(`\n${unanswerable}\n\nNothing was posted and Dane was not assigned.\n`); process.exit(2); }
   const { id: cardId, stored } = await postComment(task, { comment: [{ text: `${notSettledLine(head)}\n\n` }, ...commentBody] });
   const lost = cardSurvived(card, stored.comment_text);
   if (lost) { console.error(`\n${lost}\nComment ${cardId} is on the task.`); process.exit(1); }

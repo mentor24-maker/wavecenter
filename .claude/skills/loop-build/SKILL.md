@@ -225,9 +225,17 @@ status alone, and the build loop will not pick the ticket again for this
 npm run clickup -- settle-blocked --task <id> --body-file -   # @@ASKED / @@CONTEXT / @@NEEDED, a decision only he can make
 ```
 
-Name the two behaviours as options in `@@NEEDED`. When he answers and
-writes `merge` again, the lane refuses afresh and the next pass settles it
-his way.
+Name the two behaviours as options in `@@NEEDED`, and end `@@NEEDED` with
+this exact line (`settle-blocked` refuses a card without it):
+
+```
+Reply with your choice, then write merge as its own comment.
+```
+
+His plain answer is not a merge phrase, so on its own it lapses his `merge`
+and nothing acts. When he answers and writes `merge` again, the lane refuses
+afresh and the next pass settles it his way: read his answer in `comments`
+and keep the side he chose.
 
 ## Guardrails
 

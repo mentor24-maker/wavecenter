@@ -204,6 +204,21 @@ export function notSettledLine({ authorizationId, code }) {
   return `CONFLICT NOT SETTLED (authorization ${authorizationId}, reason ${code})`;
 }
 
+/**
+ * The line a settle-blocked card's @@NEEDED must carry. His plain answer to
+ * the card is not a merge phrase, so it replaces his "merge" as his newest
+ * word and nothing acts until he writes "merge" again. The card has to tell
+ * him so, or the ticket stalls in silence.
+ */
+export const SETTLE_REPLY_LINE = 'Reply with your choice, then write merge as its own comment.';
+
+/** Why a settle-blocked card's @@NEEDED will not do, or null. */
+export function settleCardProblem(needed) {
+  const flat = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (flat(needed).includes(flat(SETTLE_REPLY_LINE))) return null;
+  return `@@NEEDED must end with this exact line, so Dane knows his answer alone does not merge: "${SETTLE_REPLY_LINE}"`;
+}
+
 function newestSettleMark(comments, authorizationId, { settledOnly = false } = {}) {
   return newestFirst(comments).find((c) => {
     if (!isMachineComment(c && c.comment_text)) return false;

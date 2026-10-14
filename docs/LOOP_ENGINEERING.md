@@ -235,7 +235,9 @@ pushes, and posts `CONFLICT SETTLED` saying what conflicted. It never
 changes the status, so your `merge` still stands and this lane merges once
 `verify` is green on the combined code. If the two sides changed the same
 behaviour and a real choice is needed, it posts `CONFLICT NOT SETTLED` with
-a question for you instead of guessing. (`npm run clickup -- settle`,
+a question for you instead of guessing; the card ends by asking you to
+reply with your choice and then write `merge` again, because your answer
+alone does not count as a merge. (`npm run clickup -- settle`,
 `settled` and `settle-blocked`; the rules are `conflictToSettle` in
 `scripts/lib/mergeWords.mjs`.)
 

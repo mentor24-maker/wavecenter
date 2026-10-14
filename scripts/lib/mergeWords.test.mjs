@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isMergePhrase, findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, verifyState, prDecision,
-  mergedComment, mergeRecorded, conflictToSettle, settledLine, notSettledLine, SETTLE_TODO,
+  mergedComment, mergeRecorded, conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_REPLY_LINE, SETTLE_TODO,
 } from './mergeWords.mjs';
 import { stampMachineComment } from './machineComment.mjs';
 import { verdictComment } from './loopTrail.mjs';
@@ -205,4 +205,22 @@ test('the conflict refusal no longer asks Dane to move the ticket', () => {
   assert.equal(d.todo, SETTLE_TODO);
   assert.doesNotMatch(SETTLE_TODO, /move the ticket|Rework/i);
   assert.match(SETTLE_TODO, /build loop/);
+});
+
+test('a settle-blocked card must tell Dane to write merge after his answer', () => {
+  assert.equal(settleCardProblem(`Keep option A (the old sort) or option B (the new sort)?\n\n${SETTLE_REPLY_LINE}`), null);
+  assert.equal(settleCardProblem(`Option A or B?   reply with your choice, then\nwrite merge as its own comment.`), null);
+  assert.match(settleCardProblem('Keep option A or option B?'), /write merge as its own comment/);
+  assert.match(settleCardProblem('Should I merge option A or option B?'), /write merge as its own comment/);
+  assert.notEqual(settleCardProblem(''), null);
+});
+
+test('his plain answer to the card lapses the "merge", which is why the card asks for a fresh one', () => {
+  const { merge, comments } = conflicted();
+  const card = say(`${notSettledLine({ authorizationId: merge.id, code: 'conflict' })}\n\n${SETTLE_REPLY_LINE}`, { machine: true });
+  const answer = say('keep option A');
+  assert.equal(owed([...comments, card, answer]).ok, false);
+  const again = say('merge');
+  const notice = say(refusalNotice({ authorizationId: again.id, code: 'conflict', why: 'conflicts', todo: SETTLE_TODO }), { machine: true });
+  assert.deepEqual(owed([...comments, card, answer, again, notice]), { ok: true, authorizationId: again.id, code: 'conflict' });
 });
