@@ -1,13 +1,14 @@
 #!/bin/bash
 #
 # Install (or remove) the WaveCenter loop lanes on THIS machine, as launchd
-# agents: loop-build and loop-review (each keeps the committed runner alive),
-# and merge-on-comment (a plain node pass every 10 minutes that carries out
+# agents: loop-build, loop-review and loop-handoff (each keeps the committed
+# runner alive; loop-handoff files the tasks members tick for AI agents as
+# Loop Queue tickets), and merge-on-comment (a plain node pass every 10 minutes that carries out
 # Dane's written "merge"; no Claude session).
 #
-#   ./scripts/install_loop_runner.sh              # install all three lanes here
+#   ./scripts/install_loop_runner.sh              # install all four lanes here
 #   ./scripts/install_loop_runner.sh --status     # installed? running? locks? last pass?
-#   ./scripts/install_loop_runner.sh --uninstall  # remove all three from here
+#   ./scripts/install_loop_runner.sh --uninstall  # remove all four from here
 #
 # Copied from StarCaster's installer. launchd starts the runner at load,
 # restarts it if it dies, and survives a reboot; a screen session does none of
@@ -19,7 +20,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILLS=(loop-build loop-review)
+SKILLS=(loop-build loop-review loop-handoff)
 MERGE_LANE=merge-on-comment
 LANES=("${SKILLS[@]}" "$MERGE_LANE")
 
@@ -27,6 +28,7 @@ interval_of() {
   case "$1" in
     loop-build)  echo 1800 ;;
     loop-review) echo 1800 ;;
+    loop-handoff) echo 1800 ;;
     merge-on-comment) echo 600 ;;
     *)           echo 3600 ;;
   esac

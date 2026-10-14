@@ -17,6 +17,9 @@ export class CoreError extends Error {
 /** WaveCenter's own app. */
 export const WAVECENTER_TOOL = 'wavecenter';
 
+/** The lane on the Mini that hands ticked tasks to the Loop Queue (core/agents.ts). */
+export const LOOP_HANDOFF_TOOL = 'loop-handoff';
+
 /** Returns the tool name trimmed, or throws if there is none. */
 export function requireTool(tool: unknown): string {
   if (typeof tool !== 'string' || tool.trim() === '') {
