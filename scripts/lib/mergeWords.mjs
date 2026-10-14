@@ -14,7 +14,7 @@
  */
 
 import { isMachineComment } from './machineComment.mjs';
-import { newestFirst, readyToLaunchGate, isReviewVerdict } from './loopTrail.mjs';
+import { newestFirst, readyToLaunchGate, isReviewVerdict, findPullRequest } from './loopTrail.mjs';
 import { READY_TO_LAUNCH, NEEDS_YOUR_INPUT } from './loopStatuses.mjs';
 
 /**
@@ -48,9 +48,29 @@ export function normalizeCommand(text) {
   return stripEditorFormatting(text).trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!\s]+$/g, '');
 }
 
+/**
+ * A merge phrase may name its pull request: "merge PR #17", "merge #17",
+ * "ship it pr 17". On 2026-10-13 Dane wrote "merge PR #17" and the lane read
+ * it as "not a merge phrase" for hours. The number is only a pointer; it
+ * authorizes nothing unless it is the PR recorded on that very ticket.
+ */
+const NAMED_PR = /\s+(?:(?:pr|pull request)\s*#?\s*|#)(\d+)$/;
+
+/**
+ * Read a comment as a merge command. Returns null when it is not one, else
+ * { pr } where pr is the PR number it names, or null when it names none.
+ */
+export function parseMergeCommand(text) {
+  const said = normalizeCommand(text);
+  if (MERGE_PHRASES.includes(said)) return { pr: null };
+  const m = NAMED_PR.exec(said);
+  if (m && MERGE_PHRASES.includes(said.slice(0, m.index))) return { pr: Number(m[1]) };
+  return null;
+}
+
 /** Is this comment, in its entirety, a merge phrase? (Says nothing about who wrote it.) */
 export function isMergePhrase(text) {
-  return MERGE_PHRASES.includes(normalizeCommand(text));
+  return parseMergeCommand(text) !== null;
 }
 
 function dateOf(c) {
@@ -85,7 +105,16 @@ export function findAuthorization({ status, comments, operatorId }) {
   const all = newestFirst(comments);
   const his = all.find((c) => isDanesOwnWord(c, operatorId));
   if (!his) return { ok: false, why: 'Dane has not written on this ticket' };
-  if (!isMergePhrase(his.comment_text)) return { ok: false, why: "Dane's newest comment is not a merge phrase" };
+  const command = parseMergeCommand(his.comment_text);
+  if (!command) return { ok: false, why: "Dane's newest comment is not a merge phrase" };
+  const recorded = findPullRequest(all);
+  if (command.pr !== null && (!recorded || recorded.number !== command.pr)) {
+    return {
+      ok: false, comment: his, code: 'wrong-pr',
+      why: `your "merge" names PR #${command.pr}, but this ticket's pull request is ${recorded ? `#${recorded.number}` : 'not recorded'}.`,
+      todo: recorded ? `If you meant this ticket's PR, write "merge" (or "merge PR #${recorded.number}").` : 'A session must record the PR with `npm run clickup -- pr-opened`.',
+    };
+  }
   const gate = readyToLaunchGate(all);
   if (!gate.ok) {
     return { ok: false, comment: his, code: 'no-pass', why: gate.why, todo: 'Only a passed review puts a ticket in Ready to launch. Move it to In review so the review loop checks it again.' };

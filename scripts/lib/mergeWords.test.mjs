@@ -78,6 +78,22 @@ test('no PASS verdict means no merge, even with his word', () => {
   assert.equal(got.code, 'no-pass');
 });
 
+test('a merge phrase that names the ticket\'s own PR authorizes; any other PR number does not', () => {
+  const prLine = () => say('PR opened: https://github.com/o/r/pull/17', { machine: true });
+  for (const w of ['merge PR #17', 'merge pr 17', 'Merge #17', 'merge pull request #17', 'ship it PR #17.', '**merge PR #17**']) {
+    const got = findAuthorization({ status: 'Ready to launch', comments: [prLine(), passed(), say(w)], operatorId: DANE });
+    assert.equal(got.ok, true, `"${w}" should authorize`);
+  }
+  const wrong = findAuthorization({ status: 'Ready to launch', comments: [prLine(), passed(), say('merge PR #18')], operatorId: DANE });
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.code, 'wrong-pr');
+  const none = findAuthorization({ status: 'Ready to launch', comments: [passed(), say('merge #17')], operatorId: DANE });
+  assert.equal(none.code, 'wrong-pr');
+  for (const w of ['merge PR #17 after lunch', 'do not merge PR #17', 'merge PR', 'merge #', 'merge pr #17 #18']) {
+    assert.equal(isMergePhrase(w), false, `"${w}" must not be a merge phrase`);
+  }
+});
+
 test('isMergePhrase alone knows nothing of authors', () => {
   assert.equal(isMergePhrase('Ship it!'), true);
   assert.equal(isMergePhrase('ship it now'), false);
