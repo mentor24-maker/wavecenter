@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — The task list is wider, sortable and filterable (#26)
+
+"Your tasks" was a narrow column with each task's controls jumbled on a
+second line, which got hard to scan as the list grew. Now it uses the width
+of a laptop screen and shows tasks in neat columns with a header row.
+Clicking a column name (Title, Priority, Points or Created) sorts by it, and
+clicking again flips the order. A filter bar narrows the list by words,
+priority, status, points and who created the task: the five filters Dane
+asked for. Sub-tasks always stay under their parent. Edit, attach and delete
+are now small icons with tooltips. On a phone the extra columns wrap neatly
+instead of pushing the page sideways.
+
 ## 2026-10-13 — A conflict no longer stalls Dane's "merge" (#24)
 
 When Dane writes "merge" but the work clashes with something that reached
