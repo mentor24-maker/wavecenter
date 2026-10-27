@@ -13,8 +13,13 @@
  * A save that fails says so next to where it happened and keeps what was
  * typed, including when the network is down and the server never answered
  * (engineering rule 6). Every empty section says why it is empty (rule 7).
+ *
+ * The list shows in columns under a header row. Clicking Title, Priority,
+ * Points or Created sorts by it; the filter bar above narrows by text,
+ * priority, status, points and creator. Both work on the tasks already loaded
+ * (listView.ts), and sub-tasks stay under their parent either way.
  */
-import { useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
 import { checkFile } from "../../core/files.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
@@ -33,6 +38,18 @@ import {
   switchAgents,
   type SaveResult,
 } from "./actions";
+import {
+  filterTasks,
+  isFiltering,
+  nextSort,
+  NO_FILTER,
+  sortTasks,
+  STATUS_FILTERS,
+  STATUS_FILTER_LABEL,
+  type Filter,
+  type Sort,
+  type SortKey,
+} from "./listView.ts";
 
 export interface ListTask {
   id: string;
@@ -45,6 +62,8 @@ export interface ListTask {
   agentSelected: boolean;
   /** The Loop Queue ticket the task was handed to, if any. */
   agentTicketUrl: string | null;
+  /** The member who created it. */
+  ownerId: string;
   createdAt: string;
 }
 
@@ -124,9 +143,12 @@ export default function TaskList({
   tasks,
   agents,
   files,
+  userId,
 }: {
   tasks: ListTask[];
   agents: AgentsSwitch;
+  /** The signed-in member, so the creator filter can say "You". */
+  userId: string;
   /** Every attached file, or why they could not be loaded. */
   files: { files: ListFile[]; error: string | null };
 }) {
@@ -134,6 +156,8 @@ export default function TaskList({
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
+  const [sort, setSort] = useState<Sort>(null);
+  const [filter, setFilter] = useState<Filter>(NO_FILTER);
 
   /** Run one save; report how it went. Resolves true only on a confirmed save. */
   function run(at: string, action: () => Promise<SaveResult>): Promise<boolean> {
@@ -205,6 +229,11 @@ export default function TaskList({
   const tickable = open.filter((t) => !t.agentTicketUrl);
   const allTicked = tickable.length > 0 && tickable.every((t) => t.agentSelected);
   const someTicked = tickable.some((t) => t.agentSelected);
+  const filtering = isFiltering(filter);
+  const { shown, contextOnly } = filterTasks(sortTasks(tasks, sort), filter);
+  const shownOpen = shown.filter((t) => t.status !== "done");
+  const shownDone = shown.filter((t) => t.status === "done");
+  const creators = [...new Set(tasks.map((t) => t.ownerId))].sort((a, b) => (a === userId ? -1 : b === userId ? 1 : 0));
 
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
     <TaskRow
@@ -212,6 +241,7 @@ export default function TaskList({
       key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.parentTaskId}`}
       task={t}
       sub={sub}
+      context={contextOnly.has(t.id)}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
       files={filesByTask.get(t.id) ?? []}
@@ -239,6 +269,50 @@ export default function TaskList({
     // Anything still unshown sits in a loop of parents; show it rather than hide it.
     return [...tree, ...list.filter((t) => !shown.has(t.id)).flatMap((t) => walk(t, false))];
   };
+
+  /** A header that sorts the list: shows the sort and its direction, and says so to screen readers. */
+  const sortHeader = (key: SortKey, label: string) => {
+    const on = sort?.key === key;
+    return (
+      <span
+        className={`col-${key}`}
+        role="columnheader"
+        aria-sort={on ? (sort.ascending ? "ascending" : "descending") : "none"}
+      >
+        <button type="button" className="sort" onClick={() => setSort(nextSort(sort, key))}>
+          {label}
+          <span aria-hidden="true" className="arrow">{on ? (sort.ascending ? "▲" : "▼") : ""}</span>
+        </button>
+      </span>
+    );
+  };
+
+  /** The header row of a section: column names, the sortable ones as buttons. */
+  const head = (tickAll: ReactNode) => (
+    <li className="task head" role="row">
+      <span className="cell" role="columnheader">{tickAll ?? <small>AI</small>}</span>
+      <span className="cell note" role="columnheader"><small>Done</small></span>
+      {sortHeader("title", "Title")}
+      {sortHeader("priority", "Priority")}
+      {sortHeader("points", "Points")}
+      {sortHeader("created", "Created")}
+      <span className="col-parent note" role="columnheader">Parent</span>
+      <span className="col-actions note" role="columnheader">Actions</span>
+      {failure?.at === "all" && tickAll && (
+        <div className="full" role="cell">
+          <p className="error" role="alert">{failure.message}</p>
+        </div>
+      )}
+    </li>
+  );
+
+  /** Said when the filters leave a section empty, with a way out (rule 7). */
+  const noMatch = (which: string) => (
+    <p className="note">
+      No {which} tasks match this filter.{" "}
+      <button type="button" className="link" onClick={() => setFilter(NO_FILTER)}>Clear the filter</button>
+    </p>
+  );
 
   return (
     <>
@@ -331,32 +405,112 @@ export default function TaskList({
         <p className="note">No tasks yet — add your first one above.</p>
       ) : (
         <>
+          <form className="filters" aria-label="Filter tasks" onSubmit={(e) => e.preventDefault()}>
+            <input
+              type="search"
+              aria-label="Filter by words in the title or details"
+              placeholder="Filter by title or details"
+              value={filter.text}
+              onChange={(e) => setFilter({ ...filter, text: e.target.value })}
+            />
+            <select
+              aria-label="Filter by priority"
+              value={filter.priority}
+              onChange={(e) => setFilter({ ...filter, priority: e.target.value as Filter["priority"] })}
+            >
+              <option value="all">Any priority</option>
+              {TASK_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by status"
+              value={filter.status}
+              onChange={(e) => setFilter({ ...filter, status: e.target.value as Filter["status"] })}
+            >
+              {STATUS_FILTERS.map((s) => (
+                <option key={s} value={s}>{STATUS_FILTER_LABEL[s]}</option>
+              ))}
+            </select>
+            <span className="range">
+              <span className="note">Points</span>
+              <input
+                type="number"
+                step="1"
+                inputMode="numeric"
+                aria-label="Fewest points"
+                placeholder="from"
+                value={filter.minPoints}
+                onChange={(e) => setFilter({ ...filter, minPoints: e.target.value })}
+              />
+              <input
+                type="number"
+                step="1"
+                inputMode="numeric"
+                aria-label="Most points"
+                placeholder="to"
+                value={filter.maxPoints}
+                onChange={(e) => setFilter({ ...filter, maxPoints: e.target.value })}
+              />
+            </span>
+            <select
+              aria-label="Filter by who created the task"
+              value={filter.creator}
+              onChange={(e) => setFilter({ ...filter, creator: e.target.value })}
+            >
+              <option value="all">Created by anyone</option>
+              {creators.map((id) => (
+                <option key={id} value={id}>Created by {id === userId ? "you" : `member ${id.slice(0, 8)}`}</option>
+              ))}
+            </select>
+            {filtering && (
+              <button type="button" className="link" onClick={() => setFilter(NO_FILTER)}>Clear filters</button>
+            )}
+          </form>
+          {filtering && (
+            <p className="note" role="status">
+              Showing {shown.length - contextOnly.size} of {tasks.length} tasks
+              {contextOnly.size > 0 && "; a dimmed task is shown only because a sub-task of it matches"}.
+            </p>
+          )}
+
           <h2>Open</h2>
-          {open.length ? (
-            <ul className="tasks">
-              <li className="task head">
-                <label className="cell">
-                  <input
-                    type="checkbox"
-                    aria-label={allTicked ? "Untick every task for AI agents" : "Tick every open task for AI agents"}
-                    checked={allTicked}
-                    ref={(el) => { if (el) el.indeterminate = someTicked && !allTicked; }}
-                    disabled={pending || !tickable.length}
-                    onChange={() => run("all", () => chooseForAgents(tickable.map((t) => t.id), !allTicked))}
-                  />
-                  <small>AI</small>
-                </label>
-                <span className="cell note"><small>Done</small></span>
-                <span className="grow note">Tick the AI box on each task agents should work on; the top box ticks them all.</span>
-                {failure?.at === "all" && <p className="error full" role="alert">{failure.message}</p>}
-              </li>
-              {section(open)}
-            </ul>
-          ) : (
+          {!open.length ? (
             <p className="note">Nothing open — every task is done.</p>
+          ) : (
+            <>
+              <p className="note hint">Tick the AI box on each task agents should work on; the top box ticks every open task.</p>
+              {shownOpen.length ? (
+                <ul className="tasks" role="table" aria-label="Open tasks">
+                  {head(
+                    <input
+                      type="checkbox"
+                      aria-label={allTicked ? "Untick every task for AI agents" : "Tick every open task for AI agents"}
+                      checked={allTicked}
+                      ref={(el) => { if (el) el.indeterminate = someTicked && !allTicked; }}
+                      disabled={pending || !tickable.length}
+                      onChange={() => run("all", () => chooseForAgents(tickable.map((t) => t.id), !allTicked))}
+                    />,
+                  )}
+                  {section(shownOpen)}
+                </ul>
+              ) : (
+                noMatch("open")
+              )}
+              {!shownOpen.length && failure?.at === "all" && <p className="error" role="alert">{failure.message}</p>}
+            </>
           )}
           <h2>Done</h2>
-          {done.length ? <ul className="tasks">{section(done)}</ul> : <p className="note">Nothing done yet. Tick a task&rsquo;s box when you finish it.</p>}
+          {!done.length ? (
+            <p className="note">Nothing done yet. Tick a task&rsquo;s box when you finish it.</p>
+          ) : shownDone.length ? (
+            <ul className="tasks" role="table" aria-label="Done tasks">
+              {head(null)}
+              {section(shownDone)}
+            </ul>
+          ) : (
+            noMatch("done")
+          )}
         </>
       )}
     </>
@@ -375,9 +529,33 @@ function agentsLine(on: boolean, ticked: number, handed: number): string {
   return `Agents are off. Tick the tasks you want AI agents to work on, then turn this on.${busy}`;
 }
 
+/** Small line icons drawn in the page's own colour; the button around each one carries its name. */
+const ICON_PATHS = {
+  edit: "M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4",
+  attach: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 7",
+  delete: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
+};
+
+function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
+/** When a task was added, short: "Oct 27" this year, "Oct 27, 2025" before. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(thisYear ? {} : { year: "numeric" }) });
+}
+
 function TaskRow({
   task,
   sub,
+  context,
   parentTitle,
   parents,
   files,
@@ -389,6 +567,8 @@ function TaskRow({
   task: ListTask;
   /** Shown indented under its parent. */
   sub: boolean;
+  /** Shown only because a sub-task of it matches the filter, so dimmed. */
+  context: boolean;
   /** Set when the parent sits in the other section, so the link is still visible. */
   parentTitle?: string;
   /** Tasks this one may go under, or null when it has sub-tasks of its own. */
@@ -406,6 +586,7 @@ function TaskRow({
   const [notes, setNotes] = useState(task.notes ?? "");
   const [expanded, setExpanded] = useState(false);
   const [points, setPointsText] = useState(String(task.points));
+  const attachBox = useRef<HTMLInputElement>(null);
   const done = task.status === "done";
 
   async function saveEdit(e: FormEvent) {
@@ -433,8 +614,8 @@ function TaskRow({
   }
 
   return (
-    <li className={["task", done && "done", sub && "sub"].filter(Boolean).join(" ")}>
-      <span className="cell">
+    <li className={["task", done && "done", sub && "sub", context && "context"].filter(Boolean).join(" ")} role="row">
+      <span className="cell" role="cell">
         {!done && !task.agentTicketUrl && (
           <input
             type="checkbox"
@@ -446,7 +627,7 @@ function TaskRow({
           />
         )}
       </span>
-      <span className="cell">
+      <span className="cell" role="cell">
         <input
           type="checkbox"
           aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
@@ -456,7 +637,7 @@ function TaskRow({
         />
       </span>
       {editing ? (
-        <form onSubmit={saveEdit} className="grow edit">
+        <form onSubmit={saveEdit} className="col-title edit" role="cell">
           <input aria-label="Task title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
           <textarea
             aria-label={`Details of "${task.title}"`}
@@ -466,12 +647,13 @@ function TaskRow({
             onChange={(e) => setNotes(e.target.value)}
           />
           <span>
-            <button type="submit" disabled={pending || !title.trim()}>Save</button>
+            <button type="submit" disabled={pending || !title.trim()}>Save</button>{" "}
+            <button type="button" className="link" onClick={cancelEdit}>cancel</button>
           </span>
         </form>
       ) : (
-        <span className="grow">
-          {task.title} <span className="note">· {task.points} pts</span>
+        <span className="col-title" role="cell">
+          <span className="title">{task.title}</span>
           {place && <span className="badge"> AI #{place}</span>}
           {task.agentTicketUrl && (
             <span className="badge">
@@ -497,7 +679,7 @@ function TaskRow({
           )}
         </span>
       )}
-      <span className="controls">
+      <span className="col-priority" role="cell">
         <select
           aria-label={`Priority of "${task.title}"`}
           value={task.priority}
@@ -508,19 +690,25 @@ function TaskRow({
             <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
           ))}
         </select>
-        <form onSubmit={savePoints}>
-          <input
-            aria-label={`Points for "${task.title}"`}
-            className="points"
-            type="number"
-            step="1"
-            inputMode="numeric"
-            value={points}
-            onChange={(e) => setPointsText(e.target.value)}
-            onBlur={() => savePoints()}
-          />
-        </form>
-        {parents && (
+      </span>
+      <form className="col-points" role="cell" onSubmit={savePoints}>
+        <input
+          aria-label={`Points for "${task.title}"`}
+          className="points"
+          type="number"
+          step="1"
+          inputMode="numeric"
+          value={points}
+          onChange={(e) => setPointsText(e.target.value)}
+          onBlur={() => savePoints()}
+        />
+        <span className="unit note">pts</span>
+      </form>
+      <span className="col-created note" role="cell">
+        <time dateTime={task.createdAt} title={new Date(task.createdAt).toLocaleString()}>{shortDate(task.createdAt)}</time>
+      </span>
+      <span className="col-parent" role="cell">
+        {parents ? (
           <select
             aria-label={`Make "${task.title}" a sub-task of`}
             value={task.parentTaskId ?? ""}
@@ -532,51 +720,84 @@ function TaskRow({
               <option key={p.id} value={p.id}>Sub-task of: {p.title}</option>
             ))}
           </select>
-        )}
-        {editing ? (
-          <button type="button" className="link" onClick={cancelEdit}>cancel</button>
         ) : (
-          <button type="button" className="link" onClick={() => setEditing(true)}>edit</button>
+          <span className="note">Has sub-tasks</span>
         )}
-        <label className="link attach">
-          attach
-          <input
-            type="file"
-            multiple
-            hidden
-            aria-label={`Attach files to "${task.title}"`}
-            disabled={pending}
-            onChange={(e) => {
-              const chosen = picked(e);
-              if (chosen.length) void run(() => uploadFiles(task.id, chosen));
-            }}
-          />
-        </label>
-        <button type="button" className="link" disabled={pending} onClick={() => run(() => removeTask(task.id))}>delete</button>
+      </span>
+      <span className="col-actions" role="cell">
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={editing ? `Editing "${task.title}"` : `Edit "${task.title}"`}
+          title="Edit"
+          disabled={editing}
+          onClick={() => setEditing(true)}
+        >
+          <Icon name="edit" />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={`Attach files to "${task.title}"`}
+          title="Attach files"
+          disabled={pending}
+          onClick={() => attachBox.current?.click()}
+        >
+          <Icon name="attach" />
+        </button>
+        <input
+          ref={attachBox}
+          type="file"
+          multiple
+          hidden
+          tabIndex={-1}
+          aria-hidden="true"
+          disabled={pending}
+          onChange={(e) => {
+            const chosen = picked(e);
+            if (chosen.length) void run(() => uploadFiles(task.id, chosen));
+          }}
+        />
+        <button
+          type="button"
+          className="icon-button danger"
+          aria-label={`Delete "${task.title}"`}
+          title="Delete"
+          disabled={pending}
+          onClick={() => run(() => removeTask(task.id))}
+        >
+          <Icon name="delete" />
+        </button>
       </span>
       {files.length > 0 && (
-        <ul className="files full">
-          {files.map((f) => (
-            <li key={f.id}>
-              {!f.url ? (
-                <span className="note">{f.name} (no link could be made; try reloading)</span>
-              ) : f.image ? (
-                <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
-                  {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={f.url} alt={f.name} className="thumb" />
-                </a>
-              ) : (
-                <a href={f.url}>{f.name}</a>
-              )}
-              <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
-                remove
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="full" role="cell">
+          <ul className="files">
+            {files.map((f) => (
+              <li key={f.id}>
+                {!f.url ? (
+                  <span className="note">{f.name} (no link could be made; try reloading)</span>
+                ) : f.image ? (
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
+                    {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={f.url} alt={f.name} className="thumb" />
+                  </a>
+                ) : (
+                  <a href={f.url}>{f.name}</a>
+                )}
+                <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      {failure && <p className="error full" role="alert">{failure}</p>}
+      {failure && (
+        <div className="full" role="cell">
+          <p className="error" role="alert">{failure}</p>
+        </div>
+      )}
     </li>
   );
 }
