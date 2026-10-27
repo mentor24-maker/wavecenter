@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — WaveCenter's own logo replaces the placeholder wave (#25)
+
+The browser tab and the top-left corner of every page showed a stand-in
+blue wave drawn when the site was first set up. Both now show the
+concentric-circles image Dane attached to his WaveCenter task, so the site
+carries its real mark. The image has a white background, so the header
+trims it to a circle; on the dark screen it reads as a neat white disc
+rather than a white box.
+
+---
+
 ## 2026-10-13 — A conflict no longer stalls Dane's "merge" (#24)
 
 When Dane writes "merge" but the work clashes with something that reached
