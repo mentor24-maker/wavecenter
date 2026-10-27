@@ -21,10 +21,8 @@ export default function SiteHeader({
     <header className="site">
       <div className={wide ? "site-inner wide" : "site-inner"}>
         <Link href="/" className="brand" aria-label="WaveCenter home">
-          <svg className="mark" viewBox="0 0 32 32" aria-hidden="true">
-            <circle cx="16" cy="16" r="15" />
-            <path d="M5 18c3.5-5 7-5 11 0s7.5 5 11 0" />
-          </svg>
+          {/* The same file as the browser-tab icon: Next.js serves app/icon.png at /icon.png. */}
+          <img className="mark" src="/icon.png" alt="" width={28} height={28} />
           <span>
             Wave<b>Center</b>
           </span>
