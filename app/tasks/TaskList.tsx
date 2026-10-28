@@ -26,6 +26,7 @@
  * voted (core/votes.ts). Once a task has votes, the average is its points
  * and priority, so its owner's boxes give way to the average.
  */
+import Link from "next/link";
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
 import type { TaskComment } from "../../core/comments.ts";
@@ -55,6 +56,7 @@ import {
   isFiltering,
   nextSort,
   NO_FILTER,
+  PRIORITY_LABEL,
   sectionTasks,
   shortDate,
   sortTasks,
@@ -104,7 +106,6 @@ export interface AgentsSwitch {
   error: string | null;
 }
 
-const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 
 /** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
@@ -112,7 +113,7 @@ type Failure = { at: string; message: string } | null;
 /** The add form when empty: no details, no parent, Normal priority. */
 const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
 
-const UNREACHABLE =
+export const UNREACHABLE =
   "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
 
 /**
@@ -746,7 +747,7 @@ function TaskRow({
         </form>
       ) : (
         <span className="col-title" role="cell">
-          <span className="title">{task.title}</span>
+          <Link href={`/tasks/${task.id}`} className="title">{task.title}</Link>
           {place && <span className="badge"> AI #{place}</span>}
           {task.agentTicketUrl && (
             <span className="badge">
