@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * Prove, through the real Supabase API, that one member cannot see or change
- * another member's tasks (row-level security on `public.tasks`), settings, or
- * attached files (`public.task_files` and the private `task-files` bucket),
- * and that the game layer scores every change while letting each member read
- * only their own engagements and nobody write them (`public.engagements`).
+ * Prove, through the real Supabase API, that every member can read every
+ * task and attached file but cannot change or delete another member's tasks
+ * (row-level security on `public.tasks`), settings, or attached files
+ * (`public.task_files` and the private `task-files` bucket); that members
+ * vote on any task, only ever through their own vote, and the average becomes
+ * the task's points and priority (`public.task_votes`); and that the game
+ * layer scores every change while letting each member read only their own
+ * engagements and nobody write them (`public.engagements`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -25,6 +28,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { attachFile, filePath, removeFile } from '../core/files.ts';
 import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
+import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
 
 const TOOL = 'check-tasks-rls';
@@ -67,7 +71,7 @@ async function makeUser(tag) {
   const signin = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
   const token = signin.json.access_token;
-  return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token }) };
+  return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token, ownerId: made.json.id }) };
 }
 
 /** A MemberSettingsStore (core/agents.ts) over REST, acting as one member. */
@@ -106,7 +110,7 @@ function fileStore(member) {
       return fromRow(got.json[0]);
     },
     async get(id) {
-      return fromRow((await call(`/rest/v1/task_files?id=eq.${id}`, { token: member.token })).json?.[0]) ?? null;
+      return fromRow((await call(`/rest/v1/task_files?id=eq.${id}&owner_id=eq.${member.id}`, { token: member.token })).json?.[0]) ?? null;
     },
     async listForTask(taskId) {
       return ((await call(`/rest/v1/task_files?task_id=eq.${taskId}&order=created_at`, { token: member.token })).json ?? []).map(fromRow);
@@ -130,6 +134,33 @@ async function upload(member, path, text) {
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
+/** A VoteStore (core/votes.ts) over REST, acting as one member. */
+function voteStore(member) {
+  const fromRow = (r) => r && {
+    taskId: r.task_id, memberId: r.member_id, points: r.points, priority: r.priority, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+  return {
+    async mine(taskId) {
+      return fromRow((await call(`/rest/v1/task_votes?task_id=eq.${taskId}&member_id=eq.${member.id}`, { token: member.token })).json?.[0]) ?? null;
+    },
+    async forTask(taskId) {
+      return ((await call(`/rest/v1/task_votes?task_id=eq.${taskId}`, { token: member.token })).json ?? []).map(fromRow);
+    },
+    async save(row) {
+      const got = await call('/rest/v1/task_votes?on_conflict=task_id,member_id', {
+        method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation',
+        body: { task_id: row.taskId, member_id: member.id, points: row.points, priority: row.priority, tool: row.tool },
+      });
+      if (got.status >= 300) throw new Error(`task_votes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json[0]);
+    },
+    async remove(taskId, tool) {
+      const got = await call(`/rest/v1/task_votes?task_id=eq.${taskId}&member_id=eq.${member.id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool });
+      return Array.isArray(got.json) && got.json.length > 0;
+    },
+  };
+}
+
 const storedPaths = [];
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
@@ -145,15 +176,23 @@ try {
   check('B can add a task through core', insB.ownerId === b.id && insB.tool === TOOL, `owner ${insB.ownerId}, tool ${insB.tool}`);
   const taskB = insB.id;
 
-  const readA = await call('/rest/v1/tasks?select=title,owner_id,status,points', { token: a.token });
-  const readB = await call('/rest/v1/tasks?select=title,owner_id,status,points', { token: b.token });
-  console.log(`\nA reads every task it can see:\n${JSON.stringify(readA.json, null, 2)}`);
-  console.log(`B reads every task it can see:\n${JSON.stringify(readB.json, null, 2)}\n`);
-  check('A sees only A’s task', readA.status === 200 && readA.json.length === 1 && readA.json[0].owner_id === a.id, `sees ${JSON.stringify(titles(readA.json))}`);
-  check('B sees only B’s task', readB.status === 200 && readB.json.length === 1 && readB.json[0].owner_id === b.id, `sees ${JSON.stringify(titles(readB.json))}`);
+  // Every member reads every task (Dane, 2026-10-27), so each test member
+  // also sees the real members' tasks; only the two test tasks are checked.
+  const both = `id=in.(${insA.id},${taskB})&select=title,owner_id`;
+  const readA = await call(`/rest/v1/tasks?${both}`, { token: a.token });
+  const readB = await call(`/rest/v1/tasks?${both}`, { token: b.token });
+  const everyA = await call('/rest/v1/tasks?select=id', { token: a.token });
+  const everyAll = await admin('/rest/v1/tasks?select=id');
+  check('A sees both A’s task and B’s', readA.status === 200 && readA.json.length === 2, `sees ${JSON.stringify(titles(readA.json))}`);
+  check('B sees both A’s task and B’s', readB.status === 200 && readB.json.length === 2, `sees ${JSON.stringify(titles(readB.json))}`);
+  check('a member sees every task there is', everyA.json?.length === everyAll.json?.length, `A sees ${everyA.json?.length} of ${everyAll.json?.length}`);
 
-  const byId = await call(`/rest/v1/tasks?id=eq.${taskB}&select=title`, { token: a.token });
-  check('A cannot read B’s task even by its id', byId.status === 200 && byId.json.length === 0, `HTTP ${byId.status}, rows ${JSON.stringify(byId.json)}`);
+  const byId = await call(`/rest/v1/tasks?id=eq.${taskB}&select=title,notes`, { token: a.token });
+  check('A can read B’s task by its id', byId.status === 200 && byId.json.length === 1, `HTTP ${byId.status}, rows ${JSON.stringify(byId.json)}`);
+
+  let mayParent = '';
+  try { await createTask(a.store, { title: 'A hangs under B', parentTaskId: taskB }, TOOL); } catch (err) { mayParent = err.message; }
+  check('A still cannot put a sub-task under B’s task through core', /No task .* you may put a sub-task under/.test(mayParent), mayParent || 'the sub-task was added');
 
   const upd = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 999 } });
   check('A cannot change B’s task', upd.status === 200 && upd.json.length === 0, `HTTP ${upd.status}, rows changed ${Array.isArray(upd.json) ? upd.json.length : JSON.stringify(upd.json)}`);
@@ -211,14 +250,14 @@ try {
   const fileA = await attachFile(a.store, fileStore(a), { taskId: insA.id, path: pathA, name: 'a-logo.txt', contentType: 'text/plain', sizeBytes: 8 }, TOOL);
   check('A can attach it to A’s task through core', fileA.ownerId === a.id && fileA.tool === TOOL, JSON.stringify(fileA));
 
-  const filesB = await call('/rest/v1/task_files?select=name', { token: b.token });
-  check('B sees none of A’s file rows', filesB.status === 200 && filesB.json.length === 0, `sees ${JSON.stringify(filesB.json)}`);
+  const filesB = await call(`/rest/v1/task_files?id=eq.${fileA.id}&select=name`, { token: b.token });
+  check('B can see A’s file row', filesB.status === 200 && filesB.json.length === 1, `sees ${JSON.stringify(filesB.json)}`);
 
   const readObj = await call(`/storage/v1/object/authenticated/${BUCKET}/${pathA}`, { token: b.token });
-  check('B cannot read A’s stored file', readObj.status >= 400, `HTTP ${readObj.status}`);
+  check('B can read A’s stored file', readObj.status === 200, `HTTP ${readObj.status}`);
 
   const signObj = await call(`/storage/v1/object/sign/${BUCKET}/${pathA}`, { method: 'POST', token: b.token, body: { expiresIn: 60 } });
-  check('B cannot get a link to A’s stored file', signObj.status >= 400, `HTTP ${signObj.status} ${JSON.stringify(signObj.json)}`);
+  check('B can get a link to A’s stored file', signObj.status === 200, `HTTP ${signObj.status} ${JSON.stringify(signObj.json)}`);
 
   const anonObj = await call(`/storage/v1/object/public/${BUCKET}/${pathA}`);
   check('the bucket is private: no public link works', anonObj.status >= 400, `HTTP ${anonObj.status}`);
@@ -297,10 +336,82 @@ try {
   check('A cannot change what an engagement is worth', bumpRule.status >= 400 || (Array.isArray(bumpRule.json) && bumpRule.json.length === 0), `HTTP ${bumpRule.status} ${JSON.stringify(bumpRule.json)}`);
 
   const rulesA = await call('/rest/v1/game_scoring_rules?select=kind,points', { token: a.token });
-  check('a member can read the scoring rules', rulesA.status === 200 && rulesA.json.length === 8, `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
+  const ruleKinds = Array.isArray(rulesA.json) ? rulesA.json.map((r) => r.kind) : [];
+  check('a member can read the scoring rules, voting among them', rulesA.status === 200 && ruleKinds.includes('made_task') && ruleKinds.includes('voted_on_task'), `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
   const anonEng = await call('/rest/v1/engagements?select=kind');
   const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
   check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);
+
+  // task_votes: any member votes on any task, only ever through their own
+  // vote, and the database makes the average the task's points and priority.
+  const taskOf = async (id) => (await admin(`/rest/v1/tasks?id=eq.${id}&select=points,priority`)).json?.[0];
+  await castVote(voteStore(a), taskB, { points: 8, priority: 'high' }, TOOL);
+  let shown = await taskOf(taskB);
+  check('A can vote on B’s task, and one vote becomes its points and priority', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+  await castVote(voteStore(b), taskB, { points: 4, priority: 'low' }, TOOL);
+  shown = await taskOf(taskB);
+  check('two votes average: 8 and 4 make 6 points, High and Low make Normal', shown?.points === 6 && shown?.priority === 'normal', JSON.stringify(shown));
+
+  const votesSeen = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&select=member_id,points`, { token: a.token });
+  check('A can read every vote on B’s task', votesSeen.status === 200 && votesSeen.json.length === 2, JSON.stringify(votesSeen.json));
+
+  const bumpVote = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&member_id=eq.${b.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 1000 } });
+  check('A cannot change B’s vote', bumpVote.status === 200 && bumpVote.json.length === 0, `HTTP ${bumpVote.status} ${JSON.stringify(bumpVote.json)}`);
+  const wipeVote = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&member_id=eq.${b.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('A cannot withdraw B’s vote', wipeVote.status === 200 && wipeVote.json.length === 0, `HTTP ${wipeVote.status} ${JSON.stringify(wipeVote.json)}`);
+  const forgeVote = await call('/rest/v1/task_votes', { method: 'POST', token: a.token, body: { task_id: insA.id, member_id: b.id, points: 1 } });
+  check('A cannot vote in B’s name', forgeVote.status >= 400, `HTTP ${forgeVote.status} ${forgeVote.json?.message ?? ''}`);
+  const negVote = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&member_id=eq.${a.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: -1 } });
+  check('the table refuses a negative points vote', negVote.status >= 400, `HTTP ${negVote.status} ${negVote.json?.message ?? ''}`);
+  const anonVotes = await call('/rest/v1/task_votes?select=points');
+  check('a signed-out visitor sees no votes', anonVotes.status >= 400 || (Array.isArray(anonVotes.json) && anonVotes.json.length === 0), `HTTP ${anonVotes.status}`);
+  shown = await taskOf(taskB);
+  check('B’s task is still at the average afterwards', shown?.points === 6 && shown?.priority === 'normal', JSON.stringify(shown));
+
+  await castVote(voteStore(b), taskB, { points: null, priority: null }, TOOL);
+  shown = await taskOf(taskB);
+  check('B can withdraw B’s own vote, and the average is A’s alone again', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+
+  await castVote(voteStore(a), insA.id, { points: 50 }, TOOL);
+  shown = await taskOf(insA.id);
+  check('a vote on a done task is kept but its points stay locked', shown?.points === 3 && (await voteStore(a).mine(insA.id))?.points === 50, JSON.stringify(shown));
+
+  const votedA = await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.voted_on_task&select=task_id`, { token: a.token });
+  const votedB = await call(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.voted_on_task&select=task_id`, { token: b.token });
+  const bChanged = await call(`/rest/v1/engagements?member_id=eq.${b.id}&task_id=eq.${taskB}&kind=eq.changed_task&select=kind`, { token: b.token });
+  check('every vote is scored once, for the voter', votedA.json?.length === 2 && votedB.json?.length === 2, `A ${JSON.stringify(votedA.json)}, B ${JSON.stringify(votedB.json)}`);
+  check('the average landing on B’s task is not scored as B changing it', bChanged.json?.length === 0, JSON.stringify(bChanged.json));
+
+  // A vote is the voter's engagement: the owner earns nothing for it, a task
+  // deleted with votes on it scores no votes, and a voter's account can be
+  // deleted (its vote leaves the average).
+  const countOf = async (member, filter = '') => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}${filter}&select=kind`)).json?.length;
+  const bBefore = await countOf(b);
+  await castVote(voteStore(a), taskB, { points: 2, priority: 'low' }, TOOL);
+  await castVote(voteStore(a), taskB, { points: 2, priority: 'low' }, TOOL);
+  await castVote(voteStore(a), taskB, { points: 8, priority: 'high' }, TOOL);
+  const bAfter = await countOf(b);
+  check('the owner earns nothing when another member votes on their task', bBefore === bAfter, `B had ${bBefore} engagements, then ${bAfter}`);
+
+  const doomed = await createTask(b.store, { title: 'B’s task to delete', points: 1 }, TOOL);
+  await castVote(voteStore(a), doomed.id, { points: 3 }, TOOL);
+  await castVote(voteStore(b), doomed.id, { priority: 'high' }, TOOL);
+  const votesBefore = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
+  await deleteTask(b.store, doomed.id, TOOL);
+  const votesAfter = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
+  check('deleting a task with votes on it scores no votes', JSON.stringify(votesBefore) === JSON.stringify(votesAfter), `before ${JSON.stringify(votesBefore)}, after ${JSON.stringify(votesAfter)}`);
+
+  const c = await makeUser('c');
+  await castVote(voteStore(c), taskB, { points: 2, priority: 'low' }, TOOL);
+  shown = await taskOf(taskB);
+  const withC = shown;
+  const bBeforeC = await countOf(b);
+  const goneC = await admin(`/auth/v1/admin/users/${c.id}`, { method: 'DELETE' });
+  if (goneC.status < 300) users.splice(users.indexOf(c.id), 1);
+  shown = await taskOf(taskB);
+  check('a member who has voted can have their account deleted', goneC.status < 300, `HTTP ${goneC.status} ${JSON.stringify(goneC.json)}`);
+  check('their vote leaves the average with them', withC?.points === 5 && withC?.priority === 'normal' && shown?.points === 8 && shown?.priority === 'high', `with C ${JSON.stringify(withC)}, after ${JSON.stringify(shown)}`);
+  check('and the owner earns nothing for it', bBeforeC === await countOf(b), `B had ${bBeforeC} engagements`);
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
