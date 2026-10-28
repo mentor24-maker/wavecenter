@@ -38,6 +38,7 @@ export const ENGAGEMENT_KINDS = [
   'handed_to_agents',
   'switched_agents',
   'changed_profile',
+  'voted_on_task',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -57,7 +58,7 @@ export interface ScoringRule {
 /** One row of `engagements`: one thing one member did, and what it earned. */
 export interface Engagement {
   id: string;
-  /** Who is credited: the member whose task, file or setting it was. */
+  /** Who is credited: the member whose task, file or setting it was, or who voted. */
   memberId: string;
   kind: EngagementKind;
   /** Copied from the scoring rule at the moment it happened. */
@@ -110,6 +111,7 @@ export const STARTING_SCORING_RULES: readonly ScoringRule[] = [
   { kind: 'handed_to_agents', name: 'Handed a task to AI agents', description: 'A task you ticked was filed for the AI agents to build.', criteria: 'A ticked task is given its Loop Queue ticket.', points: 1, position: 7 },
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
+  { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */

@@ -20,6 +20,42 @@ Saving a profile earns a point in the game layer like every other change. A
 save that fails says so in red and is never shown as saved. Masks, Filters
 and selling your own data come later.
 
+---
+
+## 2026-10-27 — The Game page shows the points from your finished tasks (#29)
+
+The Game page already counted points for each thing a member does. It did
+not show the points set on the tasks they have actually finished. Now it has
+a "Your finished tasks" section: the total points of every task marked done,
+how many that is, and a list with each task's title, points and the date it
+was finished (Mountain time). Tasks still to do add nothing. With nothing
+finished yet, the page says so and points back to the list. If the tasks
+cannot be read, it says that, rather than showing a zero that is not true.
+The sum is worked out in one shared place in WaveCenter's core, with tests,
+so every future tool scores the same way. A visitor who is not signed in is
+now sent straight to the sign-in page. Leaderboards and kinds of
+contribution wait for their own tickets, as Dane chose.
+
+---
+
+## 2026-10-27 — Every member sees every task and votes on its points and priority (#32)
+
+Until now each member saw only their own tasks, and a task's points and
+priority were whatever its owner typed. Dane asked for the first piece of the
+DEO's "members decide what engagement is worth": everyone can see the whole
+list, past and present, and vote. Now every task shows whose it is, and under
+it the average of the votes and how many members voted, plus your own vote:
+a points number and a priority. The average becomes the task's points and
+priority (priorities count as urgent 4, high 3, normal 2, low 1). A finished
+task keeps its points locked. Members still change only their own tasks,
+nobody can touch someone else's vote, and every vote is scored in the game
+layer like any other action. The point for a vote goes to the voter only: the
+task's owner earns nothing when someone else votes, deleting a task with votes
+scores nobody, and a member who has voted can still have their account
+deleted (their vote simply leaves the average).
+
+---
+
 ## 2026-10-27 — The task list is wider, sortable and filterable (#26)
 
 "Your tasks" was a narrow column with each task's controls jumbled on a

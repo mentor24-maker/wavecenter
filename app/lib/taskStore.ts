@@ -2,6 +2,8 @@
  * The app's `TaskStore` (core/tasks.ts): how core reaches the `tasks` table
  * from a page or server action. It acts through the signed-in member's own
  * session, so row-level security decides which rows it can see and change.
+ * Every member may read every task, but `get` asks only for the member's own,
+ * because core's `get` means "a task the caller may change".
  *
  * It only translates between core's names and the table's columns, and turns
  * a failed database call into a thrown error. Every value it writes was
@@ -61,7 +63,25 @@ function failed(what: string, error: { message: string }): never {
   throw new Error(`The database refused to ${what}: ${error.message}`);
 }
 
-export function supabaseTaskStore(supabase: Client): TaskStore {
+/**
+ * Every finished (`done`) task the member owns, most recently finished first.
+ * It filters on the owner itself rather than leaning on row-level security,
+ * so it stays "their own" even if members are later allowed to see each
+ * other's tasks. A failed read throws, so a page can never mistake it for
+ * "none finished".
+ */
+export async function readFinishedTasks(supabase: Client, ownerId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select()
+    .eq("owner_id", ownerId)
+    .eq("status", "done")
+    .order("completed_at", { ascending: false, nullsFirst: false });
+  if (error) failed("read your finished tasks", error);
+  return (data ?? []).map(fromRow);
+}
+
+export function supabaseTaskStore(supabase: Client, memberId: string): TaskStore {
   return {
     async insert(row) {
       const { data, error } = await supabase.from("tasks").insert(toRow(row)).select().single();
@@ -69,7 +89,7 @@ export function supabaseTaskStore(supabase: Client): TaskStore {
       return fromRow(data);
     },
     async get(id) {
-      const { data, error } = await supabase.from("tasks").select().eq("id", id).maybeSingle();
+      const { data, error } = await supabase.from("tasks").select().eq("id", id).eq("owner_id", memberId).maybeSingle();
       if (error) failed("read the task", error);
       return data ? fromRow(data) : null;
     },
