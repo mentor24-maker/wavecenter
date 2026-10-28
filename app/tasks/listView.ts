@@ -189,12 +189,14 @@ const ZONE = "America/Denver";
 const plain = (text: string) => text.replace(/\s/g, " ");
 const yearIn = (d: Date) => new Intl.DateTimeFormat("en-US", { timeZone: ZONE, year: "numeric" }).format(d);
 
-/** When a task was added, short, in Mountain time: "Oct 27" this year, "Oct 27, 2025" before. */
+/** When a task was added, short, in Mountain time: "Oct 27, 4:14pm" this year, "Oct 27, 2025, 4:14pm" before. */
 export function shortDate(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const thisYear = yearIn(d) === yearIn(now);
-  return plain(d.toLocaleDateString("en-US", { timeZone: ZONE, month: "short", day: "numeric", ...(thisYear ? {} : { year: "numeric" }) }));
+  const day = d.toLocaleDateString("en-US", { timeZone: ZONE, month: "short", day: "numeric", ...(thisYear ? {} : { year: "numeric" }) });
+  const time = d.toLocaleTimeString("en-US", { timeZone: ZONE, hour: "numeric", minute: "2-digit" }).replace(/\s*([AP])M$/i, (_, m: string) => `${m.toLowerCase()}m`);
+  return plain(`${day}, ${time}`);
 }
 
 /** When a task was added, in full, in Mountain time: "Oct 27, 2026, 9:15 PM MT". */

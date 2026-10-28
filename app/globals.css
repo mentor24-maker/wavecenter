@@ -157,7 +157,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
    second line under it instead (see the rule below). */
 .task {
   display: grid; align-items: center; gap: 0.25rem 0.75rem;
-  grid-template-columns: 1.5rem 1.5rem minmax(12rem, 1fr) 6.5rem 4.5rem 5.5rem minmax(8rem, 13rem) 8.5rem;
+  grid-template-columns: 1.5rem 1.5rem minmax(12rem, 1fr) 6.5rem 4.5rem 8.5rem minmax(8rem, 13rem) 8.5rem;
   padding: 0.6rem 0; border-bottom: 1px solid var(--line);
 }
 .task:last-child { border-bottom: 0; }
