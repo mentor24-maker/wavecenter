@@ -17,7 +17,9 @@ clicking again flips the order. A filter bar narrows the list by words,
 priority, status, points and who created the task: the five filters Dane
 asked for. Sub-tasks always stay under their parent. Edit, attach and delete
 are now small icons with tooltips. On a phone the extra columns wrap neatly
-instead of pushing the page sideways.
+instead of pushing the page sideways. The date each task was added is always
+shown in Mountain time, so the server and Dane's browser draw the same date
+and the page no longer has to throw itself away and redraw on every load.
 
 ---
 

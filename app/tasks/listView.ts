@@ -159,3 +159,47 @@ export function filterTasks<T extends ViewTask>(tasks: T[], f: Filter): { shown:
   }
   return { shown: tasks.filter((t) => matched.has(t.id) || contextOnly.has(t.id)), contextOnly };
 }
+
+/**
+ * The tasks of one section (Open or Done), without a context-only parent
+ * none of whose matching sub-tasks are in that section. Sections split on
+ * status, so an open parent of a done sub-task would otherwise sit alone,
+ * dimmed, in Open, and hide that section's "no tasks match" line.
+ */
+export function sectionTasks<T extends ViewTask>(shown: T[], contextOnly: Set<string>, inSection: (t: T) => boolean): T[] {
+  let list = shown.filter(inSection);
+  // Drop bare context parents until none is left; one pass per level of a deeper tree.
+  for (;;) {
+    const parents = new Set(list.map((t) => t.parentTaskId));
+    const kept = list.filter((t) => !contextOnly.has(t.id) || parents.has(t.id));
+    if (kept.length === list.length) return list;
+    list = kept;
+  }
+}
+
+/*
+ * Dates are drawn twice, on the server (Vercel runs in UTC) and again in the
+ * browser. Both must give the same text or React throws the page away and
+ * redraws it, so they are fixed to Mountain time and US English, not left
+ * to whichever clock and language each side happens to have. Some engines
+ * put a narrow no-break space before "PM" and some a plain one, so every
+ * space is made a plain one.
+ */
+const ZONE = "America/Denver";
+const plain = (text: string) => text.replace(/\s/g, " ");
+const yearIn = (d: Date) => new Intl.DateTimeFormat("en-US", { timeZone: ZONE, year: "numeric" }).format(d);
+
+/** When a task was added, short, in Mountain time: "Oct 27" this year, "Oct 27, 2025" before. */
+export function shortDate(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const thisYear = yearIn(d) === yearIn(now);
+  return plain(d.toLocaleDateString("en-US", { timeZone: ZONE, month: "short", day: "numeric", ...(thisYear ? {} : { year: "numeric" }) }));
+}
+
+/** When a task was added, in full, in Mountain time: "Oct 27, 2026, 9:15 PM MT". */
+export function fullDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return plain(d.toLocaleString("en-US", { timeZone: ZONE, dateStyle: "medium", timeStyle: "short" })) + " MT";
+}

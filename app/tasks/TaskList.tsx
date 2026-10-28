@@ -40,9 +40,12 @@ import {
 } from "./actions";
 import {
   filterTasks,
+  fullDate,
   isFiltering,
   nextSort,
   NO_FILTER,
+  sectionTasks,
+  shortDate,
   sortTasks,
   STATUS_FILTERS,
   STATUS_FILTER_LABEL,
@@ -231,8 +234,8 @@ export default function TaskList({
   const someTicked = tickable.some((t) => t.agentSelected);
   const filtering = isFiltering(filter);
   const { shown, contextOnly } = filterTasks(sortTasks(tasks, sort), filter);
-  const shownOpen = shown.filter((t) => t.status !== "done");
-  const shownDone = shown.filter((t) => t.status === "done");
+  const shownOpen = sectionTasks(shown, contextOnly, (t) => t.status !== "done");
+  const shownDone = sectionTasks(shown, contextOnly, (t) => t.status === "done");
   const creators = [...new Set(tasks.map((t) => t.ownerId))].sort((a, b) => (a === userId ? -1 : b === userId ? 1 : 0));
 
   const row = (t: ListTask, inSection: ListTask[], sub = false) => (
@@ -470,7 +473,7 @@ export default function TaskList({
           {filtering && (
             <p className="note" role="status">
               Showing {shown.length - contextOnly.size} of {tasks.length} tasks
-              {contextOnly.size > 0 && "; a dimmed task is shown only because a sub-task of it matches"}.
+              {[...shownOpen, ...shownDone].some((t) => contextOnly.has(t.id)) && "; a dimmed task is shown only because a sub-task of it matches"}.
             </p>
           )}
 
@@ -542,14 +545,6 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
       <path d={ICON_PATHS[name]} />
     </svg>
   );
-}
-
-/** When a task was added, short: "Oct 27" this year, "Oct 27, 2025" before. */
-function shortDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const thisYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(thisYear ? {} : { year: "numeric" }) });
 }
 
 function TaskRow({
@@ -705,7 +700,7 @@ function TaskRow({
         <span className="unit note">pts</span>
       </form>
       <span className="col-created note" role="cell">
-        <time dateTime={task.createdAt} title={new Date(task.createdAt).toLocaleString()}>{shortDate(task.createdAt)}</time>
+        <time dateTime={task.createdAt} title={fullDate(task.createdAt)}>{shortDate(task.createdAt)}</time>
       </span>
       <span className="col-parent" role="cell">
         {parents ? (

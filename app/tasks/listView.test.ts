@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTasks, isFiltering, matches, nextSort, NO_FILTER, sortTasks, type ViewTask } from './listView.ts';
+import { filterTasks, fullDate, isFiltering, matches, nextSort, NO_FILTER, sectionTasks, shortDate, sortTasks, type ViewTask } from './listView.ts';
 
 function task(id: string, over: Partial<ViewTask> = {}): ViewTask {
   return {
@@ -94,4 +94,26 @@ test('a matching sub-task keeps its parent visible, marked as context only', () 
 test('a loop of parents does not hang the filter', () => {
   const list = [task('a', { parentTaskId: 'b' }), task('b', { parentTaskId: 'a', title: 'match' })];
   assert.deepEqual(ids(filterTasks(list, { ...NO_FILTER, text: 'match' }).shown), ['a', 'b']);
+});
+
+test('a context parent with no matching sub-task in a section is left out of that section', () => {
+  const list = [task('p', { title: 'Plan' }), task('c', { title: 'Buy milk', parentTaskId: 'p', status: 'done' })];
+  const { shown, contextOnly } = filterTasks(list, { ...NO_FILTER, text: 'milk' });
+  assert.deepEqual(ids(sectionTasks(shown, contextOnly, (t) => t.status !== 'done')), []);
+  assert.deepEqual(ids(sectionTasks(shown, contextOnly, (t) => t.status === 'done')), ['c']);
+});
+
+test('a context parent stays when its matching sub-task is in the same section, at any depth', () => {
+  const list = [task('g'), task('p', { parentTaskId: 'g' }), task('c', { title: 'milk', parentTaskId: 'p' })];
+  const { shown, contextOnly } = filterTasks(list, { ...NO_FILTER, text: 'milk' });
+  assert.deepEqual(ids(sectionTasks(shown, contextOnly, () => true)), ['g', 'p', 'c']);
+});
+
+test('dates are drawn in Mountain time whatever the clock of the machine drawing them', () => {
+  // 03:30 UTC on Oct 28 is still the evening of Oct 27 in Denver.
+  const now = new Date('2026-10-28T03:30:00Z');
+  assert.equal(shortDate('2026-10-28T03:30:00Z', now), 'Oct 27');
+  assert.equal(shortDate('2025-10-28T03:30:00Z', now), 'Oct 27, 2025');
+  assert.equal(fullDate('2026-10-28T03:30:00Z'), 'Oct 27, 2026, 9:30 PM MT');
+  assert.equal(shortDate('not a date', now), '');
 });
