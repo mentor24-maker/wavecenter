@@ -7,8 +7,9 @@
  * show as small thumbnails). Above it, the "Launch AI
  * Agents" switch; on every open task, a box that hands it to AI agents, with
  * a tick-all box in the header row. A task the hand-off lane has filed as a
- * Loop Queue ticket shows "With AI agents" and a link to it. Every change is a server action that goes
- * through core (app/tasks/actions.ts).
+ * Loop Queue ticket shows "With AI agents" and a link to it. Each task opens
+ * a Discussion thread of comments (Discussion.tsx). Every change is a server
+ * action that goes through core (app/tasks/actions.ts).
  *
  * A save that fails says so next to where it happened and keeps what was
  * typed, including when the network is down and the server never answered
@@ -21,6 +22,7 @@
  */
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
+import type { TaskComment } from "../../core/comments.ts";
 import { checkFile } from "../../core/files.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
 import {
@@ -38,6 +40,7 @@ import {
   switchAgents,
   type SaveResult,
 } from "./actions";
+import Discussion from "./Discussion";
 import {
   filterTasks,
   fullDate,
@@ -146,6 +149,7 @@ export default function TaskList({
   tasks,
   agents,
   files,
+  comments,
   userId,
 }: {
   tasks: ListTask[];
@@ -154,6 +158,8 @@ export default function TaskList({
   userId: string;
   /** Every attached file, or why they could not be loaded. */
   files: { files: ListFile[]; error: string | null };
+  /** Every Discussion comment, or why they could not be loaded. */
+  comments: { comments: TaskComment[]; error: string | null };
 }) {
   const [failure, setFailure] = useState<Failure>(null);
   const [pending, startTransition] = useTransition();
@@ -227,6 +233,8 @@ export default function TaskList({
   const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
   const filesByTask = new Map<string, ListFile[]>();
   for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
+  const commentsByTask = new Map<string, TaskComment[]>();
+  for (const c of comments.comments) commentsByTask.set(c.taskId, [...(commentsByTask.get(c.taskId) ?? []), c]);
   const withAgents = open.filter((t) => t.agentTicketUrl).length;
   // Tick-all covers the tasks still waiting; one already handed over stays with its ticket.
   const tickable = open.filter((t) => !t.agentTicketUrl);
@@ -248,6 +256,8 @@ export default function TaskList({
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
       files={filesByTask.get(t.id) ?? []}
+      comments={comments.error ? null : commentsByTask.get(t.id) ?? []}
+      userId={userId}
       place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
       pending={pending}
@@ -403,6 +413,11 @@ export default function TaskList({
           Attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.
         </p>
       )}
+      {comments.error && (
+        <p className="error" role="alert">
+          Discussion comments could not be loaded: {comments.error}. They have not been lost; try reloading the page.
+        </p>
+      )}
 
       {tasks.length === 0 ? (
         <p className="note">No tasks yet — add your first one above.</p>
@@ -537,6 +552,7 @@ const ICON_PATHS = {
   edit: "M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4",
   attach: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 7",
   delete: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
+  discuss: "M4 5h16v11H9l-5 4V5zM8 9h8M8 12h5",
 };
 
 function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
@@ -554,6 +570,8 @@ function TaskRow({
   parentTitle,
   parents,
   files,
+  comments,
+  userId,
   place,
   failure,
   pending,
@@ -570,6 +588,9 @@ function TaskRow({
   parents: ListTask[] | null;
   /** The files attached to it. */
   files: ListFile[];
+  /** Its Discussion comments, or null when they could not be loaded. */
+  comments: TaskComment[] | null;
+  userId: string;
   /** Its place in the agents' line, shown while agents are on. */
   place?: number;
   failure: string | null;
@@ -580,6 +601,7 @@ function TaskRow({
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [expanded, setExpanded] = useState(false);
+  const [discussing, setDiscussing] = useState(false);
   const [points, setPointsText] = useState(String(task.points));
   const attachBox = useRef<HTMLInputElement>(null);
   const done = task.status === "done";
@@ -766,6 +788,18 @@ function TaskRow({
         />
         <button
           type="button"
+          className="icon-button discuss"
+          aria-label={`${discussing ? "Close" : "Open"} the discussion on "${task.title}"${comments?.length ? ` (${comments.length} comment${comments.length === 1 ? "" : "s"})` : ""}`}
+          aria-expanded={discussing}
+          title="Discussion"
+          disabled={comments === null}
+          onClick={() => setDiscussing(!discussing)}
+        >
+          <Icon name="discuss" />
+          {comments && comments.length > 0 && <span className="count" aria-hidden="true">{comments.length}</span>}
+        </button>
+        <button
+          type="button"
           className="icon-button danger"
           aria-label={`Delete "${task.title}"`}
           title="Delete"
@@ -797,6 +831,11 @@ function TaskRow({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {discussing && comments && (
+        <div className="full" role="cell">
+          <Discussion taskId={task.id} taskTitle={task.title} comments={comments} userId={userId} pending={pending} run={run} />
         </div>
       )}
       {failure && (
