@@ -47,21 +47,27 @@ html, body {
 }
 
 /* The bar across the top of every page. */
-.site { border-bottom: 1px solid var(--line); background: var(--surface); }
+/* Fixed dark blue with white bold text in both light and dark mode (Dane's choice, not the theme's). */
+.site { border-bottom: 1px solid #000077; background: #000077; color: #fff; font-weight: 700; }
 .site-inner {
   max-width: 44rem; margin: 0 auto; padding: 0.75rem var(--space);
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
   display: inline-flex; align-items: center; gap: 0.5rem;
-  color: var(--fg); text-decoration: none; font-size: 1.2rem; letter-spacing: -0.01em;
+  color: #fff; text-decoration: none; font-size: 1.2rem; letter-spacing: -0.01em;
 }
-.brand b { color: var(--accent); font-weight: 700; }
+.brand b { color: #fff; font-weight: 700; }
 /* The logo sits on a white square; clip it to its circle so it reads as a disc on the dark header. */
 .mark { width: 1.75rem; height: 1.75rem; flex: none; border-radius: 50%; }
 .site-inner.wide { max-width: 76rem; }
 .who { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
-.who .email { color: var(--muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .email { color: #fff; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the dark blue. */
+.site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
+.site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
+/* Bold is wider: on a phone, tighter gaps keep Sign out on screen. */
+@media (max-width: 30rem) { .site-inner, .who { gap: 0.5rem; } }
 
 main {
   max-width: 44rem;
@@ -208,6 +214,16 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .filters .range { display: inline-flex; align-items: center; gap: 0.4rem; }
 .filters .range input { width: 5rem; }
 .filters + p { font-size: 0.9rem; }
+/*
+ * The task list's filter bar sits in its own light blue box with a dark blue
+ * outline, the same in light and dark mode. Inside it the light palette is
+ * used, so text and controls stay dark on the pale blue even in dark mode.
+ */
+.filters.task-filters {
+  --surface: #ffffff; --fg: #121a2b; --muted: #55617a; --line: #9fb3d1; --accent: #0a6fb3;
+  color-scheme: light; color: var(--fg);
+  background: #cceeff; border: 2px solid #000077; border-radius: var(--radius); padding: 0.75rem;
+}
 
 /* Narrower than the full set of columns: Title takes the first line, the rest wrap under it. */
 @media (max-width: 56rem) {
