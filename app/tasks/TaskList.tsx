@@ -26,10 +26,10 @@
  * voted (core/votes.ts). Once a task has votes, the average is its points
  * and priority, so its owner's boxes give way to the average.
  */
+import Link from "next/link";
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
 import type { TaskComment } from "../../core/comments.ts";
-import { checkFile } from "../../core/files.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
 import { summarizeVotes } from "../../core/votes.ts";
 import {
@@ -38,23 +38,23 @@ import {
   changePriority,
   chooseForAgents,
   editTask,
-  finishUpload,
   markDone,
   moveUnder,
-  removeAttachment,
   removeTask,
-  startUpload,
   switchAgents,
   vote,
   type SaveResult,
 } from "./actions";
+import AttachedFiles from "./AttachedFiles";
 import Discussion from "./Discussion";
+import { picked, screenFiles, UNREACHABLE, uploadFiles } from "./upload";
 import {
   filterTasks,
   fullDate,
   isFiltering,
   nextSort,
   NO_FILTER,
+  PRIORITY_LABEL,
   sectionTasks,
   shortDate,
   sortTasks,
@@ -85,6 +85,8 @@ export interface ListTask {
 export interface ListFile {
   id: string;
   taskId: string;
+  /** The Discussion comment it is attached to, or null for the task's own file. */
+  commentId: string | null;
   name: string;
   image: boolean;
   url: string | null;
@@ -104,62 +106,12 @@ export interface AgentsSwitch {
   error: string | null;
 }
 
-const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 
 /** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
 
 /** The add form when empty: no details, no parent, Normal priority. */
 const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
-
-const UNREACHABLE =
-  "Could not reach WaveCenter, so this was not saved. Check your connection and try again; what you typed is still here.";
-
-/**
- * Attach files to a task, one after another (app/tasks/actions.ts explains
- * the three steps). A file over 10 MB is refused here, before anything is
- * sent. Resolves ok only if every file was attached; otherwise the answer
- * names what failed, and a failed file leaves nothing behind.
- */
-async function uploadFiles(taskId: string, files: File[]): Promise<SaveResult> {
-  const problems: string[] = [];
-  for (const file of files) {
-    const result = await uploadFile(taskId, file).catch((): SaveResult => ({ ok: false, error: UNREACHABLE }));
-    if (!result.ok) problems.push(result.error);
-  }
-  if (!problems.length) return { ok: true };
-  const attached = files.length - problems.length;
-  return { ok: false, error: `${attached ? `${attached} of ${files.length} files were attached. ` : ""}${problems.join(" ")}` };
-}
-
-async function uploadFile(taskId: string, file: File): Promise<SaveResult> {
-  try {
-    checkFile(file.name, file.size);
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-  const ticket = await startUpload(taskId, file.name, file.size);
-  if (!ticket.ok) return ticket;
-  const notSent = `"${file.name}" could not be sent to file storage, so it was not attached. Check your connection and try again.`;
-  try {
-    const sent = await fetch(ticket.uploadUrl, {
-      method: "PUT",
-      headers: { "content-type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!sent.ok) return { ok: false, error: `File storage refused "${file.name}" (error ${sent.status}), so it was not attached. Try again.` };
-  } catch {
-    return { ok: false, error: notSent };
-  }
-  return finishUpload({ taskId, path: ticket.path, name: file.name, contentType: file.type, sizeBytes: file.size });
-}
-
-/** The files picked in a file box, then the box emptied so the same file can be picked again. */
-function picked(e: ChangeEvent<HTMLInputElement>): File[] {
-  const files = [...(e.target.files ?? [])];
-  e.target.value = "";
-  return files;
-}
 
 export default function TaskList({
   tasks,
@@ -228,17 +180,7 @@ export default function TaskList({
 
   /** Pick files for the task being added. A file over 10 MB is refused straight away. */
   function pickForNew(e: ChangeEvent<HTMLInputElement>) {
-    const chosen = picked(e);
-    const refused: string[] = [];
-    const ok = chosen.filter((f) => {
-      try {
-        checkFile(f.name, f.size);
-        return true;
-      } catch (err) {
-        refused.push((err as Error).message);
-        return false;
-      }
-    });
+    const { ok, refused } = screenFiles(picked(e));
     setDraftFiles((now) => [...now, ...ok]);
     setFailure(refused.length ? { at: "new", message: refused.join(" ") } : null);
   }
@@ -254,7 +196,12 @@ export default function TaskList({
   const inLine = agentOrder(own);
   const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
   const filesByTask = new Map<string, ListFile[]>();
-  for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
+  // A comment's files show in its Discussion, not in the task's own list.
+  const filesByComment = new Map<string, ListFile[]>();
+  for (const f of files.files) {
+    if (f.commentId) filesByComment.set(f.commentId, [...(filesByComment.get(f.commentId) ?? []), f]);
+    else filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
+  }
   const commentsByTask = new Map<string, TaskComment[]>();
   for (const c of comments.comments) commentsByTask.set(c.taskId, [...(commentsByTask.get(c.taskId) ?? []), c]);
   const votesByTask = new Map<string, ListVote[]>();
@@ -289,6 +236,7 @@ export default function TaskList({
       parents={hasChildren.has(t.id) ? null : topLevel.filter((p) => p.id !== t.id)}
       files={filesByTask.get(t.id) ?? []}
       comments={comments.error ? null : commentsByTask.get(t.id) ?? []}
+      commentFiles={filesByComment}
       userId={userId}
       place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
@@ -614,6 +562,7 @@ function TaskRow({
   parents,
   files,
   comments,
+  commentFiles,
   userId,
   place,
   failure,
@@ -643,6 +592,8 @@ function TaskRow({
   files: ListFile[];
   /** Its Discussion comments, or null when they could not be loaded. */
   comments: TaskComment[] | null;
+  /** Every comment's files, by comment id. */
+  commentFiles: Map<string, ListFile[]>;
   userId: string;
   /** Its place in the agents' line, shown while agents are on. */
   place?: number;
@@ -746,7 +697,7 @@ function TaskRow({
         </form>
       ) : (
         <span className="col-title" role="cell">
-          <span className="title">{task.title}</span>
+          <Link href={`/tasks/${task.id}`} className="title">{task.title}</Link>
           {place && <span className="badge"> AI #{place}</span>}
           {task.agentTicketUrl && (
             <span className="badge">
@@ -895,28 +846,7 @@ function TaskRow({
       </span>
       {files.length > 0 && (
         <div className="full" role="cell">
-          <ul className="files">
-            {files.map((f) => (
-              <li key={f.id}>
-                {!f.url ? (
-                  <span className="note">{f.name} (no link could be made; try reloading)</span>
-                ) : f.image ? (
-                  <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
-                    {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={f.url} alt={f.name} className="thumb" />
-                  </a>
-                ) : (
-                  <a href={f.url}>{f.name}</a>
-                )}
-                {mine && (
-                  <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
-                    remove
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <AttachedFiles files={files} removable={mine} pending={pending} run={run} />
         </div>
       )}
       <div className="full votes" role="cell">
@@ -976,7 +906,15 @@ function TaskRow({
       </div>
       {discussing && comments && (
         <div className="full" role="cell">
-          <Discussion taskId={task.id} taskTitle={task.title} comments={comments} userId={userId} pending={pending} run={run} />
+          <Discussion
+            taskId={task.id}
+            taskTitle={task.title}
+            comments={comments}
+            files={commentFiles}
+            userId={userId}
+            pending={pending}
+            run={run}
+          />
         </div>
       )}
       {failure && (
