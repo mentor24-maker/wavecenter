@@ -152,12 +152,12 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
   list-style: none; padding: 0 var(--space); margin: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
 }
-/* Each task is a row of columns: AI, Done, Title, Priority, Points, Created,
-   Parent, Actions. On a narrower screen the columns after Title wrap onto a
+/* Each task is a row of columns: AI, Title, Priority, Points, Created,
+   Parent, Actions (Done first among them). On a narrower screen the columns after Title wrap onto a
    second line under it instead (see the rule below). */
 .task {
   display: grid; align-items: center; gap: 0.25rem 0.75rem;
-  grid-template-columns: 1.5rem 1.5rem minmax(12rem, 1fr) 6.5rem 4.5rem 8.5rem minmax(8rem, 13rem) 8.5rem;
+  grid-template-columns: 1.5rem minmax(12rem, 1fr) 6.5rem 4.5rem 8.5rem minmax(8rem, 13rem) 12rem;
   padding: 0.6rem 0; border-bottom: 1px solid var(--line);
 }
 .task:last-child { border-bottom: 0; }
@@ -175,6 +175,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task select { width: 100%; min-width: 0; padding: 0.25rem 0.4rem; font-size: 0.9rem; }
 .task .col-parent .note { font-size: 0.85rem; }
 .task .col-actions { display: flex; align-items: center; gap: 0.15rem; }
+.task .done-box { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.35rem; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
 .task .details { display: block; white-space: pre-wrap; color: var(--muted); font-size: 0.9rem; }
 .task .edit { display: flex; flex-direction: column; gap: 0.4rem; }
 .task .full { grid-column: 1 / -1; margin: 0.25rem 0 0; min-width: 0; }
@@ -210,16 +211,17 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .filters + p { font-size: 0.9rem; }
 
 /* Narrower than the full set of columns: Title takes the first line, the rest wrap under it. */
-@media (max-width: 56rem) {
+@media (max-width: 58rem) {
   .task { display: flex; flex-wrap: wrap; }
   .task .cell { flex: 0 0 1.5rem; }
-  .task .col-title { flex: 1 1 calc(100% - 4.5rem); }
-  .task .col-priority { margin-left: 3.75rem; flex: 0 1 7rem; }
+  .task .col-title { flex: 1 1 calc(100% - 2.25rem); }
+  .task .col-priority { margin-left: 1.5rem; flex: 0 1 7rem; }
   .task .col-points { flex: 0 0 auto; }
   .task .col-points .unit { display: inline; }
   .task .points { width: 4rem; }
   .task .col-parent { flex: 1 1 10rem; min-width: 0; max-width: 16rem; }
   .task .full { flex-basis: 100%; }
+  .task .badge { white-space: normal; }
   .task.head .col-title { flex: 0 0 auto; }
   .task.head .col-priority { margin-left: 0; flex: 0 0 auto; }
   .task.head .col-parent, .task.head .col-actions { display: none; }
