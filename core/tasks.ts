@@ -84,6 +84,11 @@ export interface UpdateGuard {
  */
 export interface TaskStore {
   insert(row: NewTaskRow): Promise<Task>;
+  /**
+   * One task the caller may change, or null. Every member can read every
+   * task (Dane, 2026-10-27), but this returns only the caller's own, so no
+   * rule here ever acts on, or hangs a sub-task under, someone else's task.
+   */
   get(id: string): Promise<Task | null>;
   /**
    * Apply `changes` to one task. When `guard` is given, apply them only if
@@ -137,7 +142,8 @@ function requireStatus(status: unknown): TaskStatus {
   return status as TaskStatus;
 }
 
-function requirePriority(priority: unknown): TaskPriority {
+/** Returns the priority if it is one of the four, or throws. */
+export function requirePriority(priority: unknown): TaskPriority {
   if (!TASK_PRIORITIES.includes(priority as TaskPriority)) {
     throw new CoreError(`A task's priority must be one of ${TASK_PRIORITIES.join(', ')}; got "${String(priority)}".`);
   }
@@ -152,9 +158,8 @@ function requirePosition(position: unknown): number {
 }
 
 /**
- * A parent must be a task the caller can see. The store only returns the
- * caller's own tasks, so this also stops a task being hung under someone
- * else's. When `childId` is given (a task being moved), the parent may not be
+ * A parent must be one of the caller's own tasks: the store's `get` only
+ * returns those, so a task is never hung under someone else's. When `childId` is given (a task being moved), the parent may not be
  * the task itself or anything beneath it, so the tree never loops.
  */
 async function requireParent(store: TaskStore, parentTaskId: string, childId?: string): Promise<string> {
