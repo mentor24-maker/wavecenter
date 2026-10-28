@@ -116,13 +116,75 @@ insert into public.game_scoring_rules (kind, name, description, criteria, points
   ('voted_on_task',    'Voted on a task',              'Voted on what a task is worth or how urgent it is.',                    'A vote on a task is cast, changed or withdrawn.',                              1, 10)
 on conflict (kind) do nothing;
 
+-- tasks_score, as in 20261027130000_game_layer_cascades.sql, plus one
+-- check: an update made by the vote trigger below is not the owner's doing.
+create or replace function public.tasks_score()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_kind text;
+  v_owner uuid := coalesce(new.owner_id, old.owner_id);
+begin
+  -- The member's account is being deleted, and their tasks with it.
+  if not exists (select 1 from auth.users u where u.id = v_owner) then
+    return null;
+  end if;
+  -- The vote trigger (task_votes_apply) is putting the members' average on
+  -- the task: that is the voter's engagement, already scored, not the
+  -- owner's.
+  if coalesce(current_setting('wavecenter.vote_apply', true), '') = 'on' then
+    return null;
+  end if;
+  if tg_op = 'INSERT' then
+    perform public.record_engagement(new.owner_id, 'made_task', new.tool, new.id);
+  elsif tg_op = 'DELETE' then
+    perform public.record_engagement(old.owner_id, 'deleted_task', public.engagement_tool(old.tool), old.id);
+  else
+    -- Its parent was just deleted and the database let it go: that delete
+    -- was the engagement, already scored.
+    if old.parent_task_id is not null and new.parent_task_id is null
+       and not exists (select 1 from public.tasks t where t.id = old.parent_task_id) then
+      return null;
+    end if;
+    if new.agent_ticket_url is not null and old.agent_ticket_url is null then
+      v_kind := 'handed_to_agents';
+    elsif new.status = 'done' and old.status is distinct from 'done' then
+      v_kind := 'finished_task';
+    else
+      v_kind := 'changed_task';
+    end if;
+    perform public.record_engagement(new.owner_id, v_kind, new.tool, new.id);
+  end if;
+  return null;
+end;
+$$;
+
+revoke execute on function public.tasks_score() from public, anon, authenticated;
+
 -- core/votes.ts votedValues, in SQL: points are the average of the points
 -- votes, priority the average of the priority votes counted urgent 4, high 3,
 -- normal 2, low 1, each rounded to the nearest whole number with a half
 -- rounding up. A part nobody has voted on keeps the task's own value. A done
--- task's points are locked, so its votes change nothing. A vote removed
--- because its task or its member is being deleted (pg_trigger_depth() > 1)
--- is part of that delete: not scored, nothing to average.
+-- task's points are locked, so its votes change nothing.
+--
+-- Two kinds of vote removal are not the voter's doing, and Postgres runs
+-- both at the same trigger depth as an ordinary withdrawal (see
+-- 20261027130000_game_layer_cascades.sql), so they are told apart by what
+-- still exists:
+--   - the task is being deleted: its votes go with it, nothing to score or
+--     average;
+--   - the voter's account is being deleted: nothing is scored (the ledger
+--     can only credit a real account), but the task's average is worked out
+--     again without that vote.
+--
+-- The average lands on the task with the vote's own tool, but it is the
+-- voter's contribution, not the owner's: the transaction-local setting
+-- wavecenter.vote_apply tells tasks_score (above) not to score that update
+-- as the owner changing their task. The task is only written when its points
+-- or priority actually move.
 create or replace function public.task_votes_apply()
 returns trigger
 language plpgsql
@@ -135,18 +197,24 @@ declare
   v_tool   text;
   v_points integer;
   v_weight integer;
+  v_priority text;
   v_voters integer;
 begin
-  if pg_trigger_depth() > 1 then
-    return null;
-  end if;
   if tg_op = 'DELETE' then
     v_task := old.task_id; v_member := old.member_id; v_tool := public.engagement_tool(old.tool);
   else
     v_task := new.task_id; v_member := new.member_id; v_tool := new.tool;
   end if;
 
-  perform public.record_engagement(v_member, 'voted_on_task', v_tool, v_task);
+  -- The task is being deleted, and its votes with it.
+  if not exists (select 1 from public.tasks t where t.id = v_task) then
+    return null;
+  end if;
+
+  -- The voter's account is being deleted: nobody to credit.
+  if exists (select 1 from auth.users u where u.id = v_member) then
+    perform public.record_engagement(v_member, 'voted_on_task', v_tool, v_task);
+  end if;
 
   select count(*),
          round(avg(v.points))::integer,
@@ -156,12 +224,17 @@ begin
    where v.task_id = v_task;
 
   if v_voters > 0 then
+    v_priority := case v_weight when 4 then 'urgent' when 3 then 'high' when 2 then 'normal' when 1 then 'low' end;
+    perform set_config('wavecenter.vote_apply', 'on', true);
     update public.tasks t
        set points   = coalesce(v_points, t.points),
-           priority = coalesce(case v_weight when 4 then 'urgent' when 3 then 'high' when 2 then 'normal' when 1 then 'low' end, t.priority),
+           priority = coalesce(v_priority, t.priority),
            tool     = v_tool
      where t.id = v_task
-       and t.status <> 'done';
+       and t.status <> 'done'
+       and (t.points   is distinct from coalesce(v_points, t.points)
+         or t.priority is distinct from coalesce(v_priority, t.priority));
+    perform set_config('wavecenter.vote_apply', 'off', true);
   end if;
   return null;
 end;

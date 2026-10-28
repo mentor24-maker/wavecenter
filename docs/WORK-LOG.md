@@ -18,7 +18,10 @@ a points number and a priority. The average becomes the task's points and
 priority (priorities count as urgent 4, high 3, normal 2, low 1). A finished
 task keeps its points locked. Members still change only their own tasks,
 nobody can touch someone else's vote, and every vote is scored in the game
-layer like any other action.
+layer like any other action. The point for a vote goes to the voter only: the
+task's owner earns nothing when someone else votes, deleting a task with votes
+scores nobody, and a member who has voted can still have their account
+deleted (their vote simply leaves the average).
 
 ---
 

@@ -381,6 +381,37 @@ try {
   const bChanged = await call(`/rest/v1/engagements?member_id=eq.${b.id}&task_id=eq.${taskB}&kind=eq.changed_task&select=kind`, { token: b.token });
   check('every vote is scored once, for the voter', votedA.json?.length === 2 && votedB.json?.length === 2, `A ${JSON.stringify(votedA.json)}, B ${JSON.stringify(votedB.json)}`);
   check('the average landing on B’s task is not scored as B changing it', bChanged.json?.length === 0, JSON.stringify(bChanged.json));
+
+  // A vote is the voter's engagement: the owner earns nothing for it, a task
+  // deleted with votes on it scores no votes, and a voter's account can be
+  // deleted (its vote leaves the average).
+  const countOf = async (member, filter = '') => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}${filter}&select=kind`)).json?.length;
+  const bBefore = await countOf(b);
+  await castVote(voteStore(a), taskB, { points: 2, priority: 'low' }, TOOL);
+  await castVote(voteStore(a), taskB, { points: 2, priority: 'low' }, TOOL);
+  await castVote(voteStore(a), taskB, { points: 8, priority: 'high' }, TOOL);
+  const bAfter = await countOf(b);
+  check('the owner earns nothing when another member votes on their task', bBefore === bAfter, `B had ${bBefore} engagements, then ${bAfter}`);
+
+  const doomed = await createTask(b.store, { title: 'B’s task to delete', points: 1 }, TOOL);
+  await castVote(voteStore(a), doomed.id, { points: 3 }, TOOL);
+  await castVote(voteStore(b), doomed.id, { priority: 'high' }, TOOL);
+  const votesBefore = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
+  await deleteTask(b.store, doomed.id, TOOL);
+  const votesAfter = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
+  check('deleting a task with votes on it scores no votes', JSON.stringify(votesBefore) === JSON.stringify(votesAfter), `before ${JSON.stringify(votesBefore)}, after ${JSON.stringify(votesAfter)}`);
+
+  const c = await makeUser('c');
+  await castVote(voteStore(c), taskB, { points: 2, priority: 'low' }, TOOL);
+  shown = await taskOf(taskB);
+  const withC = shown;
+  const bBeforeC = await countOf(b);
+  const goneC = await admin(`/auth/v1/admin/users/${c.id}`, { method: 'DELETE' });
+  if (goneC.status < 300) users.splice(users.indexOf(c.id), 1);
+  shown = await taskOf(taskB);
+  check('a member who has voted can have their account deleted', goneC.status < 300, `HTTP ${goneC.status} ${JSON.stringify(goneC.json)}`);
+  check('their vote leaves the average with them', withC?.points === 5 && withC?.priority === 'normal' && shown?.points === 8 && shown?.priority === 'high', `with C ${JSON.stringify(withC)}, after ${JSON.stringify(shown)}`);
+  check('and the owner earns nothing for it', bBeforeC === await countOf(b), `B had ${bBeforeC} engagements`);
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
