@@ -52,14 +52,40 @@ const NUMBERED = /^\s*(\d{1,9})[.)]\s+(.*)$/;
 
 /** A comment's words as blocks: paragraphs and lists. */
 export function parseRichText(body: string): RichBlock[] {
-  const lines = body.replace(/\r\n?/g, '\n').split('\n');
+  return parseBlocks(body.replace(/\r\n?/g, '\n'));
+}
+
+/**
+ * Where a bold or italic mark sits in the text: its opening mark is the
+ * `open` characters from `start`, its closing mark the `close` characters
+ * before `end`. `***words***` is one mark that is both bold and italic.
+ */
+export interface MarkSpan {
+  kind: 'bold' | 'italic' | 'bolditalic';
+  start: number;
+  open: number;
+  close: number;
+  end: number;
+}
+
+/** Every bold and italic mark that really formats in the comment box's words, and where it sits. */
+export function markSpans(value: string): MarkSpan[] {
+  const spans: MarkSpan[] = [];
+  parseBlocks(value, spans);
+  return spans;
+}
+
+function parseBlocks(body: string, spans?: MarkSpan[]): RichBlock[] {
+  const lines = body.split('\n');
   const blocks: RichBlock[] = [];
   let paragraph: string[] = [];
+  let paragraphAt = 0;
   const endParagraph = () => {
-    if (paragraph.length) blocks.push({ type: 'paragraph', children: parseInline(paragraph.join('\n')) });
+    if (paragraph.length) blocks.push({ type: 'paragraph', children: parseInline(paragraph.join('\n'), 0, true, spans, paragraphAt) });
     paragraph = [];
   };
 
+  let lineAt = 0;
   for (const line of lines) {
     const bullet = BULLET.exec(line);
     const numbered = bullet ? null : NUMBERED.exec(line);
@@ -67,17 +93,20 @@ export function parseRichText(body: string): RichBlock[] {
       endParagraph();
       const ordered = Boolean(numbered);
       const text = bullet ? bullet[1] : numbered![2];
+      const item = parseInline(text, 0, true, spans, lineAt + line.length - text.length);
       const last = blocks[blocks.length - 1];
-      if (last?.type === 'list' && last.ordered === ordered) last.items.push(parseInline(text));
-      else blocks.push({ type: 'list', ordered, start: numbered ? Number(numbered[1]) : 1, items: [parseInline(text)] });
+      if (last?.type === 'list' && last.ordered === ordered) last.items.push(item);
+      else blocks.push({ type: 'list', ordered, start: numbered ? Number(numbered[1]) : 1, items: [item] });
     } else if (line.trim() === '') {
       endParagraph();
       // A blank line also ends a list, so the next item starts a new one.
       blocks.push({ type: 'paragraph', children: [] });
     } else {
       // A line under a list item that is not itself an item starts a paragraph.
+      if (!paragraph.length) paragraphAt = lineAt;
       paragraph.push(line);
     }
+    lineAt += line.length + 1;
   }
   endParagraph();
   // Blank lines only separate blocks; they are not blocks of their own.
@@ -88,41 +117,71 @@ export function parseRichText(body: string): RichBlock[] {
 const MAX_DEPTH = 4;
 const AUTOLINK = /^(?:https?:\/\/|mailto:)[^\s<>"]+/i;
 
-/** One line's (or paragraph's) words, with bold, italic and links picked out. */
-export function parseInline(text: string, depth = 0, allowLinks = true): RichInline[] {
+/** A mark that formats: what kind, how long its opening and closing are, and where it ends. */
+interface Mark {
+  kind: MarkSpan['kind'] | 'link';
+  open: number;
+  close: number;
+  end: number;
+  href?: string;
+}
+
+/**
+ * One line's (or paragraph's) words, with bold, italic and links picked out.
+ * With `spans`, every bold and italic mark used is noted there, placed as if
+ * `text` began at `offset`.
+ */
+export function parseInline(text: string, depth = 0, allowLinks = true, spans?: MarkSpan[], offset = 0): RichInline[] {
   const out: RichInline[] = [];
   let plain = '';
   const flush = () => {
     if (plain) out.push({ type: 'text', text: plain });
     plain = '';
   };
-  const inner = (s: string, links = allowLinks) =>
-    depth >= MAX_DEPTH ? [{ type: 'text' as const, text: s }] : parseInline(s, depth + 1, links);
+  const inner = (from: number, to: number, links = allowLinks): RichInline[] =>
+    depth >= MAX_DEPTH
+      ? [{ type: 'text', text: text.slice(from, to) }]
+      : parseInline(text.slice(from, to), depth + 1, links, spans, offset + from);
   // Once a search for a closing mark fails, every later search for it fails
   // too, so remember that and keep a long comment of stray marks quick.
   const noCloser = new Set<string>();
 
-  /** The mark starting at `at` when it formats: what it makes, how long its opening is, and where it ends. */
-  const readMark = (at: number): { node: RichInline; open: number; end: number } | null => {
+  /** The mark starting at `at`, when it formats. */
+  const readMark = (at: number): Mark | null => {
     const c = text[at];
+    if (c === '*' && text[at + 1] === '*' && text[at + 2] === '*') {
+      const end = findCloser(text, at + 3, '***', noCloser);
+      if (end > at + 3) return { kind: 'bolditalic', open: 3, close: 3, end: end + 3 };
+    }
     if (c === '*' && text[at + 1] === '*') {
       const end = findCloser(text, at + 2, '**', noCloser);
-      return end > at + 2 ? { node: { type: 'bold', children: inner(text.slice(at + 2, end)) }, open: 2, end: end + 2 } : null;
+      return end > at + 2 ? { kind: 'bold', open: 2, close: 2, end: end + 2 } : null;
     }
     if (c === '*' || (c === '_' && !isWordChar(text[at - 1]))) {
       const end = findCloser(text, at + 1, c, noCloser);
-      return end > at + 1 ? { node: { type: 'italic', children: inner(text.slice(at + 1, end)) }, open: 1, end: end + 1 } : null;
+      return end > at + 1 ? { kind: 'italic', open: 1, close: 1, end: end + 1 } : null;
     }
     if (c === '[' && allowLinks) {
       const link = readLink(text, at);
       const href = link && safeHref(link.url);
-      // No link inside a link's words.
-      return link && href ? { node: { type: 'link', href, children: inner(link.label, false) }, open: 1, end: link.end } : null;
+      return link && href ? { kind: 'link', open: 1, close: link.end - at - 1 - link.label.length, end: link.end, href } : null;
     }
     return null;
   };
 
-  // Where a closing mark sits whose opening one was escaped: its backslash goes too.
+  /** The words a mark that formats makes, noting where it sits. */
+  const build = (at: number, mark: Mark): RichInline => {
+    const from = at + mark.open;
+    const to = mark.end - mark.close;
+    // No link inside a link's words.
+    if (mark.kind === 'link') return { type: 'link', href: mark.href!, children: inner(from, to, false) };
+    spans?.push({ kind: mark.kind, start: offset + at, open: mark.open, close: mark.close, end: offset + mark.end });
+    if (mark.kind === 'bolditalic') return { type: 'bold', children: [{ type: 'italic', children: inner(from, to) }] };
+    return { type: mark.kind, children: inner(from, to) };
+  };
+
+  // Where a closing mark sits whose opening one was escaped, and how long it is.
+  // It stays as typed, and a backslash in front of it goes too.
   const escapedClosers = new Map<number, number>();
 
   let i = 0;
@@ -135,19 +194,27 @@ export function parseInline(text: string, depth = 0, allowLinks = true): RichInl
       // An escaped link stays whole, so its address does not become a bare link.
       const closer = escapedClosers.get(i + 1);
       const escaped = closer ? null : readMark(i + 1);
-      if (escaped && escaped.node.type !== 'link') escapedClosers.set(escaped.end - escaped.open, escaped.open);
+      if (escaped && escaped.kind !== 'link') escapedClosers.set(escaped.end - escaped.close, escaped.close);
       if (closer || escaped) {
-        const upto = escaped?.node.type === 'link' ? escaped.end : i + 1 + (closer ?? escaped!.open);
+        const upto = escaped?.kind === 'link' ? escaped.end : i + 1 + (closer ?? escaped!.open);
         plain += text.slice(i + 1, upto);
         i = upto;
         continue;
       }
     }
 
+    // The partner of an escaped opening mark stays plain too, backslash or not.
+    const closer = escapedClosers.get(i);
+    if (closer) {
+      plain += text.slice(i, i + closer);
+      i += closer;
+      continue;
+    }
+
     const mark = readMark(i);
     if (mark) {
       flush();
-      out.push(mark.node);
+      out.push(build(i, mark));
       i = mark.end;
       continue;
     }
@@ -258,11 +325,20 @@ export function richTextSearchable(body: string): string {
   const hrefs: string[] = [];
   const collect = (nodes: RichInline[]): void =>
     nodes.forEach((n) => {
-      if (n.type === 'link') hrefs.push(n.href);
+      // Readable, so ".../Foo_(bar)" finds a link stored as ".../Foo_%28bar%29".
+      if (n.type === 'link') hrefs.push(readableHref(n.href));
       if (n.type !== 'text') collect(n.children);
     });
   for (const b of parseRichText(body)) (b.type === 'paragraph' ? [b.children] : b.items).forEach(collect);
   return [richTextPlain(body), ...hrefs].join('\n');
+}
+
+function readableHref(href: string): string {
+  try {
+    return decodeURI(href).replace(/%28/gi, '(').replace(/%29/gi, ')');
+  } catch {
+    return href;
+  }
 }
 
 /** A toolbar button in the comment box. */
@@ -273,13 +349,6 @@ export interface TextEdit {
   value: string;
   start: number;
   end: number;
-}
-
-/** How many `*` sit side by side starting at `at`, going forwards (step 1) or backwards (step -1). */
-function starRun(text: string, at: number, step: 1 | -1): number {
-  let n = 0;
-  while (text[at + n * step] === '*') n += 1;
-  return n;
 }
 
 /**
@@ -297,36 +366,42 @@ export function applyFormat(edit: TextEdit, format: RichFormat): TextEdit {
     const lead = chosen.length - chosen.trimStart().length;
     const trail = chosen.length - chosen.trimEnd().length;
     const words = chosen.trim();
-    // Where the chosen words begin and end (with only spaces chosen, the spot after them).
-    const from = words === '' ? end : start + lead;
-    const to = words === '' ? end : end - trail;
-    // `***` is bold and italic together, so two or three stars mean bold, one or three italic.
-    const marked = (stars: number) => (format === 'bold' ? stars >= 2 : stars === 1 || stars === 3);
+    // Where the chosen words begin and end.
+    const from = start + lead;
+    const to = end - trail;
+    const n = mark.length;
 
-    // The mark sits just outside the chosen words: take it off.
-    const outside = Math.min(starRun(value, from - 1, -1), starRun(value, to, 1));
-    const underscores = format === 'italic' && value[from - 1] === '_' && value[to] === '_';
-    if ((marked(outside) && !(format === 'bold' && words.includes('**'))) || underscores) {
-      const n = mark.length;
-      const next = value.slice(0, from - n) + value.slice(from, to) + value.slice(to + n);
-      return { value: next, start: from - n, end: to - n };
-    }
-    // The chosen words carry the mark themselves: take it off.
-    const nodes = parseInline(words);
-    if (nodes.length === 1 && nodes[0].type === format) {
-      const n = format === 'bold' ? 2 : 1;
-      const next = value.slice(0, from) + words.slice(n, -n) + value.slice(to);
-      return { value: next, start: from, end: to - 2 * n };
-    }
-
-    // Only spaces chosen: put the marks after them, as if nothing were selected.
     if (words === '') {
-      const at = end + mark.length;
-      return { value: value.slice(0, end) + mark + mark + value.slice(end), start: at, end: at };
+      // Nothing chosen, between a pair of empty marks: take them off.
+      const before = value.slice(end - n, end);
+      const after = value.slice(end, end + n);
+      const stars = before === mark && after === mark && value[end - n - 1] !== '*' && value[end + n] !== '*';
+      if (stars || (format === 'italic' && before === '_' && after === '_')) {
+        return { value: value.slice(0, end - n) + value.slice(end + n), start: end - n, end: end - n };
+      }
+      // Otherwise put the marks in (after any chosen spaces), cursor between them.
+      return { value: value.slice(0, end) + mark + mark + value.slice(end), start: end + n, end: end + n };
     }
-    const next = value.slice(0, start + lead) + mark + words + mark + value.slice(end - trail);
-    const at = start + lead + mark.length;
-    return { value: next, start: at, end: at + words.length };
+
+    // The chosen words already carry this mark, with the mark just outside
+    // them or chosen along with them: take it off. Only a mark the parser
+    // says really wraps these words counts, so the halves of two different
+    // marks, or the underscores of snake_case_names, are never taken.
+    const span = markSpans(value).find(
+      (m) =>
+        (m.kind === format || m.kind === 'bolditalic') &&
+        ((m.start + m.open === from && m.end - m.close === to) || (m.start === from && m.end === to)),
+    );
+    if (span) {
+      // `***` is bold and italic together: take off only the stars nearest the words.
+      const inStart = span.start + span.open;
+      const inEnd = span.end - span.close;
+      const next = value.slice(0, inStart - n) + value.slice(inStart, inEnd) + value.slice(inEnd + n);
+      return span.start === from ? { value: next, start: from, end: to - 2 * n } : { value: next, start: from - n, end: to - n };
+    }
+
+    const next = value.slice(0, from) + mark + words + mark + value.slice(to);
+    return { value: next, start: from + n, end: to + n };
   }
 
   // lastIndexOf with -1 still looks at the first character, so the top line is its own case.
@@ -357,11 +432,15 @@ export function applyLink(edit: TextEdit, url: string): TextEdit | null {
   const href = safeHref(url);
   if (!href) return null;
   const { value, start, end } = edit;
+  const chosen = value.slice(start, end);
+  // Spaces chosen at either end stay outside the link, as Bold keeps them.
+  const from = start + chosen.length - chosen.trimStart().length;
+  const to = Math.max(from, end - (chosen.length - chosen.trimEnd().length));
   // Square brackets would end the link's words early, so they become round ones.
-  const words = (value.slice(start, end).trim() || url.trim()).replace(/\[/g, '(').replace(/\]/g, ')').replace(/\n+/g, ' ');
+  const words = (value.slice(from, to) || url.trim()).replace(/\[/g, '(').replace(/\]/g, ')').replace(/\n+/g, ' ');
   // Both round brackets are written in their encoded form, so the address
   // always reads back whole, paired or not. A browser treats them the same.
   const text = `[${words}](${url.trim().replace(/\(/g, '%28').replace(/\)/g, '%29')})`;
-  const at = start + text.length;
-  return { value: value.slice(0, start) + text + value.slice(end), start: at, end: at };
+  const at = from + text.length;
+  return { value: value.slice(0, from) + text + value.slice(to), start: at, end: at };
 }

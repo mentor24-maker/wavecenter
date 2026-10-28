@@ -199,3 +199,40 @@ test('a list button leaves blank lines between the chosen lines blank', () => {
   assert.equal(applyFormat({ value: 'a\n\nb', start: 0, end: 4 }, 'bullets').value, '- a\n\n- b');
   assert.equal(applyFormat({ value: 'a\n\nb', start: 0, end: 4 }, 'numbers').value, '1. a\n\n2. b');
 });
+
+test('Bold then Italic on one word reads back as one bold and italic run', () => {
+  const bold = applyFormat({ value: 'a', start: 0, end: 1 }, 'bold');
+  const both = applyFormat(bold, 'italic');
+  assert.equal(both.value, '***a***');
+  const expected = [{ type: 'bold', children: [{ type: 'italic', children: [text('a')] }] }];
+  assert.deepEqual(parseInline(both.value), expected);
+  assert.deepEqual(parseInline(applyFormat(applyFormat({ value: 'a', start: 0, end: 1 }, 'italic'), 'bold').value), expected);
+  assert.deepEqual(parseInline('x ***big*** y'), [text('x '), { type: 'bold', children: [{ type: 'italic', children: [text('big')] }] }, text(' y')]);
+});
+
+test('Bold or Italic never takes off characters that were not formatting the words', () => {
+  // Underscores inside snake_case_names are plain, so Italic adds a mark.
+  assert.equal(applyFormat({ value: 'snake_case_names', start: 6, end: 10 }, 'italic').value, 'snake_*case*_names');
+  // The stars either side of "c" are halves of two different marks: the bold on "b" stays.
+  const bolded = applyFormat({ value: 'a**b**c**d', start: 6, end: 7 }, 'bold').value;
+  assert.equal(bolded, 'a**b****c****d');
+  assert.deepEqual(parseInline(bolded).slice(0, 2), [text('a'), { type: 'bold', children: [text('b')] }]);
+  // A real pair just outside the words still comes off.
+  assert.equal(applyFormat({ value: 'x _a_ y', start: 3, end: 4 }, 'italic').value, 'x a y');
+  assert.equal(applyFormat({ value: '**_a_**', start: 3, end: 4 }, 'italic').value, '**a**');
+});
+
+test('an escaped opening mark keeps its partner plain, backslash or not', () => {
+  assert.deepEqual(parseInline('\\*foo*bar*'), [text('*foo*bar*')]);
+  assert.deepEqual(parseInline('\\**foo**bar**'), [text('**foo**bar**')]);
+});
+
+test('applyLink keeps chosen spaces outside the link', () => {
+  assert.equal(applyLink({ value: 'go here now', start: 3, end: 8 }, 'https://x.com')?.value, 'go [here](https://x.com) now');
+  assert.equal(applyLink({ value: 'go  now', start: 2, end: 4 }, 'https://x.com')?.value, 'go  [https://x.com](https://x.com)now');
+});
+
+test('search finds a toolbar link by the address as typed, brackets and all', () => {
+  const linked = applyLink({ value: 'wiki', start: 0, end: 4 }, 'https://en.wikipedia.org/wiki/Foo_(bar)')!.value;
+  assert.ok(richTextSearchable(linked).includes('https://en.wikipedia.org/wiki/Foo_(bar)'));
+});
