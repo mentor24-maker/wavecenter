@@ -7,6 +7,23 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — Every task has a Discussion thread (#31)
+
+Each task now has a Discussion: a speech-bubble icon opens a thread of
+comments under it, oldest first, where the story of the task can be told.
+Dane can post, edit and delete his comments. Each one shows who wrote it,
+a Human or AI label and the time in Mountain time. A search box and a
+Human / AI selector narrow the thread, and when nothing matches the thread
+says so instead of looking empty. A comment from an AI agent can be deleted
+but not edited here, so it can never be relabelled as Human by mistake.
+Comments are plain text and always shown as text, so nothing pasted into
+one can run in the browser. The new comments table keeps each member's
+comments to themselves from the moment it was created, and a live check
+proved it. This is the first of three slices: rich text with links, and
+attachments on comments, are queued next.
+
+---
+
 ## 2026-10-27 — The task list is wider, sortable and filterable (#26)
 
 "Your tasks" was a narrow column with each task's controls jumbled on a
