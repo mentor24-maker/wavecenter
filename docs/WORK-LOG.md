@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Every task has its own page (#34)
+
+Clicking a task's title on the list now opens a page just for that task.
+It shows everything WaveCenter knows about the task in one place: status,
+priority, points, who made it, and when it was created, last changed and
+finished (in Mountain time). It also shows the full details with their
+line breaks, links to its parent and sub-tasks, its attached files, and
+the AI-agent ticket if it was handed off. The Discussion sits at the
+bottom, closed until clicked. Nothing is edited here; the list is still
+where changes are made. Another member's task opens too, read-only. A
+wrong or deleted link says "This task was not found" instead of showing
+a blank page.
+
 ## 2026-10-27 — Every task has a Discussion thread (#31)
 
 Each task now has a Discussion: a speech-bubble icon opens a thread of
