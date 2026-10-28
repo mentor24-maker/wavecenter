@@ -2,7 +2,9 @@
 /**
  * Prove, through the real Supabase API, that one member cannot see or change
  * another member's tasks (row-level security on `public.tasks`), settings, or
- * attached files (`public.task_files` and the private `task-files` bucket).
+ * attached files (`public.task_files` and the private `task-files` bucket),
+ * and that the game layer scores every change while letting each member read
+ * only their own engagements and nobody write them (`public.engagements`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -22,8 +24,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { attachFile, filePath, removeFile } from '../core/files.ts';
-import { createTask, updateTask } from '../core/tasks.ts';
-import { restTaskStore } from './lib/restTaskStore.mjs';
+import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
+import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
 
 const TOOL = 'check-tasks-rls';
 
@@ -35,10 +37,11 @@ if (!URL_ || !ANON || !SERVICE) {
   process.exit(1);
 }
 
-async function call(path, { method = 'GET', key = ANON, token, body, prefer } = {}) {
+async function call(path, { method = 'GET', key = ANON, token, body, prefer, tool } = {}) {
   const headers = { apikey: key, 'Content-Type': 'application/json' };
   headers.Authorization = `Bearer ${token ?? key}`;
   if (prefer) headers.Prefer = prefer;
+  if (tool) headers[TOOL_HEADER] = tool;
   const res = await fetch(`${URL_}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json = null;
@@ -108,8 +111,8 @@ function fileStore(member) {
     async listForTask(taskId) {
       return ((await call(`/rest/v1/task_files?task_id=eq.${taskId}&order=created_at`, { token: member.token })).json ?? []).map(fromRow);
     },
-    async remove(id) {
-      const got = await call(`/rest/v1/task_files?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+    async remove(id, tool) {
+      const got = await call(`/rest/v1/task_files?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool });
       return Array.isArray(got.json) && got.json.length > 0;
     },
     async deleteObjects(paths) {
@@ -249,6 +252,49 @@ try {
   const goneRow = await admin(`/rest/v1/task_files?id=eq.${fileA.id}&select=id`);
   const left = Array.isArray(folder.json) ? folder.json.map((o) => o.name) : folder.json;
   check('A can remove A’s own file through core: the stored copy and the row both go', Array.isArray(left) && left.length === 0 && goneRow.json?.length === 0, `left in the folder ${JSON.stringify(left)}, rows ${JSON.stringify(goneRow.json)}`);
+
+  // The game layer: every change above was scored by the database, each
+  // member sees only their own engagements, and nobody can write the ledger.
+  const parent = await createTask(a.store, { title: 'A’s plan' }, TOOL);
+  await createTask(a.store, { title: 'A’s step', parentTaskId: parent.id }, TOOL);
+  await deleteTask(a.store, parent.id, 'rls-check-deleter');
+
+  const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
+  const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
+  console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
+  const expected = ['made_task', 'finished_task', 'switched_agents', 'attached_file', 'removed_file', 'made_task', 'made_task', 'deleted_task'];
+  check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
+  check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
+    JSON.stringify(ledgerA.json));
+  check('finishing a task is worth 5 and the rest 1, from the rules', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.points === (e.kind === 'finished_task' ? 5 : 1)),
+    JSON.stringify(ledgerA.json?.map?.((e) => [e.kind, e.points])));
+  const deleted = Array.isArray(ledgerA.json) ? ledgerA.json.find((e) => e.kind === 'deleted_task') : null;
+  check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
+
+  const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 12, `total ${JSON.stringify(totalA.json)}`);
+
+  const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
+  check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
+  const totalB = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: b.token });
+  check('B cannot read A’s points total', totalB.status === 200 && totalB.json.length === 0, `sees ${JSON.stringify(totalB.json)}`);
+
+  const forgeEng = await call('/rest/v1/engagements', { method: 'POST', token: a.token, body: { member_id: a.id, kind: 'finished_task', points: 1000, tool: 'forged' } });
+  check('A cannot write an engagement, even A’s own', forgeEng.status >= 400, `HTTP ${forgeEng.status} ${forgeEng.json?.message ?? ''}`);
+  const bumpEng = await call(`/rest/v1/engagements?member_id=eq.${a.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 1000 } });
+  check('A cannot change A’s own engagements', bumpEng.status >= 400 || (Array.isArray(bumpEng.json) && bumpEng.json.length === 0), `HTTP ${bumpEng.status} ${JSON.stringify(bumpEng.json)}`);
+  const wipeEng = await call(`/rest/v1/engagements?member_id=eq.${a.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('A cannot delete A’s own engagements', wipeEng.status >= 400 || (Array.isArray(wipeEng.json) && wipeEng.json.length === 0), `HTTP ${wipeEng.status} ${JSON.stringify(wipeEng.json)}`);
+  const callRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: a.token, body: { p_member: a.id, p_kind: 'finished_task', p_tool: 'forged', p_task: null } });
+  check('A cannot call the ledger’s own write function', callRecord.status >= 400, `HTTP ${callRecord.status} ${callRecord.json?.message ?? ''}`);
+  const bumpRule = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 1000 } });
+  check('A cannot change what an engagement is worth', bumpRule.status >= 400 || (Array.isArray(bumpRule.json) && bumpRule.json.length === 0), `HTTP ${bumpRule.status} ${JSON.stringify(bumpRule.json)}`);
+
+  const rulesA = await call('/rest/v1/game_scoring_rules?select=kind,points', { token: a.token });
+  check('a member can read the scoring rules', rulesA.status === 200 && rulesA.json.length === 8, `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
+  const anonEng = await call('/rest/v1/engagements?select=kind');
+  const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
+  check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
