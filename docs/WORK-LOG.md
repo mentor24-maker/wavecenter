@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — Every member sees every task and votes on its points and priority (#32)
+
+Until now each member saw only their own tasks, and a task's points and
+priority were whatever its owner typed. Dane asked for the first piece of the
+DEO's "members decide what engagement is worth": everyone can see the whole
+list, past and present, and vote. Now every task shows whose it is, and under
+it the average of the votes and how many members voted, plus your own vote:
+a points number and a priority. The average becomes the task's points and
+priority (priorities count as urgent 4, high 3, normal 2, low 1). A finished
+task keeps its points locked. Members still change only their own tasks,
+nobody can touch someone else's vote, and every vote is scored in the game
+layer like any other action.
+
+---
+
 ## 2026-10-27 — The task list is wider, sortable and filterable (#26)
 
 "Your tasks" was a narrow column with each task's controls jumbled on a
