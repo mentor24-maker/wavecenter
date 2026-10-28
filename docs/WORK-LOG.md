@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — Members have a profile page, anonymous by default (#30)
+
+There was nowhere for a member to say who they are, or to choose to stay
+unnamed. Now a **Profile** link in the header opens "Your profile", where a
+member can set a display name, pick one of eight built-in avatars, write a
+short bio, and choose who may see it: Anonymous, Private or Public. Every
+profile starts **Anonymous**, as WaveCenter's privacy article promises, and
+the page says so. Only the member can read their own profile, whatever they
+choose; a live check proved one member cannot read or change another's.
+Saving a profile earns a point in the game layer like every other change. A
+save that fails says so in red and is never shown as saved. Masks, Filters
+and selling your own data come later.
+
+---
+
 ## 2026-10-27 — The Game page shows the points from your finished tasks (#29)
 
 The Game page already counted points for each thing a member does. It did
