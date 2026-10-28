@@ -5,7 +5,8 @@
  * (row-level security on `public.tasks`), settings, profile
  * (`public.member_profiles`), or attached files (`public.task_files` and the
  * private `task-files` bucket); that a member cannot see or change another
- * member's Discussion comments (`public.task_comments`); that members vote on
+ * member's Discussion comments (`public.task_comments`) or the files attached
+ * to them; that members vote on
  * any task, only ever through their own vote, and the average becomes the
  * task's points and priority (`public.task_votes`); and that the game layer
  * scores every change while letting each member read only their own
@@ -31,7 +32,7 @@ import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS } from '../core/game.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
-import { attachFile, filePath, removeFile } from '../core/files.ts';
+import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
 import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
 import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
@@ -123,13 +124,13 @@ const BUCKET = 'task-files';
 function fileStore(member) {
   const fromRow = (r) => r && {
     id: r.id, taskId: r.task_id, ownerId: r.owner_id, path: r.path, name: r.name,
-    contentType: r.content_type, sizeBytes: r.size_bytes, tool: r.tool, createdAt: r.created_at,
+    contentType: r.content_type, sizeBytes: r.size_bytes, tool: r.tool, commentId: r.comment_id, createdAt: r.created_at,
   };
   return {
     async insert(row) {
       const got = await call('/rest/v1/task_files', {
         method: 'POST', token: member.token, prefer: 'return=representation',
-        body: { task_id: row.taskId, path: row.path, name: row.name, content_type: row.contentType, size_bytes: row.sizeBytes, tool: row.tool },
+        body: { task_id: row.taskId, path: row.path, name: row.name, content_type: row.contentType, size_bytes: row.sizeBytes, tool: row.tool, comment_id: row.commentId },
       });
       if (got.status >= 300) throw new Error(`task_files insert failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return fromRow(got.json[0]);
@@ -423,6 +424,61 @@ try {
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
   check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
 
+  // A comment's files: as private as the comment, and gone with it.
+  const noteA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment with a file', TOOL);
+  const notePath = commentFilePath(a.id, insA.id, randomUUID(), 'a-mock.txt');
+  storedPaths.push(notePath);
+  const upNote = await upload(a, notePath, 'A’s comment file');
+  check('A can upload a file into A’s own comments folder', upNote.status === 200, `HTTP ${upNote.status} ${JSON.stringify(upNote.json)}`);
+  const noteFile = await attachFile(a.store, fileStore(a), { taskId: insA.id, path: notePath, name: 'a-mock.txt', contentType: 'text/plain', sizeBytes: 17, commentId: noteA.id }, TOOL, commentStore(a));
+  check('A can attach it to A’s own comment through core', noteFile.commentId === noteA.id && noteFile.ownerId === a.id, JSON.stringify(noteFile));
+
+  const noteRowB = await call(`/rest/v1/task_files?id=eq.${noteFile.id}&select=name`, { token: b.token });
+  check('B cannot see A’s comment file row', noteRowB.status === 200 && noteRowB.json.length === 0, `sees ${JSON.stringify(noteRowB.json)}`);
+  const noteReadB = await call(`/storage/v1/object/authenticated/${BUCKET}/${notePath}`, { token: b.token });
+  check('B cannot read A’s stored comment file', noteReadB.status >= 400, `HTTP ${noteReadB.status}`);
+  const noteSignB = await call(`/storage/v1/object/sign/${BUCKET}/${notePath}`, { method: 'POST', token: b.token, body: { expiresIn: 60 } });
+  check('B cannot get a link to A’s stored comment file', noteSignB.status >= 400, `HTTP ${noteSignB.status} ${JSON.stringify(noteSignB.json)}`);
+  const noteReadA = await call(`/storage/v1/object/authenticated/${BUCKET}/${notePath}`, { token: a.token });
+  check('A can read A’s own comment file', noteReadA.status === 200, `HTTP ${noteReadA.status}`);
+
+  const onNoteB = await call('/rest/v1/task_files', { method: 'POST', token: b.token, body: { task_id: insA.id, comment_id: noteA.id, path: commentFilePath(b.id, insA.id, randomUUID(), 'b.txt'), name: 'b.txt', size_bytes: 1 } });
+  check('B cannot attach a file to A’s comment', onNoteB.status >= 400, `HTTP ${onNoteB.status} ${onNoteB.json?.message ?? ''}`);
+  const viaTaskB = await call('/rest/v1/task_files', { method: 'POST', token: b.token, body: { task_id: taskB, comment_id: noteA.id, path: commentFilePath(b.id, taskB, randomUUID(), 'b.txt'), name: 'b.txt', size_bytes: 1 } });
+  check('B cannot hang a file on A’s comment from B’s own task', viaTaskB.status >= 400, `HTTP ${viaTaskB.status} ${viaTaskB.json?.message ?? ''}`);
+  const strayA = await call('/rest/v1/task_files', { method: 'POST', token: a.token, body: { task_id: insA.id, comment_id: noteA.id, path: filePath(a.id, insA.id, randomUUID(), 'x.txt'), name: 'x.txt', size_bytes: 1 } });
+  check('a comment file outside the comments folder is refused, even from its owner', strayA.status >= 400, `HTTP ${strayA.status} ${strayA.json?.message ?? ''}`);
+
+  const noteDelRowB = await call(`/rest/v1/task_files?id=eq.${noteFile.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('B cannot delete A’s comment file row', noteDelRowB.status === 200 && noteDelRowB.json.length === 0, `HTTP ${noteDelRowB.status} ${JSON.stringify(noteDelRowB.json)}`);
+  const noteDelObjB = await call(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', token: b.token, body: { prefixes: [notePath] } });
+  check('B cannot delete A’s stored comment file', Array.isArray(noteDelObjB.json) && noteDelObjB.json.length === 0, `HTTP ${noteDelObjB.status} ${JSON.stringify(noteDelObjB.json)}`);
+  let refusedNote = '';
+  try { await removeFile(fileStore(b), noteFile.id, TOOL); } catch (err) { refusedNote = err.message; }
+  check('B cannot remove A’s comment file through core either', /No file .* you may remove/.test(refusedNote), refusedNote || 'the remove went through');
+  refusedNote = '';
+  try { await removeCommentWithFiles(commentStore(b), fileStore(b), noteA.id, TOOL); } catch (err) { refusedNote = err.message; }
+  check('B cannot remove A’s comment and its files through core either', /No comment .* you may remove/.test(refusedNote), refusedNote || 'the remove went through');
+
+  await removeCommentWithFiles(commentStore(a), fileStore(a), noteA.id, TOOL);
+  const noteFolder = await admin(`/storage/v1/object/list/${BUCKET}`, { method: 'POST', body: { prefix: `${a.id}/${insA.id}/comments/` } });
+  const noteLeft = Array.isArray(noteFolder.json) ? noteFolder.json.map((o) => o.name) : noteFolder.json;
+  const noteRows = await admin(`/rest/v1/task_files?comment_id=eq.${noteA.id}&select=id`);
+  const noteGone = await admin(`/rest/v1/task_comments?id=eq.${noteA.id}&select=id`);
+  check('A can remove A’s comment through core: its stored files and rows go with it', Array.isArray(noteLeft) && noteLeft.length === 0 && noteRows.json?.length === 0 && noteGone.json?.length === 0,
+    `left in the folder ${JSON.stringify(noteLeft)}, rows ${JSON.stringify(noteRows.json)}, comment ${JSON.stringify(noteGone.json)}`);
+
+  const doomedA = await createTask(a.store, { title: 'A’s task with a discussed file' }, TOOL);
+  const doomedNote = await addComment(a.store, commentStore(a), doomedA.id, 'with a picture', TOOL);
+  const doomedPath = commentFilePath(a.id, doomedA.id, randomUUID(), 'pic.txt');
+  storedPaths.push(doomedPath);
+  await upload(a, doomedPath, 'goes with the task');
+  await attachFile(a.store, fileStore(a), { taskId: doomedA.id, path: doomedPath, name: 'pic.txt', sizeBytes: 18, commentId: doomedNote.id }, TOOL, commentStore(a));
+  await deleteTaskWithFiles(a.store, fileStore(a), doomedA.id, TOOL);
+  const doomedFolder = await admin(`/storage/v1/object/list/${BUCKET}`, { method: 'POST', body: { prefix: `${a.id}/${doomedA.id}/comments/` } });
+  const doomedLeft = Array.isArray(doomedFolder.json) ? doomedFolder.json.map((o) => o.name) : doomedFolder.json;
+  check('deleting a task deletes its comments’ stored files', Array.isArray(doomedLeft) && doomedLeft.length === 0, `left in the folder ${JSON.stringify(doomedLeft)}`);
+
   // The game layer: every change above was scored by the database, each
   // member sees only their own engagements, and nobody can write the ledger.
   const parent = await createTask(a.store, { title: 'A’s plan' }, TOOL);
@@ -435,17 +491,21 @@ try {
   const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
-  const expected = ['made_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file', 'made_task', 'made_task', 'deleted_task'];
+  const expected = [
+    'made_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
+    'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
+    'made_task', 'made_task', 'deleted_task',
+  ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
   check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
     JSON.stringify(ledgerA.json));
   check('finishing a task is worth 5 and the rest 1, from the rules', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.points === (e.kind === 'finished_task' ? 5 : 1)),
     JSON.stringify(ledgerA.json?.map?.((e) => [e.kind, e.points])));
-  const deleted = Array.isArray(ledgerA.json) ? ledgerA.json.find((e) => e.kind === 'deleted_task') : null;
+  const deleted = Array.isArray(ledgerA.json) ? ledgerA.json.findLast((e) => e.kind === 'deleted_task') : null;
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 13, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 18, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

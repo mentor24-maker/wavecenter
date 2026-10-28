@@ -18,7 +18,29 @@ the AI-agent ticket if it was handed off. The Discussion sits at the
 bottom, closed until clicked. Nothing is edited here; the list is still
 where changes are made. Another member's task opens too, read-only. A
 wrong or deleted link says "This task was not found" instead of showing
-a blank page.
+a blank page. Pictures and files attached to Discussion comments show
+in the thread there too, the same as on the list.
+
+## 2026-10-28 — Each task shows the time it was created, not just the day (#33)
+
+The Created column on the task list showed only the day, like "Oct 27".
+The time was there but hidden, visible only by hovering. Now the column
+reads "Oct 27, 4:14pm" in Mountain time, so you can see at a glance when
+each task came in. Showing who created each task waits for member
+profiles, as Dane chose.
+
+## 2026-10-28 — Discussion comments can carry pictures and files (#36)
+
+A comment in a task's Discussion can now have files attached. Under the
+comment box there is an "attach" link; pick a picture or a document, write
+the comment and post it. A picture shows under the comment as a small
+thumbnail, anything else as a download link, and both are still there after
+a reload. A file over 10 MB is refused straight away with a plain message.
+Removing a comment, or deleting its task, removes its files from storage
+too, so nothing is left behind that nobody can reach. A comment's files are
+as private as the comment itself, and they stay out of the task's own file
+list. A live check with two throwaway members proved neither can see,
+add to or remove the other's comment files.
 
 ## 2026-10-27 — Every task has a Discussion thread (#31)
 

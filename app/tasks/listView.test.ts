@@ -112,8 +112,10 @@ test('a context parent stays when its matching sub-task is in the same section, 
 test('dates are drawn in Mountain time whatever the clock of the machine drawing them', () => {
   // 03:30 UTC on Oct 28 is still the evening of Oct 27 in Denver.
   const now = new Date('2026-10-28T03:30:00Z');
-  assert.equal(shortDate('2026-10-28T03:30:00Z', now), 'Oct 27');
-  assert.equal(shortDate('2025-10-28T03:30:00Z', now), 'Oct 27, 2025');
+  assert.equal(shortDate('2026-10-28T03:30:00Z', now), 'Oct 27, 9:30pm');
+  assert.equal(shortDate('2025-10-28T03:30:00Z', now), 'Oct 27, 2025, 9:30pm');
+  assert.equal(shortDate('2026-10-27T22:14:00Z', now), 'Oct 27, 4:14pm');
+  assert.equal(shortDate('2026-10-28T06:05:00Z', now), 'Oct 28, 12:05am');
   assert.equal(fullDate('2026-10-28T03:30:00Z'), 'Oct 27, 2026, 9:30 PM MT');
   assert.equal(shortDate('not a date', now), '');
 });

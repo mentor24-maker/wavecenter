@@ -11,6 +11,11 @@
  * and removing it again finishes the job, instead of a copy nobody can see
  * lingering in storage.
  *
+ * A file may also belong to one of the task's Discussion comments (Dane,
+ * 2026-10-27: "allow links and attachments"). It is stored in the comments
+ * folder, `<owner id>/<task id>/comments/`, shows in the thread rather than in
+ * the task's own file list, and goes when its comment goes.
+ *
  * Attaching and removing a file are each recorded and scored in the
  * engagement ledger, inside the same save as the row (core/game.ts).
  *
@@ -18,6 +23,7 @@
  * client supplies, and to the same `TaskStore` as core/tasks.ts. The
  * plain-words description of the table is docs/DATA_MODEL.md.
  */
+import { removeComment, type TaskCommentStore } from './comments.ts';
 import { CoreError, requireTool } from './tool.ts';
 import { deleteTask, type TaskStore } from './tasks.ts';
 
@@ -32,13 +38,15 @@ export interface TaskFile {
   id: string;
   taskId: string;
   ownerId: string;
-  /** Where the stored copy lives: `<owner id>/<task id>/<random id>-<file name>`. */
+  /** Where the stored copy lives: `<owner id>/<task id>/<random id>-<file name>`, or under `comments/` for a comment's file. */
   path: string;
   name: string;
   contentType: string | null;
   sizeBytes: number;
   /** The tool that attached it. */
   tool: string;
+  /** The Discussion comment it belongs to, or null for a file on the task itself. */
+  commentId: string | null;
   createdAt: string;
 }
 
@@ -50,6 +58,7 @@ export interface NewTaskFileRow {
   contentType: string | null;
   sizeBytes: number;
   tool: string;
+  commentId: string | null;
 }
 
 /**
@@ -59,7 +68,7 @@ export interface NewTaskFileRow {
 export interface TaskFileStore {
   insert(row: NewTaskFileRow): Promise<TaskFile>;
   get(id: string): Promise<TaskFile | null>;
-  /** Every file on one task the caller can see, oldest first. */
+  /** Every file on one task the caller can see, its comments' files included, oldest first. */
   listForTask(taskId: string): Promise<TaskFile[]>;
   /** Delete one row on behalf of `tool`. Returns false if there is no such row the caller may delete. */
   remove(id: string, tool: string): Promise<boolean>;
@@ -74,6 +83,8 @@ export interface NewTaskFile {
   name: string;
   contentType?: string | null;
   sizeBytes: number;
+  /** The Discussion comment it is attached to, if any. */
+  commentId?: string | null;
 }
 
 /** True for the file types the screen shows as a picture. */
@@ -113,6 +124,20 @@ export function filePath(ownerId: string, taskId: string, randomId: string, name
   return `${ownerId}/${taskId}/${randomId}-${safe}`;
 }
 
+/**
+ * Where a new file on a Discussion comment is stored:
+ * `<owner id>/<task id>/comments/<random id>-<file name>`. The storage rules
+ * keep that folder private to its owner, as the comment itself is.
+ */
+export function commentFilePath(ownerId: string, taskId: string, randomId: string, name: string): string {
+  return filePath(ownerId, `${taskId}/comments`, randomId, name);
+}
+
+/** True when `path` is in a task's comments folder. */
+function inCommentsFolder(path: string): boolean {
+  return path.split('/')[2] === 'comments';
+}
+
 /** The task must be one the caller can see; the store only returns their own. */
 async function requireTask(tasks: TaskStore, taskId: string, what: string) {
   const task = await tasks.get(taskId);
@@ -125,8 +150,18 @@ async function requireTask(tasks: TaskStore, taskId: string, what: string) {
  * `tool`. If any rule refuses it, or the row cannot be written, the stored
  * copy is deleted again and the error is passed on. Only a copy in this
  * task's folder is cleaned up, so a bad path can never delete another file.
+ *
+ * A file for a Discussion comment names `input.commentId` and needs
+ * `comments` to check it: the comment must be the task owner's own, on this
+ * task, and the file stored in the task's comments folder.
  */
-export async function attachFile(tasks: TaskStore, files: TaskFileStore, input: NewTaskFile, tool: string): Promise<TaskFile> {
+export async function attachFile(
+  tasks: TaskStore,
+  files: TaskFileStore,
+  input: NewTaskFile,
+  tool: string,
+  comments?: Pick<TaskCommentStore, 'get'>,
+): Promise<TaskFile> {
   const inTaskFolder = typeof input.path === 'string' && input.path.split('/')[1] === input.taskId;
   try {
     if (!inTaskFolder) {
@@ -139,10 +174,24 @@ export async function attachFile(tasks: TaskStore, files: TaskFileStore, input: 
       contentType: input.contentType?.trim() || null,
       taskId: input.taskId,
       path: input.path,
+      commentId: input.commentId || null,
     };
     const task = await requireTask(tasks, input.taskId, 'attach a file to');
     if (!input.path.startsWith(`${task.ownerId}/${task.id}/`)) {
       throw new CoreError("That file was not stored in this task's own folder, so it was not attached.");
+    }
+    if (row.commentId) {
+      const comment = comments ? await comments.get(row.commentId) : null;
+      if (!comment || comment.taskId !== task.id || comment.ownerId !== task.ownerId) {
+        throw new CoreError(`No comment ${row.commentId} was found on this task that you may attach a file to.`);
+      }
+    }
+    if (inCommentsFolder(input.path) !== Boolean(row.commentId)) {
+      throw new CoreError(
+        row.commentId
+          ? "That file was not stored in this task's comments folder, so it was not attached."
+          : "That file was stored for a comment, so it was not attached to the task itself.",
+      );
     }
     return await files.insert(row);
   } catch (err) {
@@ -164,8 +213,25 @@ export async function removeFile(files: TaskFileStore, id: string, tool: string)
 }
 
 /**
- * Delete a task and every file attached to it, on behalf of `tool`. The
- * stored copies go first (the rows go with the task), so a failure part-way
+ * Remove a Discussion comment and every file attached to it, on behalf of
+ * `tool`: the stored copies first, then the file rows, then the comment. A
+ * failure part-way leaves the comment in place to remove again, never copies
+ * nobody can reach.
+ */
+export async function removeCommentWithFiles(comments: TaskCommentStore, files: TaskFileStore, id: string, tool: string): Promise<void> {
+  const named = requireTool(tool);
+  const comment = await comments.get(id);
+  if (!comment) throw new CoreError(`No comment ${id} was found that you may remove.`);
+  const attached = (await files.listForTask(comment.taskId)).filter((f) => f.commentId === id);
+  if (attached.length) await files.deleteObjects(attached.map((f) => f.path));
+  for (const file of attached) await files.remove(file.id, named);
+  await removeComment(comments, id, named);
+}
+
+/**
+ * Delete a task and every file attached to it, its comments' files included,
+ * on behalf of `tool`. The stored copies go first (the rows go with the
+ * task), so a failure part-way
  * leaves the task in place to delete again, never copies nobody can reach.
  * Sub-tasks are kept, as in `deleteTask`, and keep their own files.
  */

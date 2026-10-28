@@ -70,6 +70,9 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
     mine ? loadComments(supabase, task.id) : Promise.resolve(null),
   ]);
   const done = task.status === "done";
+  // A comment's files show in its Discussion, not in the task's own list.
+  const taskFiles = files.files.filter((f) => !f.commentId);
+  const commentFiles = files.files.filter((f) => f.commentId);
 
   return (
     <Shell email={email} title={task.title}>
@@ -140,11 +143,11 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
       <h2>Files</h2>
       {files.error ? (
         <p className="error" role="alert">The attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.</p>
-      ) : !files.files.length ? (
+      ) : !taskFiles.length ? (
         <p className="note">No files attached.</p>
       ) : (
         <ul className="files">
-          {files.files.map((f) => (
+          {taskFiles.map((f) => (
             <li key={f.id}>
               {!f.url ? (
                 <span className="note">{f.name} (no link could be made; try reloading)</span>
@@ -177,7 +180,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
           </p>
         </details>
       ) : (
-        <TaskDiscussion taskId={task.id} taskTitle={task.title} comments={comments.comments} userId={user.id} />
+        <TaskDiscussion taskId={task.id} taskTitle={task.title} comments={comments.comments} files={commentFiles} userId={user.id} />
       )}
     </Shell>
   );

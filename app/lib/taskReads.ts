@@ -20,9 +20,11 @@ const FILE_LINK_SECONDS = 60 * 60;
  * Attached files, with a short-lived signed link to each: the bucket is
  * private, so a link is the only way in, and it stops working after an hour.
  * Pictures get a link that opens them; other files a link that downloads.
+ * A Discussion comment's files come too (row-level security returns only
+ * those of comments the member can see); the list puts them in the thread.
  */
 export async function loadFiles(supabase: Client, taskId?: string): Promise<{ files: ListFile[]; error: string | null }> {
-  let query = supabase.from("task_files").select("id, task_id, path, name, content_type");
+  let query = supabase.from("task_files").select("id, task_id, comment_id, path, name, content_type");
   if (taskId) query = query.eq("task_id", taskId);
   const { data: rows, error } = await query.order("created_at");
   if (error) return { files: [], error: error.message };
@@ -41,6 +43,7 @@ export async function loadFiles(supabase: Client, taskId?: string): Promise<{ fi
     files: rows.map((r) => ({
       id: r.id,
       taskId: r.task_id,
+      commentId: r.comment_id,
       name: r.name,
       image: isImage(r.content_type),
       url: links.get(r.path) ?? null,

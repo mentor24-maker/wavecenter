@@ -7,11 +7,13 @@
  * filter lets through, is decided in core/comments.ts.
  *
  * A comment is shown as plain text, never as HTML, so nothing typed into one
- * can run in the browser. A post or edit that fails keeps what was typed and
+ * can run in the browser. Files may be picked before posting; they are sent
+ * once the comment is saved, and show under it, a picture as a thumbnail and
+ * any other file as a download link. A post or edit that fails keeps what was typed and
  * the row says why (engineering rule 6); a thread the filter empties says so
  * (rule 7).
  */
-import { useState, type FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
   commentAuthorKind,
   filterComments,
@@ -21,7 +23,10 @@ import {
   type TaskComment,
 } from "../../core/comments.ts";
 import { changeComment, deleteComment, postComment, type SaveResult } from "./actions";
+import AttachedFiles from "./AttachedFiles";
 import { fullDate } from "./listView.ts";
+import type { ListFile } from "./TaskList";
+import { picked, screenFiles, uploadFiles } from "./upload";
 
 const KIND_LABEL = { human: "Human", ai: "AI" } as const;
 
@@ -29,6 +34,7 @@ export default function Discussion({
   taskId,
   taskTitle,
   comments,
+  files,
   userId,
   pending,
   run,
@@ -36,11 +42,15 @@ export default function Discussion({
   taskId: string;
   taskTitle: string;
   comments: TaskComment[];
+  /** Every comment's files, by comment id. */
+  files: Map<string, ListFile[]>;
   userId: string;
   pending: boolean;
   run: (action: () => Promise<SaveResult>) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
+  const [refused, setRefused] = useState("");
   const [filter, setFilter] = useState<CommentFilter>(NO_COMMENT_FILTER);
   const [editing, setEditing] = useState<string | null>(null);
   const [edited, setEdited] = useState("");
@@ -51,7 +61,26 @@ export default function Discussion({
     e.preventDefault();
     if (!draft.trim()) return;
     // Cleared only on a confirmed save; a failed one keeps the words as typed.
-    if (await run(() => postComment(taskId, draft))) setDraft("");
+    const posted = await run(async () => {
+      const result = await postComment(taskId, draft);
+      if (!result.ok || !result.id || !draftFiles.length) return result;
+      // The comment exists now, so clear the box even if a file fails: posting again would make it twice.
+      setDraft("");
+      const attached = await uploadFiles(taskId, draftFiles, result.id);
+      setDraftFiles([]);
+      return attached.ok ? attached : { ok: false, error: `The comment was posted, but not every file: ${attached.error}` };
+    });
+    if (posted) {
+      setDraft("");
+      setDraftFiles([]);
+    }
+  }
+
+  /** Pick files for the comment being written. A file over 10 MB is refused straight away. */
+  function pickFiles(e: ChangeEvent<HTMLInputElement>) {
+    const { ok, refused } = screenFiles(picked(e));
+    setDraftFiles((now) => [...now, ...ok]);
+    setRefused(refused.join(" "));
   }
 
   async function saveEdit(e: FormEvent, comment: TaskComment) {
@@ -130,6 +159,7 @@ export default function Discussion({
                   <>
                     {/* Plain text in a text node: React escapes it, so markup shows as typed and never runs. */}
                     <p className="body">{c.body}</p>
+                    {files.has(c.id) && <AttachedFiles files={files.get(c.id)!} removable={c.ownerId === userId} pending={pending} run={run} />}
                     {c.ownerId === userId && (
                       <p className="comment-actions">
                         {/* Only a person's comment is edited here: editing an AI one would relabel it Human (core/comments.ts). */}
@@ -163,8 +193,24 @@ export default function Discussion({
           onChange={(e) => setDraft(e.target.value)}
         />
         <span>
-          <button type="submit" disabled={pending || !draft.trim()}>Post</button>
+          <button type="submit" disabled={pending || !draft.trim()}>Post</button>{" "}
+          <label className="link attach">
+            attach
+            <input type="file" multiple hidden aria-label={`Attach files to the new comment on "${taskTitle}"`} disabled={pending} onChange={pickFiles} />
+          </label>
         </span>
+        {draftFiles.length > 0 && (
+          <p className="note">
+            To attach when you post:{" "}
+            {draftFiles.map((f, i) => (
+              <span key={i} className="chip">
+                {f.name}{" "}
+                <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
+              </span>
+            ))}
+          </p>
+        )}
+        {refused && <p className="error" role="alert">{refused}</p>}
       </form>
     </section>
   );

@@ -15,7 +15,8 @@ added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261027130000_game_layer_cascades.sql` fixed how it treats deletes;
 `20261028120000_member_profiles.sql` added `member_profiles`;
-`20261028130000_task_comments.sql` added `task_comments`); this page
+`20261028130000_task_comments.sql` added `task_comments`;
+`20261028150000_comment_files.sql` let a file belong to a comment); this page
 explains them.
 
 ## The `tasks` table
@@ -224,10 +225,11 @@ rule 5), in a folder named after its owner:
 | `content_type` | What kind of file it is, for example `image/png`. Pictures show as thumbnails. |
 | `size_bytes` | How big it is. At most 10 MB; the bucket refuses anything bigger too. |
 | `tool` | Which tool attached it. |
+| `comment_id` | The Discussion comment it is attached to, or empty for a file on the task itself. If the comment is removed, the row goes with it. |
 | `created_at` | When it was attached. |
 
-Files only change through `core/files.ts`: `attachFile`, `removeFile` and
-`deleteTaskWithFiles`. They keep the two halves in step. A record is only
+Files only change through `core/files.ts`: `attachFile`, `removeFile`,
+`removeCommentWithFiles` and `deleteTaskWithFiles`. They keep the two halves in step. A record is only
 written for a copy that is already stored, and if the record cannot be
 written the copy is deleted again. Removing a file, or deleting its task,
 deletes the stored copy, not just the record.
@@ -241,8 +243,18 @@ public links at all.
 
 Row-level security was on from the moment `task_files` was made, and the
 bucket has its own rules: every signed-in member can see and open every
-attached file (since 2026-10-27), but a member adds and deletes only their
-own files, only in their own folder, and only on their own tasks.
+file attached to a task (since 2026-10-27), but a member adds and deletes only
+their own files, only in their own folder, and only on their own tasks.
+
+A file can also be attached to a Discussion comment (Dane, 2026-10-27:
+"allow links and attachments"). Its stored copy sits in the task's comments
+folder, `<owner id>/<task id>/comments/<random id>-<file name>`, and its row
+names the comment. It shows under the comment, not in the task's own file
+list. It is as private as the comment: only whoever can see the comment can
+see its row or open its stored copy, which today means only its author. A
+file can be attached only to the member's own comment, on the same task.
+Removing the comment, or deleting the task, deletes its files' stored copies
+too, not just the rows.
 
 ### A task's Discussion: `task_comments`
 
@@ -290,7 +302,8 @@ never goes to the browser.
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
 members, has each write a task, checks that each can read the other's but
 neither can change or delete it (tasks, settings and attached files alike),
-that neither can read, change or delete the other's Discussion comments, that
+that neither can read, change or delete the other's Discussion comments or
+the files attached to them, that
 each votes only through their own vote and the average lands on the task, and
 then deletes them both along with their files.
 
