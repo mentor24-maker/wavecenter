@@ -11,6 +11,9 @@
  * and removing it again finishes the job, instead of a copy nobody can see
  * lingering in storage.
  *
+ * Attaching and removing a file are each recorded and scored in the
+ * engagement ledger, inside the same save as the row (core/game.ts).
+ *
  * Core does not know about Supabase. It talks to a `TaskFileStore`, which a
  * client supplies, and to the same `TaskStore` as core/tasks.ts. The
  * plain-words description of the table is docs/DATA_MODEL.md.
@@ -58,8 +61,8 @@ export interface TaskFileStore {
   get(id: string): Promise<TaskFile | null>;
   /** Every file on one task the caller can see, oldest first. */
   listForTask(taskId: string): Promise<TaskFile[]>;
-  /** Delete one row. Returns false if there is no such row the caller may delete. */
-  remove(id: string): Promise<boolean>;
+  /** Delete one row on behalf of `tool`. Returns false if there is no such row the caller may delete. */
+  remove(id: string, tool: string): Promise<boolean>;
   /** Delete stored copies. A path that is already gone is not an error. */
   deleteObjects(paths: string[]): Promise<void>;
 }
@@ -152,11 +155,11 @@ export async function attachFile(tasks: TaskStore, files: TaskFileStore, input: 
 
 /** Remove one file from its task on behalf of `tool`: the stored copy, then the row. */
 export async function removeFile(files: TaskFileStore, id: string, tool: string): Promise<TaskFile> {
-  requireTool(tool);
+  const named = requireTool(tool);
   const file = await files.get(id);
   if (!file) throw new CoreError(`No file ${id} was found that you may remove.`);
   await files.deleteObjects([file.path]);
-  if (!(await files.remove(id))) throw new CoreError(`No file ${id} was found that you may remove.`);
+  if (!(await files.remove(id, named))) throw new CoreError(`No file ${id} was found that you may remove.`);
   return file;
 }
 

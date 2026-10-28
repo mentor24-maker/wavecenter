@@ -9,6 +9,10 @@
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it and keeps what was typed (engineering rule 6).
+ *
+ * The database scores every one of these saves in the engagement ledger, in
+ * the same step (core/game.ts). If that part fails, the whole save fails and
+ * is reported here like any other failed save.
  */
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";

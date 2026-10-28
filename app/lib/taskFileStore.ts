@@ -7,6 +7,7 @@
  */
 import type { NewTaskFileRow, TaskFile, TaskFileStore } from "../../core/files.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -59,8 +60,8 @@ export function supabaseTaskFileStore(supabase: Client): TaskFileStore {
       if (error) failed("list the task's files", error);
       return (data ?? []).map(fileFromRow);
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("task_files").delete().eq("id", id).select("id");
+    async remove(id, tool) {
+      const { data, error } = await supabase.from("task_files").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("remove the file", error);
       return (data?.length ?? 0) > 0;
     },

@@ -10,8 +10,8 @@ async function setup() {
   const files = new MemoryTaskFileStore('dane');
   // Deleting a task drops its file rows, as the real table's cascade does.
   const remove = tasks.remove.bind(tasks);
-  tasks.remove = async (id) => {
-    const gone = await remove(id);
+  tasks.remove = async (id, tool) => {
+    const gone = await remove(id, tool);
     if (gone) files.dropRowsFor(id);
     return gone;
   };

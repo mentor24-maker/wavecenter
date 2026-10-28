@@ -1,16 +1,19 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is three tables: `tasks`;
-`member_settings`, which holds each member's "Launch AI Agents" switch; and
+What WaveCenter stores, in plain words. Today that is five tables: `tasks`;
+`member_settings`, which holds each member's "Launch AI Agents" switch;
 `task_files`, the files attached to tasks, whose stored copies live in a
-private file-storage bucket.
+private file-storage bucket; and the game layer's two, `game_scoring_rules`
+and `engagements`.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 `agent_selected` and the `member_settings` table;
 `20261012230000_agent_handoff.sql` added `agent_ticket_url`;
 `20261013040000_task_files.sql` added `task_files` and the `task-files`
-bucket); this page explains them.
+bucket; `20261027120000_game_layer.sql` added the game layer, and
+`20261027130000_game_layer_cascades.sql` fixed how it treats deletes); this page
+explains them.
 
 ## The `tasks` table
 
@@ -147,6 +150,49 @@ members, has each write a task, checks that neither can read, change or delete
 the other's (tasks, settings and attached files alike), and then deletes them
 both along with their files.
 
+## The game layer: `game_scoring_rules` and `engagements`
+
+Dane, 2026-10-27: "nothing happens within WaveCenter that isn't tracked and
+scored." This is the first piece of that, modelled on Normie's game layer.
+
+- **`game_scoring_rules`** is the list of kinds of engagement and what each
+  is worth: made a task, changed a task, finished a task, deleted a task,
+  attached a file, removed a file, handed a task to AI agents, switched AI
+  agents on or off. Each has a name, a description, exactly what counts, and
+  its points. Every kind is worth 1 point except finishing a task, worth 5.
+  These are placeholders until Dane, or later a members' vote, sets them; for
+  now they change only through a migration, and nobody can edit them on a
+  screen.
+- **`engagements`** is the ledger: one row for every thing a member does,
+  saying who is credited, which kind it was, the points it earned, the tool
+  that did it and the task it was about, with the time. The points are copied
+  from the rule at that moment, so changing a rule later never rewrites what
+  someone already earned. A row about a deleted task stays.
+
+**The database writes the ledger itself.** Every time a task, an attached
+file or the AI agents switch is saved, the database records the engagement
+in the same step as the save. The two go through together or not at all: if
+the engagement cannot be written, the save fails and the screen says so. No
+tool, and no page, can choose how many points something is worth, and a
+change that somehow went around core is still recorded. The rules for which
+kind a change is live in `core/game.ts`, and the database follows the same
+rules. A change the database makes on its own while doing something else
+(letting go of a deleted task's sub-tasks, removing a deleted task's files)
+is part of that one engagement, not extra ones.
+
+**Who can see what.** Every signed-in member can read the scoring rules. A
+member can read **only their own** engagements and their own points total.
+Nobody can add, change or delete a ledger row through the website or the
+API, not even their own; only the database's save step writes there.
+Row-level security was on from the moment each table was made.
+
+The `/game` page shows the rules, the member's total and their latest
+engagements, with times in Mountain time.
+
+This does not yet change a task's own `points`: what a task is worth and what
+a member has earned are kept separate for now. Levels, rewards, a leaderboard
+and an admin screen for the game are later tickets.
+
 ## Why the four fields are there from day one
 
 WaveCenter starts as a simple to-do list, but the list is a seed (CLAUDE.md).
@@ -200,3 +246,5 @@ than guessing:
 2. **Are a finished task's points fixed?** Today the owner can still change
    points after a task is done. A ledger may need them locked once credited.
 3. **Who sets points before voting exists?** Today it is the task's owner.
+   For the game layer's scoring rules, Dane chose (2026-10-27) to fix the
+   values in a migration for now.
