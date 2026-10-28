@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachFile, checkFile, deleteTaskWithFiles, filePath, isImage, MAX_FILE_BYTES, removeFile } from './files.ts';
+import { addComment } from './comments.ts';
+import {
+  attachFile,
+  checkFile,
+  commentFilePath,
+  deleteTaskWithFiles,
+  filePath,
+  isImage,
+  MAX_FILE_BYTES,
+  removeCommentWithFiles,
+  removeFile,
+} from './files.ts';
 import { createTask } from './tasks.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
+import { MemoryTaskCommentStore } from './memoryTaskCommentStore.ts';
 import { MemoryTaskFileStore } from './memoryTaskFileStore.ts';
 
 async function setup() {
@@ -118,4 +130,96 @@ test('filePath keeps the name inside the task folder', () => {
   assert.ok(isImage('image/SVG+xml'));
   assert.ok(!isImage('application/pdf'));
   assert.ok(!isImage(null));
+});
+
+/** A task with a comment on it, and a way to "upload" a file for that comment. */
+async function commentSetup() {
+  const base = await setup();
+  const comments = new MemoryTaskCommentStore('dane');
+  // Deleting a task or a comment drops what hangs off it, as the real tables' cascades do.
+  const removeTask = base.tasks.remove.bind(base.tasks);
+  base.tasks.remove = async (id, tool) => {
+    const gone = await removeTask(id, tool);
+    if (gone) comments.dropRowsFor(id);
+    return gone;
+  };
+  const removeComment = comments.remove.bind(comments);
+  comments.remove = async (id) => {
+    const gone = await removeComment(id);
+    if (gone) for (const [fileId, f] of base.files.rows) if (f.commentId === id) base.files.rows.delete(fileId);
+    return gone;
+  };
+  const comment = await addComment(base.tasks, comments, base.task.id, 'Here is the mock-up', 'wavecenter');
+  const uploadForComment = (name: string, commentId = comment.id, taskId = base.task.id) => {
+    const path = commentFilePath('dane', taskId, `r${base.files.objects.size + 1}`, name);
+    base.files.objects.add(path);
+    return { taskId, path, name, sizeBytes: 100, contentType: 'image/png', commentId };
+  };
+  return { ...base, comments, comment, uploadForComment };
+}
+
+test('attachFile puts a file on a Discussion comment, stored in the comments folder', async () => {
+  const { tasks, files, comments, comment, uploadForComment } = await commentSetup();
+  const file = await attachFile(tasks, files, uploadForComment('mock.png'), 'wavecenter', comments);
+  assert.equal(file.commentId, comment.id);
+  assert.match(file.path, /^dane\/[^/]+\/comments\/r1-mock\.png$/);
+});
+
+test('a task file has no comment', async () => {
+  const { tasks, files, upload } = await setup();
+  assert.equal((await attachFile(tasks, files, upload('logo.png'), 'wavecenter')).commentId, null);
+});
+
+test('attachFile refuses an unknown comment, one on another task, or the wrong folder, and deletes the stored copy', async () => {
+  const { tasks, files, comments, task, upload, uploadForComment } = await commentSetup();
+  await assert.rejects(attachFile(tasks, files, uploadForComment('a.png', 'comment-x'), 'wavecenter', comments), /No comment comment-x/);
+  const other = await createTask(tasks, { title: 'Other' }, 'wavecenter');
+  const elsewhere = await addComment(tasks, comments, other.id, 'Elsewhere', 'wavecenter');
+  await assert.rejects(attachFile(tasks, files, uploadForComment('b.png', elsewhere.id), 'wavecenter', comments), /No comment .* on this task/);
+  await assert.rejects(attachFile(tasks, files, uploadForComment('c.png'), 'wavecenter'), /No comment/, 'no comment store, no comment file');
+  const { commentId } = uploadForComment('d.png');
+  await assert.rejects(
+    attachFile(tasks, files, { ...upload('d.png'), commentId }, 'wavecenter', comments),
+    /not stored in this task's comments folder/,
+  );
+  const { commentId: _, ...asTaskFile } = uploadForComment('e.png');
+  await assert.rejects(attachFile(tasks, files, asTaskFile, 'wavecenter', comments), /stored for a comment/);
+  assert.equal(files.rows.size, 0);
+  assert.equal(files.objects.size, 1, 'only the one stored for "d.png" under the comments folder remains, never sent to attach');
+  assert.ok(await tasks.get(task.id));
+});
+
+test('removeCommentWithFiles deletes the comment, its stored copies and its rows, and leaves other files alone', async () => {
+  const { tasks, files, comments, comment, upload, uploadForComment } = await commentSetup();
+  await attachFile(tasks, files, uploadForComment('a.png'), 'wavecenter', comments);
+  await attachFile(tasks, files, uploadForComment('b.pdf'), 'wavecenter', comments);
+  const taskFile = await attachFile(tasks, files, upload('logo.png'), 'wavecenter');
+  await removeCommentWithFiles(comments, files, comment.id, 'wavecenter');
+  assert.equal(await comments.get(comment.id), null);
+  assert.deepEqual([...files.objects], [taskFile.path]);
+  assert.deepEqual([...files.rows.keys()], [taskFile.id]);
+  await assert.rejects(removeCommentWithFiles(comments, files, comment.id, 'wavecenter'), /No comment .* you may remove/);
+});
+
+test('when storage fails, removeCommentWithFiles keeps the comment and its files to remove again', async () => {
+  const { tasks, files, comments, comment, uploadForComment } = await commentSetup();
+  await attachFile(tasks, files, uploadForComment('a.png'), 'wavecenter', comments);
+  files.failDeleteObjects = true;
+  await assert.rejects(removeCommentWithFiles(comments, files, comment.id, 'wavecenter'), /storage is down/);
+  assert.ok(await comments.get(comment.id));
+  assert.equal(files.rows.size, 1);
+});
+
+test('deleteTaskWithFiles deletes the comments\' stored files too', async () => {
+  const { tasks, files, comments, task, upload, uploadForComment } = await commentSetup();
+  await attachFile(tasks, files, upload('logo.png'), 'wavecenter');
+  await attachFile(tasks, files, uploadForComment('mock.png'), 'wavecenter', comments);
+  await deleteTaskWithFiles(tasks, files, task.id, 'wavecenter');
+  assert.equal(files.objects.size, 0);
+  assert.equal(files.rows.size, 0);
+  assert.equal(comments.rows.size, 0);
+});
+
+test('commentFilePath keeps the name inside the task\'s comments folder', () => {
+  assert.equal(commentFilePath('o', 't', 'r', '../x.png'), 'o/t/comments/r-__x.png');
 });
