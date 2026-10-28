@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { Engagement, ScoringRule } from "../../core/game.ts";
+import { scoreFinishedTasks } from "../../core/score.ts";
+import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
+import { readFinishedTasks } from "../lib/taskStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 
@@ -18,6 +22,14 @@ const WHEN = new Intl.DateTimeFormat("en-US", {
   timeZoneName: "short",
 });
 
+/** A finish date, in Mountain time. */
+const DAY = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Denver",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
 async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
@@ -29,14 +41,19 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * The Game page: how points are earned (the scoring rules), the signed-in
- * member's points total, and their latest engagements, newest first. Every
- * part that could not be read says so on its own, and an empty history says
- * why it is empty (engineering rule 7).
+ * The Game page: the signed-in member's points total, their finished tasks
+ * and what those are worth, how points are earned (the scoring rules), and
+ * their latest engagements, newest first. A visitor who is not signed in is
+ * sent to sign in. Every part that could not be read says so on its own, and
+ * an empty list says why it is empty (engineering rule 7).
  */
 export default async function Game() {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
+
+  // Signed out, with nothing gone wrong: go and sign in. A missing database
+  // or a failed sign-in check is said on this page instead, not hidden by a bounce.
+  if (supabase && !user && !checkFailed) redirect("/sign-in");
 
   if (!supabase || !user) {
     return (
@@ -46,12 +63,8 @@ export default async function Game() {
           <h1>Game</h1>
           {!supabase ? (
             <p className="error" role="alert">This copy of WaveCenter has no database settings, so there are no points to show.</p>
-          ) : checkFailed ? (
-            <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>
           ) : (
-            <p>
-              Sign in to see the points you have earned. <Link href="/sign-in">Sign in</Link>
-            </p>
+            <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>
           )}
         </main>
       </>
@@ -59,10 +72,11 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [rules, total, latest] = await Promise.all([
+  const [rules, total, latest, finished] = await Promise.all([
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
+    read(() => readFinishedTasks(supabase, user.id)),
   ]);
 
   return (
@@ -84,12 +98,56 @@ export default async function Game() {
           </p>
         )}
 
+        <h2>Your finished tasks</h2>
+        <FinishedTasks finished={finished} />
+
         <h2>How points are earned</h2>
         <RulesTable rules={rules} />
 
         <h2>Your latest engagements</h2>
         <History latest={latest} rules={rules.value ?? []} />
       </main>
+    </>
+  );
+}
+
+function FinishedTasks({ finished }: { finished: Read<Task[]> }) {
+  if (finished.error !== null) {
+    return <p className="error" role="alert">Your finished tasks could not be loaded: {finished.error}. Try reloading the page.</p>;
+  }
+  if (!finished.value.length) {
+    return (
+      <p className="note">
+        No finished tasks yet. Tick a task done on <Link href="/">your list</Link> to earn its points.
+      </p>
+    );
+  }
+  const score = scoreFinishedTasks(finished.value);
+  return (
+    <>
+      <p className="score">
+        <b>{score.total.toLocaleString("en-US")}</b> {score.total === 1 ? "point" : "points"} from{" "}
+        {score.finished.toLocaleString("en-US")} finished {score.finished === 1 ? "task" : "tasks"}
+      </p>
+      <p className="note">The points here are the ones set on each task you have marked done.</p>
+      <table className="game">
+        <thead>
+          <tr>
+            <th scope="col">Task</th>
+            <th scope="col">Finished</th>
+            <th scope="col" className="num">Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          {finished.value.map((t) => (
+            <tr key={t.id}>
+              <td>{t.title}</td>
+              <td className="note">{t.completedAt ? DAY.format(new Date(t.completedAt)) : "Not recorded"}</td>
+              <td className="num">{t.points}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </>
   );
 }

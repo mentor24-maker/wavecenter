@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — The Game page shows the points from your finished tasks (#29)
+
+The Game page already counted points for each thing a member does. It did
+not show the points set on the tasks they have actually finished. Now it has
+a "Your finished tasks" section: the total points of every task marked done,
+how many that is, and a list with each task's title, points and the date it
+was finished (Mountain time). Tasks still to do add nothing. With nothing
+finished yet, the page says so and points back to the list. If the tasks
+cannot be read, it says that, rather than showing a zero that is not true.
+The sum is worked out in one shared place in WaveCenter's core, with tests,
+so every future tool scores the same way. A visitor who is not signed in is
+now sent straight to the sign-in page. Leaderboards and kinds of
+contribution wait for their own tickets, as Dane chose.
+
+---
+
 ## 2026-10-27 — Every member sees every task and votes on its points and priority (#32)
 
 Until now each member saw only their own tasks, and a task's points and
