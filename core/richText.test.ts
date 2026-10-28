@@ -1,0 +1,116 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { applyFormat, applyLink, parseInline, parseRichText, richTextPlain, safeHref } from './richText.ts';
+
+const text = (t: string) => ({ type: 'text', text: t });
+
+test('bold, italic and links are picked out of a line', () => {
+  assert.deepEqual(parseInline('a **big** and *small* and _also_ [docs](https://example.com/a)'), [
+    text('a '),
+    { type: 'bold', children: [text('big')] },
+    text(' and '),
+    { type: 'italic', children: [text('small')] },
+    text(' and '),
+    { type: 'italic', children: [text('also')] },
+    text(' '),
+    { type: 'link', href: 'https://example.com/a', children: [text('docs')] },
+  ]);
+});
+
+test('marks nest: bold words inside a link', () => {
+  assert.deepEqual(parseInline('[**go** here](mailto:dane@example.com)'), [
+    { type: 'link', href: 'mailto:dane@example.com', children: [{ type: 'bold', children: [text('go')] }, text(' here')] },
+  ]);
+});
+
+test('a bare web address becomes a link, without the full stop after it', () => {
+  assert.deepEqual(parseInline('see https://example.com/x?y=1. ok'), [
+    text('see '),
+    { type: 'link', href: 'https://example.com/x?y=1', children: [text('https://example.com/x?y=1')] },
+    text('. ok'),
+  ]);
+});
+
+test('plain text with stray marks stays exactly as typed', () => {
+  for (const s of ['2 * 3 * 4', 'snake_case_name here', '**not closed', 'a * b', 'cost: 5*', '[not a link]', '\\*literal\\*']) {
+    const parsed = parseInline(s);
+    const shown = parsed.map((n) => (n.type === 'text' ? n.text : '?')).join('');
+    assert.equal(shown, s.replace(/\\\*/g, '*'), s);
+  }
+});
+
+test('nothing unsafe becomes a link or markup: script, onerror and javascript: stay as text', () => {
+  const attacks = [
+    '<script>alert(1)</script>',
+    '<img src=x onerror=alert(1)>',
+    '[click](javascript:alert(1))',
+    '[click](JaVaScRiPt:alert(1))',
+    '[click]( javascript:alert(1))',
+    '[click](data:text/html,<script>alert(1)</script>)',
+    '[click](java\tscript:alert(1))',
+    'javascript:alert(1)',
+  ];
+  for (const a of attacks) {
+    const blocks = parseRichText(a);
+    const json = JSON.stringify(blocks);
+    assert.ok(!json.includes('"type":"link"'), `${a} made a link`);
+    assert.equal(richTextPlain(a), a, `${a} was not kept as typed`);
+  }
+});
+
+test('safeHref allows only http, https and mailto', () => {
+  assert.equal(safeHref('https://example.com'), 'https://example.com/');
+  assert.equal(safeHref('http://example.com/a b'), null);
+  assert.equal(safeHref('mailto:a@b.c'), 'mailto:a@b.c');
+  assert.equal(safeHref('javascript:alert(1)'), null);
+  assert.equal(safeHref('vbscript:x'), null);
+  assert.equal(safeHref('/relative'), null);
+  assert.equal(safeHref(''), null);
+});
+
+test('lines starting "- " or "1. " become lists; other lines are paragraphs', () => {
+  assert.deepEqual(parseRichText('Plan:\n- one\n- **two**\n\n1. first\n2. second\nafter'), [
+    { type: 'paragraph', children: [text('Plan:')] },
+    { type: 'list', ordered: false, start: 1, items: [[text('one')], [{ type: 'bold', children: [text('two')] }]] },
+    { type: 'list', ordered: true, start: 1, items: [[text('first')], [text('second')]] },
+    { type: 'paragraph', children: [text('after')] },
+  ]);
+});
+
+test('an old plain-text comment reads the same, line breaks kept', () => {
+  assert.deepEqual(parseRichText('Line one\nLine two\n\n\nNew paragraph'), [
+    { type: 'paragraph', children: [text('Line one\nLine two')] },
+    { type: 'paragraph', children: [text('New paragraph')] },
+  ]);
+});
+
+test('richTextPlain is the shown words without the marks', () => {
+  assert.equal(richTextPlain('a **big** [link](https://x.com)\n- item'), 'a big link\nitem');
+});
+
+test('a long run of stray marks is parsed quickly', () => {
+  const started = Date.now();
+  parseRichText('*_['.repeat(3300) + '**'.repeat(1000));
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('applyFormat wraps the selection in bold or italic, keeping spaces outside', () => {
+  assert.deepEqual(applyFormat({ value: 'make this bold', start: 4, end: 10 }, 'bold'), {
+    value: 'make **this** bold', start: 7, end: 11,
+  });
+  assert.deepEqual(applyFormat({ value: 'ab', start: 1, end: 1 }, 'italic'), { value: 'a**b', start: 2, end: 2 });
+});
+
+test('applyFormat turns the selected lines into a list, replacing an old list mark', () => {
+  assert.equal(applyFormat({ value: 'top\nalpha\nbeta', start: 5, end: 12 }, 'bullets').value, 'top\n- alpha\n- beta');
+  assert.equal(applyFormat({ value: '- alpha\n- beta', start: 0, end: 14 }, 'numbers').value, '1. alpha\n2. beta');
+  assert.equal(applyFormat({ value: 'one', start: 3, end: 3 }, 'bullets').value, '- one');
+});
+
+test('applyLink links the selection, or refuses an unsafe address', () => {
+  const linked = applyLink({ value: 'read the [docs] now', start: 9, end: 15 }, 'https://example.com/a)b');
+  assert.equal(linked?.value, 'read the [(docs)](https://example.com/a%29b) now');
+  assert.equal(JSON.stringify(parseRichText(linked!.value)).includes('"href":"https://example.com/a%29b"'), true);
+  assert.equal(applyLink({ value: '', start: 0, end: 0 }, 'https://x.com')?.value, '[https://x.com](https://x.com)');
+  assert.equal(applyLink({ value: 'x', start: 0, end: 1 }, 'javascript:alert(1)'), null);
+});

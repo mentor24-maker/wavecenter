@@ -256,7 +256,7 @@ automatically (Dane chose that). One row is one comment:
 | `id` | The comment's permanent identifier. |
 | `task_id` | The task it is about. If the task is deleted, its comments go with it. |
 | `owner_id` | The member it belongs to. Filled in automatically. |
-| `body` | What it says, as plain text. Never blank, at most 10,000 characters. It is always shown as text, so nothing typed into a comment can run in the browser. |
+| `body` | What it says, as plain words in a small rich-text format: `**bold**`, `*italic*`, lines starting `- ` or `1. ` for lists, and `[words](https://…)` links (core/richText.ts). Never blank, at most 10,000 characters. It is never treated as HTML, and a link only works for http:, https: or mailto:, so nothing typed into a comment can run in the browser. |
 | `tool` | Which tool wrote it, or last edited it. |
 | `created_at` | When it was posted. |
 | `updated_at` | When it was last edited. Kept up to date automatically. |

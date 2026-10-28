@@ -21,6 +21,7 @@ clients. If the framework is ever replaced, this folder does not change.
 | `score.ts` | `scoreFinishedTasks`: a member's score from their finished tasks, the number finished and the total of their points. Only a `done` task counts. |
 | `points.ts` | `setPoints` / `awardPoints`: the only functions that may change a task's points. |
 | `votes.ts` | Members' votes on a task's points and priority: `castVote` (cast, change or withdraw your own), `summarizeVotes` and `votedValues` (the average, which becomes the task's points and priority; the database applies the same rule inside every vote), and `requireNotVotedOn` (an owner cannot type over a voted value). |
+| `richText.ts` | The small rich-text format a Discussion comment is written in: `**bold**`, `*italic*`, `- ` and `1. ` lists, and links. `parseRichText` turns a comment into plain objects a client draws (never HTML), `safeHref` lets a link go only to http:, https: or mailto:, `richTextPlain` gives the words the search box looks in, and `applyFormat` / `applyLink` are what the comment box's toolbar buttons do. |
 | `tool.ts` | Every change names the tool that made it; a change with no tool name is refused. |
 | `memoryTaskStore.ts`, `memoryTaskFileStore.ts`, `memoryEngagementStore.ts`, `memoryVoteStore.ts` | Keep tasks, files, the engagement ledger and votes in memory so the tests can check the rules without a database. Given a ledger, the task and file stores score every change the way the database does. |
 
