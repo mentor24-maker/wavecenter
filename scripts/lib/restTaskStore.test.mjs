@@ -29,12 +29,12 @@ test('core writes reach the table under the table\'s own column names, with the 
   assert.equal(task.ownerId, 'u1');
 });
 
-test('a points change only writes if the points are still what core read', async () => {
+test('a points change only writes if the points and status are still what core read', async () => {
   const { fn, calls } = fakeFetch([{ status: 200, body: [row] }, { status: 200, body: [] }]);
   const store = restTaskStore({ url: 'https://x.supabase.co', apiKey: 'anon', token: 't', fetch: fn });
   await assert.rejects(setPoints(store, 't1', 5, 'check'), /changed while this change was being made/);
   assert.equal(calls[1].method, 'PATCH');
-  assert.match(calls[1].url, /id=eq\.t1&points=eq\.0$/);
+  assert.match(calls[1].url, /id=eq\.t1&points=eq\.0&status=eq\.todo$/);
   assert.deepEqual(calls[1].body, { points: 5, tool: 'check' });
 });
 

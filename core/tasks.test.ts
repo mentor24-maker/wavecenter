@@ -30,6 +30,7 @@ test('createTask refuses a missing tool, a blank title, a bad status and bad poi
   await assert.rejects(createTask(store, { title: '   ' }, 'wavecenter'), /cannot be blank/);
   await assert.rejects(createTask(store, { title: 'x', status: 'later' as never }, 'wavecenter'), /status must be one of/);
   await assert.rejects(createTask(store, { title: 'x', points: 0.5 }, 'wavecenter'), /whole number/);
+  await assert.rejects(createTask(store, { title: 'x', points: -1 }, 'wavecenter'), /can't be negative; got -1/);
   assert.equal(store.rows.size, 0);
 });
 

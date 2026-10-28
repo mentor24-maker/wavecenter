@@ -76,6 +76,7 @@ export function supabaseTaskStore(supabase: Client): TaskStore {
     async update(id, changes: TaskRowChanges, guard = {}) {
       let query = supabase.from("tasks").update(toRow(changes)).eq("id", id);
       if (guard.points !== undefined) query = query.eq("points", guard.points);
+      if (guard.status !== undefined) query = query.eq("status", guard.status);
       if (guard.agentTicketUrl === null) query = query.is("agent_ticket_url", null);
       else if (guard.agentTicketUrl !== undefined) query = query.eq("agent_ticket_url", guard.agentTicketUrl);
       const { data, error } = await query.select();

@@ -72,6 +72,8 @@ export type TaskRowChanges = Partial<Omit<NewTaskRow, 'tool'>> & { tool: string 
 export interface UpdateGuard {
   /** The task's points still equal this number. */
   points?: number;
+  /** The task's status still equals this. */
+  status?: TaskStatus;
   /** The task's ticket link still equals this (null: the task still has none). */
   agentTicketUrl?: string | null;
 }

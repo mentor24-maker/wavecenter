@@ -59,6 +59,7 @@ export class MemoryTaskStore implements TaskStore {
     const task = this.rows.get(id);
     if (!task) return null;
     if (guard.points !== undefined && task.points !== guard.points) return null;
+    if (guard.status !== undefined && task.status !== guard.status) return null;
     if (guard.agentTicketUrl !== undefined && task.agentTicketUrl !== guard.agentTicketUrl) return null;
     const now = new Date().toISOString();
     const updated: Task = { ...task, ...changes, updatedAt: now };

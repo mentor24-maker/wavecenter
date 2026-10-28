@@ -422,14 +422,16 @@ function TaskRow({
 
   const [firstLine, ...moreLines] = (task.notes ?? "").split("\n");
 
-  function savePoints(e?: FormEvent) {
+  async function savePoints(e?: FormEvent) {
     e?.preventDefault();
     if (points.trim() === String(task.points)) return;
     const value = Number(points);
-    void run(async () =>
+    const saved = await run(async () =>
       points.trim() === "" || !Number.isInteger(value)
         ? { ok: false, error: `Points must be a whole number, like 0, 3 or 10; "${points}" is not one.` }
         : changePoints(task.id, value));
+    // A refused number goes back to what is stored; the message says why.
+    if (!saved) setPointsText(String(task.points));
   }
 
   return (
@@ -508,18 +510,22 @@ function TaskRow({
             <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
           ))}
         </select>
-        <form onSubmit={savePoints}>
-          <input
-            aria-label={`Points for "${task.title}"`}
-            className="points"
-            type="number"
-            step="1"
-            inputMode="numeric"
-            value={points}
-            onChange={(e) => setPointsText(e.target.value)}
-            onBlur={() => savePoints()}
-          />
-        </form>
+        {/* A done task's points are locked (core/points.ts); it shows them as "· N pts" only. */}
+        {!done && (
+          <form onSubmit={savePoints}>
+            <input
+              aria-label={`Points for "${task.title}"`}
+              className="points"
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              value={points}
+              onChange={(e) => setPointsText(e.target.value)}
+              onBlur={() => savePoints()}
+            />
+          </form>
+        )}
         {parents && (
           <select
             aria-label={`Make "${task.title}" a sub-task of`}

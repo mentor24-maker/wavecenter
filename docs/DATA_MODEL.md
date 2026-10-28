@@ -27,7 +27,7 @@ One row is one task: something a member means to do, is doing, or has done.
 | `owner_id` | **The member the task belongs to.** Filled in automatically with whoever is signed in. |
 | `status` | **Where the task stands:** `todo`, `doing` or `done`. Starts at `todo`. No other values are accepted. |
 | `parent_task_id` | **The bigger task this one is part of**, if any. Empty for a top-level task. |
-| `points` | **What the task is worth**, as a whole number. Starts at 0 and is never empty. |
+| `points` | **What the task is worth**: its suggested value, as a whole number. Starts at 0, is never empty and never below zero. Locked once the task is done. |
 | `position` | Where the task sits in its list, so members can put tasks in their own order. |
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
@@ -59,8 +59,41 @@ towards member-built tools: when they arrive, they get points the same way
 WaveCenter's own app does, through core, never by editing the number.
 
 Two changes to the same task's points at the same moment cannot quietly
-cancel each other out: a points change only saves if the points are still
-what it read, and otherwise says "try again" and saves nothing.
+cancel each other out: a points change only saves if the points and the
+status are still what it read, and otherwise says "try again" and saves
+nothing.
+
+### Points rules
+
+Dane settled these on 2026-10-27, in his own words. They answer the three
+questions this document used to leave open.
+
+1. **Points are never below zero.** "No, points can't be negative in terms of
+   the initial proposal. There will be ways to assign negative values in other
+   ways, such as feedback, but an initial suggested score would be inherently
+   positive." `core/points.ts` refuses a negative number with a plain message,
+   and the table itself refuses one too (`tasks_points_not_negative`). Zero is
+   allowed; it is where every task starts.
+2. **A done task's points are locked.** "Yes, points locked on completion.
+   (for now) However, there will be many ways to add or subtract points
+   related to a task. We're just gettingg started." `setPoints` and
+   `awardPoints` refuse a done task and save nothing, and the to-do list shows
+   a done task's points without the box to change them. Reopening the task
+   unlocks them again, the same way reopening clears its ticket. (Dane did not
+   mention reopening; this is the build's reading of "locked on completion".)
+3. **The member who adds a task sets its suggested value.** "The person who
+   adds a 'proposal', which is what these ToDo list items are gets to set a
+   suggested value. Others can vote on the value separately." Only a task's
+   owner, the member who added it, can change it at all (row-level security),
+   so this already holds. Voting on values is a later, separate table; see
+   "How this grows".
+
+The game layer's scoring rules (what each recorded action earns) are a
+separate thing from a task's points: for those, Dane chose (2026-10-27) to
+fix the values in a migration for now.
+
+Adding or subtracting points in other ways (feedback, votes) comes later as
+records of their own, not as edits to this number.
 
 ### Handing tasks to AI agents
 
@@ -236,15 +269,3 @@ at `tasks`**, so none of them needs this table rebuilt.
 When several members share a project, the "only your own tasks" rule will
 widen to "tasks in projects you belong to". That is a change to the rules,
 not to the table.
-
-## Open questions for Dane
-
-The whitepaper does not settle these, so the table leaves them open rather
-than guessing:
-
-1. **Can points be negative?** Today any whole number is accepted.
-2. **Are a finished task's points fixed?** Today the owner can still change
-   points after a task is done. A ledger may need them locked once credited.
-3. **Who sets points before voting exists?** Today it is the task's owner.
-   For the game layer's scoring rules, Dane chose (2026-10-27) to fix the
-   values in a migration for now.
