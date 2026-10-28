@@ -63,6 +63,24 @@ function failed(what: string, error: { message: string }): never {
   throw new Error(`The database refused to ${what}: ${error.message}`);
 }
 
+/**
+ * Every finished (`done`) task the member owns, most recently finished first.
+ * It filters on the owner itself rather than leaning on row-level security,
+ * so it stays "their own" even if members are later allowed to see each
+ * other's tasks. A failed read throws, so a page can never mistake it for
+ * "none finished".
+ */
+export async function readFinishedTasks(supabase: Client, ownerId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select()
+    .eq("owner_id", ownerId)
+    .eq("status", "done")
+    .order("completed_at", { ascending: false, nullsFirst: false });
+  if (error) failed("read your finished tasks", error);
+  return (data ?? []).map(fromRow);
+}
+
 export function supabaseTaskStore(supabase: Client, memberId: string): TaskStore {
   return {
     async insert(row) {

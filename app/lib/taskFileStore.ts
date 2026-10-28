@@ -24,6 +24,7 @@ export function fileFromRow(row: any): TaskFile {
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     tool: row.tool,
+    commentId: row.comment_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -45,6 +46,7 @@ export function supabaseTaskFileStore(supabase: Client, memberId: string): TaskF
           content_type: row.contentType,
           size_bytes: row.sizeBytes,
           tool: row.tool,
+          comment_id: row.commentId,
         })
         .select()
         .single();

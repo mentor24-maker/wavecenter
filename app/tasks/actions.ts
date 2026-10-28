@@ -3,8 +3,9 @@
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
  * core (createTask, updateTask, setPoints, castVote, setAgentsOn, attachFile,
- * removeFile, deleteTaskWithFiles) as the tool `wavecenter`, acting as the
- * signed-in member.
+ * removeFile, deleteTaskWithFiles, addComment, editComment,
+ * removeCommentWithFiles) as
+ * the tool `wavecenter`, acting as the signed-in member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
@@ -17,13 +18,23 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { setAgentsOn } from "../../core/agents.ts";
-import { attachFile, checkFile, deleteTaskWithFiles, filePath, removeFile } from "../../core/files.ts";
+import { addComment, editComment } from "../../core/comments.ts";
+import {
+  attachFile,
+  checkFile,
+  commentFilePath,
+  deleteTaskWithFiles,
+  filePath,
+  removeCommentWithFiles,
+  removeFile,
+} from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
 import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
+import { supabaseTaskCommentStore } from "../lib/taskCommentStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 import { supabaseVoteStore } from "../lib/voteStore";
@@ -187,15 +198,18 @@ export async function switchAgents(on: boolean): Promise<SaveResult> {
  * 2. The browser sends the file straight to storage with the link.
  * 3. `finishUpload` records it on the task through core. If that fails, core
  *    deletes the stored copy again, so nothing is left half-saved.
+ *
+ * Given a `commentId`, the file goes on that Discussion comment instead, in
+ * the task's comments folder (core/files.ts).
  */
 export type UploadTicket = { ok: true; path: string; uploadUrl: string } | { ok: false; error: string };
 
-export async function startUpload(taskId: string, name: string, sizeBytes: number): Promise<UploadTicket> {
+export async function startUpload(taskId: string, name: string, sizeBytes: number, commentId: string | null = null): Promise<UploadTicket> {
   let ticket = { path: "", uploadUrl: "" };
   const result = await save("get the file ready to upload", async (store, supabase, memberId) => {
     checkFile(name, sizeBytes);
     if (!(await store.get(taskId))) throw new CoreError(`No task ${taskId} was found that you may attach a file to.`);
-    const path = filePath(memberId, taskId, randomUUID(), name);
+    const path = (commentId ? commentFilePath : filePath)(memberId, taskId, randomUUID(), name);
     const { data, error } = await supabase.storage.from(TASK_FILES_BUCKET).createSignedUploadUrl(path);
     if (error) throw new Error(`File storage refused the upload: ${error.message}`);
     ticket = { path, uploadUrl: data.signedUrl };
@@ -209,12 +223,32 @@ export async function finishUpload(file: {
   name: string;
   contentType: string;
   sizeBytes: number;
+  commentId?: string | null;
 }): Promise<SaveResult> {
   return save("attach the file", (store, supabase, memberId) =>
-    attachFile(store, supabaseTaskFileStore(supabase, memberId), file, WAVECENTER_TOOL));
+    attachFile(store, supabaseTaskFileStore(supabase, memberId), file, WAVECENTER_TOOL, supabaseTaskCommentStore(supabase)));
 }
 
 export async function removeAttachment(fileId: string): Promise<SaveResult> {
   return save("remove the file", (_store, supabase, memberId) =>
     removeFile(supabaseTaskFileStore(supabase, memberId), fileId, WAVECENTER_TOOL));
+}
+
+/** Post a comment in a task's Discussion. Says the comment's id, so files picked for it can follow it. */
+export async function postComment(taskId: string, body: string): Promise<SaveResult & { id?: string }> {
+  let id = "";
+  const result = await save("post the comment", async (store, supabase) => {
+    id = (await addComment(store, supabaseTaskCommentStore(supabase), taskId, body, WAVECENTER_TOOL)).id;
+  });
+  return result.ok ? { ok: true, id } : result;
+}
+
+export async function changeComment(id: string, body: string): Promise<SaveResult> {
+  return save("save the comment", (_store, supabase) => editComment(supabaseTaskCommentStore(supabase), id, body, WAVECENTER_TOOL));
+}
+
+/** Removing a comment removes its files from storage too, not just the rows. */
+export async function deleteComment(id: string): Promise<SaveResult> {
+  return save("remove the comment", (_store, supabase, memberId) =>
+    removeCommentWithFiles(supabaseTaskCommentStore(supabase), supabaseTaskFileStore(supabase, memberId), id, WAVECENTER_TOOL));
 }

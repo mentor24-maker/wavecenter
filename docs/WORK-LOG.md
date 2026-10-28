@@ -15,6 +15,67 @@ reads "Oct 27, 4:14pm" in Mountain time, so you can see at a glance when
 each task came in. Showing who created each task waits for member
 profiles, as Dane chose.
 
+## 2026-10-28 — Discussion comments can carry pictures and files (#36)
+
+A comment in a task's Discussion can now have files attached. Under the
+comment box there is an "attach" link; pick a picture or a document, write
+the comment and post it. A picture shows under the comment as a small
+thumbnail, anything else as a download link, and both are still there after
+a reload. A file over 10 MB is refused straight away with a plain message.
+Removing a comment, or deleting its task, removes its files from storage
+too, so nothing is left behind that nobody can reach. A comment's files are
+as private as the comment itself, and they stay out of the task's own file
+list. A live check with two throwaway members proved neither can see,
+add to or remove the other's comment files.
+
+## 2026-10-27 — Every task has a Discussion thread (#31)
+
+Each task now has a Discussion: a speech-bubble icon opens a thread of
+comments under it, oldest first, where the story of the task can be told.
+Dane can post, edit and delete his comments. Each one shows who wrote it,
+a Human or AI label and the time in Mountain time. A search box and a
+Human / AI selector narrow the thread, and when nothing matches the thread
+says so instead of looking empty. A comment from an AI agent can be deleted
+but not edited here, so it can never be relabelled as Human by mistake.
+Comments are plain text and always shown as text, so nothing pasted into
+one can run in the browser. The new comments table keeps each member's
+comments to themselves from the moment it was created, and a live check
+proved it. This is the first of three slices: rich text with links, and
+attachments on comments, are queued next.
+
+---
+
+## 2026-10-27 — Members have a profile page, anonymous by default (#30)
+
+There was nowhere for a member to say who they are, or to choose to stay
+unnamed. Now a **Profile** link in the header opens "Your profile", where a
+member can set a display name, pick one of eight built-in avatars, write a
+short bio, and choose who may see it: Anonymous, Private or Public. Every
+profile starts **Anonymous**, as WaveCenter's privacy article promises, and
+the page says so. Only the member can read their own profile, whatever they
+choose; a live check proved one member cannot read or change another's.
+Saving a profile earns a point in the game layer like every other change. A
+save that fails says so in red and is never shown as saved. Masks, Filters
+and selling your own data come later.
+
+---
+
+## 2026-10-27 — The Game page shows the points from your finished tasks (#29)
+
+The Game page already counted points for each thing a member does. It did
+not show the points set on the tasks they have actually finished. Now it has
+a "Your finished tasks" section: the total points of every task marked done,
+how many that is, and a list with each task's title, points and the date it
+was finished (Mountain time). Tasks still to do add nothing. With nothing
+finished yet, the page says so and points back to the list. If the tasks
+cannot be read, it says that, rather than showing a zero that is not true.
+The sum is worked out in one shared place in WaveCenter's core, with tests,
+so every future tool scores the same way. A visitor who is not signed in is
+now sent straight to the sign-in page. Leaderboards and kinds of
+contribution wait for their own tickets, as Dane chose.
+
+---
+
 ## 2026-10-27 — Every member sees every task and votes on its points and priority (#32)
 
 Until now each member saw only their own tasks, and a task's points and
