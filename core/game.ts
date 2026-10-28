@@ -26,7 +26,7 @@ import type { Task } from './tasks.ts';
 
 /**
  * Every kind of engagement there is. Each one has a row in
- * `game_scoring_rules`; a test checks the migration seeds exactly these.
+ * `game_scoring_rules`; a test checks the migrations seed exactly these.
  */
 export const ENGAGEMENT_KINDS = [
   'made_task',
@@ -37,6 +37,7 @@ export const ENGAGEMENT_KINDS = [
   'removed_file',
   'handed_to_agents',
   'switched_agents',
+  'changed_profile',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -95,7 +96,7 @@ export interface EngagementLedger {
 }
 
 /**
- * The rules WaveCenter starts with, as the migration seeds them (a test keeps
+ * The rules WaveCenter starts with, as the migrations seed them (a test keeps
  * the two in step). The values are placeholders until Dane, or later a
  * members' vote, sets them; for now they change only through a migration.
  */
@@ -108,6 +109,7 @@ export const STARTING_SCORING_RULES: readonly ScoringRule[] = [
   { kind: 'removed_file', name: 'Removed a file', description: 'Took a file off a task.', criteria: 'A file is removed from a task on its own, not by deleting the task.', points: 1, position: 6 },
   { kind: 'handed_to_agents', name: 'Handed a task to AI agents', description: 'A task you ticked was filed for the AI agents to build.', criteria: 'A ticked task is given its Loop Queue ticket.', points: 1, position: 7 },
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
+  { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */

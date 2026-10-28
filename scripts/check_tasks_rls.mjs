@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Prove, through the real Supabase API, that one member cannot see or change
- * another member's tasks (row-level security on `public.tasks`), settings, or
- * attached files (`public.task_files` and the private `task-files` bucket),
+ * another member's tasks (row-level security on `public.tasks`), settings,
+ * profile (`public.member_profiles`), or attached files (`public.task_files` and the private `task-files` bucket),
  * and that the game layer scores every change while letting each member read
  * only their own engagements and nobody write them (`public.engagements`).
  *
@@ -23,6 +23,8 @@
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
+import { ENGAGEMENT_KINDS } from '../core/game.ts';
+import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, filePath, removeFile } from '../core/files.ts';
 import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
@@ -84,6 +86,26 @@ function settingsStore(member) {
       });
       if (saved.status >= 300) throw new Error(`member_settings save failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
       return saved.json?.[0] ? { agentsOn: saved.json[0].agents_on, tool: saved.json[0].tool } : null;
+    },
+  };
+}
+
+/** A MemberProfileStore (core/profiles.ts) over REST, acting as one member. */
+function profileStore(member) {
+  const fromRow = (r) => r && { displayName: r.display_name, avatar: r.avatar, bio: r.bio, visibility: r.visibility, tool: r.tool };
+  return {
+    async get() {
+      const got = await call(`/rest/v1/member_profiles?owner_id=eq.${member.id}`, { token: member.token });
+      if (got.status >= 300) throw new Error(`member_profiles read failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json?.[0]) ?? null;
+    },
+    async save(p) {
+      const saved = await call('/rest/v1/member_profiles?on_conflict=owner_id', {
+        method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation',
+        body: { owner_id: member.id, display_name: p.displayName, avatar: p.avatar, bio: p.bio, visibility: p.visibility, tool: p.tool },
+      });
+      if (saved.status >= 300) throw new Error(`member_profiles save failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+      return fromRow(saved.json?.[0]) ?? null;
     },
   };
 }
@@ -203,6 +225,33 @@ try {
   const stillOn = await admin(`/rest/v1/member_settings?owner_id=eq.${a.id}&select=agents_on`);
   check('A’s switch is still on afterwards', stillOn.json?.[0]?.agents_on === true, `agents_on ${stillOn.json?.[0]?.agents_on}`);
 
+  // member_profiles: a profile starts anonymous, and is the member's own whatever its visibility.
+  const fresh = await loadProfile(profileStore(a));
+  check('A’s profile starts anonymous, with no name', fresh.visibility === 'anonymous' && fresh.displayName === null, JSON.stringify(fresh));
+  const profA = await saveProfile(profileStore(a), { displayName: 'A', avatar: 'sun', bio: 'A’s bio', visibility: 'public' }, TOOL);
+  check('A can save A’s own profile through core', profA.displayName === 'A' && profA.visibility === 'public' && profA.tool === TOOL, JSON.stringify(profA));
+  await saveProfile(profileStore(b), { displayName: 'B', avatar: 'moon', bio: null, visibility: 'private' }, TOOL);
+
+  const profB = await call('/rest/v1/member_profiles?select=owner_id,display_name', { token: b.token });
+  check('B sees only B’s own profile, even though A’s is public', profB.status === 200 && profB.json.length === 1 && profB.json[0].owner_id === b.id, `sees ${JSON.stringify(profB.json)}`);
+
+  const renameA = await call(`/rest/v1/member_profiles?owner_id=eq.${a.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { display_name: 'hacked' } });
+  check('B cannot change A’s profile', renameA.status >= 400 || (Array.isArray(renameA.json) && renameA.json.length === 0), `HTTP ${renameA.status} ${JSON.stringify(renameA.json)}`);
+
+  const forgeProf = await call('/rest/v1/member_profiles', { method: 'POST', token: b.token, body: { owner_id: a.id, display_name: 'forged' } });
+  check('B cannot write a profile in A’s name', forgeProf.status >= 400, `HTTP ${forgeProf.status} ${forgeProf.json?.message ?? ''}`);
+
+  const badAvatar = await call('/rest/v1/member_profiles?on_conflict=owner_id', {
+    method: 'POST', token: a.token, prefer: 'resolution=merge-duplicates', body: { owner_id: a.id, avatar: 'https://example.com/x.png', visibility: 'everyone' },
+  });
+  check('the database refuses an avatar or visibility core does not know', badAvatar.status >= 400, `HTTP ${badAvatar.status} ${badAvatar.json?.message ?? ''}`);
+
+  const anonProf = await call('/rest/v1/member_profiles?select=owner_id');
+  check('a signed-out visitor sees no profiles', anonProf.status >= 400 || (Array.isArray(anonProf.json) && anonProf.json.length === 0), `HTTP ${anonProf.status} ${anonProf.json?.message ?? JSON.stringify(anonProf.json)}`);
+
+  const stillA = await admin(`/rest/v1/member_profiles?owner_id=eq.${a.id}&select=display_name,avatar`);
+  check('A’s profile is unchanged afterwards', stillA.json?.[0]?.display_name === 'A' && stillA.json?.[0]?.avatar === 'sun', JSON.stringify(stillA.json));
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -268,7 +317,7 @@ try {
   const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
-  const expected = ['made_task', 'finished_task', 'switched_agents', 'attached_file', 'removed_file', 'made_task', 'made_task', 'deleted_task'];
+  const expected = ['made_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file', 'made_task', 'made_task', 'deleted_task'];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
   check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
     JSON.stringify(ledgerA.json));
@@ -278,7 +327,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 12, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 13, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
@@ -297,7 +346,7 @@ try {
   check('A cannot change what an engagement is worth', bumpRule.status >= 400 || (Array.isArray(bumpRule.json) && bumpRule.json.length === 0), `HTTP ${bumpRule.status} ${JSON.stringify(bumpRule.json)}`);
 
   const rulesA = await call('/rest/v1/game_scoring_rules?select=kind,points', { token: a.token });
-  check('a member can read the scoring rules', rulesA.status === 200 && rulesA.json.length === 8, `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
+  check('a member can read the scoring rules', rulesA.status === 200 && rulesA.json.length === ENGAGEMENT_KINDS.length, `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
   const anonEng = await call('/rest/v1/engagements?select=kind');
   const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
   check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);

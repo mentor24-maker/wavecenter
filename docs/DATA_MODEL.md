@@ -1,7 +1,8 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is five tables: `tasks`;
+What WaveCenter stores, in plain words. Today that is six tables: `tasks`;
 `member_settings`, which holds each member's "Launch AI Agents" switch;
+`member_profiles`, each member's own profile;
 `task_files`, the files attached to tasks, whose stored copies live in a
 private file-storage bucket; and the game layer's two, `game_scoring_rules`
 and `engagements`.
@@ -12,7 +13,8 @@ added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 `20261012230000_agent_handoff.sql` added `agent_ticket_url`;
 `20261013040000_task_files.sql` added `task_files` and the `task-files`
 bucket; `20261027120000_game_layer.sql` added the game layer, and
-`20261027130000_game_layer_cascades.sql` fixed how it treats deletes); this page
+`20261027130000_game_layer_cascades.sql` fixed how it treats deletes;
+`20261028120000_member_profiles.sql` added `member_profiles`); this page
 explains them.
 
 ## The `tasks` table
@@ -129,6 +131,35 @@ security was on from the moment this table was made: a member reads and
 changes only their own row, and a signed-out visitor gets nothing.
 `npm run check:tasks-rls` proves it for this table too.
 
+### A member's profile
+
+Each member has a profile page, `/profile`: a display name, an avatar, a
+short bio and who may see them. It follows WaveCenter's privacy promise
+(https://wavecenter.com/privacy-and-security-first/): a profile starts
+**completely anonymous**, and a member reveals more only when they choose
+to. It lives in `member_profiles`, one row per member:
+
+| Column | What it holds |
+|---|---|
+| `owner_id` | The member the profile belongs to. |
+| `display_name` | The name they go by, up to 50 characters. Empty means none: they are shown by their avatar alone. |
+| `avatar` | One of WaveCenter's built-in avatars (wave, sun, moon, star, leaf, mountain, flame, shell). Starts as the wave. No photo uploads yet. |
+| `bio` | A short bio, up to 280 characters, or empty. |
+| `visibility` | `anonymous` (the start: nobody sees anything but the avatar), `private` (only the member) or `public` (other signed-in members see the name and bio). A member with no row yet counts as anonymous. |
+| `tool` | Which tool last changed the row, as on `tasks`. |
+| `updated_at` | When it last changed. Kept current automatically. |
+
+There is no page yet that shows one member's profile to another, so today
+nobody but the member can read their row, whatever they chose; the choice is
+recorded now so that page can honour it when it comes. Masks, Filters and
+vendor access from the privacy article are later work.
+
+The profile only changes through `saveProfile` in `core/profiles.ts`, which
+checks every field; the database checks the same limits. Row-level security
+was on from the moment this table was made: a member reads and changes only
+their own row, and a signed-out visitor gets nothing.
+`npm run check:tasks-rls` proves it for this table too.
+
 ### Files attached to a task
 
 A member can attach files to a task: a logo, a screenshot, a document. Each
@@ -191,7 +222,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
 - **`game_scoring_rules`** is the list of kinds of engagement and what each
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
-  agents on or off. Each has a name, a description, exactly what counts, and
+  agents on or off, changed your profile. Each has a name, a description, exactly what counts, and
   its points. Every kind is worth 1 point except finishing a task, worth 5.
   These are placeholders until Dane, or later a members' vote, sets them; for
   now they change only through a migration, and nobody can edit them on a
@@ -203,7 +234,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   someone already earned. A row about a deleted task stays.
 
 **The database writes the ledger itself.** Every time a task, an attached
-file or the AI agents switch is saved, the database records the engagement
+file, the AI agents switch or a profile is saved, the database records the engagement
 in the same step as the save. The two go through together or not at all: if
 the engagement cannot be written, the save fails and the screen says so. No
 tool, and no page, can choose how many points something is worth, and a
