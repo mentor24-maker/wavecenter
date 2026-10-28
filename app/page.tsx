@@ -6,13 +6,14 @@ import { isImage } from "../core/files.ts";
 import { commentFromRow } from "./lib/taskCommentStore";
 import { TASK_FILES_BUCKET } from "./lib/taskFileStore";
 import SiteHeader from "./SiteHeader";
-import TaskList, { type ListFile } from "./tasks/TaskList";
+import TaskList, { type ListFile, type ListVote } from "./tasks/TaskList";
 
 /**
  * Signed out: the placeholder page, which says what this is, plus a way to
- * sign in. Signed in: "Your tasks", the to-do list, read through the member's
- * own session so row-level security returns only their rows. Every empty or
- * failed state says why (engineering rule 7).
+ * sign in. Signed in: the to-do list with every member's tasks, open and done,
+ * and every member's votes on them (Dane, 2026-10-27), read through the
+ * member's own session. A member changes only their own tasks and votes on
+ * any. Every empty or failed state says why (engineering rule 7).
  */
 export default async function Home() {
   const supabase = await supabaseForRequest();
@@ -96,7 +97,7 @@ async function loadComments(supabase: Supabase): Promise<{ comments: TaskComment
 }
 
 async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
-  const [{ data: tasks, error }, settings, files, comments] = await Promise.all([
+  const [{ data: tasks, error }, settings, files, comments, votes] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -105,6 +106,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
     loadFiles(supabase),
     loadComments(supabase),
+    supabase.from("task_votes").select("task_id, member_id, points, priority"),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
   // not an error. A failed read is an error, and the switch says so.
@@ -116,10 +118,13 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     <>
       <SiteHeader email={email} wide />
       <main className="wide">
-        <h1>Your tasks</h1>
+        <h1>Tasks</h1>
+        <p className="note">
+          Every member&rsquo;s tasks. You can change your own, and vote on what any task is worth and how urgent it is.
+        </p>
         {error ? (
           <p className="error" role="alert">
-            Your tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
+            The tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
           </p>
         ) : (
           <TaskList
@@ -139,6 +144,16 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
             agents={agents}
             files={files}
             comments={comments}
+            votes={
+              votes.error
+                ? { votes: [], error: votes.error.message }
+                : {
+                    votes: (votes.data ?? []).map(
+                      (v): ListVote => ({ taskId: v.task_id, memberId: v.member_id, points: v.points, priority: v.priority }),
+                    ),
+                    error: null,
+                  }
+            }
             userId={userId}
           />
         )}

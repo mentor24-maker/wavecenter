@@ -19,12 +19,19 @@
  * Points or Created sorts by it; the filter bar above narrows by text,
  * priority, status, points and creator. Both work on the tasks already loaded
  * (listView.ts), and sub-tasks stay under their parent either way.
+ *
+ * Every member's tasks are listed, each saying whose it is (Dane,
+ * 2026-10-27). A member changes only their own; on anyone's task they can
+ * vote on its points and priority, and see the average and how many have
+ * voted (core/votes.ts). Once a task has votes, the average is its points
+ * and priority, so its owner's boxes give way to the average.
  */
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { agentOrder } from "../../core/agents.ts";
 import type { TaskComment } from "../../core/comments.ts";
 import { checkFile } from "../../core/files.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
+import { summarizeVotes } from "../../core/votes.ts";
 import {
   addTask,
   changePoints,
@@ -38,6 +45,7 @@ import {
   removeTask,
   startUpload,
   switchAgents,
+  vote,
   type SaveResult,
 } from "./actions";
 import Discussion from "./Discussion";
@@ -80,6 +88,14 @@ export interface ListFile {
   name: string;
   image: boolean;
   url: string | null;
+}
+
+/** One member's vote on a task; either part may be missing. */
+export interface ListVote {
+  taskId: string;
+  memberId: string;
+  points: number | null;
+  priority: TaskPriority | null;
 }
 
 /** The member's "Launch AI Agents" switch; `on` is null if it could not be read. */
@@ -150,10 +166,13 @@ export default function TaskList({
   agents,
   files,
   comments,
+  votes,
   userId,
 }: {
   tasks: ListTask[];
   agents: AgentsSwitch;
+  /** Every member's votes, or why they could not be loaded. */
+  votes: { votes: ListVote[]; error: string | null };
   /** The signed-in member, so the creator filter can say "You". */
   userId: string;
   /** Every attached file, or why they could not be loaded. */
@@ -226,18 +245,23 @@ export default function TaskList({
 
   const done = tasks.filter((t) => t.status === "done");
   const open = tasks.filter((t) => t.status !== "done");
-  const topLevel = tasks.filter((t) => !t.parentTaskId);
+  // The AI agents, the tick boxes and the parent lists are about the member's own tasks.
+  const own = tasks.filter((t) => t.ownerId === userId);
+  const ownOpen = own.filter((t) => t.status !== "done");
+  const topLevel = own.filter((t) => !t.parentTaskId);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const hasChildren = new Set(tasks.map((t) => t.parentTaskId).filter(Boolean));
-  const inLine = agentOrder(tasks);
+  const inLine = agentOrder(own);
   const placeInLine = new Map(inLine.map((t, i) => [t.id, i + 1]));
   const filesByTask = new Map<string, ListFile[]>();
   for (const f of files.files) filesByTask.set(f.taskId, [...(filesByTask.get(f.taskId) ?? []), f]);
   const commentsByTask = new Map<string, TaskComment[]>();
   for (const c of comments.comments) commentsByTask.set(c.taskId, [...(commentsByTask.get(c.taskId) ?? []), c]);
-  const withAgents = open.filter((t) => t.agentTicketUrl).length;
+  const votesByTask = new Map<string, ListVote[]>();
+  for (const v of votes.votes) votesByTask.set(v.taskId, [...(votesByTask.get(v.taskId) ?? []), v]);
+  const withAgents = ownOpen.filter((t) => t.agentTicketUrl).length;
   // Tick-all covers the tasks still waiting; one already handed over stays with its ticket.
-  const tickable = open.filter((t) => !t.agentTicketUrl);
+  const tickable = ownOpen.filter((t) => !t.agentTicketUrl);
   const allTicked = tickable.length > 0 && tickable.every((t) => t.agentSelected);
   const someTicked = tickable.some((t) => t.agentSelected);
   const filtering = isFiltering(filter);
@@ -246,11 +270,19 @@ export default function TaskList({
   const shownDone = sectionTasks(shown, contextOnly, (t) => t.status === "done");
   const creators = [...new Set(tasks.map((t) => t.ownerId))].sort((a, b) => (a === userId ? -1 : b === userId ? 1 : 0));
 
-  const row = (t: ListTask, inSection: ListTask[], sub = false) => (
+  const row = (t: ListTask, inSection: ListTask[], sub = false) => {
+    const taskVotes = votesByTask.get(t.id) ?? [];
+    const myVote = taskVotes.find((v) => v.memberId === userId) ?? null;
+    return (
     <TaskRow
       // A fresh row whenever the saved values change, so the boxes show them.
-      key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.parentTaskId}`}
+      key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.priority}:${t.parentTaskId}:${myVote?.points}:${myVote?.priority}`}
       task={t}
+      owner={t.ownerId === userId ? "you" : `member ${t.ownerId.slice(0, 8)}`}
+      mine={t.ownerId === userId}
+      votes={taskVotes}
+      myVote={myVote}
+      votesError={votes.error}
       sub={sub}
       context={contextOnly.has(t.id)}
       parentTitle={t.parentTaskId && !inSection.some((s) => s.id === t.parentTaskId) ? byId.get(t.parentTaskId)?.title : undefined}
@@ -263,7 +295,8 @@ export default function TaskList({
       pending={pending}
       run={(action) => run(t.id, action)}
     />
-  );
+    );
+  };
 
   /**
    * A section's top-level tasks, each followed by its sub-tasks in that
@@ -418,6 +451,11 @@ export default function TaskList({
           Discussion comments could not be loaded: {comments.error}. They have not been lost; try reloading the page.
         </p>
       )}
+      {votes.error && (
+        <p className="error" role="alert">
+          Votes could not be loaded: {votes.error}. No vote has been lost, but voting is off until you reload the page.
+        </p>
+      )}
 
       {tasks.length === 0 ? (
         <p className="note">No tasks yet — add your first one above.</p>
@@ -497,7 +535,7 @@ export default function TaskList({
             <p className="note">Nothing open — every task is done.</p>
           ) : (
             <>
-              <p className="note hint">Tick the AI box on each task agents should work on; the top box ticks every open task.</p>
+              <p className="note hint">Tick the AI box on each of your tasks agents should work on; the top box ticks every open task of yours.</p>
               {shownOpen.length ? (
                 <ul className="tasks" role="table" aria-label="Open tasks">
                   {head(
@@ -565,6 +603,11 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
 
 function TaskRow({
   task,
+  owner,
+  mine,
+  votes,
+  myVote,
+  votesError,
   sub,
   context,
   parentTitle,
@@ -578,6 +621,16 @@ function TaskRow({
   run,
 }: {
   task: ListTask;
+  /** Whose task it is, in words: "you" or "member 1a2b3c4d". */
+  owner: string;
+  /** The signed-in member's own task, so they may change it. */
+  mine: boolean;
+  /** Every member's votes on it. */
+  votes: ListVote[];
+  /** The signed-in member's own vote on it, if any. */
+  myVote: ListVote | null;
+  /** Set when votes could not be loaded: then nobody can vote until a reload. */
+  votesError: string | null;
   /** Shown indented under its parent. */
   sub: boolean;
   /** Shown only because a sub-task of it matches the filter, so dimmed. */
@@ -603,8 +656,13 @@ function TaskRow({
   const [expanded, setExpanded] = useState(false);
   const [discussing, setDiscussing] = useState(false);
   const [points, setPointsText] = useState(String(task.points));
+  const [votePoints, setVotePoints] = useState(myVote?.points == null ? "" : String(myVote.points));
   const attachBox = useRef<HTMLInputElement>(null);
   const done = task.status === "done";
+  const summary = summarizeVotes(votes);
+  // Once members vote on a part, the average decides it and the owner's box gives way (core/votes.ts).
+  const pointsByVote = summary.pointsVotes > 0;
+  const priorityByVote = summary.priorityVotes > 0;
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
@@ -632,10 +690,25 @@ function TaskRow({
     if (!saved) setPointsText(String(task.points));
   }
 
+  /** Save the member's points vote; an emptied box withdraws it. */
+  async function saveVotePoints(e?: FormEvent) {
+    e?.preventDefault();
+    const was = myVote?.points == null ? "" : String(myVote.points);
+    if (votePoints.trim() === was) return;
+    const value = Number(votePoints);
+    const saved = await run(async () =>
+      votePoints.trim() === ""
+        ? vote(task.id, { points: null })
+        : !Number.isInteger(value)
+          ? { ok: false, error: `A points vote must be a whole number, like 0, 3 or 10; "${votePoints}" is not one.` }
+          : vote(task.id, { points: value }));
+    if (!saved) setVotePoints(was);
+  }
+
   return (
     <li className={["task", done && "done", sub && "sub", context && "context"].filter(Boolean).join(" ")} role="row">
       <span className="cell" role="cell">
-        {!done && !task.agentTicketUrl && (
+        {mine && !done && !task.agentTicketUrl && (
           <input
             type="checkbox"
             className="ai"
@@ -651,7 +724,8 @@ function TaskRow({
           type="checkbox"
           aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
           checked={done}
-          disabled={pending}
+          disabled={pending || !mine}
+          title={mine ? undefined : `Only ${owner} can tick this off`}
           onChange={() => run(() => markDone(task.id, !done))}
         />
       </span>
@@ -699,20 +773,25 @@ function TaskRow({
         </span>
       )}
       <span className="col-priority" role="cell">
-        <select
-          aria-label={`Priority of "${task.title}"`}
-          value={task.priority}
-          disabled={pending}
-          onChange={(e) => run(() => changePriority(task.id, e.target.value as TaskPriority))}
-        >
-          {TASK_PRIORITIES.map((p) => (
-            <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
-          ))}
-        </select>
+        {mine && !priorityByVote ? (
+          <select
+            aria-label={`Priority of "${task.title}"`}
+            value={task.priority}
+            disabled={pending}
+            onChange={(e) => run(() => changePriority(task.id, e.target.value as TaskPriority))}
+          >
+            {TASK_PRIORITIES.map((p) => (
+              <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+            ))}
+          </select>
+        ) : (
+          <span title={priorityByVote ? "The average of members' votes" : undefined}>{PRIORITY_LABEL[task.priority]}</span>
+        )}
       </span>
-      {/* A done task's points are locked (core/points.ts): the column shows the number, with no box to change it. */}
-      {done ? (
-        <span className="col-points" role="cell">
+      {/* A done task's points are locked (core/points.ts), voted points are the average, and only the
+          owner may set their own: otherwise the column shows the number, with no box to change it. */}
+      {done || !mine || pointsByVote ? (
+        <span className="col-points" role="cell" title={pointsByVote && !done ? "The average of members' votes" : undefined}>
           <span className="points">{task.points}</span>
           <span className="unit note">pts</span>
         </span>
@@ -734,9 +813,12 @@ function TaskRow({
       )}
       <span className="col-created note" role="cell">
         <time dateTime={task.createdAt} title={fullDate(task.createdAt)}>{shortDate(task.createdAt)}</time>
+        <span className="owner">by {owner}</span>
       </span>
       <span className="col-parent" role="cell">
-        {parents ? (
+        {!mine ? (
+          <span className="note">{task.parentTaskId ? "Sub-task" : "—"}</span>
+        ) : parents ? (
           <select
             aria-label={`Make "${task.title}" a sub-task of`}
             value={task.parentTaskId ?? ""}
@@ -753,6 +835,7 @@ function TaskRow({
         )}
       </span>
       <span className="col-actions" role="cell">
+        {mine && (<>
         <button
           type="button"
           className="icon-button"
@@ -808,6 +891,7 @@ function TaskRow({
         >
           <Icon name="delete" />
         </button>
+        </>)}
       </span>
       {files.length > 0 && (
         <div className="full" role="cell">
@@ -825,14 +909,71 @@ function TaskRow({
                 ) : (
                   <a href={f.url}>{f.name}</a>
                 )}
-                <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
-                  remove
-                </button>
+                {mine && (
+                  <button type="button" className="link" aria-label={`Remove "${f.name}"`} disabled={pending} onClick={() => run(() => removeAttachment(f.id))}>
+                    remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         </div>
       )}
+      <div className="full votes" role="cell">
+        <span className="tally">
+          {votesError
+            ? "Votes could not be loaded"
+            : summary.voters === 0
+            ? "No votes yet"
+            : [
+                summary.points === null ? "No points votes" : `Average ${summary.points} pts`,
+                summary.priority === null ? "no priority votes" : PRIORITY_LABEL[summary.priority],
+                `${summary.voters} vote${summary.voters === 1 ? "" : "s"}`,
+              ].join(" · ")}
+          {done && summary.pointsVotes > 0 && summary.points !== task.points && " (done, so its points stay locked at the value it finished with)"}
+        </span>
+        {votesError ? (
+          <span className="note">Voting is off until the page is reloaded.</span>
+        ) : (
+          <form className="my-vote" aria-label={`Your vote on "${task.title}"`} onSubmit={saveVotePoints}>
+            <span className="note">Your vote:</span>
+            <input
+              aria-label={`Your points vote on "${task.title}"`}
+              className="points"
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              placeholder="pts"
+              value={votePoints}
+              disabled={pending}
+              onChange={(e) => setVotePoints(e.target.value)}
+              onBlur={() => saveVotePoints()}
+            />
+            <select
+              aria-label={`Your priority vote on "${task.title}"`}
+              value={myVote?.priority ?? ""}
+              disabled={pending}
+              onChange={(e) => run(() => vote(task.id, { priority: (e.target.value || null) as TaskPriority | null }))}
+            >
+              <option value="">No priority vote</option>
+              {TASK_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+              ))}
+            </select>
+            {myVote && (
+              <button
+                type="button"
+                className="link"
+                disabled={pending}
+                onClick={() => run(() => vote(task.id, { points: null, priority: null }))}
+              >
+                withdraw my vote
+              </button>
+            )}
+          </form>
+        )}
+      </div>
       {discussing && comments && (
         <div className="full" role="cell">
           <Discussion taskId={task.id} taskTitle={task.title} comments={comments} userId={userId} pending={pending} run={run} />

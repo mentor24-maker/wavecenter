@@ -124,6 +124,22 @@ button.quiet:hover, a.quiet:hover { text-decoration: underline; }
 textarea { width: 100%; resize: vertical; }
 button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default; }
 
+/* The profile page: an avatar picker and the visibility choices. */
+.stack.profile { max-width: 32rem; }
+.profile fieldset { border: 0; padding: 0; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.profile legend { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; }
+.avatars { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem;
+  border: 2px solid var(--line); border-radius: 50%; font-size: 1.4rem; cursor: pointer; background: var(--surface);
+}
+.avatar.chosen { border-color: var(--accent); }
+.avatar:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.avatar input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice { display: flex; align-items: flex-start; gap: 0.5rem; font-weight: 400; }
+.choice input { margin-top: 0.3rem; accent-color: var(--accent); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
 /* The add form: title on one line, details below, then parent and priority. */
 .add { display: flex; flex-direction: column; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
@@ -284,3 +300,11 @@ table.game th { text-align: left; font-size: 0.85rem; color: var(--muted); font-
 table.game th, table.game td { padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.game .num { text-align: right; white-space: nowrap; padding-right: 0; }
 table.game .block { display: block; font-size: 0.9rem; }
+
+/* Whose a task is, under its date; and the vote line under every task. */
+.task .col-created .owner { display: block; color: var(--muted); font-size: 0.8rem; white-space: normal; }
+.task .votes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; padding-left: 3.75rem; font-size: 0.9rem; }
+.task .votes .tally { color: var(--muted); }
+.task .my-vote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0; }
+.task .my-vote .points { width: 4.5rem; min-width: 0; }
+.task .my-vote select { width: auto; }

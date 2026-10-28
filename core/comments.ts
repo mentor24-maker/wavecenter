@@ -75,7 +75,7 @@ export function checkCommentBody(body: unknown): string {
   return trimmed;
 }
 
-/** Add a comment to a task the caller can see, on behalf of `tool`. */
+/** Add a comment to one of the caller's own tasks (`TaskStore.get` returns only those), on behalf of `tool`. */
 export async function addComment(tasks: TaskStore, comments: TaskCommentStore, taskId: string, body: unknown, tool: string): Promise<TaskComment> {
   const row: NewTaskCommentRow = { tool: requireTool(tool), body: checkCommentBody(body), taskId };
   if (!(await tasks.get(taskId))) throw new CoreError(`No task ${taskId} was found that you may comment on.`);

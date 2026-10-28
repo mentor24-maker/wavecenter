@@ -34,8 +34,10 @@ test('every kind has a starting rule, and only finishing a task is worth more th
   for (const rule of STARTING_SCORING_RULES) assert.equal(rule.points, rule.kind === 'finished_task' ? 5 : 1, rule.kind);
 });
 
-test('the migration seeds exactly the starting rules core knows', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261027120000_game_layer.sql', import.meta.url), 'utf8');
+test('the migrations seed exactly the starting rules core knows', () => {
+  const sql = ['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql']
+    .map((file) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'))
+    .join('\n');
   const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
   }));
