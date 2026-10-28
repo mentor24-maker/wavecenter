@@ -164,8 +164,7 @@ export function parseInline(text: string, depth = 0, allowLinks = true): RichInl
       const rest = text.slice(i, i + 2048);
       const bare = AUTOLINK.exec(rest);
       if (bare) {
-        // Trailing punctuation belongs to the sentence, not the address.
-        const url = bare[0].replace(/[.,;:!?'")\]]+$/, '');
+        const url = trimBareAddress(bare[0]);
         const href = safeHref(url);
         if (href && url.length > rest.indexOf(':') + 1) {
           flush();
@@ -224,6 +223,23 @@ function readLink(text: string, start: number): { label: string; url: string; en
   return null;
 }
 
+/**
+ * A bare address without the sentence's punctuation after it. A closing ")"
+ * stays when it pairs with a "(" in the address, as in `…/Foo_(bar)`.
+ */
+function trimBareAddress(raw: string): string {
+  let url = raw;
+  while (/[.,;:!?'")\]]$/.test(url)) {
+    if (url.endsWith(')') && count(url, '(') >= count(url, ')')) break;
+    url = url.slice(0, -1);
+  }
+  return url;
+}
+
+function count(text: string, ch: string): number {
+  return text.split(ch).length - 1;
+}
+
 function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
 }
@@ -259,10 +275,18 @@ export interface TextEdit {
   end: number;
 }
 
+/** How many `*` sit side by side starting at `at`, going forwards (step 1) or backwards (step -1). */
+function starRun(text: string, at: number, step: 1 | -1): number {
+  let n = 0;
+  while (text[at + n * step] === '*') n += 1;
+  return n;
+}
+
 /**
  * Apply a toolbar button to the selected words: wrap them in bold or italic
  * marks, or turn the selected lines into a list. With nothing selected, it
- * puts the marks in and leaves the cursor between them.
+ * puts the marks in and leaves the cursor between them. Pressing Bold or
+ * Italic on words that already have that mark takes it off again.
  */
 export function applyFormat(edit: TextEdit, format: RichFormat): TextEdit {
   const { value, start, end } = edit;
@@ -273,6 +297,28 @@ export function applyFormat(edit: TextEdit, format: RichFormat): TextEdit {
     const lead = chosen.length - chosen.trimStart().length;
     const trail = chosen.length - chosen.trimEnd().length;
     const words = chosen.trim();
+    // Where the chosen words begin and end (with only spaces chosen, the spot after them).
+    const from = words === '' ? end : start + lead;
+    const to = words === '' ? end : end - trail;
+    // `***` is bold and italic together, so two or three stars mean bold, one or three italic.
+    const marked = (stars: number) => (format === 'bold' ? stars >= 2 : stars === 1 || stars === 3);
+
+    // The mark sits just outside the chosen words: take it off.
+    const outside = Math.min(starRun(value, from - 1, -1), starRun(value, to, 1));
+    const underscores = format === 'italic' && value[from - 1] === '_' && value[to] === '_';
+    if ((marked(outside) && !(format === 'bold' && words.includes('**'))) || underscores) {
+      const n = mark.length;
+      const next = value.slice(0, from - n) + value.slice(from, to) + value.slice(to + n);
+      return { value: next, start: from - n, end: to - n };
+    }
+    // The chosen words carry the mark themselves: take it off.
+    const nodes = parseInline(words);
+    if (nodes.length === 1 && nodes[0].type === format) {
+      const n = format === 'bold' ? 2 : 1;
+      const next = value.slice(0, from) + words.slice(n, -n) + value.slice(to);
+      return { value: next, start: from, end: to - 2 * n };
+    }
+
     // Only spaces chosen: put the marks after them, as if nothing were selected.
     if (words === '') {
       const at = end + mark.length;
@@ -288,10 +334,15 @@ export function applyFormat(edit: TextEdit, format: RichFormat): TextEdit {
   const nextBreak = value.indexOf('\n', Math.max(end - (end > start ? 1 : 0), start));
   const lineEnd = nextBreak === -1 ? value.length : nextBreak;
   const lines = value.slice(lineStart, lineEnd).split('\n');
-  const listed = lines.map((line, n) => {
+  let number = 0;
+  const listed = lines.map((line) => {
+    // A blank line between the chosen lines stays blank, not an empty item;
+    // on its own, it starts the first item.
+    if (lines.length > 1 && line.trim() === '') return line;
     // Replace one old list mark only, so "- 1. foo" keeps its "1.".
     const words = BULLET.exec(line)?.[1] ?? NUMBERED.exec(line)?.[2] ?? line;
-    return format === 'bullets' ? `- ${words}` : `${n + 1}. ${words}`;
+    number += 1;
+    return format === 'bullets' ? `- ${words}` : `${number}. ${words}`;
   });
   const block = listed.join('\n');
   const next = value.slice(0, lineStart) + block + value.slice(lineEnd);
@@ -308,7 +359,9 @@ export function applyLink(edit: TextEdit, url: string): TextEdit | null {
   const { value, start, end } = edit;
   // Square brackets would end the link's words early, so they become round ones.
   const words = (value.slice(start, end).trim() || url.trim()).replace(/\[/g, '(').replace(/\]/g, ')').replace(/\n+/g, ' ');
-  const text = `[${words}](${url.trim().replace(/\)/g, '%29')})`;
+  // Both round brackets are written in their encoded form, so the address
+  // always reads back whole, paired or not. A browser treats them the same.
+  const text = `[${words}](${url.trim().replace(/\(/g, '%28').replace(/\)/g, '%29')})`;
   const at = start + text.length;
   return { value: value.slice(0, start) + text + value.slice(end), start: at, end: at };
 }

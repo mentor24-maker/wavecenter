@@ -149,3 +149,53 @@ test('applyFormat replaces only one old list mark', () => {
 test('an escaped pair of marks drops both backslashes', () => {
   assert.deepEqual(parseInline('\\**both\\** and \\*one\\*'), [text('**both** and *one*')]);
 });
+
+test('applyLink output reads back as one link, brackets and all', () => {
+  const linked = applyLink({ value: 'see wiki now', start: 4, end: 8 }, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+  assert.equal(linked?.value, 'see [wiki](https://en.wikipedia.org/wiki/Foo_%28bar%29) now');
+  assert.deepEqual(parseInline(linked!.value), [
+    text('see '),
+    { type: 'link', href: 'https://en.wikipedia.org/wiki/Foo_%28bar%29', children: [text('wiki')] },
+    text(' now'),
+  ]);
+  const odd = applyLink({ value: '', start: 0, end: 0 }, 'https://x.com/a(b');
+  assert.equal(parseInline(odd!.value).length, 1);
+});
+
+test('a bare address keeps a closing bracket that pairs with one inside it', () => {
+  assert.deepEqual(parseInline('see https://en.wikipedia.org/wiki/Foo_(bar) now'), [
+    text('see '),
+    { type: 'link', href: 'https://en.wikipedia.org/wiki/Foo_(bar)', children: [text('https://en.wikipedia.org/wiki/Foo_(bar)')] },
+    text(' now'),
+  ]);
+  assert.deepEqual(parseInline('(see https://x.com/a).'), [
+    text('(see '),
+    { type: 'link', href: 'https://x.com/a', children: [text('https://x.com/a')] },
+    text(').'),
+  ]);
+});
+
+test('Bold or Italic on words that already have the mark takes it off', () => {
+  const once = applyFormat({ value: 'a', start: 0, end: 1 }, 'bold');
+  assert.deepEqual(once, { value: '**a**', start: 2, end: 3 });
+  assert.deepEqual(applyFormat(once, 'bold'), { value: 'a', start: 0, end: 1 });
+  // The marks chosen along with the words.
+  assert.deepEqual(applyFormat({ value: 'x **a** y', start: 2, end: 7 }, 'bold'), { value: 'x a y', start: 2, end: 3 });
+  // Nothing selected: Bold, then Bold again, leaves the box as it was.
+  const empty = applyFormat({ value: 'ab', start: 1, end: 1 }, 'bold');
+  assert.deepEqual(applyFormat(empty, 'bold'), { value: 'ab', start: 1, end: 1 });
+  // Italic toggles on its own, even inside bold.
+  const italic = applyFormat({ value: 'a', start: 0, end: 1 }, 'italic');
+  assert.deepEqual(applyFormat(italic, 'italic'), { value: 'a', start: 0, end: 1 });
+  assert.equal(applyFormat({ value: '**a**', start: 2, end: 3 }, 'italic').value, '***a***');
+  assert.equal(applyFormat({ value: '***a***', start: 3, end: 4 }, 'italic').value, '**a**');
+  assert.equal(applyFormat({ value: '***a***', start: 3, end: 4 }, 'bold').value, '*a*');
+  assert.equal(applyFormat({ value: '_a_', start: 1, end: 2 }, 'italic').value, 'a');
+  // Two bold words chosen together are not one bold run: wrap, don't strip.
+  assert.equal(applyFormat({ value: '**a** b **c**', start: 0, end: 13 }, 'bold').value.startsWith('****'), true);
+});
+
+test('a list button leaves blank lines between the chosen lines blank', () => {
+  assert.equal(applyFormat({ value: 'a\n\nb', start: 0, end: 4 }, 'bullets').value, '- a\n\n- b');
+  assert.equal(applyFormat({ value: 'a\n\nb', start: 0, end: 4 }, 'numbers').value, '1. a\n\n2. b');
+});
