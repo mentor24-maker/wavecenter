@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Discussion comments can carry pictures and files (#36)
+
+A comment in a task's Discussion can now have files attached. Under the
+comment box there is an "attach" link; pick a picture or a document, write
+the comment and post it. A picture shows under the comment as a small
+thumbnail, anything else as a download link, and both are still there after
+a reload. A file over 10 MB is refused straight away with a plain message.
+Removing a comment, or deleting its task, removes its files from storage
+too, so nothing is left behind that nobody can reach. A comment's files are
+as private as the comment itself, and they stay out of the task's own file
+list. A live check with two throwaway members proved neither can see,
+add to or remove the other's comment files.
+
 ## 2026-10-27 — Every task has a Discussion thread (#31)
 
 Each task now has a Discussion: a speech-bubble icon opens a thread of
