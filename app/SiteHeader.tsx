@@ -6,7 +6,8 @@ import { signOut } from "./auth/actions";
  * leads home, and on the right either who is signed in with a way out, or a
  * way in. The page passes what it already knows about the visitor, so the
  * header never asks Supabase a second time. A signed-in member also gets a
- * link to the Game page, where their points are, and to their profile.
+ * menu: Tasks first (the list, at `/`), then the Game page, where their
+ * points are, and their profile.
  * `wide` matches the wider task page, so the bar lines up with the list
  * under it.
  */
@@ -31,6 +32,7 @@ export default function SiteHeader({
         </Link>
         {email ? (
           <div className="who">
+            <Link href="/" className="quiet">Tasks</Link>
             <Link href="/game" className="quiet">Game</Link>
             <Link href="/profile" className="quiet">Profile</Link>
             <span className="email" title={email}>{email}</span>
