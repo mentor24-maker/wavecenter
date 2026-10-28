@@ -309,3 +309,17 @@ table.game .block { display: block; font-size: 0.9rem; }
 .task .my-vote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0; }
 .task .my-vote .points { width: 4.5rem; min-width: 0; }
 .task .my-vote select { width: auto; }
+
+/* A task on its own page: the facts as a two-column list, the full details
+   with their line breaks, and the Discussion, closed until clicked. */
+.task .col-title a.title { color: inherit; text-decoration: none; }
+.task .col-title a.title:hover { text-decoration: underline; }
+.task-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.25rem; margin: 0 0 var(--space); }
+.task-facts dt { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+.task-facts dd { margin: 0; overflow-wrap: anywhere; }
+.task-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-links { padding-left: 1.25rem; margin: 0 0 var(--space); }
+.task-discussion { margin-top: calc(var(--space) * 1.5); }
+.task-discussion summary { cursor: pointer; font-weight: 600; font-size: 1.15rem; }
+.task-discussion .discussion { margin-left: 0; }
+.task-discussion .discussion > h3 { display: none; }

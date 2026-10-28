@@ -21,6 +21,9 @@ export interface ViewTask {
   createdAt: string;
 }
 
+/** How each priority reads on screen. */
+export const PRIORITY_LABEL: Record<TaskPriority, string> = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
+
 export type SortKey = "title" | "priority" | "points" | "created";
 /** No sort means the saved order: position, then date added, as the page reads it. */
 export type Sort = { key: SortKey; ascending: boolean } | null;

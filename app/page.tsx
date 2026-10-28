@@ -1,12 +1,9 @@
 import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
-import type { TaskComment } from "../core/comments.ts";
-import { isImage } from "../core/files.ts";
-import { commentFromRow } from "./lib/taskCommentStore";
-import { TASK_FILES_BUCKET } from "./lib/taskFileStore";
+import { loadComments, loadFiles } from "./lib/taskReads";
 import SiteHeader from "./SiteHeader";
-import TaskList, { type ListFile, type ListVote } from "./tasks/TaskList";
+import TaskList, { type ListVote } from "./tasks/TaskList";
 
 /**
  * Signed out: the placeholder page, which says what this is, plus a way to
@@ -51,53 +48,6 @@ export default async function Home() {
 }
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
-
-/** How long a link to view or download an attached file works: one hour. */
-const FILE_LINK_SECONDS = 60 * 60;
-
-/**
- * Every attached file, with a short-lived signed link to it: the bucket is
- * private, so a link is the only way in, and it stops working after an hour.
- * Pictures get a link that opens them; other files a link that downloads.
- * A Discussion comment's files come too (row-level security returns only
- * those of comments the member can see); the list puts them in the thread.
- */
-async function loadFiles(supabase: Supabase): Promise<{ files: ListFile[]; error: string | null }> {
-  const { data: rows, error } = await supabase.from("task_files").select("id, task_id, comment_id, path, name, content_type").order("created_at");
-  if (error) return { files: [], error: error.message };
-  if (!rows?.length) return { files: [], error: null };
-  const bucket = supabase.storage.from(TASK_FILES_BUCKET);
-  const images = rows.filter((r) => isImage(r.content_type));
-  const others = rows.filter((r) => !isImage(r.content_type));
-  const [shown, downloads] = await Promise.all([
-    images.length ? bucket.createSignedUrls(images.map((r) => r.path), FILE_LINK_SECONDS) : { data: [], error: null },
-    others.length ? bucket.createSignedUrls(others.map((r) => r.path), FILE_LINK_SECONDS, { download: true }) : { data: [], error: null },
-  ]);
-  const linkError = shown.error ?? downloads.error;
-  if (linkError) return { files: [], error: linkError.message };
-  const links = new Map([...(shown.data ?? []), ...(downloads.data ?? [])].map((l) => [l.path, l.signedUrl]));
-  return {
-    files: rows.map((r) => ({
-      id: r.id,
-      taskId: r.task_id,
-      commentId: r.comment_id,
-      name: r.name,
-      image: isImage(r.content_type),
-      url: links.get(r.path) ?? null,
-    })),
-    error: null,
-  };
-}
-
-/**
- * Every Discussion comment on the member's tasks, oldest first. Row-level
- * security returns only their own.
- */
-async function loadComments(supabase: Supabase): Promise<{ comments: TaskComment[]; error: string | null }> {
-  const { data, error } = await supabase.from("task_comments").select().order("created_at");
-  if (error) return { comments: [], error: error.message };
-  return { comments: (data ?? []).map(commentFromRow), error: null };
-}
 
 async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
   const [{ data: tasks, error }, settings, files, comments, votes] = await Promise.all([
