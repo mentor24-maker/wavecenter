@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
+import type { TaskComment } from "../core/comments.ts";
 import { isImage } from "../core/files.ts";
+import { commentFromRow } from "./lib/taskCommentStore";
 import { TASK_FILES_BUCKET } from "./lib/taskFileStore";
 import SiteHeader from "./SiteHeader";
 import TaskList, { type ListFile, type ListVote } from "./tasks/TaskList";
@@ -84,8 +86,18 @@ async function loadFiles(supabase: Supabase): Promise<{ files: ListFile[]; error
   };
 }
 
+/**
+ * Every Discussion comment on the member's tasks, oldest first. Row-level
+ * security returns only their own.
+ */
+async function loadComments(supabase: Supabase): Promise<{ comments: TaskComment[]; error: string | null }> {
+  const { data, error } = await supabase.from("task_comments").select().order("created_at");
+  if (error) return { comments: [], error: error.message };
+  return { comments: (data ?? []).map(commentFromRow), error: null };
+}
+
 async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
-  const [{ data: tasks, error }, settings, files, votes] = await Promise.all([
+  const [{ data: tasks, error }, settings, files, comments, votes] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -93,6 +105,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
       .order("created_at"),
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
     loadFiles(supabase),
+    loadComments(supabase),
     supabase.from("task_votes").select("task_id, member_id, points, priority"),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
@@ -130,6 +143,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
             }))}
             agents={agents}
             files={files}
+            comments={comments}
             votes={
               votes.error
                 ? { votes: [], error: votes.error.message }

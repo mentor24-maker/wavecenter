@@ -4,11 +4,12 @@
  * task and attached file but cannot change or delete another member's tasks
  * (row-level security on `public.tasks`), settings, profile
  * (`public.member_profiles`), or attached files (`public.task_files` and the
- * private `task-files` bucket); that members vote on any task, only ever
- * through their own vote, and the average becomes the task's points and
- * priority (`public.task_votes`); and that the game layer scores every change
- * while letting each member read only their own engagements and nobody write
- * them (`public.engagements`).
+ * private `task-files` bucket); that a member cannot see or change another
+ * member's Discussion comments (`public.task_comments`); that members vote on
+ * any task, only ever through their own vote, and the average becomes the
+ * task's points and priority (`public.task_votes`); and that the game layer
+ * scores every change while letting each member read only their own
+ * engagements and nobody write them (`public.engagements`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -27,6 +28,7 @@
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
+import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS } from '../core/game.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, filePath, removeFile } from '../core/files.ts';
@@ -155,6 +157,35 @@ async function upload(member, path, text) {
   if (signed.status >= 300) return { status: signed.status, json: signed.json };
   const res = await fetch(`${URL_}/storage/v1${signed.json.url}`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: text });
   return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/** A TaskCommentStore (core/comments.ts) over REST, acting as one member. */
+function commentStore(member) {
+  const fromRow = (r) => r && {
+    id: r.id, taskId: r.task_id, ownerId: r.owner_id, body: r.body, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+  return {
+    async insert(row) {
+      const got = await call('/rest/v1/task_comments', {
+        method: 'POST', token: member.token, prefer: 'return=representation',
+        body: { task_id: row.taskId, body: row.body, tool: row.tool },
+      });
+      if (got.status >= 300) throw new Error(`task_comments insert failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json[0]);
+    },
+    async get(id) {
+      return fromRow((await call(`/rest/v1/task_comments?id=eq.${id}`, { token: member.token })).json?.[0]) ?? null;
+    },
+    async update(id, body, tool) {
+      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body: { body, tool } });
+      if (got.status >= 300) throw new Error(`task_comments update failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json?.[0]) ?? null;
+    },
+    async remove(id) {
+      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+      return Array.isArray(got.json) && got.json.length > 0;
+    },
+  };
 }
 
 /** A VoteStore (core/votes.ts) over REST, acting as one member. */
@@ -348,11 +379,58 @@ try {
   const left = Array.isArray(folder.json) ? folder.json.map((o) => o.name) : folder.json;
   check('A can remove A’s own file through core: the stored copy and the row both go', Array.isArray(left) && left.length === 0 && goneRow.json?.length === 0, `left in the folder ${JSON.stringify(left)}, rows ${JSON.stringify(goneRow.json)}`);
 
+  // task_comments: a member's Discussion comments are their own.
+  const commentA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment', TOOL);
+  check('A can comment on A’s own task through core', commentA.ownerId === a.id && commentA.tool === TOOL, JSON.stringify(commentA));
+
+  const commentsB = await call('/rest/v1/task_comments?select=body', { token: b.token });
+  check('B sees none of A’s comments', commentsB.status === 200 && commentsB.json.length === 0, `sees ${JSON.stringify(commentsB.json)}`);
+
+  const editB = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { body: 'taken over' } });
+  check('B cannot change A’s comment', editB.status === 200 && editB.json.length === 0, `HTTP ${editB.status} ${JSON.stringify(editB.json)}`);
+
+  const delCommentB = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('B cannot delete A’s comment', delCommentB.status === 200 && delCommentB.json.length === 0, `HTTP ${delCommentB.status} ${JSON.stringify(delCommentB.json)}`);
+
+  const forgeComment = await call('/rest/v1/task_comments', { method: 'POST', token: b.token, body: { task_id: insA.id, body: 'B on A’s task' } });
+  check('B cannot comment on A’s task', forgeComment.status >= 400, `HTTP ${forgeComment.status} ${forgeComment.json?.message ?? ''}`);
+
+  const forgeCommentOwner = await call('/rest/v1/task_comments', { method: 'POST', token: b.token, body: { task_id: insA.id, owner_id: a.id, body: 'in A’s name' } });
+  check('B cannot add a comment in A’s name', forgeCommentOwner.status >= 400, `HTTP ${forgeCommentOwner.status} ${forgeCommentOwner.json?.message ?? ''}`);
+
+  let refusedComment = '';
+  try { await editComment(commentStore(b), commentA.id, 'taken over', TOOL); } catch (err) { refusedComment = err.message; }
+  check('B cannot change A’s comment through core either', /No comment .* you may change/.test(refusedComment), refusedComment || 'the change went through');
+  refusedComment = '';
+  try { await removeComment(commentStore(b), commentA.id, TOOL); } catch (err) { refusedComment = err.message; }
+  check('B cannot remove A’s comment through core either', /No comment .* you may remove/.test(refusedComment), refusedComment || 'the remove went through');
+  refusedComment = '';
+  try { await addComment(b.store, commentStore(b), insA.id, 'B on A’s task', TOOL); } catch (err) { refusedComment = err.message; }
+  check('B cannot comment on A’s task through core either', /No task .* you may comment on/.test(refusedComment), refusedComment || 'the comment went through');
+
+  const moveComment = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { task_id: taskB } });
+  check('A cannot move A’s comment onto another task', moveComment.status >= 400, `HTTP ${moveComment.status} ${moveComment.json?.message ?? JSON.stringify(moveComment.json)}`);
+
+  const anonComments = await call('/rest/v1/task_comments?select=body');
+  check('a signed-out visitor sees no comments', anonComments.status >= 400 || (Array.isArray(anonComments.json) && anonComments.json.length === 0), `HTTP ${anonComments.status}`);
+
+  const editedA = await editComment(commentStore(a), commentA.id, 'A’s comment, edited', TOOL);
+  const stillComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=body,owner_id,task_id`);
+  check('A can edit A’s own comment through core, and only A’s change landed', editedA.body === 'A’s comment, edited' && stillComment.json?.[0]?.task_id === insA.id && stillComment.json?.[0]?.owner_id === a.id,
+    JSON.stringify(stillComment.json));
+
+  await removeComment(commentStore(a), commentA.id, TOOL);
+  const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
+  check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
+
   // The game layer: every change above was scored by the database, each
   // member sees only their own engagements, and nobody can write the ledger.
   const parent = await createTask(a.store, { title: 'A’s plan' }, TOOL);
   await createTask(a.store, { title: 'A’s step', parentTaskId: parent.id }, TOOL);
+  const onParent = await addComment(a.store, commentStore(a), parent.id, 'goes with the task', TOOL);
   await deleteTask(a.store, parent.id, 'rls-check-deleter');
+  const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
+  check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
   const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;

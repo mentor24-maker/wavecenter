@@ -1,11 +1,11 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is six tables: `tasks`;
+What WaveCenter stores, in plain words. Today that is seven tables: `tasks`;
 `member_settings`, which holds each member's "Launch AI Agents" switch;
 `member_profiles`, each member's own profile;
 `task_files`, the files attached to tasks, whose stored copies live in a
-private file-storage bucket; and the game layer's two, `game_scoring_rules`
-and `engagements`.
+private file-storage bucket; `task_comments`, each task's Discussion; and the
+game layer's two, `game_scoring_rules` and `engagements`.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -14,7 +14,8 @@ added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 `20261013040000_task_files.sql` added `task_files` and the `task-files`
 bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261027130000_game_layer_cascades.sql` fixed how it treats deletes;
-`20261028120000_member_profiles.sql` added `member_profiles`); this page
+`20261028120000_member_profiles.sql` added `member_profiles`;
+`20261028130000_task_comments.sql` added `task_comments`); this page
 explains them.
 
 ## The `tasks` table
@@ -243,6 +244,35 @@ bucket has its own rules: every signed-in member can see and open every
 attached file (since 2026-10-27), but a member adds and deletes only their
 own files, only in their own folder, and only on their own tasks.
 
+### A task's Discussion: `task_comments`
+
+Every task has a Discussion: a thread of comments, oldest first, where the
+story of the task is told (Dane, 2026-10-27). For now it holds only what
+people and agents write; changes to the task are not added to it
+automatically (Dane chose that). One row is one comment:
+
+| Column | What it holds |
+|---|---|
+| `id` | The comment's permanent identifier. |
+| `task_id` | The task it is about. If the task is deleted, its comments go with it. |
+| `owner_id` | The member it belongs to. Filled in automatically. |
+| `body` | What it says, as plain text. Never blank, at most 10,000 characters. It is always shown as text, so nothing typed into a comment can run in the browser. |
+| `tool` | Which tool wrote it, or last edited it. |
+| `created_at` | When it was posted. |
+| `updated_at` | When it was last edited. Kept up to date automatically. |
+
+A comment written through WaveCenter's own screens (the tool `wavecenter`)
+counts as **Human**; one written through any other tool counts as **AI**.
+That rule lives in one place, `commentAuthorKind` in `core/comments.ts`, so
+the screen and any future agent path agree. Comments only change through
+`core/comments.ts`: `addComment`, `editComment` and `removeComment`. An edit
+can change only the words (and the tool that changed them): a comment never
+moves to another task or another author. Comments earn no points yet.
+
+Row-level security was on from the moment `task_comments` was made: a member
+reads, adds, edits and deletes only their own comments, and adds them only to
+their own tasks.
+
 ### Who can see what
 
 Row-level security (the database's own rule about which rows each person may
@@ -260,8 +290,9 @@ never goes to the browser.
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
 members, has each write a task, checks that each can read the other's but
 neither can change or delete it (tasks, settings and attached files alike),
-that each votes only through their own vote and the average lands on the
-task, and then deletes them both along with their files.
+that neither can read, change or delete the other's Discussion comments, that
+each votes only through their own vote and the average lands on the task, and
+then deletes them both along with their files.
 
 ## The game layer: `game_scoring_rules` and `engagements`
 

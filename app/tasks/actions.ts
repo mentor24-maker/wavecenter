@@ -3,8 +3,8 @@
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
  * core (createTask, updateTask, setPoints, castVote, setAgentsOn, attachFile,
- * removeFile, deleteTaskWithFiles) as the tool `wavecenter`, acting as the
- * signed-in member.
+ * removeFile, deleteTaskWithFiles, addComment, editComment, removeComment) as
+ * the tool `wavecenter`, acting as the signed-in member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { setAgentsOn } from "../../core/agents.ts";
+import { addComment, editComment, removeComment } from "../../core/comments.ts";
 import { attachFile, checkFile, deleteTaskWithFiles, filePath, removeFile } from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
 import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
@@ -24,6 +25,7 @@ import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
+import { supabaseTaskCommentStore } from "../lib/taskCommentStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 import { supabaseVoteStore } from "../lib/voteStore";
@@ -217,4 +219,18 @@ export async function finishUpload(file: {
 export async function removeAttachment(fileId: string): Promise<SaveResult> {
   return save("remove the file", (_store, supabase, memberId) =>
     removeFile(supabaseTaskFileStore(supabase, memberId), fileId, WAVECENTER_TOOL));
+}
+
+/** Post a comment in a task's Discussion. */
+export async function postComment(taskId: string, body: string): Promise<SaveResult> {
+  return save("post the comment", (store, supabase) =>
+    addComment(store, supabaseTaskCommentStore(supabase), taskId, body, WAVECENTER_TOOL));
+}
+
+export async function changeComment(id: string, body: string): Promise<SaveResult> {
+  return save("save the comment", (_store, supabase) => editComment(supabaseTaskCommentStore(supabase), id, body, WAVECENTER_TOOL));
+}
+
+export async function deleteComment(id: string): Promise<SaveResult> {
+  return save("remove the comment", (_store, supabase) => removeComment(supabaseTaskCommentStore(supabase), id, WAVECENTER_TOOL));
 }
