@@ -5,8 +5,9 @@ import { signOut } from "./auth/actions";
  * The bar across the top of every page: the WaveCenter name, which always
  * leads home, and on the right either who is signed in with a way out, or a
  * way in. The page passes what it already knows about the visitor, so the
- * header never asks Supabase a second time. `wide` matches the wider task
- * page, so the bar lines up with the list under it.
+ * header never asks Supabase a second time. A signed-in member also gets a
+ * link to the Game page, where their points are. `wide` matches the wider
+ * task page, so the bar lines up with the list under it.
  */
 export default function SiteHeader({
   email,
@@ -29,6 +30,7 @@ export default function SiteHeader({
         </Link>
         {email ? (
           <div className="who">
+            <Link href="/game" className="quiet">Game</Link>
             <span className="email" title={email}>{email}</span>
             <form action={signOut}>
               <button type="submit" className="quiet">Sign out</button>

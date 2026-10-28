@@ -7,7 +7,7 @@ import { setPoints } from '../../core/points.ts';
 function fakeFetch(responses) {
   const calls = [];
   const fn = async (url, init) => {
-    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, auth: init.headers.Authorization });
+    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, auth: init.headers.Authorization, headers: init.headers });
     const next = responses.shift();
     return { ok: next.status < 300, status: next.status, text: async () => JSON.stringify(next.body) };
   };
@@ -29,12 +29,12 @@ test('core writes reach the table under the table\'s own column names, with the 
   assert.equal(task.ownerId, 'u1');
 });
 
-test('a points change only writes if the points are still what core read', async () => {
+test('a points change only writes if the points and status are still what core read', async () => {
   const { fn, calls } = fakeFetch([{ status: 200, body: [row] }, { status: 200, body: [] }]);
   const store = restTaskStore({ url: 'https://x.supabase.co', apiKey: 'anon', token: 't', fetch: fn });
   await assert.rejects(setPoints(store, 't1', 5, 'check'), /changed while this change was being made/);
   assert.equal(calls[1].method, 'PATCH');
-  assert.match(calls[1].url, /id=eq\.t1&points=eq\.0$/);
+  assert.match(calls[1].url, /id=eq\.t1&points=eq\.0&status=eq\.todo$/);
   assert.deepEqual(calls[1].body, { points: 5, tool: 'check' });
 });
 
@@ -47,10 +47,11 @@ test('a failed write throws instead of pretending it worked', async () => {
 test('a delete says whether a row was actually deleted', async () => {
   const { fn, calls } = fakeFetch([{ status: 200, body: [row] }, { status: 200, body: [] }]);
   const store = restTaskStore({ url: 'https://x.supabase.co', apiKey: 'anon', token: 't', fetch: fn });
-  assert.equal(await store.remove('t1'), true);
+  assert.equal(await store.remove('t1', 'check'), true);
   assert.equal(calls[0].method, 'DELETE');
+  assert.equal(calls[0].headers['x-wavecenter-tool'], 'check', 'the delete names its tool for the ledger');
   assert.match(calls[0].url, /tasks\?id=eq\.t1$/);
-  assert.equal(await store.remove('t1'), false, 'nothing deleted (gone, or not yours) is not reported as a success');
+  assert.equal(await store.remove('t1', 'check'), false, 'nothing deleted (gone, or not yours) is not reported as a success');
 });
 
 test('an unknown field is refused rather than sent', () => {

@@ -23,6 +23,33 @@ and the page no longer has to throw itself away and redraw on every load.
 
 ---
 
+## 2026-10-27 — Points can't go below zero, and lock when a task is done (#28)
+
+Dane answered the three open questions about points. A task's points are
+its suggested value, so they can never be negative: WaveCenter now refuses
+a negative number with a plain message, and the database itself refuses
+one too, so no tool can slip past the rule. Once a task is ticked done, its
+points are locked and the points box disappears; reopening the task unlocks
+them again. The member who adds a task sets its value, which was already
+true. Before the database rule went in, every existing task was checked:
+none had negative points, so nobody's points were changed.
+
+---
+
+## 2026-10-27 — Everything you do in WaveCenter now earns points (#27)
+
+This is the first piece of the game layer. Every time a member adds, changes,
+finishes or deletes a task, attaches or removes a file, has a task handed to
+the AI agents, or flips the AI agents switch, WaveCenter writes it down and
+scores it. Finishing a task earns 5 points and everything else earns 1, for
+now. The database does the scoring as part of the save itself, so nothing
+can slip through unscored and nobody can award themselves extra points. If
+the scoring part fails, the save fails too and the screen says so. A new
+Game page, linked at the top once you are signed in, shows how points are
+earned, your total, and what you did most recently.
+
+---
+
 ## 2026-10-27 — WaveCenter's own logo replaces the placeholder wave (#25)
 
 The browser tab and the top-left corner of every page showed a stand-in

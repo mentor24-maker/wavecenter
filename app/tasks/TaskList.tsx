@@ -598,14 +598,16 @@ function TaskRow({
 
   const [firstLine, ...moreLines] = (task.notes ?? "").split("\n");
 
-  function savePoints(e?: FormEvent) {
+  async function savePoints(e?: FormEvent) {
     e?.preventDefault();
     if (points.trim() === String(task.points)) return;
     const value = Number(points);
-    void run(async () =>
+    const saved = await run(async () =>
       points.trim() === "" || !Number.isInteger(value)
         ? { ok: false, error: `Points must be a whole number, like 0, 3 or 10; "${points}" is not one.` }
         : changePoints(task.id, value));
+    // A refused number goes back to what is stored; the message says why.
+    if (!saved) setPointsText(String(task.points));
   }
 
   return (
@@ -686,19 +688,28 @@ function TaskRow({
           ))}
         </select>
       </span>
-      <form className="col-points" role="cell" onSubmit={savePoints}>
-        <input
-          aria-label={`Points for "${task.title}"`}
-          className="points"
-          type="number"
-          step="1"
-          inputMode="numeric"
-          value={points}
-          onChange={(e) => setPointsText(e.target.value)}
-          onBlur={() => savePoints()}
-        />
-        <span className="unit note">pts</span>
-      </form>
+      {/* A done task's points are locked (core/points.ts): the column shows the number, with no box to change it. */}
+      {done ? (
+        <span className="col-points" role="cell">
+          <span className="points">{task.points}</span>
+          <span className="unit note">pts</span>
+        </span>
+      ) : (
+        <form className="col-points" role="cell" onSubmit={savePoints}>
+          <input
+            aria-label={`Points for "${task.title}"`}
+            className="points"
+            type="number"
+            min="0"
+            step="1"
+            inputMode="numeric"
+            value={points}
+            onChange={(e) => setPointsText(e.target.value)}
+            onBlur={() => savePoints()}
+          />
+          <span className="unit note">pts</span>
+        </form>
+      )}
       <span className="col-created note" role="cell">
         <time dateTime={task.createdAt} title={fullDate(task.createdAt)}>{shortDate(task.createdAt)}</time>
       </span>

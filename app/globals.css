@@ -247,3 +247,12 @@ label.attach:has(input:disabled) { opacity: 0.5; cursor: default; }
 .files .thumb { display: block; width: 3.5rem; height: 3.5rem; object-fit: contain; border-radius: 0.375rem; border: 1px solid var(--line); background: var(--surface); }
 .files li > :last-child { flex: none; overflow-wrap: normal; }
 .chip { display: inline-block; max-width: 100%; overflow-wrap: anywhere; margin-right: 0.5rem; }
+
+/* The Game page: the points total, and the rules and history tables. */
+.score { font-size: 1.25rem; }
+.score b { font-size: 2.25rem; color: var(--accent); }
+table.game { width: 100%; border-collapse: collapse; margin: 0 0 var(--space); font-size: 0.95rem; }
+table.game th { text-align: left; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+table.game th, table.game td { padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.game .num { text-align: right; white-space: nowrap; padding-right: 0; }
+table.game .block { display: block; font-size: 0.9rem; }

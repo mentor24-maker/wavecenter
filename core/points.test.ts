@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { awardPoints, requirePointsValue, setPoints } from './points.ts';
-import { createTask } from './tasks.ts';
+import { createTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
@@ -46,8 +46,49 @@ test('points must be a whole number the table can hold', async () => {
   for (const bad of [1.5, Number.NaN, Infinity, '3', 2_147_483_648]) {
     await assert.rejects(setPoints(store, task.id, bad as number, 'wavecenter'), CoreError);
   }
-  assert.equal(requirePointsValue(-3), -3);
+  assert.equal(requirePointsValue(0), 0);
   assert.equal((await store.get(task.id))?.points, 0);
+});
+
+test('points can never be negative, and nothing is saved', async () => {
+  const { store, task } = await oneTask(4);
+  await assert.rejects(setPoints(store, task.id, -1, 'wavecenter'), (err: Error) =>
+    err instanceof CoreError && err.message === "Points can't be negative; got -1.");
+  assert.throws(() => requirePointsValue(-3), /can't be negative; got -3/);
+  assert.equal((await store.get(task.id))?.points, 4);
+});
+
+test('a done task\'s points are locked, and nothing is saved', async () => {
+  const { store, task } = await oneTask(5);
+  await updateTask(store, task.id, { status: 'done' }, 'wavecenter');
+  await assert.rejects(setPoints(store, task.id, 8, 'wavecenter'), (err: Error) =>
+    err instanceof CoreError && /done, so its points are locked\. Reopen it/.test(err.message));
+  await assert.rejects(awardPoints(store, task.id, 3, 'wavecenter'), /points are locked/);
+  const stored = await store.get(task.id);
+  assert.equal(stored?.points, 5);
+  assert.equal(stored?.tool, 'wavecenter');
+});
+
+test('reopening a done task unlocks its points', async () => {
+  const { store, task } = await oneTask(5);
+  await updateTask(store, task.id, { status: 'done' }, 'wavecenter');
+  await updateTask(store, task.id, { status: 'todo' }, 'wavecenter');
+  const change = await setPoints(store, task.id, 8, 'wavecenter');
+  assert.equal(change.after, 8);
+  assert.equal((await store.get(task.id))?.points, 8);
+});
+
+test('a task finished while its points were being changed keeps them locked', async () => {
+  const { store, task } = await oneTask(1);
+  const realGet = store.get.bind(store);
+  // The task is ticked off right after this change reads it.
+  store.get = async (id) => {
+    const seen = await realGet(id);
+    store.rows.set(id, { ...store.rows.get(id)!, status: 'done' });
+    return seen;
+  };
+  await assert.rejects(setPoints(store, task.id, 9, 'wavecenter'), /changed while this change was being made/);
+  assert.equal(store.rows.get(task.id)?.points, 1);
 });
 
 test('an award must be more than zero', async () => {

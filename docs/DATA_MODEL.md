@@ -1,16 +1,19 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is three tables: `tasks`;
-`member_settings`, which holds each member's "Launch AI Agents" switch; and
+What WaveCenter stores, in plain words. Today that is five tables: `tasks`;
+`member_settings`, which holds each member's "Launch AI Agents" switch;
 `task_files`, the files attached to tasks, whose stored copies live in a
-private file-storage bucket.
+private file-storage bucket; and the game layer's two, `game_scoring_rules`
+and `engagements`.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
 `agent_selected` and the `member_settings` table;
 `20261012230000_agent_handoff.sql` added `agent_ticket_url`;
 `20261013040000_task_files.sql` added `task_files` and the `task-files`
-bucket); this page explains them.
+bucket; `20261027120000_game_layer.sql` added the game layer, and
+`20261027130000_game_layer_cascades.sql` fixed how it treats deletes); this page
+explains them.
 
 ## The `tasks` table
 
@@ -24,7 +27,7 @@ One row is one task: something a member means to do, is doing, or has done.
 | `owner_id` | **The member the task belongs to.** Filled in automatically with whoever is signed in. |
 | `status` | **Where the task stands:** `todo`, `doing` or `done`. Starts at `todo`. No other values are accepted. |
 | `parent_task_id` | **The bigger task this one is part of**, if any. Empty for a top-level task. |
-| `points` | **What the task is worth**, as a whole number. Starts at 0 and is never empty. |
+| `points` | **What the task is worth**: its suggested value, as a whole number. Starts at 0, is never empty and never below zero. Locked once the task is done. |
 | `position` | Where the task sits in its list, so members can put tasks in their own order. |
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
@@ -56,8 +59,41 @@ towards member-built tools: when they arrive, they get points the same way
 WaveCenter's own app does, through core, never by editing the number.
 
 Two changes to the same task's points at the same moment cannot quietly
-cancel each other out: a points change only saves if the points are still
-what it read, and otherwise says "try again" and saves nothing.
+cancel each other out: a points change only saves if the points and the
+status are still what it read, and otherwise says "try again" and saves
+nothing.
+
+### Points rules
+
+Dane settled these on 2026-10-27, in his own words. They answer the three
+questions this document used to leave open.
+
+1. **Points are never below zero.** "No, points can't be negative in terms of
+   the initial proposal. There will be ways to assign negative values in other
+   ways, such as feedback, but an initial suggested score would be inherently
+   positive." `core/points.ts` refuses a negative number with a plain message,
+   and the table itself refuses one too (`tasks_points_not_negative`). Zero is
+   allowed; it is where every task starts.
+2. **A done task's points are locked.** "Yes, points locked on completion.
+   (for now) However, there will be many ways to add or subtract points
+   related to a task. We're just gettingg started." `setPoints` and
+   `awardPoints` refuse a done task and save nothing, and the to-do list shows
+   a done task's points without the box to change them. Reopening the task
+   unlocks them again, the same way reopening clears its ticket. (Dane did not
+   mention reopening; this is the build's reading of "locked on completion".)
+3. **The member who adds a task sets its suggested value.** "The person who
+   adds a 'proposal', which is what these ToDo list items are gets to set a
+   suggested value. Others can vote on the value separately." Only a task's
+   owner, the member who added it, can change it at all (row-level security),
+   so this already holds. Voting on values is a later, separate table; see
+   "How this grows".
+
+The game layer's scoring rules (what each recorded action earns) are a
+separate thing from a task's points: for those, Dane chose (2026-10-27) to
+fix the values in a migration for now.
+
+Adding or subtracting points in other ways (feedback, votes) comes later as
+records of their own, not as edits to this number.
 
 ### Handing tasks to AI agents
 
@@ -147,6 +183,49 @@ members, has each write a task, checks that neither can read, change or delete
 the other's (tasks, settings and attached files alike), and then deletes them
 both along with their files.
 
+## The game layer: `game_scoring_rules` and `engagements`
+
+Dane, 2026-10-27: "nothing happens within WaveCenter that isn't tracked and
+scored." This is the first piece of that, modelled on Normie's game layer.
+
+- **`game_scoring_rules`** is the list of kinds of engagement and what each
+  is worth: made a task, changed a task, finished a task, deleted a task,
+  attached a file, removed a file, handed a task to AI agents, switched AI
+  agents on or off. Each has a name, a description, exactly what counts, and
+  its points. Every kind is worth 1 point except finishing a task, worth 5.
+  These are placeholders until Dane, or later a members' vote, sets them; for
+  now they change only through a migration, and nobody can edit them on a
+  screen.
+- **`engagements`** is the ledger: one row for every thing a member does,
+  saying who is credited, which kind it was, the points it earned, the tool
+  that did it and the task it was about, with the time. The points are copied
+  from the rule at that moment, so changing a rule later never rewrites what
+  someone already earned. A row about a deleted task stays.
+
+**The database writes the ledger itself.** Every time a task, an attached
+file or the AI agents switch is saved, the database records the engagement
+in the same step as the save. The two go through together or not at all: if
+the engagement cannot be written, the save fails and the screen says so. No
+tool, and no page, can choose how many points something is worth, and a
+change that somehow went around core is still recorded. The rules for which
+kind a change is live in `core/game.ts`, and the database follows the same
+rules. A change the database makes on its own while doing something else
+(letting go of a deleted task's sub-tasks, removing a deleted task's files)
+is part of that one engagement, not extra ones.
+
+**Who can see what.** Every signed-in member can read the scoring rules. A
+member can read **only their own** engagements and their own points total.
+Nobody can add, change or delete a ledger row through the website or the
+API, not even their own; only the database's save step writes there.
+Row-level security was on from the moment each table was made.
+
+The `/game` page shows the rules, the member's total and their latest
+engagements, with times in Mountain time.
+
+This does not yet change a task's own `points`: what a task is worth and what
+a member has earned are kept separate for now. Levels, rewards, a leaderboard
+and an admin screen for the game are later tickets.
+
 ## Why the four fields are there from day one
 
 WaveCenter starts as a simple to-do list, but the list is a seed (CLAUDE.md).
@@ -190,13 +269,3 @@ at `tasks`**, so none of them needs this table rebuilt.
 When several members share a project, the "only your own tasks" rule will
 widen to "tasks in projects you belong to". That is a change to the rules,
 not to the table.
-
-## Open questions for Dane
-
-The whitepaper does not settle these, so the table leaves them open rather
-than guessing:
-
-1. **Can points be negative?** Today any whole number is accepted.
-2. **Are a finished task's points fixed?** Today the owner can still change
-   points after a task is done. A ledger may need them locked once credited.
-3. **Who sets points before voting exists?** Today it is the task's owner.
