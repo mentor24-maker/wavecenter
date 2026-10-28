@@ -32,7 +32,8 @@ function failed(what: string, error: { message: string }): never {
   throw new Error(`The database refused to ${what}: ${error.message}`);
 }
 
-export function supabaseTaskFileStore(supabase: Client): TaskFileStore {
+/** Every member may read every file row; `get` asks only for the member's own, the ones they may remove. */
+export function supabaseTaskFileStore(supabase: Client, memberId: string): TaskFileStore {
   return {
     async insert(row: NewTaskFileRow) {
       const { data, error } = await supabase
@@ -51,7 +52,7 @@ export function supabaseTaskFileStore(supabase: Client): TaskFileStore {
       return fileFromRow(data);
     },
     async get(id) {
-      const { data, error } = await supabase.from("task_files").select().eq("id", id).maybeSingle();
+      const { data, error } = await supabase.from("task_files").select().eq("id", id).eq("owner_id", memberId).maybeSingle();
       if (error) failed("read the file", error);
       return data ? fileFromRow(data) : null;
     },

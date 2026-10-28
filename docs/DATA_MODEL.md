@@ -84,16 +84,60 @@ questions this document used to leave open.
 3. **The member who adds a task sets its suggested value.** "The person who
    adds a 'proposal', which is what these ToDo list items are gets to set a
    suggested value. Others can vote on the value separately." Only a task's
-   owner, the member who added it, can change it at all (row-level security),
-   so this already holds. Voting on values is a later, separate table; see
-   "How this grows".
+   owner, the member who added it, can change it directly (row-level
+   security). **Once members have voted, the average replaces it** (Dane,
+   2026-10-27; see "Votes on a task" below).
+4. **Who sets points, once votes exist.** The average of the members' votes.
+   The owner's own value stands only until the first points vote.
 
 The game layer's scoring rules (what each recorded action earns) are a
 separate thing from a task's points: for those, Dane chose (2026-10-27) to
 fix the values in a migration for now.
 
-Adding or subtracting points in other ways (feedback, votes) comes later as
-records of their own, not as edits to this number.
+Adding or subtracting points in other ways (feedback, for example) comes
+later as records of their own, not as edits to this number.
+
+### Votes on a task: `task_votes`
+
+Dane, 2026-10-27: "allow all users to vote on all tasks in terms of priority
+and point values ... The actual value will be the average of all users'
+votes. (for now)" On the ticket he settled three questions: the votes go on
+the task list for now (a Game Layer page later), every member sees every
+task including its details and files, and once there are votes the average
+replaces the owner's own points and priority.
+
+| Column | What it holds |
+|---|---|
+| `task_id` | The task voted on. If the task is deleted, its votes go with it. |
+| `member_id` | Who voted. Filled in automatically; one vote per member per task. |
+| `points` | Their points vote: a whole number from zero up, or empty. |
+| `priority` | Their priority vote: urgent, high, normal or low, or empty. |
+| `tool` | Which tool saved it. |
+| `created_at`, `updated_at` | When it was first cast and last changed. |
+
+A member can vote on points, on priority, or both; voting again replaces
+their vote, and they can withdraw either part or the whole vote.
+
+**How the average is worked out** (`core/votes.ts`):
+
+- **Points:** the plain average of the points votes, rounded to the nearest
+  whole number, with a half rounding up (4 and 5 make 5).
+- **Priority:** each word counts as a number (urgent 4, high 3, normal 2,
+  low 1), the average is rounded the same way, and turned back into a word.
+  High and Low make Normal; High and Normal make High. (This counting rule was
+  the spec's proposal; Dane answered the ticket without changing it.)
+- A part nobody has voted on keeps the owner's own value.
+- **A done task's points stay locked.** Votes on a done task are kept and
+  shown, but they do not change it.
+
+**The database applies the average**, in the same save as the vote: a
+member voting on someone else's task may not change that task themselves.
+It follows exactly the rule in `core/votes.ts`. Each vote cast, changed or
+withdrawn is also an engagement for the voter (`voted_on_task`, 1 point).
+
+Row-level security was on from the moment `task_votes` was made. Every
+signed-in member reads every vote; a member adds, changes and withdraws only
+their own. Signed-out visitors see nothing.
 
 ### Handing tasks to AI agents
 
@@ -164,24 +208,29 @@ uses a signed link that stops working after an hour; the bucket has no
 public links at all.
 
 Row-level security was on from the moment `task_files` was made, and the
-bucket has its own rules: a member reads, adds and deletes only their own
-files, only in their own folder, and only on their own tasks.
+bucket has its own rules: every signed-in member can see and open every
+attached file (since 2026-10-27), but a member adds and deletes only their
+own files, only in their own folder, and only on their own tasks.
 
 ### Who can see what
 
 Row-level security (the database's own rule about which rows each person may
 touch) was turned on in the same step that created the table, so there was
-never a moment without it. A signed-in member can read, add, change and delete
-**only their own** tasks. They cannot add a task in someone else's name. A
-visitor who is not signed in gets nothing at all.
+never a moment without it. **Every signed-in member can read every task**,
+open and done, with its details and files (Dane, 2026-10-27: "All users will
+have access to the entire todo list — past, present, and future"). A member
+can add, change and delete **only their own** tasks, and cannot add a task in
+someone else's name or hang a sub-task under someone else's task. On anyone's
+task they can vote. A visitor who is not signed in gets nothing at all.
 
 The server holds one key (the "service role" key) that can see everything. It
 never goes to the browser.
 
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
-members, has each write a task, checks that neither can read, change or delete
-the other's (tasks, settings and attached files alike), and then deletes them
-both along with their files.
+members, has each write a task, checks that each can read the other's but
+neither can change or delete it (tasks, settings and attached files alike),
+that each votes only through their own vote and the average lands on the
+task, and then deletes them both along with their files.
 
 ## The game layer: `game_scoring_rules` and `engagements`
 
@@ -191,7 +240,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
 - **`game_scoring_rules`** is the list of kinds of engagement and what each
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
-  agents on or off. Each has a name, a description, exactly what counts, and
+  agents on or off, voted on a task. Each has a name, a description, exactly what counts, and
   its points. Every kind is worth 1 point except finishing a task, worth 5.
   These are placeholders until Dane, or later a members' vote, sets them; for
   now they change only through a migration, and nobody can edit them on a
@@ -266,6 +315,6 @@ at `tasks`**, so none of them needs this table rebuilt.
   records naming who did what for whom, each able to point at the task it
   was about.
 
-When several members share a project, the "only your own tasks" rule will
-widen to "tasks in projects you belong to". That is a change to the rules,
-not to the table.
+Votes are a plain average "for now". Weighting a vote by tokens and
+reputation (above) is a later change to how the average is worked out, not
+to the votes table.

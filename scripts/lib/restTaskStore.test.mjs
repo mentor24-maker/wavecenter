@@ -57,3 +57,13 @@ test('a delete says whether a row was actually deleted', async () => {
 test('an unknown field is refused rather than sent', () => {
   assert.throws(() => toRow({ owner_id: 'someone' }), /no column/);
 });
+
+test('given a member, get asks only for that member’s own task', async () => {
+  const { fn, calls } = fakeFetch([{ status: 200, body: [] }, { status: 200, body: [row] }]);
+  const mine = restTaskStore({ url: 'https://x.supabase.co', apiKey: 'anon', token: 't', ownerId: 'u1', fetch: fn });
+  assert.equal(await mine.get('t1'), null);
+  assert.match(calls[0].url, /tasks\?id=eq\.t1&owner_id=eq\.u1&select=\*$/);
+  const any = restTaskStore({ url: 'https://x.supabase.co', apiKey: 'service', token: 'service', fetch: fn });
+  await any.get('t1');
+  assert.match(calls[1].url, /tasks\?id=eq\.t1&select=\*$/, 'the service-key lane still reads any task');
+});

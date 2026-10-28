@@ -2,9 +2,9 @@
 
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
- * core (createTask, updateTask, setPoints, setAgentsOn, attachFile, removeFile,
- * deleteTaskWithFiles) as the tool `wavecenter`, acting as the signed-in
- * member.
+ * core (createTask, updateTask, setPoints, castVote, setAgentsOn, attachFile,
+ * removeFile, deleteTaskWithFiles) as the tool `wavecenter`, acting as the
+ * signed-in member.
  *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
@@ -21,10 +21,12 @@ import { attachFile, checkFile, deleteTaskWithFiles, filePath, removeFile } from
 import { setPoints } from "../../core/points.ts";
 import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
+import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
+import { supabaseVoteStore } from "../lib/voteStore";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
@@ -47,7 +49,7 @@ async function save(
           : "You are signed out, so this was not saved. Reload the page and sign in again.",
       };
     }
-    await change(supabaseTaskStore(supabase), supabase, user.id);
+    await change(supabaseTaskStore(supabase, user.id), supabase, user.id);
   } catch (err) {
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error(`tasks: could not ${what}:`, err);
@@ -109,8 +111,12 @@ export async function markDone(id: string, done: boolean): Promise<SaveResult> {
     updateTask(store, id, { status: done ? "done" : "todo" }, WAVECENTER_TOOL));
 }
 
+/** Once members have voted on a task's points, the average decides them and the owner's box is refused. */
 export async function changePoints(id: string, points: number): Promise<SaveResult> {
-  return save("change the points", (store) => setPoints(store, id, points, WAVECENTER_TOOL));
+  return save("change the points", async (store, supabase, memberId) => {
+    requireNotVotedOn(await supabaseVoteStore(supabase, memberId).forTask(id), "points");
+    await setPoints(store, id, points, WAVECENTER_TOOL);
+  });
 }
 
 export async function moveUnder(id: string, parentTaskId: string | null): Promise<SaveResult> {
@@ -122,12 +128,25 @@ export async function moveUnder(id: string, parentTaskId: string | null): Promis
 
 /** Deleting a task deletes its attached files from storage too, not just the rows. */
 export async function removeTask(id: string): Promise<SaveResult> {
-  return save("delete the task", (store, supabase) =>
-    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase), id, WAVECENTER_TOOL));
+  return save("delete the task", (store, supabase, memberId) =>
+    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase, memberId), id, WAVECENTER_TOOL));
 }
 
 export async function changePriority(id: string, priority: TaskPriority): Promise<SaveResult> {
-  return save("change the priority", (store) => updateTask(store, id, { priority }, WAVECENTER_TOOL));
+  return save("change the priority", async (store, supabase, memberId) => {
+    requireNotVotedOn(await supabaseVoteStore(supabase, memberId).forTask(id), "priority");
+    await updateTask(store, id, { priority }, WAVECENTER_TOOL);
+  });
+}
+
+/**
+ * Cast, change or withdraw the member's own vote on any task, theirs or
+ * anyone's. The database then sets the task's points and priority to the
+ * average of every member's votes, in the same save.
+ */
+export async function vote(taskId: string, choice: VoteChoice): Promise<SaveResult> {
+  return save("save your vote", (_store, supabase, memberId) =>
+    castVote(supabaseVoteStore(supabase, memberId), taskId, choice, WAVECENTER_TOOL));
 }
 
 /**
@@ -191,10 +210,11 @@ export async function finishUpload(file: {
   contentType: string;
   sizeBytes: number;
 }): Promise<SaveResult> {
-  return save("attach the file", (store, supabase) =>
-    attachFile(store, supabaseTaskFileStore(supabase), file, WAVECENTER_TOOL));
+  return save("attach the file", (store, supabase, memberId) =>
+    attachFile(store, supabaseTaskFileStore(supabase, memberId), file, WAVECENTER_TOOL));
 }
 
 export async function removeAttachment(fileId: string): Promise<SaveResult> {
-  return save("remove the file", (_store, supabase) => removeFile(supabaseTaskFileStore(supabase), fileId, WAVECENTER_TOOL));
+  return save("remove the file", (_store, supabase, memberId) =>
+    removeFile(supabaseTaskFileStore(supabase, memberId), fileId, WAVECENTER_TOOL));
 }
