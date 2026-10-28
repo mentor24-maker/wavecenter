@@ -5,7 +5,11 @@
  * through these functions, never by writing to the `tasks` table themselves.
  * Each call names its tool, and that name is stored on the record
  * (`tasks.tool`); a delete names its tool too, though no record is left to
- * carry it. Points are not changed here: that is `core/points.ts`.
+ * carry it, so the store is handed the name. Points are not changed here:
+ * that is `core/points.ts`.
+ *
+ * Every create, change and delete is also recorded and scored in the
+ * engagement ledger, inside the same save (core/game.ts).
  *
  * Core does not know about Supabase. It talks to a `TaskStore`, which a
  * client supplies: a thin adapter that reads and writes rows and makes no
@@ -89,10 +93,10 @@ export interface TaskStore {
    */
   update(id: string, changes: TaskRowChanges, guard?: UpdateGuard): Promise<Task | null>;
   /**
-   * Delete one task. Its sub-tasks stay and become top-level. Returns false
-   * if there is no such task the caller may delete.
+   * Delete one task on behalf of `tool`. Its sub-tasks stay and become
+   * top-level. Returns false if there is no such task the caller may delete.
    */
-  remove(id: string): Promise<boolean>;
+  remove(id: string, tool: string): Promise<boolean>;
 }
 
 export interface NewTask {
@@ -222,6 +226,6 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
  * top-level, so no record of work disappears with its parent.
  */
 export async function deleteTask(store: TaskStore, id: string, tool: string): Promise<void> {
-  requireTool(tool);
-  if (!(await store.remove(id))) throw new CoreError(`No task ${id} was found that you may delete.`);
+  const named = requireTool(tool);
+  if (!(await store.remove(id, named))) throw new CoreError(`No task ${id} was found that you may delete.`);
 }

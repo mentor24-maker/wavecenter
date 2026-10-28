@@ -2,7 +2,10 @@
  * A `TaskFileStore` that keeps file rows and stored copies in memory, for
  * core's tests. Like the real table, it fills in the owner and the time, and
  * it can be told to fail so the tests can check what a failure leaves behind.
+ * Given an engagement store, it scores attaching and removing a file the way
+ * the table's game-layer trigger does, all-or-nothing.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewTaskFileRow, TaskFile, TaskFileStore } from './files.ts';
 
 export class MemoryTaskFileStore implements TaskFileStore {
@@ -15,13 +18,21 @@ export class MemoryTaskFileStore implements TaskFileStore {
   private next = 1;
   private readonly ownerId: string;
 
-  constructor(ownerId = 'member-1') {
+  private readonly engagements: EngagementStore | null;
+
+  constructor(ownerId = 'member-1', engagements: EngagementStore | null = null) {
     this.ownerId = ownerId;
+    this.engagements = engagements;
+  }
+
+  private async score(file: TaskFile, kind: 'attached_file' | 'removed_file', tool: string): Promise<void> {
+    if (this.engagements) await recordEngagement(this.engagements, { memberId: file.ownerId, kind, tool, taskId: file.taskId });
   }
 
   async insert(row: NewTaskFileRow): Promise<TaskFile> {
     if (this.failInsert) throw new Error('the database is down');
     const file: TaskFile = { ...row, id: `file-${this.next++}`, ownerId: this.ownerId, createdAt: new Date().toISOString() };
+    await this.score(file, 'attached_file', row.tool);
     this.rows.set(file.id, file);
     return { ...file };
   }
@@ -35,7 +46,10 @@ export class MemoryTaskFileStore implements TaskFileStore {
     return [...this.rows.values()].filter((f) => f.taskId === taskId).map((f) => ({ ...f }));
   }
 
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string, tool: string): Promise<boolean> {
+    const file = this.rows.get(id);
+    if (!file) return false;
+    await this.score(file, 'removed_file', tool);
     return this.rows.delete(id);
   }
 
@@ -44,7 +58,7 @@ export class MemoryTaskFileStore implements TaskFileStore {
     for (const path of paths) this.objects.delete(path);
   }
 
-  /** What the database's "on delete cascade" does when a task goes. */
+  /** What the database's "on delete cascade" does when a task goes. Not scored: deleting the task was. */
   dropRowsFor(taskId: string): void {
     for (const [id, file] of this.rows) if (file.taskId === taskId) this.rows.delete(id);
   }

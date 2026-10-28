@@ -23,6 +23,12 @@ const COLUMNS = {
   tool: 'tool',
 };
 
+/**
+ * A delete leaves no row to carry the tool's name, so it travels as a request
+ * header; the database's game-layer trigger reads it when it scores the delete.
+ */
+export const TOOL_HEADER = 'x-wavecenter-tool';
+
 /** @param {Record<string, unknown>} fields */
 export function toRow(fields) {
   /** @type {Record<string, unknown>} */
@@ -77,7 +83,7 @@ export function guardQuery(guard = {}) {
  * @returns {TaskStore}
  */
 export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
-  async function call(path, method, body) {
+  async function call(path, method, body, extraHeaders = {}) {
     const res = await fetchFn(`${url}/rest/v1/${path}`, {
       method,
       headers: {
@@ -85,6 +91,7 @@ export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         Prefer: 'return=representation',
+        ...extraHeaders,
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -107,8 +114,8 @@ export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
       const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${guardQuery(guard)}`, 'PATCH', toRow(changes));
       return row ? fromRow(row) : null;
     },
-    async remove(id) {
-      const rows = await call(`tasks?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    async remove(id, tool) {
+      const rows = await call(`tasks?id=eq.${encodeURIComponent(id)}`, 'DELETE', undefined, { [TOOL_HEADER]: tool });
       return rows.length > 0;
     },
   };

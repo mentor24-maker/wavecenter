@@ -51,6 +51,12 @@ export function fromRow(row: any): Task {
   };
 }
 
+/**
+ * A delete leaves no row to carry the tool's name, so it travels as a request
+ * header; the database's game-layer trigger reads it when it scores the delete.
+ */
+export const TOOL_HEADER = "x-wavecenter-tool";
+
 function failed(what: string, error: { message: string }): never {
   throw new Error(`The database refused to ${what}: ${error.message}`);
 }
@@ -77,8 +83,8 @@ export function supabaseTaskStore(supabase: Client): TaskStore {
       if (error) failed("save the change", error);
       return data?.[0] ? fromRow(data[0]) : null;
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("tasks").delete().eq("id", id).select("id");
+    async remove(id, tool) {
+      const { data, error } = await supabase.from("tasks").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("delete the task", error);
       return (data?.length ?? 0) > 0;
     },
