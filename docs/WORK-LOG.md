@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — Points can't go below zero, and lock when a task is done (#28)
+
+Dane answered the three open questions about points. A task's points are
+its suggested value, so they can never be negative: WaveCenter now refuses
+a negative number with a plain message, and the database itself refuses
+one too, so no tool can slip past the rule. Once a task is ticked done, its
+points are locked and the points box disappears; reopening the task unlocks
+them again. The member who adds a task sets its value, which was already
+true. Before the database rule went in, every existing task was checked:
+none had negative points, so nobody's points were changed.
+
 ## 2026-10-27 — WaveCenter's own logo replaces the placeholder wave (#25)
 
 The browser tab and the top-left corner of every page showed a stand-in
