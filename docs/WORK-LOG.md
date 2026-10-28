@@ -7,6 +7,14 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Each task shows the time it was created, not just the day (#33)
+
+The Created column on the task list showed only the day, like "Oct 27".
+The time was there but hidden, visible only by hovering. Now the column
+reads "Oct 27, 4:14pm" in Mountain time, so you can see at a glance when
+each task came in. Showing who created each task waits for member
+profiles, as Dane chose.
+
 ## 2026-10-27 — The task list is wider, sortable and filterable (#26)
 
 "Your tasks" was a narrow column with each task's controls jumbled on a
