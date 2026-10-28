@@ -5,8 +5,9 @@
  * counts as written by a person or by AI, so the screen and any later agent
  * path cannot disagree.
  *
- * A comment is plain text for now. It is always shown as text, never as
- * HTML, so nothing typed into one can run in the browser.
+ * A comment is written in a small rich-text format (bold, italic, lists and
+ * links; core/richText.ts). It is never treated as HTML, so nothing typed
+ * into one can run in the browser.
  *
  * Core does not know about Supabase. It talks to a `TaskCommentStore`, which a
  * client supplies, and to the same `TaskStore` as core/tasks.ts. The
@@ -14,6 +15,7 @@
  */
 import { CoreError, requireTool, WAVECENTER_TOOL } from './tool.ts';
 import type { TaskStore } from './tasks.ts';
+import { richTextSearchable } from './richText.ts';
 
 /** The longest comment a member may post: 10,000 characters. The table checks the same. */
 export const MAX_COMMENT_LENGTH = 10_000;
@@ -120,14 +122,16 @@ export const NO_COMMENT_FILTER: CommentFilter = { text: '', kind: 'both' };
 
 /**
  * The comments the filter lets through, oldest first. Every word typed must
- * appear in the comment, in any order, ignoring capitals.
+ * appear in the comment's shown words (its marks left out) or the address of
+ * one of its links, in any order, ignoring capitals.
  */
 export function filterComments<C extends Pick<TaskComment, 'body' | 'tool' | 'createdAt'>>(comments: readonly C[], filter: CommentFilter): C[] {
   const words = filter.text.toLowerCase().split(/\s+/).filter(Boolean);
   return comments
     .filter((c) => filter.kind === 'both' || commentAuthorKind(c) === filter.kind)
     .filter((c) => {
-      const body = c.body.toLowerCase();
+      if (words.length === 0) return true;
+      const body = richTextSearchable(c.body).toLowerCase();
       return words.every((w) => body.includes(w));
     })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));

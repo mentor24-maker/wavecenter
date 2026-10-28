@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Discussion comments can be bold, italic, lists and links (#35)
+
+Comments in a task's Discussion were plain text. Now the comment box has a
+small toolbar: bold, italic, a bulleted list, a numbered list and a link,
+with a Preview to see the comment before posting it. The thread shows each
+comment formatted, and links open in a new tab. Safety came first: a comment
+is saved as plain words with a few marks (like **two stars** for bold), and
+WaveCenter's own code draws it, never treating it as web-page code. So a
+pasted script or booby-trapped picture shows as harmless text, and a link
+works only if it goes to an ordinary web or email address. Old comments read
+as before, and the search box still finds the words of a formatted comment.
+Pictures and files attached to a comment still show under it (#36).
+
+---
+
 ## 2026-10-28 — Every task has its own page (#34)
 
 Clicking a task's title on the list now opens a page just for that task.

@@ -128,3 +128,11 @@ test('filterComments narrows by every word typed and by author kind, oldest firs
   assert.equal(filterComments(thread, { text: '', kind: 'human' }).length, 2);
   assert.equal(filterComments(thread, { text: 'logo', kind: 'ai' }).length, 0);
 });
+
+test('filterComments matches the words of a formatted comment, not its marks', () => {
+  const thread = [{ body: 'Ship the **dark** [logo](https://example.com/logo) today\n- check *contrast*', tool: 'wavecenter', createdAt: '2026-10-28T01:00:00Z' }];
+  assert.equal(filterComments(thread, { text: 'dark logo', kind: 'both' }).length, 1);
+  assert.equal(filterComments(thread, { text: 'contrast', kind: 'both' }).length, 1);
+  assert.equal(filterComments(thread, { text: '**dark**', kind: 'both' }).length, 0);
+  assert.equal(filterComments([{ body: 'see [the brief](https://docs.example.com/brief)', tool: 'wavecenter', createdAt: '2026-10-28' }], { text: 'docs.example.com', kind: 'both' }).length, 1);
+});

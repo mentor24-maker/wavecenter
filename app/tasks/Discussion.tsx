@@ -6,10 +6,11 @@
  * new comment below. Whether a comment is from a person or AI, and what the
  * filter lets through, is decided in core/comments.ts.
  *
- * A comment is shown as plain text, never as HTML, so nothing typed into one
- * can run in the browser. Files may be picked before posting; they are sent
- * once the comment is saved, and show under it, a picture as a thumbnail and
- * any other file as a download link. A post or edit that fails keeps what was typed and
+ * A comment is written in a small rich-text format (bold, italic, lists and
+ * links; core/richText.ts) and drawn by RichText as React elements, never as
+ * HTML, so nothing typed into one can run in the browser. Files may be picked
+ * before posting; they are sent once the comment is saved, and show under it,
+ * a picture as a thumbnail and any other file as a download link. A post or edit that fails keeps what was typed and
  * the row says why (engineering rule 6); a thread the filter empties says so
  * (rule 7).
  */
@@ -17,14 +18,15 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
   commentAuthorKind,
   filterComments,
-  MAX_COMMENT_LENGTH,
   NO_COMMENT_FILTER,
   type CommentFilter,
   type TaskComment,
 } from "../../core/comments.ts";
 import { changeComment, deleteComment, postComment, type SaveResult } from "./actions";
 import AttachedFiles from "./AttachedFiles";
+import CommentEditor from "./CommentEditor";
 import { fullDate } from "./listView.ts";
+import RichText from "./RichText";
 import type { ListFile } from "./TaskList";
 import { picked, screenFiles, uploadFiles } from "./upload";
 
@@ -142,14 +144,7 @@ export default function Discussion({
                 </p>
                 {editing === c.id ? (
                   <form onSubmit={(e) => saveEdit(e, c)} className="edit">
-                    <textarea
-                      aria-label="Edit the comment"
-                      rows={3}
-                      maxLength={MAX_COMMENT_LENGTH}
-                      value={edited}
-                      autoFocus
-                      onChange={(e) => setEdited(e.target.value)}
-                    />
+                    <CommentEditor label="Edit the comment" value={edited} autoFocus onChange={setEdited} />
                     <span>
                       <button type="submit" disabled={pending || !edited.trim()}>Save</button>{" "}
                       <button type="button" className="link" onClick={() => setEditing(null)}>cancel</button>
@@ -157,8 +152,8 @@ export default function Discussion({
                   </form>
                 ) : (
                   <>
-                    {/* Plain text in a text node: React escapes it, so markup shows as typed and never runs. */}
-                    <p className="body">{c.body}</p>
+                    {/* Drawn as React elements from text nodes: markup shows as typed and never runs. */}
+                    <RichText body={c.body} className="body" />
                     {files.has(c.id) && <AttachedFiles files={files.get(c.id)!} removable={c.ownerId === userId} pending={pending} run={run} />}
                     {c.ownerId === userId && (
                       <p className="comment-actions">
@@ -184,13 +179,11 @@ export default function Discussion({
       )}
 
       <form onSubmit={post} className="add-comment" aria-label={`Comment on "${taskTitle}"`}>
-        <textarea
-          aria-label={`New comment on "${taskTitle}"`}
-          placeholder="Write a comment"
-          rows={3}
-          maxLength={MAX_COMMENT_LENGTH}
+        <CommentEditor
+          label={`New comment on "${taskTitle}"`}
+          placeholder="Write a comment. Select words, then use the buttons above for bold, italic, lists or a link."
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={setDraft}
         />
         <span>
           <button type="submit" disabled={pending || !draft.trim()}>Post</button>{" "}
