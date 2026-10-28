@@ -174,6 +174,12 @@ try {
   const still = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=points`);
   check('B’s task is untouched afterwards', still.json?.[0]?.points === 5, `points ${still.json?.[0]?.points}`);
 
+  // Points are never below zero, even written straight to the table past core.
+  const negative = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { points: -1 } });
+  const afterNegative = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=points`);
+  check('the table refuses negative points, even from the task’s owner', negative.status >= 400 && afterNegative.json?.[0]?.points === 5,
+    `HTTP ${negative.status} ${negative.json?.message ?? ''}, points now ${afterNegative.json?.[0]?.points}`);
+
   // member_settings: the "Launch AI Agents" switch is the member's own.
   const onA = await setAgentsOn(settingsStore(a), true, TOOL);
   await setAgentsOn(settingsStore(b), false, TOOL);

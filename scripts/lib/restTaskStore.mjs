@@ -62,6 +62,7 @@ export function fromRow(row) {
 export function guardQuery(guard = {}) {
   let q = '';
   if (guard.points !== undefined) q += `&points=eq.${guard.points}`;
+  if (guard.status !== undefined) q += `&status=eq.${guard.status}`;
   if (guard.agentTicketUrl === null) q += '&agent_ticket_url=is.null';
   else if (guard.agentTicketUrl !== undefined) q += `&agent_ticket_url=eq.${encodeURIComponent(guard.agentTicketUrl)}`;
   return q;
