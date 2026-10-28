@@ -15,7 +15,7 @@
  */
 import { CoreError, requireTool, WAVECENTER_TOOL } from './tool.ts';
 import type { TaskStore } from './tasks.ts';
-import { richTextPlain } from './richText.ts';
+import { richTextSearchable } from './richText.ts';
 
 /** The longest comment a member may post: 10,000 characters. The table checks the same. */
 export const MAX_COMMENT_LENGTH = 10_000;
@@ -122,8 +122,8 @@ export const NO_COMMENT_FILTER: CommentFilter = { text: '', kind: 'both' };
 
 /**
  * The comments the filter lets through, oldest first. Every word typed must
- * appear in the comment's shown words (its marks left out), in any order,
- * ignoring capitals.
+ * appear in the comment's shown words (its marks left out) or the address of
+ * one of its links, in any order, ignoring capitals.
  */
 export function filterComments<C extends Pick<TaskComment, 'body' | 'tool' | 'createdAt'>>(comments: readonly C[], filter: CommentFilter): C[] {
   const words = filter.text.toLowerCase().split(/\s+/).filter(Boolean);
@@ -131,7 +131,7 @@ export function filterComments<C extends Pick<TaskComment, 'body' | 'tool' | 'cr
     .filter((c) => filter.kind === 'both' || commentAuthorKind(c) === filter.kind)
     .filter((c) => {
       if (words.length === 0) return true;
-      const body = richTextPlain(c.body).toLowerCase();
+      const body = richTextSearchable(c.body).toLowerCase();
       return words.every((w) => body.includes(w));
     })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));

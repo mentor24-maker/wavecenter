@@ -7,7 +7,7 @@
  * the marks of core/richText.ts into the box, so what is saved is always
  * plain words.
  */
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { MAX_COMMENT_LENGTH } from "../../core/comments.ts";
 import { applyFormat, applyLink, type RichFormat, type TextEdit } from "../../core/richText.ts";
 import RichText from "./RichText";
@@ -35,6 +35,15 @@ export default function CommentEditor({
   const box = useRef<HTMLTextAreaElement>(null);
   const [preview, setPreview] = useState(false);
   const [problem, setProblem] = useState("");
+
+  // Once the box is emptied (the comment was posted, or every word deleted),
+  // start again from writing, with no old link message showing.
+  useEffect(() => {
+    if (value === "") {
+      setPreview(false);
+      setProblem("");
+    }
+  }, [value]);
 
   /** Put the new words in the box and select what the change left selected. */
   function commit(next: TextEdit) {
@@ -108,7 +117,10 @@ export default function CommentEditor({
           value={value}
           autoFocus={autoFocus}
           onKeyDown={keys}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            setProblem("");
+            onChange(e.target.value);
+          }}
         />
       )}
       {problem && <p className="error" role="alert">{problem}</p>}

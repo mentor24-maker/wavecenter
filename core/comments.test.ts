@@ -134,4 +134,5 @@ test('filterComments matches the words of a formatted comment, not its marks', (
   assert.equal(filterComments(thread, { text: 'dark logo', kind: 'both' }).length, 1);
   assert.equal(filterComments(thread, { text: 'contrast', kind: 'both' }).length, 1);
   assert.equal(filterComments(thread, { text: '**dark**', kind: 'both' }).length, 0);
+  assert.equal(filterComments([{ body: 'see [the brief](https://docs.example.com/brief)', tool: 'wavecenter', createdAt: '2026-10-28' }], { text: 'docs.example.com', kind: 'both' }).length, 1);
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyFormat, applyLink, parseInline, parseRichText, richTextPlain, safeHref } from './richText.ts';
+import { applyFormat, applyLink, parseInline, parseRichText, richTextPlain, richTextSearchable, safeHref } from './richText.ts';
 
 const text = (t: string) => ({ type: 'text', text: t });
 
@@ -113,4 +113,39 @@ test('applyLink links the selection, or refuses an unsafe address', () => {
   assert.equal(JSON.stringify(parseRichText(linked!.value)).includes('"href":"https://example.com/a%29b"'), true);
   assert.equal(applyLink({ value: '', start: 0, end: 0 }, 'https://x.com')?.value, '[https://x.com](https://x.com)');
   assert.equal(applyLink({ value: 'x', start: 0, end: 1 }, 'javascript:alert(1)'), null);
+});
+
+test('a backslash stays unless it stops a mark formatting', () => {
+  assert.equal(richTextPlain('C:\\.config and \\\\server\\share'), 'C:\\.config and \\\\server\\share');
+  assert.equal(richTextPlain('C:\\_drafts'), 'C:\\_drafts');
+  assert.deepEqual(parseInline('\\*not italic*'), [text('*not italic*')]);
+  assert.deepEqual(parseInline('\\**not bold**'), [text('**not bold**')]);
+  assert.deepEqual(parseInline('\\[x](https://x.com) \\* lone'), [text('[x](https://x.com) \\* lone')]);
+});
+
+test('a link address may hold paired brackets', () => {
+  assert.deepEqual(parseInline('[w](https://en.wikipedia.org/wiki/Foo_(bar)) next'), [
+    { type: 'link', href: 'https://en.wikipedia.org/wiki/Foo_(bar)', children: [text('w')] },
+    text(' next'),
+  ]);
+});
+
+test('richTextSearchable adds each link address to the shown words', () => {
+  assert.equal(richTextSearchable('see [the plan](https://x.com/plan) and https://y.org'), 'see the plan and https://y.org\nhttps://x.com/plan\nhttps://y.org/');
+});
+
+test('applyFormat with only spaces selected puts the marks after them', () => {
+  assert.deepEqual(applyFormat({ value: 'a   b', start: 1, end: 4 }, 'bold'), { value: 'a   ****b', start: 6, end: 6 });
+});
+
+test('applyFormat on the top line of a box that starts with a line break', () => {
+  assert.equal(applyFormat({ value: '\nfoo', start: 0, end: 0 }, 'bullets').value, '- \nfoo');
+});
+
+test('applyFormat replaces only one old list mark', () => {
+  assert.equal(applyFormat({ value: '- 1. foo', start: 0, end: 8 }, 'numbers').value, '1. 1. foo');
+});
+
+test('an escaped pair of marks drops both backslashes', () => {
+  assert.deepEqual(parseInline('\\**both\\** and \\*one\\*'), [text('**both** and *one*')]);
 });

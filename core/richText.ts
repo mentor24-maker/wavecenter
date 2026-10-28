@@ -12,6 +12,10 @@
  * and a link only becomes a link when it goes to http:, https: or mailto:.
  * That is what keeps a pasted `<script>` or `javascript:` link inert.
  *
+ * A backslash in front of a mark (`\*not italic*`) keeps the mark as typed.
+ * Only a backslash that stops something formatting is dropped, so every other
+ * backslash (`C:\.config`, `\\server`) shows as written.
+ *
  * Plain-text comments written before this existed read the same, apart from
  * lines starting "- " or "1. ", which now show as the lists they meant.
  */
@@ -83,7 +87,6 @@ export function parseRichText(body: string): RichBlock[] {
 /** How deep marks may nest (bold inside a link inside italic …) before the rest stays as text. */
 const MAX_DEPTH = 4;
 const AUTOLINK = /^(?:https?:\/\/|mailto:)[^\s<>"]+/i;
-const ESCAPABLE = '\\*_[]()`-#+.!';
 
 /** One line's (or paragraph's) words, with bold, italic and links picked out. */
 export function parseInline(text: string, depth = 0, allowLinks = true): RichInline[] {
@@ -99,44 +102,60 @@ export function parseInline(text: string, depth = 0, allowLinks = true): RichInl
   // too, so remember that and keep a long comment of stray marks quick.
   const noCloser = new Set<string>();
 
+  /** The mark starting at `at` when it formats: what it makes, how long its opening is, and where it ends. */
+  const readMark = (at: number): { node: RichInline; open: number; end: number } | null => {
+    const c = text[at];
+    if (c === '*' && text[at + 1] === '*') {
+      const end = findCloser(text, at + 2, '**', noCloser);
+      return end > at + 2 ? { node: { type: 'bold', children: inner(text.slice(at + 2, end)) }, open: 2, end: end + 2 } : null;
+    }
+    if (c === '*' || (c === '_' && !isWordChar(text[at - 1]))) {
+      const end = findCloser(text, at + 1, c, noCloser);
+      return end > at + 1 ? { node: { type: 'italic', children: inner(text.slice(at + 1, end)) }, open: 1, end: end + 1 } : null;
+    }
+    if (c === '[' && allowLinks) {
+      const link = readLink(text, at);
+      const href = link && safeHref(link.url);
+      // No link inside a link's words.
+      return link && href ? { node: { type: 'link', href, children: inner(link.label, false) }, open: 1, end: link.end } : null;
+    }
+    return null;
+  };
+
+  // Where a closing mark sits whose opening one was escaped: its backslash goes too.
+  const escapedClosers = new Map<number, number>();
+
   let i = 0;
   while (i < text.length) {
     const c = text[i];
 
-    if (c === '\\' && i + 1 < text.length && ESCAPABLE.includes(text[i + 1])) {
-      plain += text[i + 1];
-      i += 2;
+    if (c === '\\' && (text[i + 1] === '*' || text[i + 1] === '_' || text[i + 1] === '[')) {
+      // The backslash goes only when the mark after it would have formatted,
+      // or when it sits on the closing mark an escaped opening one paired with.
+      // An escaped link stays whole, so its address does not become a bare link.
+      const closer = escapedClosers.get(i + 1);
+      const escaped = closer ? null : readMark(i + 1);
+      if (escaped && escaped.node.type !== 'link') escapedClosers.set(escaped.end - escaped.open, escaped.open);
+      if (closer || escaped) {
+        const upto = escaped?.node.type === 'link' ? escaped.end : i + 1 + (closer ?? escaped!.open);
+        plain += text.slice(i + 1, upto);
+        i = upto;
+        continue;
+      }
+    }
+
+    const mark = readMark(i);
+    if (mark) {
+      flush();
+      out.push(mark.node);
+      i = mark.end;
       continue;
     }
 
-    if (c === '*' && text[i + 1] === '*') {
-      const end = findCloser(text, i + 2, '**', noCloser);
-      if (end > i + 2) {
-        flush();
-        out.push({ type: 'bold', children: inner(text.slice(i + 2, end)) });
-        i = end + 2;
-        continue;
-      }
-    } else if (c === '*' || (c === '_' && !isWordChar(text[i - 1]))) {
-      const end = findCloser(text, i + 1, c, noCloser);
-      if (end > i + 1) {
-        flush();
-        out.push({ type: 'italic', children: inner(text.slice(i + 1, end)) });
-        i = end + 1;
-        continue;
-      }
-    } else if (c === '[' && allowLinks) {
+    if (c === '[' && allowLinks) {
+      // An address that may not be a link stays exactly as typed, inert.
       const link = readLink(text, i);
       if (link) {
-        const href = safeHref(link.url);
-        if (href) {
-          flush();
-          // No link inside a link's words.
-          out.push({ type: 'link', href, children: inner(link.label, false) });
-          i = link.end;
-          continue;
-        }
-        // An address that may not be a link stays exactly as typed, inert.
         plain += text.slice(i, link.end);
         i = link.end;
         continue;
@@ -186,17 +205,23 @@ function findCloser(text: string, from: number, mark: string, noCloser: Set<stri
   return -1;
 }
 
-/** `[words](address)` starting at `start`, or null. */
+/** `[words](address)` starting at `start`, or null. Brackets inside the address must pair up, as in `…/Foo_(bar)`. */
 function readLink(text: string, start: number): { label: string; url: string; end: number } | null {
   const close = text.indexOf('](', start + 1);
   if (close === -1) return null;
   const label = text.slice(start + 1, close);
   if (label.trim() === '' || label.includes('\n') || label.includes('[')) return null;
-  const end = text.indexOf(')', close + 2);
-  if (end === -1) return null;
-  const url = text.slice(close + 2, end);
-  if (url.includes('\n')) return null;
-  return { label, url, end: end + 1 };
+  let open = 0;
+  for (let at = close + 2; at < text.length; at++) {
+    const ch = text[at];
+    if (ch === '\n') return null;
+    if (ch === '(') open += 1;
+    else if (ch === ')') {
+      if (open === 0) return { label, url: text.slice(close + 2, at), end: at + 1 };
+      open -= 1;
+    }
+  }
+  return null;
 }
 
 function isWordChar(ch: string | undefined): boolean {
@@ -210,6 +235,18 @@ export function richTextPlain(body: string): string {
   return parseRichText(body)
     .map((b) => (b.type === 'paragraph' ? inline(b.children) : b.items.map(inline).join('\n')))
     .join('\n');
+}
+
+/** What the search box looks in: the shown words, then the address of every link, so a comment is found by what it links to. */
+export function richTextSearchable(body: string): string {
+  const hrefs: string[] = [];
+  const collect = (nodes: RichInline[]): void =>
+    nodes.forEach((n) => {
+      if (n.type === 'link') hrefs.push(n.href);
+      if (n.type !== 'text') collect(n.children);
+    });
+  for (const b of parseRichText(body)) (b.type === 'paragraph' ? [b.children] : b.items).forEach(collect);
+  return [richTextPlain(body), ...hrefs].join('\n');
 }
 
 /** A toolbar button in the comment box. */
@@ -236,17 +273,24 @@ export function applyFormat(edit: TextEdit, format: RichFormat): TextEdit {
     const lead = chosen.length - chosen.trimStart().length;
     const trail = chosen.length - chosen.trimEnd().length;
     const words = chosen.trim();
+    // Only spaces chosen: put the marks after them, as if nothing were selected.
+    if (words === '') {
+      const at = end + mark.length;
+      return { value: value.slice(0, end) + mark + mark + value.slice(end), start: at, end: at };
+    }
     const next = value.slice(0, start + lead) + mark + words + mark + value.slice(end - trail);
     const at = start + lead + mark.length;
     return { value: next, start: at, end: at + words.length };
   }
 
-  const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+  // lastIndexOf with -1 still looks at the first character, so the top line is its own case.
+  const lineStart = start === 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
   const nextBreak = value.indexOf('\n', Math.max(end - (end > start ? 1 : 0), start));
   const lineEnd = nextBreak === -1 ? value.length : nextBreak;
   const lines = value.slice(lineStart, lineEnd).split('\n');
   const listed = lines.map((line, n) => {
-    const words = line.replace(BULLET, '$1').replace(NUMBERED, '$2');
+    // Replace one old list mark only, so "- 1. foo" keeps its "1.".
+    const words = BULLET.exec(line)?.[1] ?? NUMBERED.exec(line)?.[2] ?? line;
     return format === 'bullets' ? `- ${words}` : `${n + 1}. ${words}`;
   });
   const block = listed.join('\n');
