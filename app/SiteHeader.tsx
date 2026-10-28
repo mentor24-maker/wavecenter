@@ -6,12 +6,21 @@ import { signOut } from "./auth/actions";
  * leads home, and on the right either who is signed in with a way out, or a
  * way in. The page passes what it already knows about the visitor, so the
  * header never asks Supabase a second time. A signed-in member also gets a
- * link to the Game page, where their points are.
+ * link to the Game page, where their points are. `wide` matches the wider
+ * task page, so the bar lines up with the list under it.
  */
-export default function SiteHeader({ email, showSignIn = true }: { email?: string | null; showSignIn?: boolean }) {
+export default function SiteHeader({
+  email,
+  showSignIn = true,
+  wide = false,
+}: {
+  email?: string | null;
+  showSignIn?: boolean;
+  wide?: boolean;
+}) {
   return (
     <header className="site">
-      <div className="site-inner">
+      <div className={wide ? "site-inner wide" : "site-inner"}>
         <Link href="/" className="brand" aria-label="WaveCenter home">
           {/* The same file as the browser-tab icon: Next.js serves app/icon.png at /icon.png. */}
           <img className="mark" src="/icon.png" alt="" width={28} height={28} />

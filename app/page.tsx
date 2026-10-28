@@ -87,7 +87,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
   const [{ data: tasks, error }, settings, files] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, created_at")
+      .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
       .order("position")
       .order("created_at"),
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
@@ -101,8 +101,8 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
 
   return (
     <>
-      <SiteHeader email={email} />
-      <main>
+      <SiteHeader email={email} wide />
+      <main className="wide">
         <h1>Your tasks</h1>
         {error ? (
           <p className="error" role="alert">
@@ -120,10 +120,12 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
               priority: t.priority,
               agentSelected: t.agent_selected,
               agentTicketUrl: t.agent_ticket_url,
+              ownerId: t.owner_id,
               createdAt: t.created_at,
             }))}
             agents={agents}
             files={files}
+            userId={userId}
           />
         )}
       </main>
