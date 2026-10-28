@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-27 — Everything you do in WaveCenter now earns points (#27)
+
+This is the first piece of the game layer. Every time a member adds, changes,
+finishes or deletes a task, attaches or removes a file, has a task handed to
+the AI agents, or flips the AI agents switch, WaveCenter writes it down and
+scores it. Finishing a task earns 5 points and everything else earns 1, for
+now. The database does the scoring as part of the save itself, so nothing
+can slip through unscored and nobody can award themselves extra points. If
+the scoring part fails, the save fails too and the screen says so. A new
+Game page, linked at the top once you are signed in, shows how points are
+earned, your total, and what you did most recently.
+
+---
+
 ## 2026-10-27 — WaveCenter's own logo replaces the placeholder wave (#25)
 
 The browser tab and the top-left corner of every page showed a stand-in
