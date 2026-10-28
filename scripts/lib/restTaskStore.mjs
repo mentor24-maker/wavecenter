@@ -75,14 +75,17 @@ export function guardQuery(guard = {}) {
 }
 
 /**
- * @param {{ url: string, apiKey: string, token: string, fetch?: typeof fetch }} options
+ * @param {{ url: string, apiKey: string, token: string, ownerId?: string, fetch?: typeof fetch }} options
  *   `token` is normally the signed-in member's access token, so row-level
- *   security applies exactly as it does in the browser. The loop-handoff
- *   lane on the Mini passes the service key instead, which sees every
- *   member's tasks; that key never leaves the server (engineering rule 3).
+ *   security applies exactly as it does in the browser; then pass that
+ *   member's `ownerId` too. Every member may read every task, but core's
+ *   `get` means "a task the caller may change", so it asks only for theirs.
+ *   The loop-handoff lane on the Mini passes the service key instead, which
+ *   sees and changes every member's tasks, and no `ownerId`; that key never
+ *   leaves the server (engineering rule 3).
  * @returns {TaskStore}
  */
-export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
+export function restTaskStore({ url, apiKey, token, ownerId, fetch: fetchFn = fetch }) {
   async function call(path, method, body, extraHeaders = {}) {
     const res = await fetchFn(`${url}/rest/v1/${path}`, {
       method,
@@ -107,7 +110,8 @@ export function restTaskStore({ url, apiKey, token, fetch: fetchFn = fetch }) {
       return fromRow(made);
     },
     async get(id) {
-      const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}&select=*`, 'GET');
+      const mine = ownerId ? `&owner_id=eq.${encodeURIComponent(ownerId)}` : '';
+      const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${mine}&select=*`, 'GET');
       return row ? fromRow(row) : null;
     },
     async update(id, changes, guard) {
