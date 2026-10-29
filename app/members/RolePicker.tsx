@@ -14,6 +14,13 @@ const UNREACHABLE = "Could not reach WaveCenter, so the role was not changed. Ch
 
 export default function RolePicker({ memberId, initial, label }: { memberId: string; initial: RoleKey; label: string }) {
   const [role, setRole] = useState<RoleKey>(initial);
+  // When the page refreshes with a role the database now holds (another admin
+  // changed it), show that one instead of the role this picker last saw.
+  const [shown, setShown] = useState<RoleKey>(initial);
+  if (initial !== shown) {
+    setShown(initial);
+    setRole(initial);
+  }
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 

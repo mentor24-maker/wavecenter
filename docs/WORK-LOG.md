@@ -20,6 +20,13 @@ admin be demoted, so WaveCenter can't end up with nobody in charge. For now
 the roles are recorded and shown but don't yet change what anyone can do on
 tasks; that's the next step.
 
+Review caught one leak before this went live: a behind-the-scenes lookup
+let any member ask the database for anyone else's role. That lookup is now
+hidden where only the database's own rules can use it, and the safety check
+proves a member can no longer peek. Also: the permission column headings on
+the Members page no longer run together, and a role another admin changed
+shows up when the page refreshes.
+
 ---
 
 ## 2026-10-29 — Dark mode gets the aquamarine and gold look too (#42)

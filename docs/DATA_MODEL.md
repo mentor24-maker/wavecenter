@@ -19,7 +19,9 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261028120000_member_profiles.sql` added `member_profiles`;
 `20261028130000_task_comments.sql` added `task_comments`;
 `20261028150000_comment_files.sql` let a file belong to a comment;
-`20261029120000_member_roles.sql` added roles and permissions); this page
+`20261029120000_member_roles.sql` added roles and permissions;
+`20261029180000_member_role_private.sql` hid the role-lookup helper from the
+API); this page
 explains them.
 
 ## The `tasks` table
@@ -231,6 +233,12 @@ changes only through the database function `set_member_role`, which refuses
 anyone who is not an admin, refuses a change that would leave WaveCenter
 with no admin, and refuses a change that names no tool. `setMemberRole` in
 `core/members.ts` applies the same rules before it asks.
+
+The rules above ask a helper, `private.member_role`, what a member's role
+is. It lives in the `private` schema, which the API does not expose, so no
+member can call it to look up someone else's role. (It first lived in
+`public`, where any signed-in member could call it; the second migration
+moved it.)
 
 The **Members** page (`/members`, in the menu for admins only) lists every
 member through the function `list_members`, which only an admin may call. It

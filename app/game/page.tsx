@@ -73,7 +73,8 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [rules, total, latest, finished] = await Promise.all([
+  const [admin, rules, total, latest, finished] = await Promise.all([
+    isAdmin(supabase, user.id),
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
@@ -82,7 +83,7 @@ export default async function Game() {
 
   return (
     <>
-      <SiteHeader email={user.email ?? "you"} admin={await isAdmin(supabase, user.id)} />
+      <SiteHeader email={user.email ?? "you"} admin={admin} />
       <main>
         <h1>Game</h1>
         <p className="lede">

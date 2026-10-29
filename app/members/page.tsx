@@ -153,7 +153,7 @@ function PermissionTable({ lists }: { lists: Read<RolesAndPermissions> }) {
     );
   }
   return (
-    <table className="game">
+    <table className="game grants">
       <thead>
         <tr>
           <th scope="col">Role</th>

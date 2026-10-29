@@ -378,6 +378,10 @@ try {
   // Make A an admin with the service key, as the migration made Dane one.
   const madeAdmin = await admin('/rest/v1/member_roles', { method: 'POST', body: { member_id: a.id, role: 'admin', tool: TOOL } });
   if (madeAdmin.status >= 300) throw new Error(`could not make A an admin: HTTP ${madeAdmin.status} ${JSON.stringify(madeAdmin.json)}`);
+  const peekRole = await call('/rest/v1/rpc/member_role', { method: 'POST', token: b.token, body: { member: a.id } });
+  check('a non-admin cannot read another member’s role through a database function', peekRole.status >= 400 || !['admin', 'editor', 'contributor', 'reviewer', 'viewer'].includes(peekRole.json), `HTTP ${peekRole.status} ${JSON.stringify(peekRole.json)}`);
+  const peekRow = await call(`/rest/v1/member_roles?member_id=eq.${a.id}&select=role`, { token: b.token });
+  check('a non-admin cannot read another member’s role row', Array.isArray(peekRow.json) && peekRow.json.length === 0, `HTTP ${peekRow.status} ${JSON.stringify(peekRow.json)}`);
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);

@@ -40,10 +40,10 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   }
 
   const email = user.email ?? "you";
-  const admin = await isAdmin(supabase, user.id);
-  const read = TASK_ID.test(id)
-    ? await supabase.from("tasks").select().eq("id", id).maybeSingle()
-    : { data: null, error: null };
+  const [admin, read] = await Promise.all([
+    isAdmin(supabase, user.id),
+    TASK_ID.test(id) ? supabase.from("tasks").select().eq("id", id).maybeSingle() : { data: null, error: null },
+  ]);
   if (read.error) {
     return (
       <Shell email={email} admin={admin}>
