@@ -284,8 +284,7 @@ export default function TaskList({
   /** The header row of a section: column names, the sortable ones as buttons. */
   const head = (tickAll: ReactNode) => (
     <li className="task head" role="row">
-      <span className="cell" role="columnheader">{tickAll ?? <small>AI</small>}</span>
-      <span className="cell note" role="columnheader"><small>Done</small></span>
+      <span className="cell" role="columnheader">{tickAll}<small>AI</small></span>
       {sortHeader("title", "Title")}
       {sortHeader("priority", "Priority")}
       {sortHeader("points", "Points")}
@@ -409,7 +408,7 @@ export default function TaskList({
         <p className="note">No tasks yet — add your first one above.</p>
       ) : (
         <>
-          <form className="filters" aria-label="Filter tasks" onSubmit={(e) => e.preventDefault()}>
+          <form className="filters task-filters" aria-label="Filter tasks" onSubmit={(e) => e.preventDefault()}>
             <input
               type="search"
               aria-label="Filter by words in the title or details"
@@ -506,7 +505,7 @@ export default function TaskList({
           )}
           <h2>Done</h2>
           {!done.length ? (
-            <p className="note">Nothing done yet. Tick a task&rsquo;s box when you finish it.</p>
+            <p className="note">Nothing done yet. Tick the Done box at the right end of a task&rsquo;s row when you finish it.</p>
           ) : shownDone.length ? (
             <ul className="tasks" role="table" aria-label="Done tasks">
               {head(null)}
@@ -670,16 +669,6 @@ function TaskRow({
           />
         )}
       </span>
-      <span className="cell" role="cell">
-        <input
-          type="checkbox"
-          aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
-          checked={done}
-          disabled={pending || !mine}
-          title={mine ? undefined : `Only ${owner} can tick this off`}
-          onChange={() => run(() => markDone(task.id, !done))}
-        />
-      </span>
       {editing ? (
         <form onSubmit={saveEdit} className="col-title edit" role="cell">
           <input aria-label="Task title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
@@ -786,6 +775,17 @@ function TaskRow({
         )}
       </span>
       <span className="col-actions" role="cell">
+        {/* Done sits here, away from the AI box at the left edge, so one is not ticked for the other. */}
+        <label className="done-box" title={mine ? undefined : `Only ${owner} can tick this off`}>
+          <input
+            type="checkbox"
+            aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
+            checked={done}
+            disabled={pending || !mine}
+            onChange={() => run(() => markDone(task.id, !done))}
+          />
+          <span aria-hidden="true">Done</span>
+        </label>
         {mine && (<>
         <button
           type="button"
