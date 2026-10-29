@@ -21,7 +21,8 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261028150000_comment_files.sql` let a file belong to a comment;
 `20261029120000_member_roles.sql` added roles and permissions;
 `20261029180000_member_role_private.sql` hid the role-lookup helper from the
-API); this page
+API; `20261029210000_member_permissions.sql` added the member permissions and
+let every member list the members); this page
 explains them.
 
 ## The `tasks` table
@@ -215,15 +216,17 @@ their own row, and a signed-out visitor gets nothing.
 
 Every member has a role, and each role has a set of permissions (Dane,
 2026-10-28; on 2026-10-29 he chose the first slice: stored and shown, and an
-admin changes roles). **The permissions are recorded, not yet enforced**:
-what anyone may do on tasks is still the rule under "Who can see what" below.
-A later ticket makes them count.
+admin changes roles). **The task permissions are recorded, not yet
+enforced**: what anyone may do on tasks is still the rule under "Who can see
+what" below. A later ticket makes them count. **The member permissions do
+count** (2026-10-29): `member.read` decides who may list the members, and
+`member.edit` decides who gets the buttons on the Members page.
 
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four; contributor reads, creates and edits (their own tasks); reviewer and viewer read. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -241,12 +244,18 @@ member can call it to look up someone else's role. (It first lived in
 moved it.)
 
 The **Members** page (`/members`, in the menu for admins only) lists every
-member through the function `list_members`, which only an admin may call. It
+member through the function `list_members`, which any role with
+`member.read` may call (every role, to start; it was admins only until
+2026-10-29). It
 shows each member only as their profile allows other members to see them:
 their avatar (none if their profile is private) and their name only if
-their profile is public. No email address leaves the database. Below the
-list, a table shows which role has which permission. A member who is not an
-admin who opens the page is told only an admin can manage members.
+their profile is public. No email address leaves the database. The list has
+a filter row (name, role), headings that sort (Member, Joined, Role), and an
+Actions column with the buttons the viewer's role may use (`memberActions`
+in `core/members.ts`): today, an admin's role picker. Adding and removing
+members is left out for now (Dane, 2026-10-29). Below the list, a table
+shows which role has which permission. A role without `member.read` that
+opens the page is told so.
 
 ### Files attached to a task
 

@@ -12,11 +12,26 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 Until now only admins saw the Members link in the top menu. Dane decided
 every signed-in member should see it, so now the menu reads Tasks, Game,
 Profile, Members for everyone. A member who is not an admin who clicks it
-gets a polite note that only an admin can manage members, never a blank
-page. Because the menu no longer depends on who is an admin, each page also
-skips one database question it used to ask on every load. Dane's other wish,
-that non-admins see the list itself (read only), needs a database change and
-is its own ticket.
+sees the members table to read, with a line saying only an admin can change
+a role, so they get exactly what Dane asked for: view only, with editing
+kept for admins. Because the menu no longer depends on who is an admin,
+each page also skips one database question it used to ask on every load.
+
+---
+
+## 2026-10-29 — Every member can view the Members table, filter it and sort it (#44)
+
+The Members page is now one table that every member can open and read, not
+just admins. A filter row narrows it by name or by role. Clicking Member,
+Joined or Role sorts by that column, and a second click flips the order.
+When a filter matches nobody, the table says so and offers a one-click
+clear, so an empty table never looks broken. An Actions column holds only
+the buttons your role is allowed to use. Today that is the role picker, and
+only admins get it. Two new permissions, "View members" (every role) and
+"Change member roles" (admins only), now appear in the Roles and permissions
+table. Adding and removing members is left out for now, as Dane chose.
+
+---
 
 ## 2026-10-29 — Members have roles, and an admin can change them (#43)
 

@@ -5,10 +5,12 @@
  * edit task, delete task"). On 2026-10-29 he chose the first slice: roles and
  * permissions are stored and shown, and an admin changes members' roles.
  *
- * The permissions are recorded, not yet enforced: what a member may do on
- * tasks is still decided by core/tasks.ts and the tasks row-level security
+ * The task permissions are recorded, not yet enforced: what a member may do
+ * on tasks is still decided by core/tasks.ts and the tasks row-level security
  * (every member reads every task and changes only their own). A later ticket
- * makes the permissions count.
+ * makes them count. The member permissions do count: `member.read` decides
+ * who may see the member list (the database's `list_members` asks it too),
+ * and `member.edit` decides who gets the buttons in each row.
  *
  * Like the profile (core/profiles.ts), roles are reached through a store a
  * client supplies, and every change names its tool.
@@ -31,16 +33,23 @@ export const PERMISSIONS = [
   { key: 'task.create', label: 'Create task' },
   { key: 'task.edit', label: 'Edit task' },
   { key: 'task.delete', label: 'Delete task' },
+  { key: 'member.read', label: 'View members' },
+  { key: 'member.edit', label: 'Change member roles' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
-/** Which role starts with which permission. Contributors edit only their own tasks. */
+/**
+ * Which role starts with which permission. Contributors edit only their own
+ * tasks. Every member views the member list; only an admin changes roles
+ * (Dane, 2026-10-29: "Only admins will get edit/delete functionality under
+ * the Actions column. Other members get view functionality").
+ */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete'],
-  editor: ['task.read', 'task.create', 'task.edit', 'task.delete'],
-  contributor: ['task.read', 'task.create', 'task.edit'],
-  reviewer: ['task.read'],
-  viewer: ['task.read'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit'],
+  editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read'],
+  contributor: ['task.read', 'task.create', 'task.edit', 'member.read'],
+  reviewer: ['task.read', 'member.read'],
+  viewer: ['task.read', 'member.read'],
 };
 
 /** A member with no role recorded: what every member was before roles existed. */
@@ -58,7 +67,34 @@ export function memberPermissions(
   return [...(grants[role] ?? [])];
 }
 
-/** Only an admin sees the member list and changes roles. */
+/** Does the role have the permission? From the starting grants unless the client read others from the database. */
+export function mayDo(
+  role: RoleKey | null | undefined,
+  permission: PermissionKey,
+  grants: Readonly<Record<string, readonly string[]>> = STARTING_ROLE_PERMISSIONS,
+): boolean {
+  return role != null && (grants[role]?.includes(permission) ?? false);
+}
+
+/**
+ * The buttons in a row of the member table, each with the permission it
+ * needs. Adding and removing members is left out for now (Dane, 2026-10-29,
+ * option "A"): members join by signing in.
+ */
+export const MEMBER_ACTIONS = [
+  { key: 'change-role', label: 'Change role', permission: 'member.edit' },
+] as const satisfies readonly { key: string; label: string; permission: PermissionKey }[];
+export type MemberActionKey = (typeof MEMBER_ACTIONS)[number]['key'];
+
+/** The member-table buttons the role may use, in the order they are shown. */
+export function memberActions(
+  role: RoleKey | null | undefined,
+  grants: Readonly<Record<string, readonly string[]>> = STARTING_ROLE_PERMISSIONS,
+): MemberActionKey[] {
+  return MEMBER_ACTIONS.filter((a) => mayDo(role, a.permission, grants)).map((a) => a.key);
+}
+
+/** Only an admin changes roles. */
 export function mayManageMembers(role: RoleKey | null | undefined): boolean {
   return role === 'admin';
 }
