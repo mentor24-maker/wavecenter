@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — WaveCenter's new look: water-drop header, aquamarine boxes, gold borders (#41)
+
+The first step of the facelift. The bar across the top is now Dane's
+water-drop picture with the gold-and-aqua rings as the logo. The page behind
+everything is a very light aquamarine, and each box that sits inside another
+is one shade darker, so you can see at a glance how deep you are (the way
+StarCaster's builder does it). Every box has a thin dark-gold border and
+rounded corners, and the spacing is tighter, so the task list starts about a
+fifth of a screen higher. All the text was measured and is easy to read on
+every shade. Phones and computers set to dark mode keep a dark version for
+now; a matching dark aquamarine look is its own ticket.
+
 ## 2026-10-28 — Tasks is the first item in the menu (#38)
 
 The only way back to the task list was clicking the WaveCenter name, which
