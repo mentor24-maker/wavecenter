@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
 import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
+import { isAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import ProfileForm from "./ProfileForm";
@@ -44,7 +45,7 @@ export default async function Profile() {
 
   return (
     <>
-      <SiteHeader email={user.email ?? "you"} />
+      <SiteHeader email={user.email ?? "you"} admin={await isAdmin(supabase, user.id)} />
       <main>
         <h1>Your profile</h1>
         <p className="lede">

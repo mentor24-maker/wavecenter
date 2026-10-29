@@ -8,7 +8,10 @@
  * member's Discussion comments (`public.task_comments`) or the files attached
  * to them; that members vote on
  * any task, only ever through their own vote, and the average becomes the
- * task's points and priority (`public.task_votes`); and that the game layer
+ * task's points and priority (`public.task_votes`); that every member reads
+ * the roles and permissions lists but nobody writes them, a member reads only
+ * their own role, and only an admin lists members or changes a role
+ * (`public.member_roles`); and that the game layer
  * scores every change while letting each member read only their own
  * engagements and nobody write them (`public.engagements`).
  *
@@ -31,6 +34,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS } from '../core/game.ts';
+import { setMemberRole } from '../core/members.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
 import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
@@ -216,6 +220,27 @@ function voteStore(member) {
   };
 }
 
+/** A MemberRoleStore (core/members.ts) over REST, acting as one member. */
+function roleStore(member) {
+  return {
+    async roleOf(memberId) {
+      const got = await call(`/rest/v1/member_roles?member_id=eq.${memberId}&select=role`, { token: member.token });
+      if (got.status >= 300) throw new Error(`member_roles read failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return got.json?.[0]?.role ?? null;
+    },
+    async adminCount() {
+      const got = await call('/rest/v1/member_roles?role=eq.admin&select=member_id', { token: member.token });
+      if (got.status >= 300) throw new Error(`member_roles count failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return got.json.length;
+    },
+    async setRole(memberId, role, tool) {
+      const got = await call('/rest/v1/rpc/set_member_role', { method: 'POST', token: member.token, body: { member: memberId, new_role: role, tool } });
+      if (got.status >= 300) throw new Error(`set_member_role failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return got.json;
+    },
+  };
+}
+
 const storedPaths = [];
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
@@ -323,6 +348,55 @@ try {
 
   const stillA = await admin(`/rest/v1/member_profiles?owner_id=eq.${a.id}&select=display_name,avatar`);
   check('A’s profile is unchanged afterwards', stillA.json?.[0]?.display_name === 'A' && stillA.json?.[0]?.avatar === 'sun', JSON.stringify(stillA.json));
+
+  // Roles and permissions: the lists are everyone's to read and nobody's to
+  // write; a member reads only their own role; only an admin lists members or
+  // changes a role, and only through set_member_role.
+  const rolesB = await call('/rest/v1/roles?select=key&order=position', { token: b.token });
+  const permsB = await call('/rest/v1/permissions?select=key', { token: b.token });
+  const grantsB = await call('/rest/v1/role_permissions?select=role,permission', { token: b.token });
+  check('a member reads the five roles', JSON.stringify(rolesB.json?.map((r) => r.key)) === JSON.stringify(['admin', 'editor', 'contributor', 'reviewer', 'viewer']), JSON.stringify(rolesB.json));
+  check('a member reads the permissions and who has which', permsB.json?.length >= 4 && grantsB.json?.length >= 13, `permissions ${permsB.json?.length}, grants ${grantsB.json?.length}`);
+  for (const [table, body] of [['roles', { key: 'owner', name: 'Owner', description: 'x', position: 99 }], ['permissions', { key: 'task.own', label: 'x', position: 99 }], ['role_permissions', { role: 'viewer', permission: 'task.delete' }]]) {
+    const forged = await call(`/rest/v1/${table}`, { method: 'POST', token: b.token, body });
+    check(`a member cannot add to ${table}`, forged.status >= 400, `HTTP ${forged.status} ${forged.json?.message ?? ''}`);
+  }
+  const wipeGrants = await call('/rest/v1/role_permissions?role=eq.viewer', { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('a member cannot remove a grant', wipeGrants.status >= 400 || (Array.isArray(wipeGrants.json) && wipeGrants.json.length === 0), `HTTP ${wipeGrants.status} ${JSON.stringify(wipeGrants.json)}`);
+  const anonRoles = await call('/rest/v1/roles?select=key');
+  check('a signed-out visitor sees no roles', anonRoles.status >= 400 || (Array.isArray(anonRoles.json) && anonRoles.json.length === 0), `HTTP ${anonRoles.status}`);
+
+  const selfPromote = await call('/rest/v1/rpc/set_member_role', { method: 'POST', token: b.token, body: { member: b.id, new_role: 'admin', tool: TOOL } });
+  check('a contributor cannot make themselves admin', selfPromote.status >= 400, `HTTP ${selfPromote.status} ${selfPromote.json?.message ?? ''}`);
+  const forgeRole = await call('/rest/v1/member_roles', { method: 'POST', token: b.token, body: { member_id: b.id, role: 'admin' } });
+  check('a member cannot write a role row directly', forgeRole.status >= 400, `HTTP ${forgeRole.status} ${forgeRole.json?.message ?? ''}`);
+  const listB = await call('/rest/v1/rpc/list_members', { method: 'POST', token: b.token, body: {} });
+  check('a non-admin cannot list the members', listB.status >= 400, `HTTP ${listB.status} ${listB.json?.message ?? ''}`);
+  const refusedRole = await setMemberRole(roleStore(b), { actorId: b.id, memberId: a.id, role: 'viewer' }, TOOL).then(() => '', (e) => e.message);
+  check('a non-admin cannot change a role through core either', /Only an admin/.test(refusedRole), refusedRole || 'the change went through');
+
+  // Make A an admin with the service key, as the migration made Dane one.
+  const madeAdmin = await admin('/rest/v1/member_roles', { method: 'POST', body: { member_id: a.id, role: 'admin', tool: TOOL } });
+  if (madeAdmin.status >= 300) throw new Error(`could not make A an admin: HTTP ${madeAdmin.status} ${JSON.stringify(madeAdmin.json)}`);
+  const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
+  const rowA = listA.json?.find?.((m) => m.member_id === a.id);
+  const rowB = listA.json?.find?.((m) => m.member_id === b.id);
+  check('an admin lists every member', listA.status === 200 && !!rowA && !!rowB, `HTTP ${listA.status} ${JSON.stringify(listA.json)?.slice(0, 200)}`);
+  check('the list shows a public name, hides a private profile, and carries no email', rowA?.display_name === 'A' && rowA?.avatar === 'sun' && rowB?.display_name === null && rowB?.avatar === null && !JSON.stringify(listA.json).includes('@'), `A ${JSON.stringify(rowA)}, B ${JSON.stringify(rowB)}`);
+  const noTool = await call('/rest/v1/rpc/set_member_role', { method: 'POST', token: a.token, body: { member: b.id, new_role: 'viewer', tool: ' ' } });
+  check('the database refuses a role change with no tool name', noTool.status >= 400, `HTTP ${noTool.status} ${noTool.json?.message ?? ''}`);
+  const viewerB = await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
+  const ownB = await call('/rest/v1/member_roles?select=member_id,role,tool', { token: b.token });
+  check('an admin changes a role through core, and the member reads it', viewerB === 'viewer' && ownB.json?.length === 1 && ownB.json[0].role === 'viewer' && ownB.json[0].tool === TOOL, JSON.stringify(ownB.json));
+  const allA = await call('/rest/v1/member_roles?select=member_id', { token: a.token });
+  check('an admin reads every role row', allA.json?.some((r) => r.member_id === a.id) && allA.json?.some((r) => r.member_id === b.id), JSON.stringify(allA.json));
+  const bumpB = await call(`/rest/v1/member_roles?member_id=eq.${b.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { role: 'admin' } });
+  check('a member cannot change their own role row directly', bumpB.status >= 400 || (Array.isArray(bumpB.json) && bumpB.json.length === 0), `HTTP ${bumpB.status} ${JSON.stringify(bumpB.json)}`);
+  const anonRoleRows = await call('/rest/v1/member_roles?select=member_id');
+  const anonList = await call('/rest/v1/rpc/list_members', { method: 'POST', body: {} });
+  check('a signed-out visitor sees no roles and cannot list members', (anonRoleRows.status >= 400 || anonRoleRows.json?.length === 0) && anonList.status >= 400, `rows HTTP ${anonRoleRows.status}, list HTTP ${anonList.status}`);
+  const stillViewer = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}&select=role`);
+  check('B is still a viewer afterwards', stillViewer.json?.[0]?.role === 'viewer', JSON.stringify(stillViewer.json));
 
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');

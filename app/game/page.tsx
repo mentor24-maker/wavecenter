@@ -5,6 +5,7 @@ import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
+import { isAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 
@@ -81,7 +82,7 @@ export default async function Game() {
 
   return (
     <>
-      <SiteHeader email={user.email ?? "you"} />
+      <SiteHeader email={user.email ?? "you"} admin={await isAdmin(supabase, user.id)} />
       <main>
         <h1>Game</h1>
         <p className="lede">
