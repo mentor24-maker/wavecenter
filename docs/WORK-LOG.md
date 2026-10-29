@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Boxes have clear outlines instead of faint grey ones (#40)
+
+The outlines around the task list, the AI agents panel and a task's
+Discussion were a grey so close to the background that the boxes hardly
+showed. Every box now has a thin, clearly visible outline with rounded
+corners: dark navy on the light theme, pale blue on the dark theme (Dane's
+choice, since navy disappears on the dark background). The rule is written
+at the top of the stylesheet so later work follows it.
+
 ## 2026-10-28 — Tasks is the first item in the menu (#38)
 
 The only way back to the task list was clicking the WaveCenter name, which
