@@ -408,7 +408,7 @@ export default function TaskList({
         <p className="note">No tasks yet — add your first one above.</p>
       ) : (
         <>
-          <form className="filters" aria-label="Filter tasks" onSubmit={(e) => e.preventDefault()}>
+          <form className="filters task-filters" aria-label="Filter tasks" onSubmit={(e) => e.preventDefault()}>
             <input
               type="search"
               aria-label="Filter by words in the title or details"
