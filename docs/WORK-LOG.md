@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
+
+The "Launch AI Agents" switch now sits at the right-hand end of the Tasks
+heading line instead of taking up its own box above the list. The two lines
+that explain it (whether agents are on and how many tasks are waiting, and
+what turning it off does) now pop up only when the mouse is over the switch
+or it is reached with the keyboard, so the top of the page is tidier. Screen
+readers still hear the explanation. If the switch cannot be read or a save
+fails, that message still shows on the page without hovering.
+
+---
+
 ## 2026-10-29 — Every member can view the Members table, filter it and sort it (#44)
 
 The Members page is now one table that every member can open and read, not
