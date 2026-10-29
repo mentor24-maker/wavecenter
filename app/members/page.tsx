@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
-import { AVATARS } from "../../core/profiles.ts";
-import { mayManageMembers, ROLES, type RoleKey } from "../../core/members.ts";
+import { STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, memberActions, ROLES } from "../../core/members.ts";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
-import RolePicker from "./RolePicker";
+import MemberTable from "./MemberTable";
 
 /** Join dates are shown in Mountain time, Dane's own. */
 const DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
@@ -20,12 +19,14 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * Members: for an admin, every member with their role and a picker to change
- * it, and below it which role may do what (core/members.ts). Each member is
- * shown only as their profile allows other members to see them: their avatar,
- * and their name if their profile is public. A member who is not an admin
- * sees a plain message instead of an empty table. Signed-out visitors are
- * sent to sign in.
+ * Members: every member with their role, a filter row and sortable headings,
+ * and below it which role may do what (core/members.ts). Any role with
+ * "View members" sees the table; the buttons in its Actions column are the
+ * ones the viewer's role may use (memberActions), which today means an admin
+ * changing roles. Each member is shown only as their profile allows other
+ * members to see them: their avatar, and their name if their profile is
+ * public. A role that may not view members gets a plain message instead of an
+ * empty table. Signed-out visitors are sent to sign in.
  */
 export default async function Members() {
   const supabase = await supabaseForRequest();
@@ -46,21 +47,25 @@ export default async function Members() {
     );
   }
 
-  const role = await read(() => myRole(supabase, user.id));
-  const admin = role.error === null && mayManageMembers(role.value);
+  const [role, lists] = await Promise.all([read(() => myRole(supabase, user.id)), read(() => readRolesAndPermissions(supabase))]);
   const email = user.email ?? "you";
+  const admin = role.error === null && mayManageMembers(role.value);
+  // The database's grants when they could be read; the starting ones
+  // otherwise, which the database's own check repeats, so nobody sees more.
+  const grants = lists.value?.grants ?? STARTING_ROLE_PERMISSIONS;
+  const mayView = role.error === null && mayDo(role.value, "member.read", grants);
 
-  if (!admin) {
+  if (!mayView) {
     return (
       <>
-        <SiteHeader email={email} />
+        <SiteHeader email={email} admin={admin} />
         <main>
           <h1>Members</h1>
           {role.error !== null ? (
             <p className="error" role="alert">Your role could not be loaded: {role.error}. Try reloading the page.</p>
           ) : (
             <p className="note" role="status">
-              Only an admin can manage members. Your role is <b>{ROLES.find((r) => r.key === role.value)?.name ?? role.value}</b>.
+              Your role, <b>{ROLES.find((r) => r.key === role.value)?.name ?? role.value}</b>, may not see the list of members.
             </p>
           )}
         </main>
@@ -68,22 +73,27 @@ export default async function Members() {
     );
   }
 
-  const [members, lists] = await Promise.all([read(() => listMembers(supabase)), read(() => readRolesAndPermissions(supabase))]);
+  // No buttons unless the grants were read: a button must never show to a role that may not use it.
+  const actions = lists.value ? memberActions(role.value, lists.value.grants) : [];
+  const members = await read(() => listMembers(supabase));
 
   return (
     <>
-      <SiteHeader email={email} admin />
+      <SiteHeader email={email} admin={admin} />
       <main>
         <h1>Members</h1>
-        <p className="lede">Everyone in WaveCenter and their role. A change saves as soon as you pick it.</p>
+        <p className="lede">
+          Everyone in WaveCenter and their role.{" "}
+          {actions.includes("change-role") ? "A role change saves as soon as you pick it." : "Only an admin can change a role."}
+        </p>
         <p className="note">
-          Roles and permissions are recorded but do not change what anyone may do on tasks yet: every member still
-          reads every task and changes only their own.
+          Task permissions are recorded but do not change what anyone may do on tasks yet: every member still reads
+          every task and changes only their own.
         </p>
 
         <div className="panel">
           <h2>Members</h2>
-          <MemberTable members={members} me={user.id} />
+          <MemberList members={members} me={user.id} actions={actions} />
 
           <h2>Roles and permissions</h2>
           <PermissionTable lists={lists} />
@@ -93,7 +103,7 @@ export default async function Members() {
   );
 }
 
-function MemberTable({ members, me }: { members: Read<MemberRow[]>; me: string }) {
+function MemberList({ members, me, actions }: { members: Read<MemberRow[]>; me: string; actions: ReturnType<typeof memberActions> }) {
   if (members.error !== null) {
     return <p className="error" role="alert">The members could not be loaded: {members.error}. Try reloading the page.</p>;
   }
@@ -109,33 +119,7 @@ function MemberTable({ members, me }: { members: Read<MemberRow[]>; me: string }
       <p className="note">
         Members show only what their profile lets others see: their avatar, and their name if their profile is public.
       </p>
-      <table className="game members">
-        <thead>
-          <tr>
-            <th scope="col">Member</th>
-            <th scope="col">Joined</th>
-            <th scope="col">Role</th>
-          </tr>
-        </thead>
-        <tbody>
-          {members.value.map((m) => {
-            const name = m.displayName ?? "Anonymous member";
-            const symbol = AVATARS.find((a) => a.id === m.avatar)?.symbol ?? "👤";
-            return (
-              <tr key={m.memberId}>
-                <td>
-                  <span aria-hidden="true">{symbol}</span> {name}
-                  {m.memberId === me && <span className="note"> (you)</span>}
-                </td>
-                <td className="note">{DAY.format(new Date(m.joinedAt))}</td>
-                <td>
-                  <RolePicker memberId={m.memberId} initial={m.role as RoleKey} label={m.memberId === me ? "you" : name} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <MemberTable members={members.value.map((m) => ({ ...m, joinedLabel: DAY.format(new Date(m.joinedAt)) }))} me={me} actions={actions} />
     </>
   );
 }

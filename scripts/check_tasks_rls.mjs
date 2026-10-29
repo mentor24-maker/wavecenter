@@ -10,7 +10,8 @@
  * any task, only ever through their own vote, and the average becomes the
  * task's points and priority (`public.task_votes`); that every member reads
  * the roles and permissions lists but nobody writes them, a member reads only
- * their own role, and only an admin lists members or changes a role
+ * their own role row, every member lists the members, and only an admin
+ * changes a role
  * (`public.member_roles`); and that the game layer
  * scores every change while letting each member read only their own
  * engagements and nobody write them (`public.engagements`).
@@ -350,13 +351,14 @@ try {
   check('A’s profile is unchanged afterwards', stillA.json?.[0]?.display_name === 'A' && stillA.json?.[0]?.avatar === 'sun', JSON.stringify(stillA.json));
 
   // Roles and permissions: the lists are everyone's to read and nobody's to
-  // write; a member reads only their own role; only an admin lists members or
-  // changes a role, and only through set_member_role.
+  // write; a member reads only their own role row; every member lists the
+  // members (View members); only an admin changes a role, and only through
+  // set_member_role.
   const rolesB = await call('/rest/v1/roles?select=key&order=position', { token: b.token });
   const permsB = await call('/rest/v1/permissions?select=key', { token: b.token });
   const grantsB = await call('/rest/v1/role_permissions?select=role,permission', { token: b.token });
   check('a member reads the five roles', JSON.stringify(rolesB.json?.map((r) => r.key)) === JSON.stringify(['admin', 'editor', 'contributor', 'reviewer', 'viewer']), JSON.stringify(rolesB.json));
-  check('a member reads the permissions and who has which', permsB.json?.length >= 4 && grantsB.json?.length >= 13, `permissions ${permsB.json?.length}, grants ${grantsB.json?.length}`);
+  check('a member reads the permissions and who has which', permsB.json?.length >= 6 && grantsB.json?.length >= 19, `permissions ${permsB.json?.length}, grants ${grantsB.json?.length}`);
   for (const [table, body] of [['roles', { key: 'owner', name: 'Owner', description: 'x', position: 99 }], ['permissions', { key: 'task.own', label: 'x', position: 99 }], ['role_permissions', { role: 'viewer', permission: 'task.delete' }]]) {
     const forged = await call(`/rest/v1/${table}`, { method: 'POST', token: b.token, body });
     check(`a member cannot add to ${table}`, forged.status >= 400, `HTTP ${forged.status} ${forged.json?.message ?? ''}`);
@@ -371,7 +373,7 @@ try {
   const forgeRole = await call('/rest/v1/member_roles', { method: 'POST', token: b.token, body: { member_id: b.id, role: 'admin' } });
   check('a member cannot write a role row directly', forgeRole.status >= 400, `HTTP ${forgeRole.status} ${forgeRole.json?.message ?? ''}`);
   const listB = await call('/rest/v1/rpc/list_members', { method: 'POST', token: b.token, body: {} });
-  check('a non-admin cannot list the members', listB.status >= 400, `HTTP ${listB.status} ${listB.json?.message ?? ''}`);
+  check('a contributor lists the members, with no email in the list', listB.status === 200 && listB.json?.some?.((m) => m.member_id === b.id) && !JSON.stringify(listB.json).includes('@'), `HTTP ${listB.status} ${JSON.stringify(listB.json)?.slice(0, 200)}`);
   const refusedRole = await setMemberRole(roleStore(b), { actorId: b.id, memberId: a.id, role: 'viewer' }, TOOL).then(() => '', (e) => e.message);
   check('a non-admin cannot change a role through core either', /Only an admin/.test(refusedRole), refusedRole || 'the change went through');
 

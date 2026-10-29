@@ -47,7 +47,7 @@ export default function RolePicker({ memberId, initial, label }: { memberId: str
 
   return (
     <>
-      <select aria-label={`Role for ${label}`} value={role} disabled={pending} onChange={(e) => change(e.target.value)}>
+      <select aria-label={`Change role for ${label}`} value={role} disabled={pending} onChange={(e) => change(e.target.value)}>
         {ROLES.map((r) => (
           <option key={r.key} value={r.key}>{r.name}</option>
         ))}

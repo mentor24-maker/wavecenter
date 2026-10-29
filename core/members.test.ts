@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_ROLE, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayManageMembers, memberPermissions, roleOf, setMemberRole,
+  DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, memberActions,
+  memberPermissions, roleOf, setMemberRole,
 } from './members.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 
@@ -14,31 +15,56 @@ function setup() {
   return store;
 }
 
-test('the five roles and four permissions Dane listed, in his order', () => {
+test('the five roles Dane listed, the four task permissions, and the two member ones', () => {
   assert.deepEqual(ROLES.map((r) => r.key), ['admin', 'editor', 'contributor', 'reviewer', 'viewer']);
-  assert.deepEqual(PERMISSIONS.map((p) => p.key), ['task.read', 'task.create', 'task.edit', 'task.delete']);
+  assert.deepEqual(PERMISSIONS.map((p) => p.key), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit']);
 });
 
-test('the migration seeds exactly the roles, permissions and grants core knows', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261029120000_member_roles.sql', import.meta.url), 'utf8');
-  const roles = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
+test('the migrations seed exactly the roles, permissions and grants core knows', () => {
+  const read = (file: string) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
+  const files = [read('20261029120000_member_roles.sql'), read('20261029210000_member_permissions.sql')];
+  const roles = [...files[0].matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
     .map((m) => ({ key: m[1], name: m[2], description: m[3].replace(/''/g, "'") }));
   assert.deepEqual(roles, ROLES);
-  const perms = [...sql.matchAll(/^\s*\('(task\.[a-z_]+)',\s*'([^']*)',\s*(\d+)\)/gm)].map((m) => ({ key: m[1], label: m[2] }));
-  assert.deepEqual(perms, PERMISSIONS);
+  const perms = files.flatMap((sql) => [...sql.matchAll(/^\s*\('([a-z]+\.[a-z_]+)',\s*'([^']*)',\s*(\d+)\)/gm)])
+    .map((m) => ({ key: m[1], label: m[2], position: Number(m[3]) }));
+  assert.deepEqual(perms.map(({ key, label }) => ({ key, label })), PERMISSIONS);
+  assert.deepEqual(perms.map((p) => p.position), PERMISSIONS.map((_, i) => i + 1));
   const grants: Record<string, string[]> = {};
-  const block = sql.slice(sql.indexOf('insert into public.role_permissions'), sql.indexOf('on conflict do nothing'));
-  for (const m of block.matchAll(/\('([a-z_]+)',\s*'([a-z.]+)'\)/g)) (grants[m[1]] ??= []).push(m[2]);
+  for (const sql of files) {
+    const block = sql.slice(sql.indexOf('insert into public.role_permissions'));
+    for (const m of block.slice(0, block.indexOf('on conflict do nothing')).matchAll(/\('([a-z_]+)',\s*'([a-z.]+)'\)/g)) (grants[m[1]] ??= []).push(m[2]);
+  }
   assert.deepEqual(grants, STARTING_ROLE_PERMISSIONS);
 });
 
-test('memberPermissions gives each role its grants; admin and editor have all four', () => {
-  assert.deepEqual(memberPermissions('admin'), ['task.read', 'task.create', 'task.edit', 'task.delete']);
-  assert.deepEqual(memberPermissions('editor'), memberPermissions('admin'));
-  assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit']);
-  assert.deepEqual(memberPermissions('reviewer'), ['task.read']);
-  assert.deepEqual(memberPermissions('viewer'), ['task.read']);
+test('memberPermissions gives each role its grants; admin has all six, editor all four task ones', () => {
+  assert.deepEqual(memberPermissions('admin'), PERMISSIONS.map((p) => p.key));
+  assert.deepEqual(memberPermissions('editor'), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read']);
+  assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit', 'member.read']);
+  assert.deepEqual(memberPermissions('reviewer'), ['task.read', 'member.read']);
+  assert.deepEqual(memberPermissions('viewer'), ['task.read', 'member.read']);
   assert.deepEqual(memberPermissions('viewer', { viewer: ['task.read', 'task.comment'] }), ['task.read', 'task.comment']);
+});
+
+test('every role views the members; only an admin changes roles', () => {
+  for (const r of ROLES) assert.equal(mayDo(r.key, 'member.read'), true, r.key);
+  for (const r of ROLES) assert.equal(mayDo(r.key, 'member.edit'), r.key === 'admin', r.key);
+  assert.equal(mayDo(null, 'member.read'), false);
+  assert.equal(mayDo(undefined, 'member.read'), false);
+});
+
+test('mayDo follows the grants the database holds, not only the starting ones', () => {
+  assert.equal(mayDo('editor', 'member.edit', { editor: ['member.edit'] }), true);
+  assert.equal(mayDo('admin', 'member.edit', { admin: ['member.read'] }), false);
+  assert.equal(mayDo('admin', 'member.edit', {}), false);
+});
+
+test('the member-table buttons: an admin gets Change role, everyone else gets none', () => {
+  assert.deepEqual(MEMBER_ACTIONS.map((a) => a.key), ['change-role']);
+  assert.deepEqual(memberActions('admin'), ['change-role']);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null] as const) assert.deepEqual(memberActions(role), [], String(role));
+  assert.deepEqual(memberActions('admin', { admin: ['member.read'] }), []);
 });
 
 test('only an admin may manage members', () => {
