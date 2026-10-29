@@ -250,7 +250,10 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   .tasks { padding: 0 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
-  .who .email { max-width: 9rem; }
+  /* Four menu items leave no room for the name on a phone: the logo alone
+     still leads home, and its link keeps the "WaveCenter home" label. */
+  .brand span { display: none; }
+  .who .email { max-width: 9rem; min-width: 0; }
 }
 
 /* Handing tasks to AI agents: the switch above the list, the tick-box columns. */

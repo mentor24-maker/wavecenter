@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Tasks is the first item in the menu (#38)
+
+The only way back to the task list was clicking the WaveCenter name, which
+nothing pointed out. The menu at the top of every page now starts with
+**Tasks**, then Game and Profile, so the list is one obvious click away from
+anywhere. On a phone the four menu items didn't fit, so there the header now
+shows the round logo without the "WaveCenter" word beside it. The logo still
+leads home.
+
 ## 2026-10-28 — The Done box moved to the right, away from the AI box (#37)
 
 Every open task started with two tick boxes that looked the same: one hands
