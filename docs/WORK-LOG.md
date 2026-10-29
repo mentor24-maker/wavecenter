@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Members have roles, and an admin can change them (#43)
+
+WaveCenter now knows five roles: Admin, Editor, Contributor, Reviewer and
+Viewer, and a starting list of what each may do with tasks (read, create,
+edit, delete). Dane is the first admin. A new Members page, in the menu for
+admins only, lists everyone, showing only what each person's profile lets
+others see (their avatar, and their name if they made it public), and lets
+the admin change anyone's role with one pick. The database itself refuses a
+role change from anyone who is not an admin, and will never let the last
+admin be demoted, so WaveCenter can't end up with nobody in charge. For now
+the roles are recorded and shown but don't yet change what anyone can do on
+tasks; that's the next step.
+
+---
+
 ## 2026-10-29 — Dark mode gets the aquamarine and gold look too (#42)
 
 Phones and computers set to dark mode were still showing WaveCenter's old
