@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — The Add Task form has its own box, so it is easy to spot (#47)
+
+The form for adding a task used to sit loose on the task list page, easy to
+miss among the boxes around it. It now lives in its own box with a gold
+border, rounded corners and the heading "Add Task", on the darkest shade of
+the aquamarine colours, so it reads at a glance as the place to start. On a
+device set to dark mode the colours run the other way, so there the box is
+the brightest, most "raised" one instead. Adding a task works exactly as
+before.
+
 ## 2026-10-29 — Every member can view the Members table, filter it and sort it (#44)
 
 The Members page is now one table that every member can open and read, not
