@@ -72,7 +72,7 @@ export default async function Members() {
 
   return (
     <>
-      <SiteHeader email={email} admin />
+      <SiteHeader email={email} />
       <main>
         <h1>Members</h1>
         <p className="lede">Everyone in WaveCenter and their role. A change saves as soon as you pick it.</p>
