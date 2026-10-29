@@ -20,8 +20,17 @@
  *   --muted   8.2 /  7.5 /  6.8 /  6.1
  *   --accent  6.8 /  6.2 /  5.6 /  5.0
  *
- * A device set to dark mode keeps a dark version (Dane, 2026-10-28: option
- * B); a matching dark aquamarine look is its own later ticket.
+ * A device set to dark mode gets the same look in deep sea-teal from the
+ * dark end of the header picture. There each nested box is one step
+ * LIGHTER (a raised box catches the light), the same direction at every
+ * level; --field is darker than the page so inputs still stand out.
+ *
+ * Measured contrast in dark mode (text on level 0 / 1 / 2 / 3):
+ *   --fg     15.7 / 13.5 / 11.3 /  9.1
+ *   --muted  10.1 /  8.7 /  7.2 /  5.8
+ *   --accent 10.8 /  9.3 /  7.7 /  6.3
+ *   --error   9.0 /  7.7 /  6.5 /  5.2   (7.8 on --error-bg)
+ *   --line    6.0 /  5.1 /  4.3 /  3.5   (the gold hairline)
  */
 :root {
   --level-0: #f2fbfe;
@@ -45,18 +54,18 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --level-0: #0b1020;
-    --level-1: #121a30;
-    --level-2: #1a2440;
-    --level-3: #222e50;
-    --field: #0b1020;
-    --fg: #e8ecf5;
-    --muted: #a8b2c8;
-    --line: #8a6a2a;
-    --accent: #5ad1ff;
-    --on-accent: #06243a;
-    --error: #ff8f8f;
-    --error-bg: #3a1620;
+    --level-0: #061c24;
+    --level-1: #0b2a34;
+    --level-2: #113844;
+    --level-3: #184755;
+    --field: #03131a;
+    --fg: #e4f6f9;
+    --muted: #a6cbd3;
+    --line: #b8913f;
+    --accent: #6fdbe6;
+    --on-accent: #03222a;
+    --error: #ffa198;
+    --error-bg: #401a1d;
     color-scheme: dark;
   }
 }

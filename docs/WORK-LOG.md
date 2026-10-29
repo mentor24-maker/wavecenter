@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Dark mode gets the aquamarine and gold look too (#42)
+
+Phones and computers set to dark mode were still showing WaveCenter's old
+navy colours. Now they get a dark version of the new look: a deep sea-teal
+taken from the dark part of the header picture, the same thin gold border
+round every box, and the same rounded corners. In the dark, each box inside
+another is one shade lighter, so you can still see how deep you are. Every
+kind of text was measured and is easy to read on every shade, and error
+messages and the outline round whatever you are typing in still stand out.
+The light look did not change.
+
 ## 2026-10-29 — WaveCenter's new look: water-drop header, aquamarine boxes, gold borders (#41)
 
 The first step of the facelift. The bar across the top is now Dane's
