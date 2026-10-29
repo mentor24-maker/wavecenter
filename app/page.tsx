@@ -69,20 +69,31 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     ? { on: null, error: settings.error.message }
     : { on: settings.data?.agents_on ?? DEFAULT_MEMBER_SETTINGS.agentsOn, error: null };
 
+  // The list puts the "Launch AI Agents" switch on the heading's line, so it
+  // draws the heading itself; without a list, the page does.
+  const heading = <h1>Tasks</h1>;
+  const intro = (
+    <p className="note">
+      Every member&rsquo;s tasks. You can change your own, and vote on what any task is worth and how urgent it is.
+    </p>
+  );
+
   return (
     <>
       <SiteHeader email={email} admin={admin} wide />
       <main className="wide">
-        <h1>Tasks</h1>
-        <p className="note">
-          Every member&rsquo;s tasks. You can change your own, and vote on what any task is worth and how urgent it is.
-        </p>
         {error ? (
-          <p className="error" role="alert">
-            The tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
-          </p>
+          <>
+            {heading}
+            {intro}
+            <p className="error" role="alert">
+              The tasks could not be loaded: {error.message}. Nothing has been lost; try reloading the page.
+            </p>
+          </>
         ) : (
           <TaskList
+            heading={heading}
+            intro={intro}
             tasks={(tasks ?? []).map((t) => ({
               id: t.id,
               title: t.title,

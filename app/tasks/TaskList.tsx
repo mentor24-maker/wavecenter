@@ -4,8 +4,8 @@
  * The to-do list: add a task with details, a parent, a priority and files;
  * edit its title and details, tick it off, reopen, delete, set points and
  * priority, put a task under another one, and attach files to it (pictures
- * show as small thumbnails). Above it, the "Launch AI
- * Agents" switch; on every open task, a box that hands it to AI agents, with
+ * show as small thumbnails). On the heading's line, the "Launch AI
+ * Agents" switch, whose explanation pops up on hover or focus; on every open task, a box that hands it to AI agents, with
  * a tick-all box in the header row. A task the hand-off lane has filed as a
  * Loop Queue ticket shows "With AI agents" and a link to it. Each task opens
  * a Discussion thread of comments (Discussion.tsx). Every change is a server
@@ -114,6 +114,8 @@ type Failure = { at: string; message: string } | null;
 const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
 
 export default function TaskList({
+  heading,
+  intro,
   tasks,
   agents,
   files,
@@ -121,6 +123,10 @@ export default function TaskList({
   votes,
   userId,
 }: {
+  /** The page heading, drawn on one line with the switch. */
+  heading: ReactNode;
+  /** The note under the heading line. */
+  intro: ReactNode;
   tasks: ListTask[];
   agents: AgentsSwitch;
   /** Every member's votes, or why they could not be loaded. */
@@ -309,29 +315,38 @@ export default function TaskList({
 
   return (
     <>
-      <section className="agents" aria-label="AI agents">
-        {agents.on === null ? (
-          <p className="error" role="alert">
-            Could not read whether AI agents are on: {agents.error}. Agents are treated as off; try reloading the page.
-          </p>
-        ) : (
-          <label className="switch">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={agents.on}
-              disabled={pending}
-              onChange={() => run("agents", () => switchAgents(!agents.on))}
-            />
-            <span>Launch AI Agents</span>
-          </label>
-        )}
-        {agents.on !== null && <p className="note">{agentsLine(agents.on, inLine.length, withAgents)}</p>}
-        <p className="note">
-          Turning this off stops new hand-offs; tasks already with the AI agents carry on until they are finished.
-        </p>
-        {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
-      </section>
+      <div className="title-row">
+        {heading}
+        {/* The explanation pops up only while the switch is hovered or
+            focused (Dane, 2026-10-29); errors always show (rule 6). */}
+        <section className="agents" aria-label="AI agents">
+          {agents.on === null ? (
+            <p className="error" role="alert">
+              Could not read whether AI agents are on: {agents.error}. Agents are treated as off; try reloading the page.
+            </p>
+          ) : (
+            <>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={agents.on}
+                  disabled={pending}
+                  aria-describedby="agents-explain"
+                  onChange={() => run("agents", () => switchAgents(!agents.on))}
+                />
+                <span>Launch AI Agents</span>
+              </label>
+              <div className="explain" id="agents-explain" role="tooltip">
+                <p>{agentsLine(agents.on, inLine.length, withAgents)}</p>
+                <p>Turning this off stops new hand-offs; tasks already with the AI agents carry on until they are finished.</p>
+              </div>
+            </>
+          )}
+          {failure?.at === "agents" && <p className="error" role="alert">{failure.message}</p>}
+        </section>
+      </div>
+      {intro}
 
       <form onSubmit={add} className="add" aria-label="Add a task">
         <div className="line">
@@ -520,7 +535,7 @@ export default function TaskList({
   );
 }
 
-/** The line under the switch: what the agents will do, in plain words. */
+/** The switch's pop-up status line: what the agents will do, in plain words. */
 function agentsLine(on: boolean, ticked: number, handed: number): string {
   const count = `${ticked} ticked task${ticked === 1 ? "" : "s"}`;
   const busy = handed ? ` ${handed} task${handed === 1 ? " is" : "s are"} with them now.` : "";
