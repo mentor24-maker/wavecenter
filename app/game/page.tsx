@@ -5,6 +5,7 @@ import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
+import { isAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 
@@ -72,7 +73,8 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [rules, total, latest, finished] = await Promise.all([
+  const [admin, rules, total, latest, finished] = await Promise.all([
+    isAdmin(supabase, user.id),
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
@@ -81,7 +83,7 @@ export default async function Game() {
 
   return (
     <>
-      <SiteHeader email={user.email ?? "you"} />
+      <SiteHeader email={user.email ?? "you"} admin={admin} />
       <main>
         <h1>Game</h1>
         <p className="lede">

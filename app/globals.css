@@ -380,6 +380,8 @@ table.game th { text-align: left; font-size: 0.85rem; color: var(--muted); font-
 table.game th, table.game td { padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.game .num { text-align: right; white-space: nowrap; padding-right: 0; }
 table.game .block { display: block; font-size: 0.9rem; }
+/* The Members page's roles-and-permissions grid: space between the permission columns. */
+table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
 
 /* Whose a task is, under its date; and the vote line under every task. */
 .task .col-created .owner { display: block; color: var(--muted); font-size: 0.8rem; white-space: normal; }

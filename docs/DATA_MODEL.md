@@ -4,8 +4,10 @@ What WaveCenter stores, in plain words. Today that is seven tables: `tasks`;
 `member_settings`, which holds each member's "Launch AI Agents" switch;
 `member_profiles`, each member's own profile;
 `task_files`, the files attached to tasks, whose stored copies live in a
-private file-storage bucket; `task_comments`, each task's Discussion; and the
-game layer's two, `game_scoring_rules` and `engagements`.
+private file-storage bucket; `task_comments`, each task's Discussion; the
+game layer's two, `game_scoring_rules` and `engagements`; and the four that
+hold roles and permissions, `roles`, `permissions`, `role_permissions` and
+`member_roles`.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -16,7 +18,10 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261027130000_game_layer_cascades.sql` fixed how it treats deletes;
 `20261028120000_member_profiles.sql` added `member_profiles`;
 `20261028130000_task_comments.sql` added `task_comments`;
-`20261028150000_comment_files.sql` let a file belong to a comment); this page
+`20261028150000_comment_files.sql` let a file belong to a comment;
+`20261029120000_member_roles.sql` added roles and permissions;
+`20261029180000_member_role_private.sql` hid the role-lookup helper from the
+API); this page
 explains them.
 
 ## The `tasks` table
@@ -206,6 +211,43 @@ was on from the moment this table was made: a member reads and changes only
 their own row, and a signed-out visitor gets nothing.
 `npm run check:tasks-rls` proves it for this table too.
 
+### Roles and permissions
+
+Every member has a role, and each role has a set of permissions (Dane,
+2026-10-28; on 2026-10-29 he chose the first slice: stored and shown, and an
+admin changes roles). **The permissions are recorded, not yet enforced**:
+what anyone may do on tasks is still the rule under "Who can see what" below.
+A later ticket makes them count.
+
+| Table | What it holds |
+|---|---|
+| `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four; contributor reads, creates and edits (their own tasks); reviewer and viewer read. |
+| `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
+
+Every signed-in member can read the first three tables; nobody can change
+them from the browser. A member can read their own `member_roles` row; an
+admin can read them all. Nobody writes `member_roles` directly: a role
+changes only through the database function `set_member_role`, which refuses
+anyone who is not an admin, refuses a change that would leave WaveCenter
+with no admin, and refuses a change that names no tool. `setMemberRole` in
+`core/members.ts` applies the same rules before it asks.
+
+The rules above ask a helper, `private.member_role`, what a member's role
+is. It lives in the `private` schema, which the API does not expose, so no
+member can call it to look up someone else's role. (It first lived in
+`public`, where any signed-in member could call it; the second migration
+moved it.)
+
+The **Members** page (`/members`, in the menu for admins only) lists every
+member through the function `list_members`, which only an admin may call. It
+shows each member only as their profile allows other members to see them:
+their avatar (none if their profile is private) and their name only if
+their profile is public. No email address leaves the database. Below the
+list, a table shows which role has which permission. A member who is not an
+admin who opens the page is told only an admin can manage members.
+
 ### Files attached to a task
 
 A member can attach files to a task: a logo, a screenshot, a document. Each
@@ -304,7 +346,8 @@ members, has each write a task, checks that each can read the other's but
 neither can change or delete it (tasks, settings and attached files alike),
 that neither can read, change or delete the other's Discussion comments or
 the files attached to them, that
-each votes only through their own vote and the average lands on the task, and
+each votes only through their own vote and the average lands on the task,
+that only an admin lists members or changes a role, and
 then deletes them both along with their files.
 
 ## The game layer: `game_scoring_rules` and `engagements`
