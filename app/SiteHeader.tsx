@@ -2,7 +2,8 @@ import Link from "next/link";
 import { signOut } from "./auth/actions";
 
 /**
- * The bar across the top of every page: the WaveCenter name, which always
+ * The bar across the top of every page, over Dane's water-drop picture: the
+ * gold-and-aqua rings and the WaveCenter name, which always
  * leads home, and on the right either who is signed in with a way out, or a
  * way in. The page passes what it already knows about the visitor, so the
  * header never asks Supabase a second time. A signed-in member also gets a
@@ -24,8 +25,8 @@ export default function SiteHeader({
     <header className="site">
       <div className={wide ? "site-inner wide" : "site-inner"}>
         <Link href="/" className="brand" aria-label="WaveCenter home">
-          {/* The same file as the browser-tab icon: Next.js serves app/icon.png at /icon.png. */}
-          <img className="mark" src="/icon.png" alt="" width={28} height={28} />
+          {/* Dane's gold-and-aqua rings (public/brand/mark.png); the picture behind the bar is set in globals.css. */}
+          <img className="mark" src="/brand/mark.png" alt="" width={36} height={36} />
           <span>
             Wave<b>Center</b>
           </span>

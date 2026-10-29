@@ -1,37 +1,82 @@
 /*
- * WaveCenter's look: one accent colour (a sea blue), the system's own
- * typeface, and the same spacing everywhere. Dark and light each get their
- * own values, so both stay readable. Error messages have their own colour,
- * chosen to stand out against either background.
+ * WaveCenter's look (the first slice of the facelift; the style guide grows
+ * from here). Colours come from the header picture: an aquamarine family
+ * for boxes, dark gold for their hairline borders.
+ *
+ *   --level-0 … --level-3  box backgrounds. The page is --level-0, the
+ *                          lightest; each box nested inside another is one
+ *                          step darker (as StarCaster's builder does).
+ *   --surface              the box the element sits in (set per level).
+ *   --field                inputs and pickers: white, so they stand out.
+ *   --fg / --muted         text and secondary text. Both pass WCAG AA
+ *                          (4.5:1) on every level.
+ *   --accent / --on-accent links, buttons, focus rings / text on a button.
+ *   --line                 the dark-gold hairline round every box.
+ *   --error / --error-bg   a failed save or a problem, never hidden.
+ *   --radius               10px corners; --space the one spacing unit.
+ *
+ * Measured contrast (text on level 0 / 1 / 2 / 3):
+ *   --fg     15.1 / 13.8 / 12.5 / 11.1
+ *   --muted   8.2 /  7.5 /  6.8 /  6.1
+ *   --accent  6.8 /  6.2 /  5.6 /  5.0
+ *
+ * A device set to dark mode gets the same look in deep sea-teal from the
+ * dark end of the header picture. There each nested box is one step
+ * LIGHTER (a raised box catches the light), the same direction at every
+ * level; --field is darker than the page so inputs still stand out.
+ *
+ * Measured contrast in dark mode (text on level 0 / 1 / 2 / 3):
+ *   --fg     15.7 / 13.5 / 11.3 /  9.1
+ *   --muted  10.1 /  8.7 /  7.2 /  5.8
+ *   --accent 10.8 /  9.3 /  7.7 /  6.3
+ *   --error   9.0 /  7.7 /  6.5 /  5.2   (7.8 on --error-bg)
+ *   --line    6.0 /  5.1 /  4.3 /  3.5   (the gold hairline)
  */
 :root {
-  --bg: #0b1020;
-  --surface: #121a30;
-  --fg: #e8ecf5;
-  --muted: #9aa5bd;
-  --line: #26304a;
-  --accent: #5ad1ff;
-  --on-accent: #06243a;
-  --error: #ff8f8f;
-  --error-bg: #3a1620;
+  --level-0: #f2fbfe;
+  --level-1: #ddf3fb;
+  --level-2: #c4ebf7;
+  --level-3: #aae1f2;
+  --bg: var(--level-0);
+  --surface: var(--level-0);
+  --field: #ffffff;
+  --fg: #0b2533;
+  --muted: #30505f;
+  --line: #9c7414;
+  --accent: #005f80;
+  --on-accent: #ffffff;
+  --error: #9b1c12;
+  --error-bg: #fde8e6;
   --space: 1rem;
-  --radius: 0.5rem;
-  color-scheme: dark;
+  --radius: 10px;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #f7f9fd;
-    --surface: #ffffff;
-    --fg: #121a2b;
-    --muted: #55617a;
-    --line: #dde3ee;
-    --accent: #0a6fb3;
-    --on-accent: #ffffff;
-    --error: #b42318;
-    --error-bg: #fdecea;
-    color-scheme: light;
+    --level-0: #061c24;
+    --level-1: #0b2a34;
+    --level-2: #113844;
+    --level-3: #184755;
+    --field: #03131a;
+    --fg: #e4f6f9;
+    --muted: #a6cbd3;
+    --line: #b8913f;
+    --accent: #6fdbe6;
+    --on-accent: #03222a;
+    --error: #ffa198;
+    --error-bg: #401a1d;
+    color-scheme: dark;
   }
+}
+
+/* The nesting ladder: each box sets --surface for what sits inside it. */
+.level-1, .panel, .tasks, .agents, .filters.task-filters { --surface: var(--level-1); }
+.level-2, .tasks .discussion, .task-facts, .files-box, .task-discussion { --surface: var(--level-2); }
+.level-3, .task-discussion .discussion { --surface: var(--level-3); }
+.box, .panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.6rem 0.85rem;
 }
 
 * { box-sizing: border-box; }
@@ -41,29 +86,35 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 1.0625rem;
-  line-height: 1.6;
+  font-size: 1rem;
+  line-height: 1.5;
   -webkit-text-size-adjust: 100%;
 }
 
-/* The bar across the top of every page. */
-/* Fixed dark blue with white bold text in both light and dark mode (Dane's choice, not the theme's). */
-.site { border-bottom: 1px solid #000077; background: #000077; color: #fff; font-weight: 700; }
+/* The bar across the top of every page: Dane's water-drop picture, darkened
+   at both ends so the white bold name and menu read clearly over it (at least
+   4.5:1 behind the text, plus a shadow), and the gold-and-aqua rings as the logo. */
+.site {
+  color: #fff; font-weight: 700; border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, rgb(8 28 44 / 0.62), rgb(8 28 44 / 0.3) 50%, rgb(8 28 44 / 0.62)),
+    #2c4a63 url("/brand/header-drop.jpg") center 70% / cover no-repeat;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+}
 .site-inner {
-  max-width: 44rem; margin: 0 auto; padding: 0.75rem var(--space);
+  max-width: 44rem; margin: 0 auto; padding: 0.7rem var(--space); min-height: 3.75rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
-  display: inline-flex; align-items: center; gap: 0.5rem;
-  color: #fff; text-decoration: none; font-size: 1.2rem; letter-spacing: -0.01em;
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  color: #fff; text-decoration: none; font-size: 1.3rem; letter-spacing: -0.01em;
 }
 .brand b { color: #fff; font-weight: 700; }
-/* The logo sits on a white square; clip it to its circle so it reads as a disc on the dark header. */
-.mark { width: 1.75rem; height: 1.75rem; flex: none; border-radius: 50%; }
+.mark { width: 2.25rem; height: 2.25rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
 .site-inner.wide { max-width: 76rem; }
-.who { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.who { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
 .who .email { color: #fff; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the dark blue. */
+/* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
 /* Bold is wider: on a phone, tighter gaps keep Sign out on screen. */
@@ -72,26 +123,26 @@ html, body {
 main {
   max-width: 44rem;
   margin: 0 auto;
-  padding: calc(var(--space) * 3) var(--space) calc(var(--space) * 4);
+  padding: calc(var(--space) * 1.25) var(--space) calc(var(--space) * 2.5);
 }
 /* The signed-in task list gets more room for its columns; other pages keep the reading width. */
 main.wide { max-width: 76rem; }
 
 h1 {
-  font-size: 2.25rem;
+  font-size: 1.75rem;
   line-height: 1.2;
   letter-spacing: -0.02em;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.35rem;
 }
 
 h2 {
   font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;
-  margin: calc(var(--space) * 2) 0 0.5rem; color: var(--muted);
+  margin: calc(var(--space) * 1.25) 0 0.4rem; color: var(--muted);
 }
 
 p { margin: 0 0 var(--space); }
 
-.lede { color: var(--accent); font-size: 1.25rem; margin-bottom: calc(var(--space) * 1.5); }
+.lede { color: var(--accent); font-size: 1.15rem; margin-bottom: var(--space); }
 
 .note { color: var(--muted); }
 
@@ -100,7 +151,7 @@ a { color: var(--accent); text-underline-offset: 0.15em; }
 /* A failed save or a problem: tinted box, own colour, never hidden. */
 .error {
   color: var(--error); background: var(--error-bg);
-  border-left: 3px solid var(--error); border-radius: 0.25rem;
+  border: 1px solid var(--error); border-left-width: 4px; border-radius: var(--radius);
   padding: 0.5rem 0.75rem;
 }
 
@@ -109,14 +160,14 @@ label { font-weight: 600; font-size: 0.95rem; }
 
 input, button, select, textarea { font: inherit; }
 input, select, textarea {
-  padding: 0.55rem 0.75rem; border-radius: var(--radius);
-  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  padding: 0.45rem 0.65rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--field); color: var(--fg);
 }
 input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 button, .button {
-  display: inline-block; padding: 0.55rem 1.1rem; border-radius: var(--radius);
+  display: inline-block; padding: 0.45rem 1rem; border-radius: var(--radius);
   border: 0; background: var(--accent); color: var(--on-accent);
   font-weight: 600; text-decoration: none; cursor: pointer;
 }
@@ -137,7 +188,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .avatars { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .avatar {
   display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem;
-  border: 2px solid var(--line); border-radius: 50%; font-size: 1.4rem; cursor: pointer; background: var(--surface);
+  border: 2px solid var(--line); border-radius: 50%; font-size: 1.4rem; cursor: pointer; background: var(--field);
 }
 .avatar.chosen { border-color: var(--accent); }
 .avatar:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -148,11 +199,13 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
 /* The add form: title on one line, details below, then parent and priority. */
-.add { display: flex; flex-direction: column; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+.add { display: flex; flex-direction: column; gap: 0.5rem; margin: var(--space) 0 0.5rem; }
 .add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .add .line input { flex: 1; min-width: 0; }
 .add select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
 .add p { margin: 0; }
+/* Details start two lines tall; drag the corner for more. */
+.add textarea { height: 3.4rem; }
 
 .tasks {
   list-style: none; padding: 0 var(--space); margin: 0;
@@ -164,7 +217,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task {
   display: grid; align-items: center; gap: 0.25rem 0.75rem;
   grid-template-columns: 1.5rem minmax(12rem, 1fr) 6.5rem 4.5rem 8.5rem minmax(8rem, 13rem) 12rem;
-  padding: 0.6rem 0; border-bottom: 1px solid var(--line);
+  padding: 0.4rem 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
 }
 .task:last-child { border-bottom: 0; }
 .task.sub .col-title { padding-left: 1.5rem; border-left: 2px solid var(--line); }
@@ -188,7 +241,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .task .full .error { margin: 0; }
 
 /* The header row: column names, the sortable ones as buttons with an arrow. */
-.task.head { padding: 0.5rem 0; font-size: 0.85rem; }
+.task.head { padding: 0.35rem 0; font-size: 0.85rem; border-bottom-color: var(--line); }
 .task.head > span { white-space: nowrap; }
 button.sort {
   background: none; padding: 0; border-radius: 0.25rem; color: var(--muted);
@@ -209,21 +262,15 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .icon { width: 1.2rem; height: 1.2rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The filter bar above the list. */
-.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: var(--space) 0 0.5rem; }
 .filters input[type="search"] { flex: 1 1 14rem; min-width: 0; }
 .filters select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .filters .range { display: inline-flex; align-items: center; gap: 0.4rem; }
 .filters .range input { width: 5rem; }
 .filters + p { font-size: 0.9rem; }
-/*
- * The task list's filter bar sits in its own light blue box with a dark blue
- * outline, the same in light and dark mode. Inside it the light palette is
- * used, so text and controls stay dark on the pale blue even in dark mode.
- */
+/* The task list's filter bar sits in its own aquamarine box, one level in from the page. */
 .filters.task-filters {
-  --surface: #ffffff; --fg: #121a2b; --muted: #55617a; --line: #9fb3d1; --accent: #0a6fb3;
-  color-scheme: light; color: var(--fg);
-  background: #cceeff; border: 2px solid #000077; border-radius: var(--radius); padding: 0.75rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.65rem;
 }
 
 /* Narrower than the full set of columns: Title takes the first line, the rest wrap under it. */
@@ -244,9 +291,9 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 }
 
 @media (max-width: 30rem) {
-  main { padding: calc(var(--space) * 2) 0.75rem calc(var(--space) * 3); }
+  main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
   .site-inner { padding: 0.6rem 0.75rem; }
-  h1 { font-size: 1.85rem; }
+  h1 { font-size: 1.5rem; }
   .tasks { padding: 0 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
@@ -257,8 +304,8 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 }
 
 /* Handing tasks to AI agents: the switch above the list, the tick-box columns. */
-.agents { margin: 1.5rem 0 0; padding: 0.75rem 1rem; border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); }
+.agents { margin: var(--space) 0 0; padding: 0.5rem 0.85rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--surface); }
 .agents p { margin: 0.25rem 0 0; }
 .switch { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 600; cursor: pointer; }
 .switch input { appearance: none; width: 2.5rem; height: 1.4rem; margin: 0; border-radius: 1rem; position: relative;
@@ -293,7 +340,7 @@ button.icon-button .count {
   border-radius: 0.5rem; background: var(--accent); color: var(--on-accent);
   font-size: 0.65rem; font-weight: 700; line-height: 1rem; text-align: center;
 }
-.discussion { margin: 0.5rem 0 0.25rem 3.75rem; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); }
+.discussion { margin: 0.5rem 0 0.25rem 3.75rem; padding: 0.6rem 0.85rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .discussion h3 { margin: 0 0 0.25rem; font-size: 1rem; }
 .discussion .filters { margin: 0.25rem 0 0.5rem; }
 .discussion .filters select { width: auto; flex: 0 0 auto; padding: 0.35rem 0.5rem; }
@@ -346,12 +393,15 @@ table.game .block { display: block; font-size: 0.9rem; }
    with their line breaks, and the Discussion, closed until clicked. */
 .task .col-title a.title { color: inherit; text-decoration: none; }
 .task .col-title a.title:hover { text-decoration: underline; }
-.task-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.25rem; margin: 0 0 var(--space); }
+.task-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1.25rem; margin: 0 0 var(--space); }
 .task-facts dt { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
 .task-facts dd { margin: 0; overflow-wrap: anywhere; }
 .task-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-links { padding-left: 1.25rem; margin: 0 0 var(--space); }
-.task-discussion { margin-top: calc(var(--space) * 1.5); }
-.task-discussion summary { cursor: pointer; font-weight: 600; font-size: 1.15rem; }
-.task-discussion .discussion { margin-left: 0; }
+.task-discussion { margin-top: var(--space); }
+.task-discussion summary { cursor: pointer; font-weight: 600; font-size: 1.1rem; }
+.task-discussion .discussion { margin: 0.5rem 0 0; }
+.files-box .files { margin: 0; }
+.panel > :last-child, .box > :last-child { margin-bottom: 0; }
+.panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }

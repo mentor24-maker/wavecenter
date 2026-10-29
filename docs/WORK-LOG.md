@@ -7,6 +7,29 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Dark mode gets the aquamarine and gold look too (#42)
+
+Phones and computers set to dark mode were still showing WaveCenter's old
+navy colours. Now they get a dark version of the new look: a deep sea-teal
+taken from the dark part of the header picture, the same thin gold border
+round every box, and the same rounded corners. In the dark, each box inside
+another is one shade lighter, so you can still see how deep you are. Every
+kind of text was measured and is easy to read on every shade, and error
+messages and the outline round whatever you are typing in still stand out.
+The light look did not change.
+
+## 2026-10-29 — WaveCenter's new look: water-drop header, aquamarine boxes, gold borders (#41)
+
+The first step of the facelift. The bar across the top is now Dane's
+water-drop picture with the gold-and-aqua rings as the logo. The page behind
+everything is a very light aquamarine, and each box that sits inside another
+is one shade darker, so you can see at a glance how deep you are (the way
+StarCaster's builder does it). Every box has a thin dark-gold border and
+rounded corners, and the spacing is tighter, so the task list starts about a
+fifth of a screen higher. All the text was measured and is easy to read on
+every shade. Phones and computers set to dark mode keep a dark version for
+now; a matching dark aquamarine look is its own ticket.
+
 ## 2026-10-28 — Tasks is the first item in the menu (#38)
 
 The only way back to the task list was clicking the WaveCenter name, which

@@ -76,7 +76,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 
   return (
     <Shell email={email} title={task.title}>
-      <dl className="task-facts">
+      <dl className="task-facts box">
         <dt>Status</dt>
         <dd>{STATUS_LABEL[task.status] ?? task.status}</dd>
         <dt>Priority</dt>
@@ -140,40 +140,42 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         </ul>
       )}
 
-      <h2>Files</h2>
-      {files.error ? (
-        <p className="error" role="alert">The attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.</p>
-      ) : !taskFiles.length ? (
-        <p className="note">No files attached.</p>
-      ) : (
-        <ul className="files">
-          {taskFiles.map((f) => (
-            <li key={f.id}>
-              {!f.url ? (
-                <span className="note">{f.name} (no link could be made; try reloading)</span>
-              ) : f.image ? (
-                <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
-                  {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={f.url} alt={f.name} className="thumb" />
-                </a>
-              ) : (
-                <a href={f.url}>{f.name}</a>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <section className="files-box box">
+        <h2>Files</h2>
+        {files.error ? (
+          <p className="error" role="alert">The attached files could not be loaded: {files.error}. They have not been lost; try reloading the page.</p>
+        ) : !taskFiles.length ? (
+          <p className="note">No files attached.</p>
+        ) : (
+          <ul className="files">
+            {taskFiles.map((f) => (
+              <li key={f.id}>
+                {!f.url ? (
+                  <span className="note">{f.name} (no link could be made; try reloading)</span>
+                ) : f.image ? (
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.name}>
+                    {/* A signed link to a private file: plain <img>, not next/image, which would fetch it through the web server. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={f.url} alt={f.name} className="thumb" />
+                  </a>
+                ) : (
+                  <a href={f.url}>{f.name}</a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {comments === null ? (
-        <details className="task-discussion">
+        <details className="task-discussion box">
           <summary>Discussion</summary>
           <p className="note">
             Only the member who made a task can read and post in its Discussion for now, so there is nothing to show you here.
           </p>
         </details>
       ) : comments.error ? (
-        <details className="task-discussion">
+        <details className="task-discussion box">
           <summary>Discussion</summary>
           <p className="error" role="alert">
             Discussion comments could not be loaded: {comments.error}. They have not been lost; try reloading the page.
@@ -194,7 +196,7 @@ function Shell({ email, title, children }: { email?: string; title?: string; chi
       <main>
         <p><Link href="/">&larr; Back to your tasks</Link></p>
         <h1>{title ?? "Task"}</h1>
-        {children}
+        <div className="panel">{children}</div>
       </main>
     </>
   );

@@ -52,7 +52,7 @@ export default function TaskDiscussion({
   }
 
   return (
-    <details className="task-discussion">
+    <details className="task-discussion box">
       <summary>
         Discussion{comments.length > 0 && ` (${comments.length} comment${comments.length === 1 ? "" : "s"})`}
       </summary>

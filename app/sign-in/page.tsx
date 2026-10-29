@@ -41,7 +41,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
             {ERRORS.setup} Missing: {missing.join(", ")}.
           </p>
         ) : (
-          <form action={sendMagicLink} className="stack">
+          <form action={sendMagicLink} className="stack panel">
             <label htmlFor="email">Email</label>
             <input id="email" name="email" type="email" autoComplete="email" required />
             <button type="submit">{sent ? "Send another link" : "Email me a sign-in link"}</button>
