@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — Dark blue header and a light blue box for the task filters (#39)
+
+The bar across the top of every page used the same dark or light colour as
+the rest of the page, and the task filters sat loose above the list, so both
+blended in. Now the top bar is a fixed dark navy blue with white bold
+writing, and the task list's search box and dropdowns sit in their own pale
+blue box with a dark blue border. Both look the same whether the computer is
+in light or dark mode, and the writing inside the pale box stays dark so it
+is easy to read. On a phone the top bar's spacing tightens a little so
+"Sign out" stays on screen.
+
 ## 2026-10-28 — Discussion comments can be bold, italic, lists and links (#35)
 
 Comments in a task's Discussion were plain text. Now the comment box has a
