@@ -3,6 +3,12 @@
  * typeface, and the same spacing everywhere. Dark and light each get their
  * own values, so both stay readable. Error messages have their own colour,
  * chosen to stand out against either background.
+ *
+ * Outlines (Dane's rule): never a grey outline that is barely different from
+ * the background. Every container box gets `1px solid var(--outline)` and
+ * `border-radius: var(--radius-container)`: #000077 on the light theme,
+ * #cceeff on the dark one. Divider lines between rows are not containers and
+ * keep var(--line).
  */
 :root {
   --bg: #0b1020;
@@ -16,6 +22,8 @@
   --error-bg: #3a1620;
   --space: 1rem;
   --radius: 0.5rem;
+  --outline: #cceeff;
+  --radius-container: 10px;
   color-scheme: dark;
 }
 
@@ -30,6 +38,7 @@
     --on-accent: #ffffff;
     --error: #b42318;
     --error-bg: #fdecea;
+    --outline: #000077;
     color-scheme: light;
   }
 }
@@ -156,7 +165,7 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 
 .tasks {
   list-style: none; padding: 0 var(--space); margin: 0;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius-container);
 }
 /* Each task is a row of columns: AI, Title, Priority, Points, Created,
    Parent, Actions (Done first among them). On a narrower screen the columns after Title wrap onto a
@@ -223,7 +232,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .filters.task-filters {
   --surface: #ffffff; --fg: #121a2b; --muted: #55617a; --line: #9fb3d1; --accent: #0a6fb3;
   color-scheme: light; color: var(--fg);
-  background: #cceeff; border: 2px solid #000077; border-radius: var(--radius); padding: 0.75rem;
+  background: #cceeff; border: 1px solid #000077; border-radius: var(--radius-container); padding: 0.75rem;
 }
 
 /* Narrower than the full set of columns: Title takes the first line, the rest wrap under it. */
@@ -257,8 +266,8 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 }
 
 /* Handing tasks to AI agents: the switch above the list, the tick-box columns. */
-.agents { margin: 1.5rem 0 0; padding: 0.75rem 1rem; border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); }
+.agents { margin: 1.5rem 0 0; padding: 0.75rem 1rem; border-radius: var(--radius-container);
+  border: 1px solid var(--outline); }
 .agents p { margin: 0.25rem 0 0; }
 .switch { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 600; cursor: pointer; }
 .switch input { appearance: none; width: 2.5rem; height: 1.4rem; margin: 0; border-radius: 1rem; position: relative;
@@ -293,7 +302,7 @@ button.icon-button .count {
   border-radius: 0.5rem; background: var(--accent); color: var(--on-accent);
   font-size: 0.65rem; font-weight: 700; line-height: 1rem; text-align: center;
 }
-.discussion { margin: 0.5rem 0 0.25rem 3.75rem; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); }
+.discussion { margin: 0.5rem 0 0.25rem 3.75rem; padding: 0.75rem 1rem; border: 1px solid var(--outline); border-radius: var(--radius-container); }
 .discussion h3 { margin: 0 0 0.25rem; font-size: 1rem; }
 .discussion .filters { margin: 0.25rem 0 0.5rem; }
 .discussion .filters select { width: auto; flex: 0 0 auto; padding: 0.35rem 0.5rem; }
@@ -312,7 +321,7 @@ button.icon-button .count {
 .comment-editor .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
 .comment-editor .toolbar button:not(.link) { padding: 0.15rem 0.55rem; font-size: 0.85rem; min-width: 2rem; }
 .comment-editor .toolbar .preview-toggle { margin-left: auto; font-size: 0.85rem; }
-.comment-editor .preview { min-height: 4.5rem; padding: 0.5rem 0.6rem; border: 1px dashed var(--line); border-radius: var(--radius); }
+.comment-editor .preview { min-height: 4.5rem; padding: 0.5rem 0.6rem; border: 1px dashed var(--outline); border-radius: var(--radius-container); }
 .comment-editor .error { margin: 0; }
 .comment .comment-actions { margin: 0.2rem 0 0; font-size: 0.85rem; }
 .comment .edit { margin-top: 0.3rem; }
