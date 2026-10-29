@@ -113,7 +113,9 @@ html, body {
 .mark { width: 2.25rem; height: 2.25rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
 .site-inner.wide { max-width: 76rem; }
 .who { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
-.who .email { color: #fff; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; line-height: 1.25; }
+/* The member's name sits directly above Sign out. */
+.who .name { color: #fff; font-size: 0.9rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
@@ -300,7 +302,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   /* Four menu items leave no room for the name on a phone: the logo alone
      still leads home, and its link keeps the "WaveCenter home" label. */
   .brand span { display: none; }
-  .who .email { max-width: 9rem; min-width: 0; }
+  .who .account { max-width: 9rem; }
 }
 
 /* Handing tasks to AI agents: the switch above the list, the tick-box columns. */

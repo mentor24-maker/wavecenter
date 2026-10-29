@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, memberActions, ROLES } from "../../core/members.ts";
+import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
@@ -47,8 +48,11 @@ export default async function Members() {
     );
   }
 
-  const [role, lists] = await Promise.all([read(() => myRole(supabase, user.id)), read(() => readRolesAndPermissions(supabase))]);
-  const email = user.email ?? "you";
+  const [role, lists, name] = await Promise.all([
+    read(() => myRole(supabase, user.id)),
+    read(() => readRolesAndPermissions(supabase)),
+    headerName(supabase, user),
+  ]);
   const admin = role.error === null && mayManageMembers(role.value);
   // The database's grants when they could be read; the starting ones
   // otherwise, which the database's own check repeats, so nobody sees more.
@@ -58,7 +62,7 @@ export default async function Members() {
   if (!mayView) {
     return (
       <>
-        <SiteHeader email={email} admin={admin} />
+        <SiteHeader name={name} admin={admin} />
         <main>
           <h1>Members</h1>
           {role.error !== null ? (
@@ -79,7 +83,7 @@ export default async function Members() {
 
   return (
     <>
-      <SiteHeader email={email} admin={admin} />
+      <SiteHeader name={name} admin={admin} />
       <main>
         <h1>Members</h1>
         <p className="lede">

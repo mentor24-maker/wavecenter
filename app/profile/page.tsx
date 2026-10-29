@@ -46,7 +46,7 @@ export default async function Profile() {
 
   return (
     <>
-      <SiteHeader email={user.email ?? "you"} admin={await admin} />
+      <SiteHeader name={profile?.displayName?.trim() || (user.email ?? "you")} admin={await admin} />
       <main>
         <h1>Your profile</h1>
         <p className="lede">

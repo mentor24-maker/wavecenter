@@ -30,7 +30,7 @@ export async function saveMyProfile(input: ProfileInput): Promise<ProfileSaveRes
         ok: false,
         error: checkFailed
           ? "WaveCenter could not check that you are signed in, so your profile was not saved. Try again in a minute."
-          : "You are signed out, so your profile was not saved. Reload the page and sign in again.",
+          : "You are signed out, so your profile was not saved. Reload the page and log in again.",
       };
     }
     profile = await saveProfile(supabaseMemberProfileStore(supabase, user.id), input, WAVECENTER_TOOL);

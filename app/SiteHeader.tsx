@@ -4,7 +4,8 @@ import { signOut } from "./auth/actions";
 /**
  * The bar across the top of every page, over Dane's water-drop picture: the
  * gold-and-aqua rings and the WaveCenter name, which always
- * leads home, and on the right either who is signed in with a way out, or a
+ * leads home, and on the right either who is signed in (the name on their
+ * profile, or their email until they set one) with Sign out beneath it, or a
  * way in. The page passes what it already knows about the visitor, so the
  * header never asks Supabase a second time. A signed-in member also gets a
  * menu: Tasks first (the list, at `/`), then the Game page, where their
@@ -15,12 +16,12 @@ import { signOut } from "./auth/actions";
  * under it.
  */
 export default function SiteHeader({
-  email,
+  name,
   admin = false,
   showSignIn = true,
   wide = false,
 }: {
-  email?: string | null;
+  name?: string | null;
   admin?: boolean;
   showSignIn?: boolean;
   wide?: boolean;
@@ -35,19 +36,21 @@ export default function SiteHeader({
             Wave<b>Center</b>
           </span>
         </Link>
-        {email ? (
+        {name ? (
           <div className="who">
             <Link href="/" className="quiet">Tasks</Link>
             <Link href="/game" className="quiet">Game</Link>
             <Link href="/profile" className="quiet">Profile</Link>
             {admin && <Link href="/members" className="quiet">Members</Link>}
-            <span className="email" title={email}>{email}</span>
-            <form action={signOut}>
-              <button type="submit" className="quiet">Sign out</button>
-            </form>
+            <div className="account">
+              <span className="name" title={name}>{name}</span>
+              <form action={signOut}>
+                <button type="submit" className="quiet">Sign out</button>
+              </form>
+            </div>
           </div>
         ) : (
-          showSignIn && <Link href="/sign-in" className="quiet">Sign in</Link>
+          showSignIn && <Link href="/sign-in" className="quiet">Log in</Link>
         )}
       </div>
     </header>
