@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-28 — The Done box moved to the right, away from the AI box (#37)
+
+Every open task started with two tick boxes that looked the same: one hands
+the task to the AI agents, the other marks it done. Dane meant to hand three
+tasks to the agents and marked them done instead, so they never reached the
+agents. Now the only box at the left edge is the AI box, with "AI" written
+above it. The Done box sits at the right end of the row, next to the edit,
+attach, discussion and delete icons, with the word "Done" beside it. Ticking
+it works exactly as before. On a phone the rows still line up, and a long
+"Was with AI agents" label no longer pushes the page sideways.
+
 ## 2026-10-28 — Dark blue header and a light blue box for the task filters (#39)
 
 The bar across the top of every page used the same dark or light colour as
