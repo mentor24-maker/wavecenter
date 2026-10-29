@@ -89,23 +89,25 @@ export default async function Game() {
           by the tool you used.
         </p>
 
-        <h2>Your points</h2>
-        {total.error !== null ? (
-          <p className="error" role="alert">Your points total could not be loaded: {total.error}. Try reloading the page.</p>
-        ) : (
-          <p className="score">
-            <b>{total.value.toLocaleString("en-US")}</b> {total.value === 1 ? "point" : "points"}
-          </p>
-        )}
+        <div className="panel">
+          <h2>Your points</h2>
+          {total.error !== null ? (
+            <p className="error" role="alert">Your points total could not be loaded: {total.error}. Try reloading the page.</p>
+          ) : (
+            <p className="score">
+              <b>{total.value.toLocaleString("en-US")}</b> {total.value === 1 ? "point" : "points"}
+            </p>
+          )}
 
-        <h2>Your finished tasks</h2>
-        <FinishedTasks finished={finished} />
+          <h2>Your finished tasks</h2>
+          <FinishedTasks finished={finished} />
 
-        <h2>How points are earned</h2>
-        <RulesTable rules={rules} />
+          <h2>How points are earned</h2>
+          <RulesTable rules={rules} />
 
-        <h2>Your latest engagements</h2>
-        <History latest={latest} rules={rules.value ?? []} />
+          <h2>Your latest engagements</h2>
+          <History latest={latest} rules={rules.value ?? []} />
+        </div>
       </main>
     </>
   );

@@ -62,7 +62,9 @@ export default async function Profile() {
                 You have not set up a profile yet, so you are <strong>Anonymous</strong>: no name, just an avatar.
               </p>
             )}
-            <ProfileForm initial={profile} />
+            <div className="panel">
+              <ProfileForm initial={profile} />
+            </div>
           </>
         )}
       </main>
