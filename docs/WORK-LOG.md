@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Every member sees Members in the menu (#45)
+
+Until now only admins saw the Members link in the top menu. Dane decided
+every signed-in member should see it, so now the menu reads Tasks, Game,
+Profile, Members for everyone. A member who is not an admin who clicks it
+gets a polite note that only an admin can manage members, never a blank
+page. Because the menu no longer depends on who is an admin, each page also
+skips one database question it used to ask on every load. Dane's other wish,
+that non-admins see the list itself (read only), needs a database change and
+is its own ticket.
+
 ## 2026-10-29 — Members have roles, and an admin can change them (#43)
 
 WaveCenter now knows five roles: Admin, Editor, Contributor, Reviewer and
