@@ -17,7 +17,13 @@ a role, so they get exactly what Dane asked for: view only, with editing
 kept for admins. Because the menu no longer depends on who is an admin,
 each page also skips one database question it used to ask on every load.
 
----
+## 2026-10-29 — A taller header with a bigger logo and name (#51)
+
+The bar across the top of every page is now half as tall again, and the
+gold-and-aqua rings logo and the "WaveCenter" name grew by the same amount,
+so the header has more presence. The menu links, the email and Sign out kept
+their size and sit in the middle of the taller bar. On a phone the header
+still fits on one row with Sign out on screen.
 
 ## 2026-10-29 — Every member can view the Members table, filter it and sort it (#44)
 
