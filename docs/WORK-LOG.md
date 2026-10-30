@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — New tasks from members who are not admins wait for an admin's approval (#60)
+
+Until now, any member could add a task and it went straight into the work
+pile, where it could be ticked off or handed to the AI agents. Now a task
+added by anyone who is not an admin starts as Proposed. The member who
+added it is told so straight away, under the add form and on the task's own
+page. A proposed task cannot be ticked off or sent to the AI agents. An
+admin sees an Approve button on it, and one click makes it a normal to-do.
+The database enforces the same rule, so nobody can get around it by going
+past the website. Admins' own tasks start as to-do, as before. This matters
+because Dane, as admin, now decides what actually gets worked on.
+
 ## 2026-10-30 — Members can read how WaveCenter protects their privacy (#58)
 
 Your profile now has a box called "Your privacy on WaveCenter": a few short
