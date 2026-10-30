@@ -4,13 +4,15 @@ import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
 import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import PrivacySummary from "./PrivacySummary";
 import ProfileForm from "./ProfileForm";
 
 /**
  * "Your profile": the signed-in member's display name, avatar, bio and who
  * may see them (core/profiles.ts). A member who has never saved one sees the
- * anonymous default, and the page says so. Signed-out visitors are sent to
- * sign in.
+ * anonymous default, and the page says so. Below it, a short note on how
+ * WaveCenter treats privacy, shown whatever happens to the profile itself.
+ * Signed-out visitors are sent to sign in.
  */
 export default async function Profile() {
   const supabase = await supabaseForRequest();
@@ -49,7 +51,7 @@ export default async function Profile() {
         <h1>Your profile</h1>
         <p className="lede">
           Your profile starts completely anonymous. You choose what, if anything, other members can see.{" "}
-          <Link href="https://wavecenter.com/privacy-and-security-first/">Why WaveCenter puts privacy first</Link>
+          <Link href="/privacy">Why WaveCenter puts privacy first</Link>
         </p>
         {readError !== null || !profile ? (
           <p className="error" role="alert">
@@ -67,6 +69,7 @@ export default async function Profile() {
             </div>
           </>
         )}
+        <PrivacySummary />
       </main>
     </>
   );
