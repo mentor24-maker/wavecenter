@@ -21,6 +21,18 @@ went wrong, so the site never runs code whose database change is missing.
 
 ---
 
+## 2026-10-30 — Every page is now the same width (#55)
+
+Moving between pages in WaveCenter no longer makes the page jump wider or
+narrower. Every page (the task list, a task's own page, Members, Profile,
+Game and Sign in) now has the same 1440px-wide main area, centred, and the
+header bar's logo and Sign out line up with its edges. Before, the task list
+was 1216px and every other page only 704px. The sign-in and profile forms
+keep their narrow width so they do not stretch across the screen, and phones
+look the same as before.
+
+---
+
 ## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
 
 The "Launch AI Agents" switch now sits at the right-hand end of the Tasks

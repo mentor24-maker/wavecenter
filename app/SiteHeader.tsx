@@ -11,21 +11,18 @@ import { signOut } from "./auth/actions";
  * menu: Tasks first (the list, at `/`), then the Game page, where their
  * points are, their profile, and Members (`/members`). Every member gets
  * Members; the page itself decides what a non-admin may see there.
- * `wide` matches the wider task page, so the bar lines up with the list
- * under it.
+ * The bar's content is as wide as every page's main body, so the two line up.
  */
 export default function SiteHeader({
   name,
   showSignIn = true,
-  wide = false,
 }: {
   name?: string | null;
   showSignIn?: boolean;
-  wide?: boolean;
 }) {
   return (
     <header className="site">
-      <div className={wide ? "site-inner wide" : "site-inner"}>
+      <div className="site-inner">
         <Link href="/" className="brand" aria-label="WaveCenter home">
           {/* Dane's gold-and-aqua rings (public/brand/mark.png); the picture behind the bar is set in globals.css. */}
           <img className="mark" src="/brand/mark.png" alt="" width={54} height={54} />
