@@ -199,6 +199,8 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
 /* The add form: title on one line, details below, then parent and priority. */
+/* The Add Task box: the darkest step of the ladder (in dark mode, the most
+   raised), so it stands out from the AI agents and filter boxes beside it. */
 .add { display: flex; flex-direction: column; gap: 0.5rem; margin: var(--space) 0 0.5rem; }
 .add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .add .line input { flex: 1; min-width: 0; }
