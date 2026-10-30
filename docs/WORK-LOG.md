@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — Agents can read the DEO whitepaper from the repository (#59)
+
+Your whitepaper, "The Decentralized Engagement Organization (Dane v2)", now
+lives in a public folder, `docs/canon/`, copied word for word from your
+Google Doc, with both of its pictures (the cover logo and the section 3
+diagram comparing a traditional business with a DEO). Until now the agents
+only had a short digest, which is why pages like What is a DEO came out
+thin. `CLAUDE.md` and `docs/MISSION.md` now point every agent at the full
+text, and the folder's note says agents quote it but never rewrite it.
+Edit the Google Doc first; this copy follows it.
+
 ## 2026-10-30 — Members can read how WaveCenter protects their privacy (#58)
 
 Your profile now has a box called "Your privacy on WaveCenter": a few short

@@ -2,7 +2,7 @@
 Source: "White Paper: The Decentralized Engagement Organization" (Dane v2),
 Google Doc https://docs.google.com/document/d/1SBPc4KvtswQlbYTkd9ynov-PEA99kLo34N0Ztr12qm8
 Copied word for word on 2026-10-30, 2:45 PM Mountain time, by Google Docs' own Markdown export.
-The only change: the cover logo is stored beside this file as deo-logo.png.
+The only change: the two pictures are stored beside this file, the cover logo as deo-logo.png and the section 3 diagram as deo-model-diagram.png.
 Made public by Dane, 2026-10-30. Edit the Google Doc first; this copy follows it.
 -->
 
@@ -72,7 +72,7 @@ A DEO is an organization built around participation, governance, and shared judg
 
 By way of analogy: the DAO is the cloud infrastructure and code that could host a social network; it is the engagement of the people, and above all the tracking and valuing of that engagement, that makes the thing a DEO. A DAO is a machine for executing rules. A DEO is an organism that lives on a DAO substrate.
 
-*![][image2]*
+*![Traditional business model vs Decentralized Engagement Organization](deo-model-diagram.png)*
 
 The organism is built around three propositions. First, people contribute because they want to help build something meaningful — the desire predates the incentive and does not need to be manufactured. Second, their contribution creates durable value that can be recognized and rewarded. Third, the organization preserves its legitimacy only by making its governance, records, and incentives legible from the start, before the stakes grow large enough to tempt anyone to obscure them.
 
