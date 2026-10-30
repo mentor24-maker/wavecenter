@@ -66,6 +66,8 @@ async function save(
     console.error(`tasks: could not ${what}:`, err);
     return { ok: false, error: `Could not ${what}. Nothing was saved; try again.` };
   }
+  // The list, and Home, which shows the tasks being worked on.
+  revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };
 }
@@ -178,6 +180,7 @@ export async function chooseForAgents(ids: string[], selected: boolean): Promise
   }
   if (!failed) return { ok: true };
   if (ids.length === 1) return { ok: false, error: firstError };
+  revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: false, error: `${failed} of ${ids.length} tasks were not saved: ${firstError} The boxes now show what did save.` };
 }

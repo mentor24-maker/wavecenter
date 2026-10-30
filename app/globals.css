@@ -419,5 +419,11 @@ table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
 .task-discussion .discussion { margin: 0.5rem 0 0; }
 .files-box .files { margin: 0; }
 .panel > :last-child, .box > :last-child { margin-bottom: 0; }
+
+/* Home: a grid of boxes, as many across as fit (one on a phone). */
+.dashboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space); margin-top: var(--space); }
+.dashboard .callout p:last-child { font-weight: 600; }
+ul.plain { list-style: none; padding: 0; margin: 0 0 var(--space); }
+ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }
