@@ -102,15 +102,15 @@ html, body {
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
 }
 .site-inner {
-  max-width: 44rem; margin: 0 auto; padding: 0.7rem var(--space); min-height: 3.75rem;
+  max-width: 44rem; margin: 0 auto; padding: 1.05rem var(--space); min-height: 5.625rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
-  display: inline-flex; align-items: center; gap: 0.55rem;
-  color: #fff; text-decoration: none; font-size: 1.3rem; letter-spacing: -0.01em;
+  display: inline-flex; align-items: center; gap: 0.8rem;
+  color: #fff; text-decoration: none; font-size: 1.95rem; letter-spacing: -0.01em;
 }
 .brand b { color: #fff; font-weight: 700; }
-.mark { width: 2.25rem; height: 2.25rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
+.mark { width: 3.375rem; height: 3.375rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
 .site-inner.wide { max-width: 76rem; }
 .who { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
 .who .email { color: #fff; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -199,6 +199,8 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
 /* The add form: title on one line, details below, then parent and priority. */
+/* The Add Task box: the darkest step of the ladder (in dark mode, the most
+   raised), so it stands out from the AI agents and filter boxes beside it. */
 .add { display: flex; flex-direction: column; gap: 0.5rem; margin: var(--space) 0 0.5rem; }
 .add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .add .line input { flex: 1; min-width: 0; }
@@ -292,7 +294,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 
 @media (max-width: 30rem) {
   main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
-  .site-inner { padding: 0.6rem 0.75rem; }
+  .site-inner { padding: 0.9rem 0.75rem; }
   h1 { font-size: 1.5rem; }
   .tasks { padding: 0 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }

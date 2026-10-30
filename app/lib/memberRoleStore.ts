@@ -37,15 +37,6 @@ export function myRole(supabase: Client, memberId: string): Promise<RoleKey> {
   return roleOf(supabaseMemberRoleStore(supabase), memberId);
 }
 
-/** For the header: is the signed-in member an admin? A failed read counts as no, so the page still loads. */
-export async function isAdmin(supabase: Client, memberId: string): Promise<boolean> {
-  try {
-    return (await myRole(supabase, memberId)) === "admin";
-  } catch {
-    return false;
-  }
-}
-
 /** One row of the Members page: only what each member's profile lets other members see. */
 export interface MemberRow {
   memberId: string;
