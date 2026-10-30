@@ -307,10 +307,20 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   .who .account { max-width: 9rem; }
 }
 
-/* Handing tasks to AI agents: the switch above the list, the tick-box columns. */
-.agents { margin: var(--space) 0 0; padding: 0.5rem 0.85rem; border-radius: var(--radius);
+/* Handing tasks to AI agents: the switch on the heading's line, the tick-box columns. */
+.title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.5rem var(--space); margin: 0 0 0.35rem; }
+.title-row h1 { margin: 0; }
+.agents { position: relative; max-width: 100%; padding: 0.5rem 0.85rem; border-radius: var(--radius);
   border: 1px solid var(--line); background: var(--surface); }
 .agents p { margin: 0.25rem 0 0; }
+/* The explanation is a pop-up under the switch, shown on hover or keyboard focus. */
+.agents .explain { display: none; position: absolute; z-index: 10; top: calc(100% + 0.35rem); right: 0;
+  width: min(24rem, 90vw); padding: 0.5rem 0.75rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18); font-size: 0.9rem; }
+.agents .explain p:first-child { margin-top: 0; }
+.agents .switch:hover + .explain, .agents .switch:focus-within + .explain { display: block; }
 .switch { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 600; cursor: pointer; }
 .switch input { appearance: none; width: 2.5rem; height: 1.4rem; margin: 0; border-radius: 1rem; position: relative;
   background: color-mix(in srgb, var(--muted) 45%, transparent); cursor: pointer; transition: background 0.15s; }

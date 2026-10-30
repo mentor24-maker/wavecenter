@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
+
+The "Launch AI Agents" switch now sits at the right-hand end of the Tasks
+heading line instead of taking up its own box above the list. The two lines
+that explain it (whether agents are on and how many tasks are waiting, and
+what turning it off does) now pop up only when the mouse is over the switch
+or it is reached with the keyboard, so the top of the page is tidier. Screen
+readers still hear the explanation. If the switch cannot be read or a save
+fails, that message still shows on the page without hovering.
+
+---
+
 ## 2026-10-29 — The header shows your name above Sign out, and says Log in (#50)
 
 The top right of every page now shows the name a member chose on their
