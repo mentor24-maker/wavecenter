@@ -20,7 +20,8 @@
     "check:tasks-rls": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/check_tasks_rls.mjs",
     "test": "node --test scripts/lib/*.test.mjs core/*.test.ts app/tasks/*.test.ts app/members/*.test.ts",
     "verify": "npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build && npm run check:browser-secrets",
-    "check:browser-secrets": "node scripts/check_browser_secrets.mjs"
+    "check:browser-secrets": "node scripts/check_browser_secrets.mjs",
+    "db:test": "node scripts/db_test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

@@ -37,6 +37,30 @@ A transaction pooler suits serverless functions, which is what Vercel runs. It
 does not support some session features (prepared statements, `LISTEN`); use
 the session pooler or the direct host for a migration tool if one needs them.
 
+### Where a database change goes, and when
+
+There are two databases. Only one of them is real.
+
+- **The live database** (above). A change reaches it only through the merge
+  lane, on Dane's written `merge`: the lane applies the PR's new files in
+  `supabase/migrations/` just before it merges the PR, and says on the ticket
+  what it applied (`docs/LOOP_ENGINEERING.md`, "The merge lane"). Nobody and no
+  session applies an unmerged migration to it. (2026-10-29: a build applied
+  PR #44's migration early, it had a bug, and the live member list failed for
+  about five minutes.)
+- **The test database**, private to the Mac Mini, free (Dane's choice,
+  2026-10-29: "B it is"). `npm run db:test` starts WaveCenter's own local
+  Supabase in Docker (`colima`), rebuilds it from every migration in the
+  folder it runs from, and runs `scripts/check_tasks_rls.mjs` against it. Its
+  settings are `supabase/config.toml`. StarCaster's local stack on the Mini
+  uses the default ports +100 (544xx), so WaveCenter's uses +200: API
+  `127.0.0.1:54521`, database `127.0.0.1:54522`. Its keys are Supabase's
+  published local-development defaults, read from `supabase status` at run
+  time, never the live ones; `db:test` refuses any address not on this
+  machine. One run at a time (a lock); the stack stays up between runs
+  (`supabase stop` to stop it). `auto_expose_new_tables = true` in the config
+  makes it grant table access the way the live project does.
+
 ## Hosting: Vercel
 
 | | |
