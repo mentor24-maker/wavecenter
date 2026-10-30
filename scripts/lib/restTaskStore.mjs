@@ -118,6 +118,10 @@ export function restTaskStore({ url, apiKey, token, ownerId, fetch: fetchFn = fe
       const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${guardQuery(guard)}`, 'PATCH', toRow(changes));
       return row ? fromRow(row) : null;
     },
+    async approve(id, tool) {
+      const [row] = await call('rpc/approve_task', 'POST', { task: id, tool });
+      return row ? fromRow(row) : null;
+    },
     async remove(id, tool) {
       const rows = await call(`tasks?id=eq.${encodeURIComponent(id)}`, 'DELETE', undefined, { [TOOL_HEADER]: tool });
       return rows.length > 0;

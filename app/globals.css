@@ -338,6 +338,9 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .task .cell small { font-size: 0.7rem; color: var(--muted); }
 .task input.ai { accent-color: var(--accent); }
 .badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+/* A proposed task waits for an admin: a muted label, and the admin's small Approve button. */
+.badge.proposed { color: var(--muted); font-style: italic; }
+.task button.approve { padding: 0.2rem 0.55rem; font-size: 0.85rem; margin-right: 0.35rem; white-space: nowrap; }
 
 /* Attached files: pictures as small thumbnails, other files as links. A long
    file name wraps instead of pushing the page sideways on a phone. */

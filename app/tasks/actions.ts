@@ -2,7 +2,7 @@
 
 /**
  * Every change the to-do list makes, run on the server. Each one goes through
- * core (createTask, updateTask, setPoints, castVote, setAgentsOn, attachFile,
+ * core (createTask, updateTask, approveTask, setPoints, castVote, setAgentsOn, attachFile,
  * removeFile, deleteTaskWithFiles, addComment, editComment,
  * removeCommentWithFiles) as
  * the tool `wavecenter`, acting as the signed-in member.
@@ -29,10 +29,11 @@ import {
   removeFile,
 } from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
-import { createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
+import { approveTask, createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
+import { myRole } from "../lib/memberRoleStore";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
 import { supabaseTaskCommentStore } from "../lib/taskCommentStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
@@ -99,19 +100,33 @@ export interface NewTaskFields {
   priority: TaskPriority;
 }
 
-/** Adding a task also says its id, so files picked in the add form can follow it. */
-export async function addTask(fields: NewTaskFields): Promise<SaveResult & { id?: string }> {
+/**
+ * Adding a task also says its id, so files picked in the add form can follow
+ * it, and whether it was added as proposed (anyone but an admin), so the
+ * screen can say it waits for an admin's approval. The status is the one the
+ * database saved, not the one asked for.
+ */
+export async function addTask(fields: NewTaskFields): Promise<SaveResult & { id?: string; proposed?: boolean }> {
   let id = "";
-  const result = await save("add the task", async (store, supabase) => {
+  let proposed = false;
+  const result = await save("add the task", async (store, supabase, memberId) => {
     if (fields.parentTaskId) await requireOneLevel(store, supabase, null, fields.parentTaskId);
     const task = await createTask(
       store,
       { title: fields.title, notes: cleanNotes(fields.notes), parentTaskId: fields.parentTaskId, priority: fields.priority },
       WAVECENTER_TOOL,
+      await myRole(supabase, memberId),
     );
     id = task.id;
+    proposed = task.status === "proposed";
   });
-  return result.ok ? { ok: true, id } : result;
+  return result.ok ? { ok: true, id, proposed } : result;
+}
+
+/** An admin approves any member's proposed task: it becomes to do. Anyone else is refused, and nothing changes. */
+export async function approve(id: string): Promise<SaveResult> {
+  return save("approve the task", async (store, supabase, memberId) =>
+    approveTask(store, id, await myRole(supabase, memberId), WAVECENTER_TOOL));
 }
 
 /** Change a task's title and details together, from the row's edit form. */
