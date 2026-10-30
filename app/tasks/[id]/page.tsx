@@ -195,7 +195,7 @@ function Shell({ name, title, children }: { name?: string; title?: string; child
     <>
       <SiteHeader name={name} />
       <main>
-        <p><Link href="/">&larr; Back to your tasks</Link></p>
+        <p><Link href="/tasks">&larr; Back to your tasks</Link></p>
         <h1>{title ?? "Task"}</h1>
         <div className="panel">{children}</div>
       </main>

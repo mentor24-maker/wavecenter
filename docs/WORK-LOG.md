@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — WaveCenter gets a Home page; the task list moves to its own Tasks page (#54)
+
+Signing in now lands on Home, a dashboard instead of the raw task list. It
+has five boxes: About WaveCenter and What is a DEO (each opens its own
+page), the tasks someone is working on right now (each title opens that
+task), a Leaderboard box that says it is coming, and the newest members
+(shown only as their profile allows, so a private member stays
+"Anonymous member"). The menu now starts with Home, and the task list
+works exactly as before at its own Tasks address. The About and DEO pages
+carry the mission paragraph for now, as Dane chose, until he writes their
+own text.
+
+---
+
 ## 2026-10-30 — Ten ideas for the home page, written down for Dane to pick from (#53)
 
 Dane asked for ten ideas for what a visitor should see on WaveCenter's front

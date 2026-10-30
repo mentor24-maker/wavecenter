@@ -122,7 +122,7 @@ function FinishedTasks({ finished }: { finished: Read<Task[]> }) {
   if (!finished.value.length) {
     return (
       <p className="note">
-        No finished tasks yet. Tick a task done on <Link href="/">your list</Link> to earn its points.
+        No finished tasks yet. Tick a task done on <Link href="/tasks">your list</Link> to earn its points.
       </p>
     );
   }
@@ -195,7 +195,7 @@ function History({ latest, rules }: { latest: Read<Engagement[]>; rules: Scoring
   if (!latest.value.length) {
     return (
       <p className="note">
-        You have not earned any points yet. <Link href="/">Make a task</Link> to earn your first.
+        You have not earned any points yet. <Link href="/tasks">Make a task</Link> to earn your first.
       </p>
     );
   }
