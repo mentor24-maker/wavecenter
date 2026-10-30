@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
-import { isAdmin } from "./lib/memberRoleStore";
 import { loadComments, loadFiles } from "./lib/taskReads";
 import SiteHeader from "./SiteHeader";
 import TaskList, { type ListVote } from "./tasks/TaskList";
@@ -51,7 +50,7 @@ export default async function Home() {
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
-  const [{ data: tasks, error }, settings, files, comments, votes, admin] = await Promise.all([
+  const [{ data: tasks, error }, settings, files, comments, votes] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -61,7 +60,6 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     loadFiles(supabase),
     loadComments(supabase),
     supabase.from("task_votes").select("task_id, member_id, points, priority"),
-    isAdmin(supabase, userId),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
   // not an error. A failed read is an error, and the switch says so.
@@ -71,7 +69,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
 
   return (
     <>
-      <SiteHeader email={email} admin={admin} wide />
+      <SiteHeader email={email} wide />
       <main className="wide">
         <h1>Tasks</h1>
         <p className="note">

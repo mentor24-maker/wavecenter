@@ -7,6 +7,24 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Every member sees Members in the menu (#45)
+
+Until now only admins saw the Members link in the top menu. Dane decided
+every signed-in member should see it, so now the menu reads Tasks, Game,
+Profile, Members for everyone. A member who is not an admin who clicks it
+sees the members table to read, with a line saying only an admin can change
+a role, so they get exactly what Dane asked for: view only, with editing
+kept for admins. Because the menu no longer depends on who is an admin,
+each page also skips one database question it used to ask on every load.
+
+## 2026-10-29 — A taller header with a bigger logo and name (#51)
+
+The bar across the top of every page is now half as tall again, and the
+gold-and-aqua rings logo and the "WaveCenter" name grew by the same amount,
+so the header has more presence. The menu links, the email and Sign out kept
+their size and sit in the middle of the taller bar. On a phone the header
+still fits on one row with Sign out on screen.
+
 ## 2026-10-29 — The Add Task form has its own box, so it is easy to spot (#47)
 
 The form for adding a task used to sit loose on the task list page, easy to
