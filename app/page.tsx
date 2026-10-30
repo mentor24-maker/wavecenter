@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
+import { headerName } from "./lib/memberProfileStore";
 import { loadComments, loadFiles } from "./lib/taskReads";
 import SiteHeader from "./SiteHeader";
 import TaskList, { type ListVote } from "./tasks/TaskList";
@@ -15,7 +16,7 @@ import TaskList, { type ListVote } from "./tasks/TaskList";
 export default async function Home() {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
-  if (supabase && user) return <YourTasks supabase={supabase} email={user.email ?? "you"} userId={user.id} />;
+  if (supabase && user) return <YourTasks supabase={supabase} user={user} />;
 
   return (
     <>
@@ -40,7 +41,7 @@ export default async function Home() {
           </p>
         )}
         <p>
-          <Link href="/sign-in" className="button">Sign in</Link>
+          <Link href="/sign-in" className="button">Log in</Link>
         </p>
       </main>
     </>
@@ -49,8 +50,9 @@ export default async function Home() {
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
-async function YourTasks({ supabase, email, userId }: { supabase: Supabase; email: string; userId: string }) {
-  const [{ data: tasks, error }, settings, files, comments, votes] = await Promise.all([
+async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
+  const userId = user.id;
+  const [{ data: tasks, error }, settings, files, comments, votes, name] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -60,6 +62,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
     loadFiles(supabase),
     loadComments(supabase),
     supabase.from("task_votes").select("task_id, member_id, points, priority"),
+    headerName(supabase, user),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
   // not an error. A failed read is an error, and the switch says so.
@@ -69,7 +72,7 @@ async function YourTasks({ supabase, email, userId }: { supabase: Supabase; emai
 
   return (
     <>
-      <SiteHeader email={email} wide />
+      <SiteHeader name={name} wide />
       <main className="wide">
         <h1>Tasks</h1>
         <p className="note">

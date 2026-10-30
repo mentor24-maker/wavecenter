@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — The header shows your name above Sign out, and says Log in (#50)
+
+The top right of every page now shows the name a member chose on their
+Profile page, with Sign out just beneath it, instead of their email. A
+member who has not picked a name yet still sees their email there, so the
+header always says who is logged in, and if the profile cannot be read the
+page still loads with the email. Everywhere a member used to read
+"Sign in" now says "Log in", from the header link to the log-in page and
+its messages.
+
 ## 2026-10-29 — Next.js upgraded to close a critical security hole (#46)
 
 WaveCenter's server ran on a version of Next.js, the framework it is built
