@@ -17,6 +17,44 @@ security audit now finds no known problems, the checks pass first time, and
 signing in, adding a task with a picture and seeing its thumbnail all still
 work.
 
+## 2026-10-29 — Members view-only for non-admins: already done, one note corrected (#49)
+
+This ticket asked that members who are not admins see the members list,
+read only. When we checked before building, that had already shipped the
+same day in #44: every member can open Members and see who is there and
+their roles, and only an admin can change a role. The live database
+checks confirm it, and a signed-out visitor is still turned away. The
+only thing left was a note in the code that still said "admins only", so
+this change corrects that note and adds nothing else.
+
+## 2026-10-29 — Every member sees Members in the menu (#45)
+
+Until now only admins saw the Members link in the top menu. Dane decided
+every signed-in member should see it, so now the menu reads Tasks, Game,
+Profile, Members for everyone. A member who is not an admin who clicks it
+sees the members table to read, with a line saying only an admin can change
+a role, so they get exactly what Dane asked for: view only, with editing
+kept for admins. Because the menu no longer depends on who is an admin,
+each page also skips one database question it used to ask on every load.
+
+## 2026-10-29 — A taller header with a bigger logo and name (#51)
+
+The bar across the top of every page is now half as tall again, and the
+gold-and-aqua rings logo and the "WaveCenter" name grew by the same amount,
+so the header has more presence. The menu links, the email and Sign out kept
+their size and sit in the middle of the taller bar. On a phone the header
+still fits on one row with Sign out on screen.
+
+## 2026-10-29 — The Add Task form has its own box, so it is easy to spot (#47)
+
+The form for adding a task used to sit loose on the task list page, easy to
+miss among the boxes around it. It now lives in its own box with a gold
+border, rounded corners and the heading "Add Task", on the darkest shade of
+the aquamarine colours, so it reads at a glance as the place to start. On a
+device set to dark mode the colours run the other way, so there the box is
+the brightest, most "raised" one instead. Adding a task works exactly as
+before.
+
 ## 2026-10-29 — Every member can view the Members table, filter it and sort it (#44)
 
 The Members page is now one table that every member can open and read, not
