@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — Database changes are tested privately and go live only on Dane's merge (#52)
+
+Until now, a session tested a database change by putting it straight onto the
+live database, before Dane had approved it. On 2026-10-29 one such change had
+a bug, and the live member list failed for about five minutes. Now every
+database change is first tried on a private test copy that runs on the Mac
+Mini (free, and kept apart from StarCaster's own test copy there). The live
+database only changes when Dane writes `merge`: the merge lane applies the
+change a moment before it merges the code, checks that it landed, and says so
+on the ticket. If the change fails, nothing is merged and the ticket says what
+went wrong, so the site never runs code whose database change is missing.
+
+---
+
 ## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
 
 The "Launch AI Agents" switch now sits at the right-hand end of the Tasks
