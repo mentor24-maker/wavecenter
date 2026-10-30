@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Members view-only for non-admins: already done, one note corrected (#49)
+
+This ticket asked that members who are not admins see the members list,
+read only. When we checked before building, that had already shipped the
+same day in #44: every member can open Members and see who is there and
+their roles, and only an admin can change a role. The live database
+checks confirm it, and a signed-out visitor is still turned away. The
+only thing left was a note in the code that still said "admins only", so
+this change corrects that note and adds nothing else.
+
 ## 2026-10-29 — Every member sees Members in the menu (#45)
 
 Until now only admins saw the Members link in the top menu. Dane decided
