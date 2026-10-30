@@ -11,7 +11,9 @@ Never commit a key, password, token or `.env` file. Keys live in Doppler.
 WaveCenter is the hub of the DEO movement and the original DEO (Decentralized
 Engagement Organization). The canon is the DEO whitepaper, *White Paper: The
 Decentralized Engagement Organization — Dane v2*, in Dane's Google Drive `DEO`
-folder. Do not fill gaps in the canon from guesswork. Ask Dane.
+folder; a word-for-word copy every session can read is
+[docs/canon/deo-whitepaper.md](docs/canon/deo-whitepaper.md). Do not fill
+gaps in the canon from guesswork. Ask Dane.
 
 The path, in order:
 
