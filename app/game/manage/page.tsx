@@ -7,6 +7,7 @@ import { headerName } from "../../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
 import SiteHeader from "../../SiteHeader";
+import GameMenu from "../GameMenu";
 import RuleEditor from "./RuleEditor";
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
@@ -26,8 +27,10 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * change counts from the very next engagement. Below the list, a form adds a
  * new action, which stays inactive until an agent wires it in.
  *
- * Only a role with "Manage game scoring" (admin) sees the forms; anyone else
- * gets a plain message. The database refuses them too.
+ * It sits under the Game menu (Manage). Only a role with "Manage game
+ * scoring" (admin) sees the forms, and only they see Manage in the menu;
+ * anyone else who opens the address gets a plain message. The database
+ * refuses them too.
  */
 export default async function ManageGame() {
   const supabase = await supabaseForRequest();
@@ -39,7 +42,8 @@ export default async function ManageGame() {
       <>
         <SiteHeader />
         <main>
-          <h1>Game management</h1>
+          <h1>Game</h1>
+          <GameMenu current="manage" />
           <p className="error" role="alert">
             {!supabase ? "This copy of WaveCenter has no database settings, so there are no scoring rules to manage." : SIGN_IN_CHECK_FAILED}
           </p>
@@ -59,7 +63,8 @@ export default async function ManageGame() {
       <>
         <SiteHeader name={name} />
         <main>
-          <h1>Game management</h1>
+          <h1>Game</h1>
+          <GameMenu current="manage" />
           <p className="error" role="alert">
             Your role could not be checked, so the scoring rules are not shown: {role.error ?? lists.error}. Try reloading the page.
           </p>
@@ -73,7 +78,8 @@ export default async function ManageGame() {
       <>
         <SiteHeader name={name} />
         <main>
-          <h1>Game management</h1>
+          <h1>Game</h1>
+          <GameMenu current="manage" />
           <p className="note" role="status">
             Your role, <b>{ROLES.find((r) => r.key === role.value)?.name ?? role.value}</b>, may not manage the game
             scoring. Only an admin may. You can see how points are earned on the <Link href="/game">Game page</Link>.
@@ -89,12 +95,12 @@ export default async function ManageGame() {
     <>
       <SiteHeader name={name} />
       <main>
-        <h1>Game management</h1>
+        <h1>Game</h1>
+        <GameMenu current="manage" mayManage />
         <p className="lede">
-          Set what each action is worth. A change counts from the very next time someone does it; points already
+          Game management: set what each action is worth. A change counts from the very next time someone does it; points already
           earned keep their value.
         </p>
-        <p><Link href="/game">← Back to the Game page</Link></p>
 
         <div className="panel">
           <h2>Actions that earn points</h2>

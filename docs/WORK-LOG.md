@@ -10,14 +10,27 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 ## 2026-10-30 — An admin can now set what each action is worth, and add new actions, on a Game management screen (#57)
 
 What each action earns (1 point for making a task, 5 for finishing one, and
-so on) used to change only through a code change. Now an admin clicks
-**Manage scoring** on the Game page and changes any action's name, wording
+so on) used to change only through a code change. Now an admin opens
+**Manage** in the Game menu and changes any action's name, wording
 and points. The new value counts from the next time someone does it, and
 points already earned keep their old value. An admin can also add a brand-new
 action, as Dane chose; it shows as "Not active yet" and earns nothing until
 an agent wires it into WaveCenter. Every working action shows the piece of
 code that triggers it and the test that proves it, so anyone can check.
-Only admins can do any of this, and the database refuses everyone else too.
+Only admins see Manage in the menu or can do any of this; anyone else who
+opens the page is told only an admin may, and the database refuses them too.
+
+---
+
+## 2026-10-30 — The Game area gets a menu: My Points, Leaderboard and Manage (#56)
+
+The Game page now has a small menu under its heading with three choices.
+My Points is the Game page as it was: your points, your finished tasks,
+how points are earned and your latest engagements. Leaderboard and Manage
+are new pages that, for now, say in one plain sentence that they are coming
+in a later task, so they never look blank or broken. The menu underlines the
+page you are on. This gives the later leaderboard and game-management work
+a place to land.
 
 ---
 

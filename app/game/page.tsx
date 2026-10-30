@@ -9,6 +9,7 @@ import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import GameMenu from "./GameMenu";
 
 /** How many of the member's engagements the page lists. */
 const LATEST = 50;
@@ -43,10 +44,10 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * The Game page: the signed-in member's points total, their finished tasks
+ * The Game page (My Points in the Game menu): the signed-in member's points total, their finished tasks
  * and what those are worth, how points are earned (the scoring rules), and
- * their latest engagements, newest first. An admin also gets a link to Game
- * management (./manage), where the rules change. A visitor who is not signed in is
+ * their latest engagements, newest first. An admin also gets Manage in the Game
+ * menu (./manage), where the rules change. A visitor who is not signed in is
  * sent to sign in. Every part that could not be read says so on its own, and
  * an empty list says why it is empty (engineering rule 7).
  */
@@ -64,6 +65,7 @@ export default async function Game() {
         <SiteHeader />
         <main>
           <h1>Game</h1>
+          <GameMenu current="points" />
           {!supabase ? (
             <p className="error" role="alert">This copy of WaveCenter has no database settings, so there are no points to show.</p>
           ) : (
@@ -84,7 +86,7 @@ export default async function Game() {
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
   ]);
-  // The link shows only when the role and grants were read and allow it.
+  // The menu's Manage item shows only when the role and grants were read and allow it.
   const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
 
   return (
@@ -92,6 +94,7 @@ export default async function Game() {
       <SiteHeader name={name} />
       <main>
         <h1>Game</h1>
+        <GameMenu current="points" mayManage={mayManage} />
         <p className="lede">
           Everything you do in WaveCenter is recorded and earns points. The points are set by the rules below, never
           by the tool you used.
@@ -111,11 +114,6 @@ export default async function Game() {
           <FinishedTasks finished={finished} />
 
           <h2>How points are earned</h2>
-          {mayManage && (
-            <p>
-              <Link href="/game/manage">Manage scoring</Link>
-            </p>
-          )}
           <RulesTable rules={rules} />
 
           <h2>Your latest engagements</h2>
