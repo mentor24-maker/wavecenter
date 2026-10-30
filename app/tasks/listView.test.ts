@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTasks, fullDate, isFiltering, matches, nextSort, NO_FILTER, sectionTasks, shortDate, sortTasks, type ViewTask } from './listView.ts';
+import { DEFAULT_FILTER, filterTasks, fullDate, isFiltering, matches, nextSort, NO_FILTER, sectionTasks, shortDate, sortTasks, statusShowsDone, type ViewTask } from './listView.ts';
 
 function task(id: string, over: Partial<ViewTask> = {}): ViewTask {
   return {
@@ -55,9 +55,38 @@ test('points and created sort, and ties keep the saved order', () => {
 });
 
 test('no filter shows everything', () => {
-  const list = [task('a'), task('b')];
-  assert.equal(isFiltering(NO_FILTER), false);
+  const list = [task('a'), task('b', { status: 'done' })];
   assert.deepEqual(ids(filterTasks(list, NO_FILTER).shown), ['a', 'b']);
+});
+
+test('the page opens on Open, and that does not count as filtering', () => {
+  assert.equal(DEFAULT_FILTER.status, 'open');
+  assert.deepEqual({ ...DEFAULT_FILTER, status: 'all' }, NO_FILTER);
+  assert.equal(isFiltering(DEFAULT_FILTER), false);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, text: '  ' }), false);
+});
+
+test('changing anything away from the default is filtering, Any status included', () => {
+  assert.equal(isFiltering(NO_FILTER), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, status: 'done' }), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, text: 'milk' }), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, priority: 'high' }), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, minPoints: '1' }), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, maxPoints: '9' }), true);
+  assert.equal(isFiltering({ ...DEFAULT_FILTER, creator: 'dane' }), true);
+});
+
+test('the default filter still hides done tasks', () => {
+  const list = [task('a'), task('b', { status: 'done' })];
+  assert.deepEqual(ids(filterTasks(list, DEFAULT_FILTER).shown), ['a']);
+});
+
+test('only Any status and Done can show a done task', () => {
+  assert.equal(statusShowsDone('all'), true);
+  assert.equal(statusShowsDone('done'), true);
+  assert.equal(statusShowsDone('open'), false);
+  assert.equal(statusShowsDone('ticked'), false);
+  assert.equal(statusShowsDone('with-agents'), false);
 });
 
 test('text matches title or details, ignoring capitals', () => {
