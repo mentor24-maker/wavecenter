@@ -21,6 +21,46 @@ own text.
 
 ---
 
+## 2026-10-30 — Ten ideas for the home page, written down for Dane to pick from (#53)
+
+Dane asked for ten ideas for what a visitor should see on WaveCenter's front
+page before logging in. They are now in a new document,
+`docs/HOME_PAGE_IDEAS.md`. Six show off what already works (what WaveCenter
+is, what a member can do, how points are earned, the AI agents helping while
+people decide, members choosing what others see of them, and running counts
+of what members have done). Four point at what comes next (the five-step
+path with a "you are here" marker, the Winter season, joining by invitation,
+and open tasks with their points waiting to be picked up). Nothing on the
+site changed; building any idea is a separate ticket once Dane chooses.
+
+---
+
+## 2026-10-30 — Database changes are tested privately and go live only on Dane's merge (#52)
+
+Until now, a session tested a database change by putting it straight onto the
+live database, before Dane had approved it. On 2026-10-29 one such change had
+a bug, and the live member list failed for about five minutes. Now every
+database change is first tried on a private test copy that runs on the Mac
+Mini (free, and kept apart from StarCaster's own test copy there). The live
+database only changes when Dane writes `merge`: the merge lane applies the
+change a moment before it merges the code, checks that it landed, and says so
+on the ticket. If the change fails, nothing is merged and the ticket says what
+went wrong, so the site never runs code whose database change is missing.
+
+---
+
+## 2026-10-30 — Every page is now the same width (#55)
+
+Moving between pages in WaveCenter no longer makes the page jump wider or
+narrower. Every page (the task list, a task's own page, Members, Profile,
+Game and Sign in) now has the same 1440px-wide main area, centred, and the
+header bar's logo and Sign out line up with its edges. Before, the task list
+was 1216px and every other page only 704px. The sign-in and profile forms
+keep their narrow width so they do not stretch across the screen, and phones
+look the same as before.
+
+---
+
 ## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
 
 The "Launch AI Agents" switch now sits at the right-hand end of the Tasks

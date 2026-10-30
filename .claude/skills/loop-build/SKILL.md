@@ -144,6 +144,18 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    `npm run dev` once it exists) and walk the ticket's "How to test" steps
    yourself. Say in the PR where you looked and what you saw.
 
+   **Never apply a migration to the live database.** Not to test it, not
+   "just this once". On 2026-10-29 a build applied PR #44's migration to live
+   before Dane's `merge`, and the live member list failed for five minutes. A
+   change to `supabase/migrations/` is tested only on the private test
+   database: `npm run db:test` (Docker on the Mac Mini) rebuilds it from every
+   migration in your worktree and runs `check_tasks_rls` there. The merge lane
+   applies it to live, on Dane's `merge`. The PR's description says
+   "Database: tested on the test database (`npm run db:test`)", or, on a
+   machine without Docker, says it was not tested and why. Never run
+   `npm run check:tasks-rls` or `supabase db push` with the live keys to test
+   an unmerged migration.
+
 5. **Add a plain-English work-log entry.** Prepend one dated entry to
    `docs/WORK-LOG.md` (newest first): what changed and why it mattered, the
    way you would explain it to a non-programmer, plus the `(#PR)` number. This

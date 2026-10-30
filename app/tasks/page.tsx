@@ -68,8 +68,8 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} wide />
-      <main className="wide">
+      <SiteHeader name={name} />
+      <main>
         {error ? (
           <>
             {heading}

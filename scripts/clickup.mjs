@@ -24,6 +24,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
   DISPLAY, STAGE_ORDER, CLAIMABLE_BY_BUILD, OPERATOR_STATUSES, BUILDING, PRIORITY_VALUE,
@@ -45,6 +47,7 @@ import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
   conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
 } from './lib/mergeWords.mjs';
+import { applyMigrations, databaseLine, migrationFiles } from './lib/migrations.mjs';
 
 // ── The ids, written down once ───────────────────────────────────────────────
 // Everything here is overridable from the environment, so a moved list or a
@@ -59,6 +62,8 @@ export const LOOP_QUEUE_LIST = process.env.CLICKUP_LOOP_QUEUE_LIST || '901422159
 export const OPERATOR_ID = Number(process.env.CLICKUP_OPERATOR_ID || 48012725);
 /** Pulse / mentor24 — the workspace's service account. NEVER assign it. */
 export const MACHINE_ID = Number(process.env.CLICKUP_MACHINE_ID || 54254347);
+/** This checkout. The merge lane takes migrations from git here, never from its working files. */
+const REPO_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const API = process.env.CLICKUP_API_BASE || 'https://api.clickup.com';
 const HTTP_TIMEOUT_MS = Number(process.env.CLICKUP_HTTP_TIMEOUT_MS) || 60 * 1000;
 
@@ -744,6 +749,12 @@ if (cmd === 'whoami') {
   // mergeable, caught up with main and its `verify` check green. `Live` is
   // set only after GitHub is read back saying MERGED.
   //
+  // A PR that adds files to supabase/migrations/ has them applied to the
+  // live database here, from the exact commit about to be merged, just BEFORE
+  // the squash-merge (scripts/lib/migrations.mjs). No lane applies a migration
+  // to live before Dane's word (2026-10-29: one broke the live member list for
+  // five minutes). If the apply fails, nothing is merged and he is told why.
+  //
   // gh runs from a temp folder with --repo, so it never touches a local
   // checkout: --delete-branch deletes the branch on GitHub only, and never
   // tries to switch or delete a branch a worktree has checked out.
@@ -806,7 +817,7 @@ if (cmd === 'whoami') {
       continue;
     }
     const repo = `${pr.owner}/${pr.repo}`;
-    const viewArgs = ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'number,state,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,mergeCommit,url'];
+    const viewArgs = ['pr', 'view', String(pr.number), '--repo', repo, '--json', 'number,state,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,mergeCommit,url,files'];
     const view = ghJson(viewArgs);
     if (view.error) { log(`  could not read PR #${pr.number} from GitHub (${view.error}) — trying again next pass`); continue; }
     const p = view.value;
@@ -817,6 +828,25 @@ if (cmd === 'whoami') {
       behindBy = Number(cmp.stdout.trim());
     }
     const decision = prDecision(p, { behindBy });
+    const migrations = migrationFiles(p.files);
+    /** Apply this PR's migrations to live from `commit`: the result, or null after telling Dane why not. */
+    const applyToLive = async (commit, alreadyMerged) => {
+      if (!migrations.length) return { ok: true, applied: [] };
+      if (dry) { log(`  (dry run) would apply to the live database, from commit ${String(commit).slice(0, 7)}: ${migrations.join(', ')}`); return { ok: true, applied: migrations }; }
+      log(`  PR #${p.number} changes the database (${migrations.join(', ')}): applying it to live from commit ${String(commit).slice(0, 7)}`);
+      const r = commit
+        ? applyMigrations({ repoDir: REPO_DIR, commit, dbUrl: process.env.DATABASE_URL })
+        : { ok: false, error: 'GitHub did not say which commit to take the migrations from.' };
+      if (r.ok) { log(`  database: ${r.applied.length ? `applied ${r.applied.join(', ')} and read it back` : 'already up to date'}`); return r; }
+      const why = alreadyMerged
+        ? `PR #${p.number} was already merged outside this lane, but applying its database change (${migrations.join(', ')}) to the live database failed: ${r.error}`
+        : `PR #${p.number} changes the database (${migrations.join(', ')}), and applying that change to the live database failed, so the PR was NOT merged: ${r.error}`;
+      const todo = alreadyMerged
+        ? 'The code is on main but its database change is not live, so a screen that uses it may fail. A session has to fix it with a new PR, tested first with `npm run db:test`. This lane tries the apply again every pass and sets Live once it lands.'
+        : 'Nothing was merged, and the live database is as it was: each migration file is all-or-nothing. The migration has to be fixed on this branch and pass `npm run db:test` on the test database. Move the ticket to Rework to have the build loop do it.';
+      await refuse(t, comments, authId, 'migration-failed', why, todo);
+      return null;
+    };
 
     if (decision.act === 'wait') { log(`  waiting: ${decision.why}`); continue; }
     if (decision.act === 'refuse') { await refuse(t, comments, authId, decision.code, decision.why, decision.todo); continue; }
@@ -835,11 +865,13 @@ if (cmd === 'whoami') {
       continue;
     }
 
-    let commit;
+    let commit, db;
     if (decision.act === 'already-merged') {
       commit = p.mergeCommit?.oid;
       log(`  PR #${p.number} is already merged (${commit || 'commit unknown'}) — nothing left to merge`);
+      if (!(db = await applyToLive(commit, true))) continue;
     } else {
+      if (!(db = await applyToLive(p.headRefOid, false))) continue;
       log(`  merging PR #${p.number} (squash, branch deleted)`);
       const ok = await write(`squash-merge PR #${p.number}`, async () => {
         const m = gh(['pr', 'merge', String(p.number), '--repo', repo, '--squash', '--delete-branch', '--match-head-commit', p.headRefOid], { cwd: outside });
@@ -862,7 +894,8 @@ if (cmd === 'whoami') {
       const body = decision.act === 'already-merged'
         ? `Your "merge" (comment ${authId}) was read, but PR #${p.number} had already been merged outside this lane, as commit ${short}. Nothing was merged twice. Setting this ticket Live.`
         : `Merged on your word (comment ${authId}): PR #${p.number} squash-merged into ${p.baseRefName} as commit ${short}, with \`verify\` green, and the branch deleted. Setting this ticket Live.`;
-      if (!await note(t.id, mergedComment({ prUrl: pr.url, commit: short, body }))) continue;
+      const withDb = `${body}\n\n${databaseLine({ files: migrations, applied: db.applied })}`;
+      if (!await note(t.id, mergedComment({ prUrl: pr.url, commit: short, body: withDb }))) continue;
     }
     if (await moveTo(t, DISPLAY[LIVE])) merged += 1;
   }

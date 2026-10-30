@@ -74,8 +74,8 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} wide />
-      <main className="wide">
+      <SiteHeader name={name} />
+      <main>
         <h1>Home</h1>
         <div className="dashboard">
           <section className="box level-1 callout">
