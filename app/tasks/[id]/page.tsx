@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import type { TaskStatus } from "../../../core/tasks.ts";
-import { isAdmin } from "../../lib/memberRoleStore";
+import { headerName } from "../../lib/memberProfileStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
 import { loadComments, loadFiles } from "../../lib/taskReads";
 import { fromRow } from "../../lib/taskStore";
@@ -39,14 +39,13 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
     );
   }
 
-  const email = user.email ?? "you";
-  const [admin, read] = await Promise.all([
-    isAdmin(supabase, user.id),
+  const [name, read] = await Promise.all([
+    headerName(supabase, user),
     TASK_ID.test(id) ? supabase.from("tasks").select().eq("id", id).maybeSingle() : { data: null, error: null },
   ]);
   if (read.error) {
     return (
-      <Shell email={email} admin={admin}>
+      <Shell name={name}>
         <p className="error" role="alert">
           This task could not be loaded: {read.error.message}. Nothing has been lost; try reloading the page.
         </p>
@@ -55,7 +54,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   }
   if (!read.data) {
     return (
-      <Shell email={email} admin={admin}>
+      <Shell name={name}>
         <p className="error" role="alert">This task was not found. It may have been deleted, or the link may be wrong.</p>
       </Shell>
     );
@@ -77,7 +76,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   const commentFiles = files.files.filter((f) => f.commentId);
 
   return (
-    <Shell email={email} admin={admin} title={task.title}>
+    <Shell name={name} title={task.title}>
       <dl className="task-facts box">
         <dt>Status</dt>
         <dd>{STATUS_LABEL[task.status] ?? task.status}</dd>
@@ -191,10 +190,10 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 }
 
 /** The frame every state of the page shares: header, title, and the way back. */
-function Shell({ email, admin, title, children }: { email?: string; admin?: boolean; title?: string; children: ReactNode }) {
+function Shell({ name, title, children }: { name?: string; title?: string; children: ReactNode }) {
   return (
     <>
-      <SiteHeader email={email} admin={admin} />
+      <SiteHeader name={name} />
       <main>
         <p><Link href="/">&larr; Back to your tasks</Link></p>
         <h1>{title ?? "Task"}</h1>

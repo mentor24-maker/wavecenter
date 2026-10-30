@@ -57,7 +57,7 @@ async function save(
         ok: false,
         error: checkFailed
           ? "WaveCenter could not check that you are signed in, so this was not saved. Try again in a minute."
-          : "You are signed out, so this was not saved. Reload the page and sign in again.",
+          : "You are signed out, so this was not saved. Reload the page and log in again.",
       };
     }
     await change(supabaseTaskStore(supabase, user.id), supabase, user.id);

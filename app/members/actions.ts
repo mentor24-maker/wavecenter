@@ -27,7 +27,7 @@ export async function changeMemberRole(memberId: string, role: string): Promise<
         ok: false,
         error: checkFailed
           ? "WaveCenter could not check that you are signed in, so the role was not changed. Try again in a minute."
-          : "You are signed out, so the role was not changed. Reload the page and sign in again.",
+          : "You are signed out, so the role was not changed. Reload the page and log in again.",
       };
     }
     saved = await setMemberRole(supabaseMemberRoleStore(supabase), { actorId: user.id, memberId, role }, WAVECENTER_TOOL);

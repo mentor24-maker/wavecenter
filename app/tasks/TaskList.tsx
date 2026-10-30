@@ -348,7 +348,8 @@ export default function TaskList({
       </div>
       {intro}
 
-      <form onSubmit={add} className="add" aria-label="Add a task">
+      <form onSubmit={add} className="add box level-3" aria-labelledby="add-task-heading">
+        <h2 id="add-task-heading">Add Task</h2>
         <div className="line">
           <input
             aria-label="New task"
