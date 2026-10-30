@@ -171,7 +171,7 @@ the Mac Mini (account `daneofearth`, checkout `~/WebApps/wavecenter`) as
 launchd agents, `com.wavecenter.loop-build` and `com.wavecenter.loop-review`,
 beside StarCaster's. Each keeps the committed `scripts/loop_runner.sh` alive
 across crashes and reboots; each pass is a fresh headless Claude Code session
-that pulls `main`, runs one skill, and sleeps 30 minutes. A pass has a
+that pulls `main`, runs one skill, and sleeps 15 minutes. A pass has a
 two-hour time limit. Nobody starts a loop by hand while those are loaded: a
 second claimant makes the check-then-act claim unsound.
 
@@ -266,7 +266,7 @@ npm run clickup -- merge-on-comment --dry-run                            # what 
 
 A fourth launchd agent, `com.wavecenter.loop-handoff`, is how the tasks you
 tick on your WaveCenter to-do list reach the agents. It runs the
-`loop-handoff` skill (`.claude/skills/loop-handoff/SKILL.md`) every 30
+`loop-handoff` skill (`.claude/skills/loop-handoff/SKILL.md`) every 10
 minutes, through the same `scripts/loop_runner.sh` as build and review. Your
 words (2026-10-12): "If I turn on the Launch AI Agents toggle, they will begin
 working on tasks in priority, then chronological order." You chose the same
@@ -311,8 +311,8 @@ Two commands, each in **its own session**, from any folder in the repo (the
 loop makes its own worktree per task):
 
 ```
-/loop 30m loop-build
-/loop 30m loop-review
+/loop 15m loop-build
+/loop 15m loop-review
 ```
 
 ### Installing or moving the runner

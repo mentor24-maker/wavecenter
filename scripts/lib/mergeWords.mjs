@@ -259,7 +259,7 @@ export function conflictToSettle({ status, comments, operatorId }) {
 // ── What GitHub says about the PR, reduced to one decision ─────────────────
 
 /** What a conflict refusal tells Dane. Nothing for him to do: no ticket to move. */
-export const SETTLE_TODO = 'Nothing from you. The build loop settles this on its next pass (within about 30 minutes): it merges main into the branch, keeps both sides, and runs verify again. It leaves the ticket in Ready to launch, and this lane merges on your standing word once verify is green. If the two sides need a real choice, the build loop asks you here instead of guessing.';
+export const SETTLE_TODO = 'Nothing from you. The build loop settles this on its next pass (within about 15 minutes): it merges main into the branch, keeps both sides, and runs verify again. It leaves the ticket in Ready to launch, and this lane merges on your standing word once verify is green. If the two sides need a real choice, the build loop asks you here instead of guessing.';
 
 export const VERIFY_CHECK = 'verify';
 

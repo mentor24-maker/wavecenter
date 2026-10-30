@@ -26,9 +26,9 @@ LANES=("${SKILLS[@]}" "$MERGE_LANE")
 
 interval_of() {
   case "$1" in
-    loop-build)  echo 1800 ;;
-    loop-review) echo 1800 ;;
-    loop-handoff) echo 1800 ;;
+    loop-build)  echo 900 ;;
+    loop-review) echo 900 ;;
+    loop-handoff) echo 600 ;;
     merge-on-comment) echo 600 ;;
     *)           echo 3600 ;;
   esac
