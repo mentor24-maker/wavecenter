@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — The Game area gets a menu: My Points, Leaderboard and Manage (#56)
+
+The Game page now has a small menu under its heading with three choices.
+My Points is the Game page as it was: your points, your finished tasks,
+how points are earned and your latest engagements. Leaderboard and Manage
+are new pages that, for now, say in one plain sentence that they are coming
+in a later task, so they never look blank or broken. The menu underlines the
+page you are on. This gives the later leaderboard and game-management work
+a place to land.
+
 ## 2026-10-30 — WaveCenter gets a Home page; the task list moves to its own Tasks page (#54)
 
 Signing in now lands on Home, a dashboard instead of the raw task list. It
