@@ -146,6 +146,12 @@ p { margin: 0 0 var(--space); }
 
 .note { color: var(--muted); }
 
+/* The menu along the top of every Game page; the page you are on is underlined in the accent colour. */
+.game-menu { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 0.5rem 0 var(--space); border-bottom: 1px solid var(--line); }
+.game-menu a { padding: 0.35rem 0; margin-bottom: -1px; border-bottom: 3px solid transparent; font-weight: 600; text-decoration: none; }
+.game-menu a:hover { text-decoration: underline; }
+.game-menu a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+
 a { color: var(--accent); text-underline-offset: 0.15em; }
 
 /* A failed save or a problem: tinted box, own colour, never hidden. */

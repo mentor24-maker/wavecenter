@@ -8,6 +8,7 @@ import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import GameMenu from "./GameMenu";
 
 /** How many of the member's engagements the page lists. */
 const LATEST = 50;
@@ -42,7 +43,7 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * The Game page: the signed-in member's points total, their finished tasks
+ * The Game page (My Points in the Game menu): the signed-in member's points total, their finished tasks
  * and what those are worth, how points are earned (the scoring rules), and
  * their latest engagements, newest first. A visitor who is not signed in is
  * sent to sign in. Every part that could not be read says so on its own, and
@@ -62,6 +63,7 @@ export default async function Game() {
         <SiteHeader />
         <main>
           <h1>Game</h1>
+          <GameMenu current="points" />
           {!supabase ? (
             <p className="error" role="alert">This copy of WaveCenter has no database settings, so there are no points to show.</p>
           ) : (
@@ -86,6 +88,7 @@ export default async function Game() {
       <SiteHeader name={name} />
       <main>
         <h1>Game</h1>
+        <GameMenu current="points" />
         <p className="lede">
           Everything you do in WaveCenter is recorded and earns points. The points are set by the rules below, never
           by the tool you used.
