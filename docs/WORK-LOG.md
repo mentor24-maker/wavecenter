@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — Members can read how WaveCenter protects their privacy (#58)
+
+Your profile now has a box called "Your privacy on WaveCenter": a few short
+paragraphs saying that profiles start anonymous, that each member lives in
+their own Wave Bubble, and how Security (Filters) and Privacy (Masks) work.
+At the bottom, a link opens a new page inside WaveCenter, "Privacy and
+Security First", which carries Dane's full article from the public website,
+word for word. Anyone can read that page, signed in or not. This matters
+because the profile page asks members what to share; now it also tells them
+why WaveCenter starts them hidden, without sending them off to another site.
+
 ## 2026-10-30 — The Game area gets a menu: My Points, Leaderboard and Manage (#56)
 
 The Game page now has a small menu under its heading with three choices.
