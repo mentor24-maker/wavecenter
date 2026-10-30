@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — Ten ideas for the home page, written down for Dane to pick from (#53)
+
+Dane asked for ten ideas for what a visitor should see on WaveCenter's front
+page before logging in. They are now in a new document,
+`docs/HOME_PAGE_IDEAS.md`. Six show off what already works (what WaveCenter
+is, what a member can do, how points are earned, the AI agents helping while
+people decide, members choosing what others see of them, and running counts
+of what members have done). Four point at what comes next (the five-step
+path with a "you are here" marker, the Winter season, joining by invitation,
+and open tasks with their points waiting to be picked up). Nothing on the
+site changed; building any idea is a separate ticket once Dane chooses.
+
+---
+
 ## 2026-10-29 — The Launch AI Agents switch moves up beside the Tasks heading (#48)
 
 The "Launch AI Agents" switch now sits at the right-hand end of the Tasks
