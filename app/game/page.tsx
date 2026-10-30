@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { Engagement, ScoringRule } from "../../core/game.ts";
+import { isWired, mayManageScoring, type Engagement, type ScoringRule } from "../../core/game.ts";
 import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
+import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 
@@ -44,7 +45,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 /**
  * The Game page: the signed-in member's points total, their finished tasks
  * and what those are worth, how points are earned (the scoring rules), and
- * their latest engagements, newest first. A visitor who is not signed in is
+ * their latest engagements, newest first. An admin also gets a link to Game
+ * management (./manage), where the rules change. A visitor who is not signed in is
  * sent to sign in. Every part that could not be read says so on its own, and
  * an empty list says why it is empty (engineering rule 7).
  */
@@ -73,13 +75,17 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, rules, total, latest, finished] = await Promise.all([
+  const [name, rules, total, latest, finished, role, lists] = await Promise.all([
     headerName(supabase, user),
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
     read(() => readFinishedTasks(supabase, user.id)),
+    read(() => myRole(supabase, user.id)),
+    read(() => readRolesAndPermissions(supabase)),
   ]);
+  // The link shows only when the role and grants were read and allow it.
+  const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
 
   return (
     <>
@@ -105,6 +111,11 @@ export default async function Game() {
           <FinishedTasks finished={finished} />
 
           <h2>How points are earned</h2>
+          {mayManage && (
+            <p>
+              <Link href="/game/manage">Manage scoring</Link>
+            </p>
+          )}
           <RulesTable rules={rules} />
 
           <h2>Your latest engagements</h2>
@@ -178,6 +189,7 @@ function RulesTable({ rules }: { rules: Read<ScoringRule[]> }) {
             <td>
               <b>{r.name}</b>
               {r.description && <span className="note block">{r.description}</span>}
+              {!isWired(r.kind) && <span className="badge block">Not active yet: nothing records this action, so it earns nothing.</span>}
             </td>
             <td className="note">{r.criteria}</td>
             <td className="num">{r.points}</td>

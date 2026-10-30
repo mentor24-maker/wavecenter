@@ -101,8 +101,8 @@ questions this document used to leave open.
    The owner's own value stands only until the first points vote.
 
 The game layer's scoring rules (what each recorded action earns) are a
-separate thing from a task's points: for those, Dane chose (2026-10-27) to
-fix the values in a migration for now.
+separate thing from a task's points: an admin sets those on the Game
+management screen (see "Who may change the scoring rules" below).
 
 Adding or subtracting points in other ways (feedback, for example) comes
 later as records of their own, not as edits to this number.
@@ -225,8 +225,8 @@ count** (2026-10-29): `member.read` decides who may list the members, and
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`) and **manage game scoring** (`game.edit`, added by `20261030120000_game_scoring_admin.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles and manages game scoring. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -369,9 +369,9 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   attached a file, removed a file, handed a task to AI agents, switched AI
   agents on or off, changed your profile, voted on a task. Each has a name, a
   description, exactly what counts, and its points. Every kind is worth 1 point except finishing a task, worth 5.
-  These are placeholders until Dane, or later a members' vote, sets them; for
-  now they change only through a migration, and nobody can edit them on a
-  screen.
+  An admin changes them on the Game management screen (below); a members'
+  vote comes later. Each rule also records which tool and which member last
+  changed it.
 - **`engagements`** is the ledger: one row for every thing a member does,
   saying who is credited, which kind it was, the points it earned, the tool
   that did it and the task it was about, with the time. The points are copied
@@ -399,8 +399,38 @@ The `/game` page shows the rules, the member's total and their latest
 engagements, with times in Mountain time.
 
 This does not yet change a task's own `points`: what a task is worth and what
-a member has earned are kept separate for now. Levels, rewards, a leaderboard
-and an admin screen for the game are later tickets.
+a member has earned are kept separate for now. Levels, rewards and a
+leaderboard are later tickets (Dane, 2026-10-30: "Hold off on levels and
+rewards").
+
+### Who may change the scoring rules
+
+Dane, 2026-10-30: an admin sets what each action is worth, and "if an admin
+user adds a score, it is immediately active". Only a role with **manage game
+scoring** (`game.edit`; admin only to start) may, on `/game/manage`, linked
+from the Game page for admins only.
+
+- **Changing a rule** (its name, description, what counts, and its points)
+  goes through `changeScoringRule` in `core/game.ts` and then the database
+  function `update_scoring_rule`. Both refuse any other role, points that are
+  not a whole number from 0 up, a blank name, and a change that names no tool.
+  The new value counts from the very next engagement. Engagements already
+  earned keep the points they were given, because each one copied its points
+  when it happened.
+- **Adding an action** goes through `addScoringRule` and `add_scoring_rule`.
+  Dane chose (option B) that admins may add new actions, but a new one is
+  **not active**: nothing in WaveCenter records it yet, so it earns nothing
+  until an agent wires it to a function, a database trigger and a test. The
+  screen marks it "Not active yet". Its kind comes from its name ("Wrote a
+  comment" → `wrote_a_comment`), and neither may already be taken.
+- **Nobody deletes a rule**, and nobody writes the table directly through the
+  API, not even an admin.
+
+Every active action names where it comes from (`SCORING_TRIGGERS` in
+`core/game.ts`): the core function that triggers it, the database trigger
+that records it, and the test that proves it. The screen shows all three, and
+a test fails if any action is missing one or names something that does not
+exist.
 
 ## Why the four fields are there from day one
 
