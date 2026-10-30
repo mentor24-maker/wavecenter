@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — An admin can now set what each action is worth, and add new actions, on a Game management screen (#57)
+
+What each action earns (1 point for making a task, 5 for finishing one, and
+so on) used to change only through a code change. Now an admin clicks
+**Manage scoring** on the Game page and changes any action's name, wording
+and points. The new value counts from the next time someone does it, and
+points already earned keep their old value. An admin can also add a brand-new
+action, as Dane chose; it shows as "Not active yet" and earns nothing until
+an agent wires it into WaveCenter. Every working action shows the piece of
+code that triggers it and the test that proves it, so anyone can check.
+Only admins can do any of this, and the database refuses everyone else too.
+
+---
+
 ## 2026-10-30 — WaveCenter gets a Home page; the task list moves to its own Tasks page (#54)
 
 Signing in now lands on Home, a dashboard instead of the raw task list. It
