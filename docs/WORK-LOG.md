@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-29 — Next.js upgraded to close a critical security hole (#46)
+
+WaveCenter's server ran on a version of Next.js, the framework it is built
+on, with a known critical flaw: an outsider could have run their own code on
+the server, or knocked it over, without signing in. It now runs on 16.4.3,
+the small patch release that fixes it, and nothing else changed. The
+security audit now finds no known problems, the checks pass first time, and
+signing in, adding a task with a picture and seeing its thumbnail all still
+work.
+
 ## 2026-10-29 — Members view-only for non-admins: already done, one note corrected (#49)
 
 This ticket asked that members who are not admins see the members list,
