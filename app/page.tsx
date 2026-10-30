@@ -2,7 +2,6 @@ import Link from "next/link";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../core/agents.ts";
 import { headerName } from "./lib/memberProfileStore";
-import { isAdmin } from "./lib/memberRoleStore";
 import { loadComments, loadFiles } from "./lib/taskReads";
 import SiteHeader from "./SiteHeader";
 import TaskList, { type ListVote } from "./tasks/TaskList";
@@ -53,7 +52,7 @@ type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
   const userId = user.id;
-  const [{ data: tasks, error }, settings, files, comments, votes, admin, name] = await Promise.all([
+  const [{ data: tasks, error }, settings, files, comments, votes, name] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -63,7 +62,6 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
     loadFiles(supabase),
     loadComments(supabase),
     supabase.from("task_votes").select("task_id, member_id, points, priority"),
-    isAdmin(supabase, userId),
     headerName(supabase, user),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
@@ -74,7 +72,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} admin={admin} wide />
+      <SiteHeader name={name} wide />
       <main className="wide">
         <h1>Tasks</h1>
         <p className="note">

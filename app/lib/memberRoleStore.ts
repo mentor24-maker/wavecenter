@@ -37,15 +37,6 @@ export function myRole(supabase: Client, memberId: string): Promise<RoleKey> {
   return roleOf(supabaseMemberRoleStore(supabase), memberId);
 }
 
-/** For the header: is the signed-in member an admin? A failed read counts as no, so the page still loads. */
-export async function isAdmin(supabase: Client, memberId: string): Promise<boolean> {
-  try {
-    return (await myRole(supabase, memberId)) === "admin";
-  } catch {
-    return false;
-  }
-}
-
 /** One row of the Members page: only what each member's profile lets other members see. */
 export interface MemberRow {
   memberId: string;
@@ -57,7 +48,7 @@ export interface MemberRow {
   joinedAt: string;
 }
 
-/** Every member, for an admin. The database refuses anyone else. */
+/** Every member, for any role with "View members" (every role today). The database refuses a signed-out caller or a role without it. */
 export async function listMembers(supabase: Client): Promise<MemberRow[]> {
   const { data, error } = await supabase.rpc("list_members");
   if (error) throw new Error(`The database refused to list the members: ${error.message}`);
