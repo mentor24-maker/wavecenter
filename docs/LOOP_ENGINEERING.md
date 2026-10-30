@@ -221,6 +221,18 @@ to pass again on the combined code; when the PR is open, conflict-free and
 until it says MERGED; only then comments the merge commit on the ticket and
 sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
 
+**Database changes go live here, and only here.** When the PR adds a file to
+`supabase/migrations/`, the lane applies it to the live database from the
+exact commit it is about to merge, just **before** the squash-merge, then reads
+the database's own migration list back. The merge comment ends with a
+`Database:` line saying what was applied. If the apply fails, the PR is **not**
+merged, the live database is as it was (each migration file is
+all-or-nothing), and the ticket stays in `Ready to launch` with a
+`MERGE NOT DONE (… reason migration-failed)` note. Before your `merge`,
+migrations are only ever tested on the private test database
+(`npm run db:test`, see `docs/INFRASTRUCTURE.md`): on 2026-10-29 a build
+applied one to live early and the member list failed for five minutes.
+
 **When it will not merge** (a red check, a conflict, no check at all), it
 posts **one** comment saying exactly why and what has to happen, and does not
 repeat it. Your `merge` still stands: every pass checks again and merges the

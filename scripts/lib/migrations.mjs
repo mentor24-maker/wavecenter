@@ -1,0 +1,145 @@
+/**
+ * Where a database change goes, and when.
+ *
+ * On 2026-10-29 a build session applied PR #44's migration straight to the
+ * live database so it could run `check:tasks-rls`. The first version had a
+ * bug, and the live member list failed for about five minutes, before Dane had
+ * written `merge`. Dane's decision the same day ("B it is"): changes are tested
+ * on a private test database on the Mac Mini (`npm run db:test`), and only the
+ * merge lane applies them to live, on his written `merge`.
+ *
+ * The merge lane applies a PR's migrations just BEFORE it squash-merges, from
+ * the exact commit it is about to merge. If the apply fails, nothing is merged
+ * and the ticket stays in Ready to launch with a note: `main` never gets code
+ * whose database change did not land. Supabase runs each migration file in its
+ * own transaction, so a file that fails leaves nothing half-applied (checked
+ * on the test database, 2026-10-29).
+ *
+ * The pure parts are tested in migrations.test.mjs; `applyMigrations` runs git
+ * and the supabase CLI.
+ */
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+export const MIGRATIONS_DIR = 'supabase/migrations';
+
+/** The migration files among a PR's changed paths, by file name, oldest first. */
+export function migrationFiles(paths) {
+  const prefix = `${MIGRATIONS_DIR}/`;
+  return (paths || [])
+    .map((p) => String(p && typeof p === 'object' ? p.path : p))
+    .filter((p) => p.startsWith(prefix) && p.endsWith('.sql') && !p.slice(prefix.length).includes('/'))
+    .map((p) => p.slice(prefix.length))
+    .sort();
+}
+
+/**
+ * The JSON object carrying `key` in CLI output, or null: the whole output when
+ * it is one (pretty-printed) object, else the last such line after the human
+ * lines.
+ */
+export function lastJson(output, key) {
+  const whole = String(output || '').trim();
+  const lines = [whole, ...whole.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('{')).reverse()];
+  for (const line of lines) {
+    try {
+      const v = JSON.parse(line);
+      if (v && typeof v === 'object' && key in v) return v;
+    } catch { /* not JSON; keep looking */ }
+  }
+  return null;
+}
+
+/** The files `supabase db push` says it would push (or pushed), or null if it did not say. */
+export function pushList(output) {
+  const v = lastJson(output, 'migrations');
+  return v && Array.isArray(v.migrations) ? v.migrations.map(String) : null;
+}
+
+/**
+ * Which of these migration files `supabase migration list` does NOT show as
+ * applied on the remote database. Null when the listing could not be read.
+ */
+export function missingOnRemote(listOutput, files) {
+  const v = lastJson(listOutput, 'migrations');
+  if (!v || !Array.isArray(v.migrations)) return null;
+  const applied = new Set(v.migrations.map((m) => String(m && m.remote || '').trim()).filter(Boolean));
+  return (files || []).filter((f) => !applied.has(String(f).split('_')[0]));
+}
+
+/** Never let a database address (which carries its password) into a note or a log. */
+export function scrub(text) {
+  return String(text || '').replace(/postgres(?:ql)?:\/\/\S+/gi, '<database address>');
+}
+
+/** The readable error out of a failed supabase CLI run. */
+export function cliError(output) {
+  const v = lastJson(output, 'error');
+  const msg = v && v.error && typeof v.error === 'object' ? v.error.message : null;
+  const text = msg || String(output || '').trim().split('\n').filter(Boolean).slice(-3).join(' ');
+  return scrub(text).slice(0, 400) || 'no message';
+}
+
+/** True only for an address on this machine. db:test refuses anything else. */
+export function isLocalUrl(url) {
+  try {
+    const { hostname } = new URL(String(url));
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+/** The "Database:" paragraph of the merge note. */
+export function databaseLine({ files, applied }) {
+  if (!files || !files.length) return 'Database: this PR has no database change.';
+  if (!applied || !applied.length) return `Database: ${files.join(', ')} was already on the live database; nothing to apply.`;
+  return `Database: applied ${applied.join(', ')} to the live database before merging, and read it back from the database's own migration list.`;
+}
+
+/**
+ * Apply the migrations at `commit` to the database at `dbUrl`: everything in
+ * that commit's supabase/migrations/ that the database does not have yet. The
+ * files come from git, never a working folder, so what is applied is exactly
+ * what is merged.
+ *
+ * Returns { ok: true, applied: [file names] } or { ok: false, error }.
+ * Never throws, and never puts `dbUrl` into the error.
+ */
+export function applyMigrations({ repoDir, commit, dbUrl, run = spawnSync }) {
+  if (!dbUrl) return { ok: false, error: 'DATABASE_URL is not set, so the live database cannot be reached.' };
+  const sh = (cmd, args) => {
+    const r = run(cmd, args, { encoding: 'utf8', cwd: repoDir });
+    return { ok: r.status === 0, out: `${r.stdout || ''}\n${r.stderr || ''}` };
+  };
+  const work = mkdtempSync(join(tmpdir(), 'wavecenter-migrations-'));
+  try {
+    const fetched = sh('git', ['-C', repoDir, 'fetch', '--quiet', 'origin', commit]);
+    if (!fetched.ok) return { ok: false, error: `could not fetch commit ${commit}: ${cliError(fetched.out)}` };
+    const tar = join(work, 'migrations.tar');
+    const archived = sh('git', ['-C', repoDir, 'archive', '-o', tar, commit, MIGRATIONS_DIR]);
+    if (!archived.ok) return { ok: false, error: `could not read ${MIGRATIONS_DIR} at ${commit}: ${cliError(archived.out)}` };
+    const unpacked = sh('tar', ['-xf', tar, '-C', work]);
+    if (!unpacked.ok) return { ok: false, error: `could not unpack the migrations: ${cliError(unpacked.out)}` };
+
+    const push = ['db', 'push', '--db-url', dbUrl, '--workdir', work, '--include-all'];
+    const preview = sh('supabase', [...push, '--dry-run']);
+    const pending = preview.ok ? pushList(preview.out) : null;
+    if (!pending) return { ok: false, error: `supabase could not say what it would apply: ${cliError(preview.out)}` };
+    if (!pending.length) return { ok: true, applied: [] };
+
+    const pushed = sh('supabase', [...push, '--yes']);
+    if (!pushed.ok) return { ok: false, error: `applying ${pending.join(', ')} failed: ${cliError(pushed.out)}` };
+
+    const listed = sh('supabase', ['migration', 'list', '--db-url', dbUrl, '--workdir', work]);
+    const missing = listed.ok ? missingOnRemote(listed.out, pending) : null;
+    if (missing === null) return { ok: false, error: `supabase said it applied ${pending.join(', ')}, but the database's migration list could not be read back: ${cliError(listed.out)}` };
+    if (missing.length) return { ok: false, error: `supabase said it applied ${pending.join(', ')}, but the database does not list ${missing.join(', ')}.` };
+    return { ok: true, applied: pending };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
