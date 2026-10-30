@@ -72,6 +72,12 @@ look at; this is a check that runs in CI"*).
 
 3. **Verify independently — do not trust the build loop's word.**
    - Re-run the gates: `npm run verify`.
+   - **A PR that touches `supabase/migrations/`:** run `npm run db:test` (the
+     private test database on the Mac Mini, rebuilt from the branch's
+     migrations). **Never apply a migration to the live database** — the
+     merge lane does that, on Dane's `merge`. A PR whose description says it
+     applied its migration to live, or a migration that edits an older
+     migration file instead of adding a new one, is a send-back.
    - Run `/code-review` on the branch diff for correctness and quality.
    - **Actually exercise it.** Open the affected screen and walk the task's
      "How to test" steps. A green test suite is not proof the feature works.
