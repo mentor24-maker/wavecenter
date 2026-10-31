@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — The home page becomes a landing page with the log-in form on it (#75)
+
+Visitors who were not logged in used to see a plain placeholder page with
+"Log in" and "Register" buttons that took them somewhere else. Now the home
+page is a proper front door: Dane's water-drop picture fills the screen, the
+logo sits top left, the introduction to WaveCenter is on the left, and the
+box to log in with email and password is right there on the right, with the
+"Forgot your password?" and "Register" links under it. A wrong password or
+a mistyped email is explained on the home page itself. The home page and the
+separate log-in page now share one form, so their wording can never drift
+apart. On a phone, the introduction sits above the form.
+
 ## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
 
 WaveCenter now has the camera and the photo album for its own history.
