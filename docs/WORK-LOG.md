@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Database changes can go live again when Dane writes merge (#78)
+
+Since 29 October, every pull request that changed the database was refused
+by the merge lane, even after Dane wrote `merge`, and five tickets were
+stuck waiting. The cause: the Supabase tool only gives its tidy,
+machine-readable answer when it thinks an AI assistant is running it. The
+merge lane runs on the Mac Mini on a timer with no assistant, so the tool
+answered in plain English and the lane could not read it. The lane now reads
+the plain-English answer too, and always runs the tool the same way, so what
+a Claude session tests is exactly what the lane sees. If the answer is
+anything it does not recognise, it still refuses rather than guess.
+
 ## 2026-10-31 — The top banner is taller, with a bigger logo and name (#77)
 
 Dane asked for the bar across the top of every page to stand out more. It
