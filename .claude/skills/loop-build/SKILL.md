@@ -1,6 +1,6 @@
 ---
 name: loop-build
-description: Pick the next claimable task (all "Rework" first, then a "Ready to launch" ticket whose approved PR conflicts with main — settled in place, status untouched — then "Queued") from the WaveCenter "Loop Queue" ClickUp list and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 30m loop-build`. Never edits main, never merges.
+description: Pick the next claimable task (all "Rework" first, then a "Ready to launch" ticket whose approved PR conflicts with main — settled in place, status untouched — then "Queued") from the WaveCenter "Loop Queue" ClickUp list and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 15m loop-build`. Never edits main, never merges.
 ---
 
 # Loop: Build

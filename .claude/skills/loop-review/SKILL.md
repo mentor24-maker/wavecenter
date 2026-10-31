@@ -1,6 +1,6 @@
 ---
 name: loop-review
-description: Pick the next "In review" task from the WaveCenter "Loop Queue" ClickUp list, independently verify its pull request (`npm run verify` + code review + a real test pass), then either mark it "Ready to launch" and ask Dane to write merge on it, or send it back to "Rework" with notes. Designed to be run on a timer with `/loop 30m loop-review`. Never merges on its own.
+description: Pick the next "In review" task from the WaveCenter "Loop Queue" ClickUp list, independently verify its pull request (`npm run verify` + code review + a real test pass), then either mark it "Ready to launch" and ask Dane to write merge on it, or send it back to "Rework" with notes. Designed to be run on a timer with `/loop 15m loop-review`. Never merges on its own.
 ---
 
 # Loop: Review

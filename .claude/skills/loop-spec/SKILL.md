@@ -104,7 +104,7 @@ NOT write any code here. You produce well-formed tasks.
    the total. Then say what the build loop is actually doing — **never tell
    Dane to start one without checking**. Today the WaveCenter loops have no
    scheduled runner; a loop runs only when a session starts one by hand
-   (`/loop 30m loop-build`), and only one build loop and one review loop may
+   (`/loop 15m loop-build`), and only one build loop and one review loop may
    run at a time, because claiming a ticket is check-then-act.
 
 ## Never say something is waiting on Dane without checking
