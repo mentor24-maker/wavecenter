@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — The header shows the water-drop picture the other way round (#65)
+
+Dane wanted the version of the header picture with the dark colours on the
+left. It is the same picture flipped left to right, so the old one was flipped
+and swapped in, and the old file removed. Flipping it put the bright gold behind
+the menu on the right, which would have made the white menu hard to read. So
+the shading over the picture changed too: lighter over the dark left side where
+the WaveCenter name sits, heavier over the gold where the menu sits, and even
+across the whole bar on narrower screens. The text stays clearly readable at
+every width.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested
