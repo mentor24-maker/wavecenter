@@ -294,7 +294,7 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
 });
 
 test('the migration checks the same lengths core does and grants Manage game scoring to admins only', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261030120000_game_scoring_admin.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261031140000_game_scoring_admin.sql', import.meta.url), 'utf8');
   assert.match(sql, new RegExp(`length\\(name\\) <= ${RULE_NAME_MAX} and length\\(description\\) <= ${RULE_TEXT_MAX} and length\\(criteria\\) <= ${RULE_TEXT_MAX}`));
   assert.doesNotMatch(sql, /grant (insert|update|delete|all)[^;]* on public\.game_scoring_rules/i, 'members never write the table directly');
 });

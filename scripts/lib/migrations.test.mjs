@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  migrationFiles, lastJson, pushList, missingOnRemote, scrub, cliError, isLocalUrl, databaseLine, applyMigrations,
+  migrationFiles, lastJson, pushList, missingOnRemote, scrub, cliError, isLocalUrl, databaseLine, applyMigrations, cliEnv,
+  takeTestDbLock, releaseTestDbLock,
 } from './migrations.mjs';
+import { mkdtempSync, utimesSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Real output shapes, copied from supabase CLI 2.115.0 on the test database (2026-10-29).
 const DRY_RUN = [
@@ -17,6 +21,65 @@ const PUSH_FAILED = [
   '{"_tag":"Error","error":{"code":"LegacyDbPushApplyError","message":"ERROR: column \\"x\\" does not exist (SQLSTATE 42703)"}}',
 ].join('\n');
 const LIST = '{"migrations":[{"local":"20261029210000","remote":"20261029210000"},{"local":"20261030000000","remote":""}],"message":"Migrations listed"}';
+
+// The same commands captured OUTSIDE a Claude session (no agent variables set),
+// which is how the merge lane runs from launchd: supabase CLI 2.115.0 prints
+// human text only. Captured on the test database on 2026-10-31; stdout first,
+// then stderr, the way applyMigrations joins them.
+const NUDGE = [
+  'A new version of Supabase CLI is available: v2.122.0 (currently installed v2.115.0)',
+  'We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli',
+];
+const HUMAN_DRY_RUN = [
+  'Finished supabase db push.',
+  '',
+  'DRY RUN: migrations will *not* be pushed to the database.',
+  'Connecting to remote database...',
+  'Would push these migrations:',
+  ' \u2022 20261031120000_evolution.sql',
+  ...NUDGE,
+].join('\n');
+const HUMAN_DRY_RUN_TWO = [
+  'Finished supabase db push.',
+  '',
+  'DRY RUN: migrations will *not* be pushed to the database.',
+  'Connecting to remote database...',
+  'Would push these migrations:',
+  ' \u2022 29991231000000_scratch.sql',
+  ' \u2022 29991231000001_scratch_two.sql',
+  ...NUDGE,
+].join('\n');
+const HUMAN_UP_TO_DATE = [
+  'Remote database is up to date.',
+  '',
+  'DRY RUN: migrations will *not* be pushed to the database.',
+  'Connecting to remote database...',
+  ...NUDGE,
+].join('\n');
+const HUMAN_PUSH_REFUSED = [
+  '',
+  'DRY RUN: migrations will *not* be pushed to the database.',
+  'Connecting to remote database...',
+  '\x1b[31mRemote migration versions not found in local migrations directory.\x1b[39m',
+  '',
+  'Make sure your local git repo is up-to-date. If the error persists, try repairing the migration history table:',
+  'supabase migration repair --status reverted 20261031120000',
+  '',
+  ...NUDGE,
+].join('\n');
+const HUMAN_LIST = [
+  '',
+  '  ',
+  '   Local            | Remote           | Time (UTC)            ',
+  '  ------------------|------------------|-----------------------',
+  '   `20261029210000` | `20261029210000` | `2026-10-29 21:00:00` ',
+  '   ` `              | `20261031120000` | `2026-10-31 12:00:00` ',
+  '   `29991231000000` | ` `              | `2999-12-31 00:00:00` ',
+  '',
+  '',
+  'Connecting to remote database...',
+  ...NUDGE,
+].join('\n');
 
 test('only .sql files directly in supabase/migrations count as migrations', () => {
   assert.deepEqual(migrationFiles([
@@ -42,6 +105,31 @@ test('a migration counts as on the remote only when the remote column has it', (
   assert.deepEqual(missingOnRemote(LIST, ['20261029210000_x.sql', '20261030000000_broken.sql']), ['20261030000000_broken.sql']);
   assert.deepEqual(missingOnRemote(LIST, ['20261029210000_x.sql']), []);
   assert.equal(missingOnRemote('garbage', ['20261029210000_x.sql']), null);
+});
+
+test('outside a Claude session the CLI human text is read the same way', () => {
+  assert.deepEqual(pushList(HUMAN_DRY_RUN), ['20261031120000_evolution.sql']);
+  assert.deepEqual(pushList(HUMAN_DRY_RUN_TWO), ['29991231000000_scratch.sql', '29991231000001_scratch_two.sql']);
+  assert.deepEqual(pushList(HUMAN_UP_TO_DATE), []);
+  assert.equal(pushList(HUMAN_PUSH_REFUSED), null);
+  assert.equal(pushList('Finished supabase db push.\nConnecting to remote database...'), null);
+  // A heading with no file under it is not "nothing to push"; it is unreadable.
+  assert.equal(pushList('Would push these migrations:\nFinished supabase db push.'), null);
+
+  assert.deepEqual(missingOnRemote(HUMAN_LIST, ['20261029210000_x.sql', '20261031120000_evolution.sql', '29991231000000_scratch.sql']), ['29991231000000_scratch.sql']);
+  assert.deepEqual(missingOnRemote(HUMAN_LIST, ['20261031120000_evolution.sql']), []);
+  assert.equal(missingOnRemote('Connecting to remote database...', ['20261031120000_evolution.sql']), null);
+});
+
+test('the CLI never sees the agent variables, so a session and the lane get the same output', () => {
+  const env = cliEnv({ PATH: '/bin', HOME: '/h', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', AI_AGENT: 'x', CODEX_THREAD_ID: 't', GEMINI_CLI: '1', CURSOR_AGENT: '1', DATABASE_URL: 'd' });
+  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', DATABASE_URL: 'd' });
+  const { run, ran } = fakeRun({ 'db push dry': { stdout: 'Remote database is up to date.' } });
+  let seen;
+  const spy = (cmd, args, opts) => { if (cmd === 'supabase') seen = opts.env; return run(cmd, args); };
+  assert.deepEqual(applyMigrations({ repoDir: '.', commit: 'abc', dbUrl: 'postgresql://u:p@h/db', run: spy }), { ok: true, applied: [] });
+  assert.equal(ran.some((r) => r.includes('--yes')), false);
+  assert.equal('CLAUDECODE' in seen, false);
 });
 
 test('a database address never reaches a note', () => {
@@ -102,8 +190,31 @@ test('apply: a failed push says what failed and never leaks the address', () => 
   assert.equal(r.error.includes('secretpw'), false);
 });
 
+test('apply: the human output end to end, as the merge lane sees it', () => {
+  const { run } = fakeRun({ 'db push dry': { stdout: 'Finished supabase db push.\n', stderr: HUMAN_DRY_RUN }, 'migration list': { stdout: HUMAN_LIST } });
+  assert.deepEqual(applyMigrations({ repoDir: '.', commit: 'abc', dbUrl: 'postgresql://u:p@h/db', run }), { ok: true, applied: ['20261031120000_evolution.sql'] });
+
+  const refused = fakeRun({ 'db push dry': { status: 1, stderr: HUMAN_PUSH_REFUSED } });
+  const r = applyMigrations({ repoDir: '.', commit: 'abc', dbUrl: 'postgresql://u:p@h/db', run: refused.run });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /could not say what it would apply: .*supabase migration repair/);
+  assert.doesNotMatch(r.error, /new version/);
+});
+
 test('apply: no database address means no apply, said plainly', () => {
   const { run, ran } = fakeRun({});
   assert.match(applyMigrations({ repoDir: '.', commit: 'abc', dbUrl: '', run }).error, /DATABASE_URL is not set/);
   assert.deepEqual(ran, []);
+});
+
+test('the test-database lock lets one run in at a time, and takes over one left for 30 minutes', () => {
+  const lock = join(mkdtempSync(join(tmpdir(), 'lock-test-')), 'db.lock');
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: null });
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: false });
+  const old = (Date.now() - 31 * 60 * 1000) / 1000;
+  utimesSync(lock, old, old);
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: 31 });
+  releaseTestDbLock({ lock });
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: null });
+  releaseTestDbLock({ lock });
 });

@@ -11,7 +11,7 @@
  * `supabaseScoringRuleStore` is the `ScoringRuleStore` the Game management
  * screen changes rules through. It calls the database's `update_scoring_rule`
  * and `add_scoring_rule`, which refuse any role without "Manage game scoring"
- * (supabase/migrations/20261030120000_game_scoring_admin.sql).
+ * (supabase/migrations/20261031140000_game_scoring_admin.sql).
  */
 import type { Engagement, EngagementLedger, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";

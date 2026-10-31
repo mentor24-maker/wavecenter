@@ -1,13 +1,14 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is seven tables: `tasks`;
+What WaveCenter stores, in plain words. The tables: `tasks`;
 `member_settings`, which holds each member's "Launch AI Agents" switch;
 `member_profiles`, each member's own profile;
 `task_files`, the files attached to tasks, whose stored copies live in a
 private file-storage bucket; `task_comments`, each task's Discussion; the
 game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
-`member_roles`.
+`member_roles`; the two that hold teams, `teams` and `team_members`; and
+`evolution_entries`, the record of how WaveCenter looked after each change.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -22,7 +23,9 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261029120000_member_roles.sql` added roles and permissions;
 `20261029180000_member_role_private.sql` hid the role-lookup helper from the
 API; `20261029210000_member_permissions.sql` added the member permissions and
-let every member list the members); this page
+let every member list the members; `20261031120000_teams.sql` added teams
+and the team permissions; `20261031130000_evolution.sql` added
+`evolution_entries` and the `evolution` bucket); this page
 explains them.
 
 ## The `tasks` table
@@ -225,7 +228,7 @@ count** (2026-10-29): `member.read` decides who may list the members, and
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`) and **manage game scoring** (`game.edit`, added by `20261030120000_game_scoring_admin.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`) and **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
 | `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles and manages game scoring. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
@@ -256,6 +259,33 @@ in `core/members.ts`): today, an admin's role picker. Adding and removing
 members is left out for now (Dane, 2026-10-29). Below the list, a table
 shows which role has which permission. A role without `member.read` that
 opens the page is told so.
+
+### Teams: `teams` and `team_members`
+
+A team is a named group of members (Dane, 2026-10-30). Every role may view
+the teams (`team.read`, **View teams**); admins and editors make, change and
+delete them and change who is on them (`team.edit`, **Manage teams**; Dane
+chose "B" on 2026-10-30).
+
+| Table | What it holds |
+|---|---|
+| `teams` | One row per team: `name` (up to 80 characters), `slug` (the team's short web-address name: lowercase letters, digits and single hyphens, up to 60, **unique**), `description` (optional, up to 500), the `tool` that last changed it, who made it (`created_by`, stamped by the database) and when. |
+| `team_members` | Which member is on which team, with the tool and the member who added them and when. Deleting a team removes its rows here and never a member account; deleting a member account removes theirs. |
+
+Row-level security was on from the moment both tables were made. Any role
+with `team.read` reads them; only a role with `team.edit` adds, changes or
+deletes a row. The check asks a helper, `private.may`, which, like
+`private.member_role`, the API does not expose. Every change goes through
+`core/teams.ts` (`createTeam`, `updateTeam`, `deleteTeam`, `addTeamMember`,
+`removeTeamMember`), which applies the same rules first, checks the slug, and
+names the tool.
+
+The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
+for each one, its members through the function `list_team_members`. Like
+`list_members`, it shows each member only as their profile allows: their
+avatar unless their profile is private, and their name only if it is public.
+No email address leaves the database. `npm run check:tasks-rls` proves all of
+this, on the test database for an unmerged change (`npm run db:test`).
 
 ### Files attached to a task
 
@@ -431,6 +461,35 @@ Every active action names where it comes from (`SCORING_TRIGGERS` in
 that records it, and the test that proves it. The screen shows all three, and
 a test fails if any action is missing one or names something that does not
 exist.
+
+## Evolution: `evolution_entries`
+
+One row per change merged into `main` (each first-parent commit), with a
+screenshot of the screen that change touched, taken as the screen looked at
+that moment with the real tasks, members and points of the time (Dane,
+2026-10-30). The pictures live in a private file-storage bucket, `evolution`.
+Both are written only by `npm run evolution` (`scripts/evolution_capture.mjs`)
+on the Mac Mini, with the service key; that script's header says how it
+rebuilds "the data as it stood" and what it cannot show.
+
+| Column | What it holds |
+|---|---|
+| `commit_sha` | The change's full commit id on `main`. One row per change. |
+| `merged_at` | When it merged. |
+| `pr_number` | Its pull request number, if it had one (the first commit did not). |
+| `title` | The pull request's title, which is the ticket's name, word for word. |
+| `ticket_url` | The ClickUp ticket the pull request links to, if it named one. |
+| `page` | The address photographed, such as `/game`. Empty for a change with no screen. |
+| `screenshot_path` | The picture's name in the `evolution` bucket. Set only when the picture is stored. |
+| `capture_state` | `captured` (picture stored), `no screen` (the change touched no page; a text-only entry, not a failure) or `failed`. |
+| `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
+| `captured_at` | When the row was last written. |
+
+The table refuses a `captured` row without its stored picture and a `failed`
+row without a reason (engineering rule 6). Row-level security is on from the
+migration that made the table: signed-in members read every row and every
+picture; signed-out visitors read nothing; nobody adds, changes or deletes
+either from the browser. `check:tasks-rls` proves each of those.
 
 ## Why the four fields are there from day one
 

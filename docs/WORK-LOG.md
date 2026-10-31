@@ -7,6 +7,33 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
+
+WaveCenter now has the camera and the photo album for its own history.
+The album is a new private table and picture store on the live database,
+which every signed-in member can look at and nobody can change from the
+browser. The camera is a script on the Mac Mini. For any past change it
+rebuilds that old version of WaveCenter, fills a private local copy of the
+database with the real tasks, members and points as they stood the moment
+that change went live, signs in as Dane, and takes a picture of the screen
+the change touched. Then it wipes the local copy, so real member data never
+lingers there. The old version never sees a live key, and live data is only
+ever read. After this merges, the camera runs once over every change since
+the first commit. Two follow-up tickets then add a picture on every merge
+and a page where members scroll through them.
+
+## 2026-10-31 — Database changes can go live again when Dane writes merge (#78)
+
+Since 29 October, every pull request that changed the database was refused
+by the merge lane, even after Dane wrote `merge`, and five tickets were
+stuck waiting. The cause: the Supabase tool only gives its tidy,
+machine-readable answer when it thinks an AI assistant is running it. The
+merge lane runs on the Mac Mini on a timer with no assistant, so the tool
+answered in plain English and the lane could not read it. The lane now reads
+the plain-English answer too, and always runs the tool the same way, so what
+a Claude session tests is exactly what the lane sees. If the answer is
+anything it does not recognise, it still refuses rather than guess.
+
 ## 2026-10-31 — The top banner is taller, with a bigger logo and name (#77)
 
 Dane asked for the bar across the top of every page to stand out more. It
@@ -47,6 +74,20 @@ box to log in with email and password is right there on the right, with the
 a mistyped email is explained on the home page itself. The home page and the
 separate log-in page now share one form, so their wording can never drift
 apart. On a phone, the introduction sits above the form.
+
+## 2026-10-31 — A Team Manager page: group members into teams (#73)
+
+Dane can now group members into teams. A new **Teams** page (in the header
+menu) lists every team with its name, a short web-address name called a
+slug, a description and how many members it has; clicking a team shows who
+is on it. Admins and editors, the choice Dane made on the ticket, can make,
+change and delete teams and add or take members off them; everyone else can
+look but sees no buttons. Members on a team are shown exactly as their own
+privacy setting allows: a private member appears only as "Anonymous member",
+and no email address ever shows. Deleting a team never deletes anyone's
+account. The two new database tables were locked down from the moment they
+were made, and sixteen new automatic checks prove a member without
+permission cannot change them.
 
 ## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
 

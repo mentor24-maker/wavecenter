@@ -24,7 +24,7 @@
 -- file in step with them. No new table. Additive and safe to re-run.
 
 insert into public.permissions (key, label, position) values
-  ('game.edit', 'Manage game scoring', 7)
+  ('game.edit', 'Manage game scoring', 9)
 on conflict (key) do nothing;
 
 insert into public.role_permissions (role, permission) values
