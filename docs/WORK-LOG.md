@@ -19,6 +19,16 @@ The database enforces the same rule, so nobody can get around it by going
 past the website. Admins' own tasks start as to-do, as before. This matters
 because Dane, as admin, now decides what actually gets worked on.
 
+## 2026-10-30 — The agents check for work more often (#62)
+
+The agent jobs on the Mac Mini rest between passes. Until now each one rested
+30 minutes, so a task Dane ticked could sit for about an hour and a half in
+those rests before it was handed over, built and reviewed, for roughly ten
+minutes of actual work. Now the job that picks up ticked tasks checks every
+10 minutes, and the build and review jobs every 15. The merge job stays at
+10. The docs and skills that said "30 minutes" now say the new times. The new
+schedule takes effect once it is reinstalled on the Mini after merge.
+
 ## 2026-10-30 — The Tasks page opens on the work still to do (#61)
 
 The Tasks page now starts with its Status filter set to Open, so the first
