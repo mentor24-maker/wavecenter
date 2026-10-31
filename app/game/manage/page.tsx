@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SCORING_TRIGGERS, isWired, mayManageScoring, type ScoringRule } from "../../../core/game.ts";
-import { ROLES } from "../../../core/members.ts";
+import { ROLES, mayOpenAdmin } from "../../../core/members.ts";
 import { supabaseScoringRuleStore } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
@@ -58,10 +58,13 @@ export default async function ManageGame() {
     headerName(supabase, user),
   ]);
 
+  // The header's Admin item: shown only when the role was read and is an admin's.
+  const isAdmin = role.error === null && mayOpenAdmin(role.value);
+
   if (role.error !== null || lists.error !== null) {
     return (
       <>
-        <SiteHeader name={name} />
+        <SiteHeader name={name} isAdmin={isAdmin} />
         <main>
           <h1>Game</h1>
           <GameMenu current="manage" />
@@ -76,7 +79,7 @@ export default async function ManageGame() {
   if (!mayManageScoring({ role: role.value, grants: lists.value.grants })) {
     return (
       <>
-        <SiteHeader name={name} />
+        <SiteHeader name={name} isAdmin={isAdmin} />
         <main>
           <h1>Game</h1>
           <GameMenu current="manage" />
@@ -93,7 +96,7 @@ export default async function ManageGame() {
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>Game</h1>
         <GameMenu current="manage" mayManage />
