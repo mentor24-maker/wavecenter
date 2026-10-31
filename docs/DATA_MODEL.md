@@ -1,13 +1,13 @@
 # WaveCenter data model
 
-What WaveCenter stores, in plain words. Today that is seven tables: `tasks`;
+What WaveCenter stores, in plain words. The tables: `tasks`;
 `member_settings`, which holds each member's "Launch AI Agents" switch;
 `member_profiles`, each member's own profile;
 `task_files`, the files attached to tasks, whose stored copies live in a
 private file-storage bucket; `task_comments`, each task's Discussion; the
 game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
-`member_roles`.
+`member_roles`; and the two that hold teams, `teams` and `team_members`.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -22,7 +22,8 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261029120000_member_roles.sql` added roles and permissions;
 `20261029180000_member_role_private.sql` hid the role-lookup helper from the
 API; `20261029210000_member_permissions.sql` added the member permissions and
-let every member list the members); this page
+let every member list the members; `20261031120000_teams.sql` added teams
+and the team permissions); this page
 explains them.
 
 ## The `tasks` table
@@ -256,6 +257,33 @@ in `core/members.ts`): today, an admin's role picker. Adding and removing
 members is left out for now (Dane, 2026-10-29). Below the list, a table
 shows which role has which permission. A role without `member.read` that
 opens the page is told so.
+
+### Teams: `teams` and `team_members`
+
+A team is a named group of members (Dane, 2026-10-30). Every role may view
+the teams (`team.read`, **View teams**); admins and editors make, change and
+delete them and change who is on them (`team.edit`, **Manage teams**; Dane
+chose "B" on 2026-10-30).
+
+| Table | What it holds |
+|---|---|
+| `teams` | One row per team: `name` (up to 80 characters), `slug` (the team's short web-address name: lowercase letters, digits and single hyphens, up to 60, **unique**), `description` (optional, up to 500), the `tool` that last changed it, who made it (`created_by`, stamped by the database) and when. |
+| `team_members` | Which member is on which team, with the tool and the member who added them and when. Deleting a team removes its rows here and never a member account; deleting a member account removes theirs. |
+
+Row-level security was on from the moment both tables were made. Any role
+with `team.read` reads them; only a role with `team.edit` adds, changes or
+deletes a row. The check asks a helper, `private.may`, which, like
+`private.member_role`, the API does not expose. Every change goes through
+`core/teams.ts` (`createTeam`, `updateTeam`, `deleteTeam`, `addTeamMember`,
+`removeTeamMember`), which applies the same rules first, checks the slug, and
+names the tool.
+
+The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
+for each one, its members through the function `list_team_members`. Like
+`list_members`, it shows each member only as their profile allows: their
+avatar unless their profile is private, and their name only if it is public.
+No email address leaves the database. `npm run check:tasks-rls` proves all of
+this, on the test database for an unmerged change (`npm run db:test`).
 
 ### Files attached to a task
 

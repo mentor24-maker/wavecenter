@@ -10,10 +10,10 @@ import { signOut } from "./auth/actions";
  * header never asks Supabase a second time. A signed-in member also gets a
  * menu: Home first (the dashboard, at `/`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
- * points are, their profile, Members (`/members`), and Teams (`/teams`), the groups
- * members work in. Every member gets Members; the page itself decides what
- * a non-admin may see there. An admin
- * also gets Admin (`/admin`); the page says `isAdmin`, from the same rule
+ * points are, their profile, Members (`/members`) and Teams (`/teams`, the
+ * Team Manager: the groups members work in). Every member gets Members and Teams; each page itself
+ * decides what the member's role may see and do there. An admin also gets
+ * Admin (`/admin`); the page says `isAdmin`, from the same rule
  * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
  * runs along the bottom of the bar, under the name and Sign out.
  * The bar's content is as wide as every page's main body, so the two line up.
