@@ -7,6 +7,28 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
+
+Logging in used to mean typing your email and waiting for a one-time link.
+Now WaveCenter works the standard way: a new visitor registers with an email
+and a password, confirms the address from the email they are sent, and from
+then on logs in with email and password. "Forgot your password?" emails a
+link to set a new one, and that is also how members who joined before
+passwords existed set their first. Every mistake (a wrong password, two
+passwords that do not match, an email already registered, an email that
+could not be sent) shows a plain message instead of failing quietly. The
+live Supabase project needs its "Confirm email" setting switched on for the
+confirm step to be required.
+
+## 2026-10-31 — Done tasks sit on a light grey row instead of being crossed out (#70)
+
+On the Tasks page, a finished task's title used to be crossed out and
+faded, which made it hard to read. Now the title stays plain and black, and
+the whole row sits on a light grey background, so done tasks still stand
+apart from open ones without being hard to read. On a device set to dark
+mode the row is a dark grey a shade lighter than the page, with the usual
+light text. Every colour on the grey was measured to stay easy to read.
+
 ## 2026-10-30 — Admins get an Admin menu item and a placeholder Admin page (#68)
 
 Admins needed a place for the powerful tools still to come. The top menu now
