@@ -102,6 +102,11 @@ export function mayManageMembers(role: RoleKey | null | undefined): boolean {
   return role === 'admin';
 }
 
+/** Only an admin opens the Admin area: the header's Admin link and the `/admin` page share this rule. */
+export function mayOpenAdmin(role: RoleKey | null | undefined): boolean {
+  return role === 'admin';
+}
+
 /** What core needs from storage for members' roles. */
 export interface MemberRoleStore {
   /** The member's recorded role, or null if none is recorded. */
