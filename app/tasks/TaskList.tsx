@@ -25,6 +25,10 @@
  * vote on its points and priority, and see the average and how many have
  * voted (core/votes.ts). Once a task has votes, the average is its points
  * and priority, so its owner's boxes give way to the average.
+ *
+ * A task added by anyone but an admin is Proposed (core/tasks.ts): it says
+ * so, cannot be ticked off or handed to AI agents, and waits for an admin,
+ * who sees an Approve button on it. Whoever added it is told so straight away.
  */
 import Link from "next/link";
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from "react";
@@ -34,6 +38,7 @@ import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
 import { summarizeVotes } from "../../core/votes.ts";
 import {
   addTask,
+  approve,
   changePoints,
   changePriority,
   chooseForAgents,
@@ -111,6 +116,9 @@ export interface AgentsSwitch {
 /** Where a failed save happened: "new" for the add box, "agents" for the switch, "all" for tick-all, or a task id. */
 type Failure = { at: string; message: string } | null;
 
+/** Said under the add form when the task just added waits for an admin. */
+export const PROPOSED_NOTICE = "Your task was added as Proposed. An admin needs to approve it before work starts.";
+
 /** The add form when empty: no details, no parent, Normal priority. */
 const EMPTY_DRAFT = { title: "", notes: "", parentTaskId: "", priority: "normal" as TaskPriority };
 
@@ -123,6 +131,7 @@ export default function TaskList({
   comments,
   votes,
   userId,
+  admin,
 }: {
   /** The page heading, drawn on one line with the switch. */
   heading: ReactNode;
@@ -134,6 +143,8 @@ export default function TaskList({
   votes: { votes: ListVote[]; error: string | null };
   /** The signed-in member, so the creator filter can say "You". */
   userId: string;
+  /** The signed-in member is an admin, so they see Approve on proposed tasks. */
+  admin: boolean;
   /** Every attached file, or why they could not be loaded. */
   files: { files: ListFile[]; error: string | null };
   /** Every Discussion comment, or why they could not be loaded. */
@@ -145,6 +156,7 @@ export default function TaskList({
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [sort, setSort] = useState<Sort>(null);
   const [filter, setFilter] = useState<Filter>(DEFAULT_FILTER);
+  const [justProposed, setJustProposed] = useState(false);
   // Done starts folded, so the page leads with the work still to do.
   const [doneOpen, setDoneOpen] = useState(false);
   /** The Add Task form starts folded shut, so the page leads with the list. */
@@ -186,9 +198,11 @@ export default function TaskList({
     // A parent deleted since it was picked shows as "Not a sub-task", so send that.
     const parentTaskId = topLevel.some((p) => p.id === draft.parentTaskId) ? draft.parentTaskId : null;
     const sent = { ...draft, parentTaskId };
+    setJustProposed(false);
     // Cleared only on a confirmed save; a failed one keeps every field as typed.
     const added = await run("new", async () => {
       const result = await addTask(sent);
+      if (result.ok && result.proposed) setJustProposed(true);
       if (!result.ok || !result.id || !draftFiles.length) return result;
       // The task exists now, so clear the form even if a file fails: adding again would make it twice.
       setDraft(EMPTY_DRAFT);
@@ -231,8 +245,8 @@ export default function TaskList({
   const votesByTask = new Map<string, ListVote[]>();
   for (const v of votes.votes) votesByTask.set(v.taskId, [...(votesByTask.get(v.taskId) ?? []), v]);
   const withAgents = ownOpen.filter((t) => t.agentTicketUrl).length;
-  // Tick-all covers the tasks still waiting; one already handed over stays with its ticket.
-  const tickable = ownOpen.filter((t) => !t.agentTicketUrl);
+  // Tick-all covers the tasks still waiting; one already handed over stays with its ticket, and a proposed one waits for approval.
+  const tickable = ownOpen.filter((t) => !t.agentTicketUrl && t.status !== "proposed");
   const allTicked = tickable.length > 0 && tickable.every((t) => t.agentSelected);
   const someTicked = tickable.some((t) => t.agentSelected);
   const filtering = isFiltering(filter);
@@ -265,6 +279,7 @@ export default function TaskList({
       comments={comments.error ? null : commentsByTask.get(t.id) ?? []}
       commentFiles={filesByComment}
       userId={userId}
+      admin={admin}
       place={agents.on ? placeInLine.get(t.id) : undefined}
       failure={failure?.at === t.id ? failure.message : null}
       pending={pending}
@@ -432,6 +447,7 @@ export default function TaskList({
             {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
           </div>
         )}
+        {justProposed && <p className="note proposed-notice" role="status">{PROPOSED_NOTICE}</p>}
       </form>
       {files.error && (
         <p className="error" role="alert">
@@ -623,6 +639,7 @@ function TaskRow({
   comments,
   commentFiles,
   userId,
+  admin,
   place,
   failure,
   pending,
@@ -654,6 +671,8 @@ function TaskRow({
   /** Every comment's files, by comment id. */
   commentFiles: Map<string, ListFile[]>;
   userId: string;
+  /** The signed-in member is an admin, so a proposed task shows Approve. */
+  admin: boolean;
   /** Its place in the agents' line, shown while agents are on. */
   place?: number;
   failure: string | null;
@@ -669,6 +688,7 @@ function TaskRow({
   const [votePoints, setVotePoints] = useState(myVote?.points == null ? "" : String(myVote.points));
   const attachBox = useRef<HTMLInputElement>(null);
   const done = task.status === "done";
+  const proposed = task.status === "proposed";
   const summary = summarizeVotes(votes);
   // Once members vote on a part, the average decides it and the owner's box gives way (core/votes.ts).
   const pointsByVote = summary.pointsVotes > 0;
@@ -718,7 +738,7 @@ function TaskRow({
   return (
     <li className={["task", done && "done", sub && "sub", context && "context"].filter(Boolean).join(" ")} role="row">
       <span className="cell" role="cell">
-        {mine && !done && !task.agentTicketUrl && (
+        {mine && !done && !proposed && !task.agentTicketUrl && (
           <input
             type="checkbox"
             className="ai"
@@ -747,6 +767,7 @@ function TaskRow({
       ) : (
         <span className="col-title" role="cell">
           <Link href={`/tasks/${task.id}`} className="title">{task.title}</Link>
+          {proposed && <span className="badge proposed" title="Waiting for an admin to approve it before work starts"> Proposed</span>}
           {place && <span className="badge"> AI #{place}</span>}
           {task.agentTicketUrl && (
             <span className="badge">
@@ -836,12 +857,26 @@ function TaskRow({
       </span>
       <span className="col-actions" role="cell">
         {/* Done sits here, away from the AI box at the left edge, so one is not ticked for the other. */}
-        <label className="done-box" title={mine ? undefined : `Only ${owner} can tick this off`}>
+        {admin && proposed && (
+          <button
+            type="button"
+            className="approve"
+            aria-label={`Approve "${task.title}"`}
+            disabled={pending}
+            onClick={() => run(() => approve(task.id))}
+          >
+            Approve
+          </button>
+        )}
+        <label
+          className="done-box"
+          title={proposed ? "Proposed: an admin approves it before it can be ticked off" : mine ? undefined : `Only ${owner} can tick this off`}
+        >
           <input
             type="checkbox"
             aria-label={done ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
             checked={done}
-            disabled={pending || !mine}
+            disabled={pending || !mine || proposed}
             onChange={() => run(() => markDone(task.id, !done))}
           />
           <span aria-hidden="true">Done</span>

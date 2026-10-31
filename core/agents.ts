@@ -55,7 +55,8 @@ type Orderable = Pick<Task, 'agentSelected' | 'priority' | 'createdAt'> & {
 /**
  * The ticked, unfinished tasks still waiting for agents, in the order agents
  * take them: urgent, high, normal, low, and within a priority the oldest
- * first. A task already handed to a ticket is no longer waiting.
+ * first. A task already handed to a ticket is no longer waiting, and a
+ * proposed one is not waiting yet: an admin has to approve it first.
  */
 export function agentOrder<T extends Orderable>(tasks: readonly T[]): T[] {
   const rank = (t: T) => {
@@ -63,7 +64,7 @@ export function agentOrder<T extends Orderable>(tasks: readonly T[]): T[] {
     return at === -1 ? TASK_PRIORITIES.length : at;
   };
   return tasks
-    .filter((t) => t.agentSelected && t.status !== 'done' && !t.agentTicketUrl)
+    .filter((t) => t.agentSelected && t.status !== 'done' && t.status !== 'proposed' && !t.agentTicketUrl)
     .sort((a, b) => rank(a) - rank(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
@@ -87,6 +88,9 @@ export async function handOffTask(store: TaskStore, id: string, ticketUrl: strin
   if (task.agentTicketUrl) throw new CoreError(`"${task.title}" was already handed to AI agents (${task.agentTicketUrl}).`);
   if (!task.agentSelected) throw new CoreError(`"${task.title}" is not ticked for AI agents, so it was not handed over.`);
   if (task.status === 'done') throw new CoreError(`"${task.title}" is already done, so it was not handed over.`);
+  if (task.status === 'proposed') {
+    throw new CoreError(`"${task.title}" is still proposed and waiting for an admin to approve it, so it was not handed over.`);
+  }
   const saved = await store.update(id, { status: 'doing', agentTicketUrl: url, tool: named }, { agentTicketUrl: null });
   if (!saved) throw new CoreError(`"${task.title}" was handed to AI agents by another pass first. Nothing was recorded.`);
   return saved;

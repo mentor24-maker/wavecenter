@@ -46,7 +46,7 @@ test('the migrations seed exactly the starting rules core knows', () => {
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
   const { ledger, tasks } = setup();
-  const task = await createTask(tasks, { title: 'Game test' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'Game test' }, 'wavecenter', 'admin');
   assert.deepEqual(kinds(ledger), ['made_task']);
   await updateTask(tasks, task.id, { title: 'Game test, renamed' }, 'wavecenter');
   assert.deepEqual(kinds(ledger), ['made_task', 'changed_task']);
@@ -64,15 +64,15 @@ test('making, changing, finishing and deleting a task each record exactly one en
 
 test('changing a task\'s points is a change like any other', async () => {
   const { ledger, tasks } = setup();
-  const task = await createTask(tasks, { title: 'x' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'x' }, 'wavecenter', 'admin');
   await setPoints(tasks, task.id, 8, 'wavecenter');
   assert.deepEqual(kinds(ledger), ['made_task', 'changed_task']);
 });
 
 test('deleting a parent records one engagement, not one for each sub-task it lets go', async () => {
   const { ledger, tasks } = setup();
-  const parent = await createTask(tasks, { title: 'Plan' }, 'wavecenter');
-  await createTask(tasks, { title: 'Step', parentTaskId: parent.id }, 'wavecenter');
+  const parent = await createTask(tasks, { title: 'Plan' }, 'wavecenter', 'admin');
+  await createTask(tasks, { title: 'Step', parentTaskId: parent.id }, 'wavecenter', 'admin');
   ledger.rows.length = 0;
   await deleteTask(tasks, parent.id, 'wavecenter');
   assert.deepEqual(kinds(ledger), ['deleted_task']);
@@ -80,7 +80,7 @@ test('deleting a parent records one engagement, not one for each sub-task it let
 
 test('attaching and removing a file each record one engagement; deleting the task with its files records one', async () => {
   const { ledger, tasks, files } = setup();
-  const task = await createTask(tasks, { title: 'Add the logo' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'Add the logo' }, 'wavecenter', 'admin');
   const upload = (name: string) => {
     const path = filePath('dane', task.id, `r${files.objects.size + 1}`, name);
     files.objects.add(path);
@@ -95,7 +95,7 @@ test('attaching and removing a file each record one engagement; deleting the tas
 
 test('handing a task to agents is its own kind, credited to the member, naming the hand-off lane', async () => {
   const { ledger, tasks } = setup();
-  const task = await createTask(tasks, { title: 'Build it' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'Build it' }, 'wavecenter', 'admin');
   await updateTask(tasks, task.id, { agentSelected: true }, 'wavecenter');
   await handOffTask(tasks, task.id, 'https://app.clickup.com/t/abc', 'loop-handoff');
   assert.deepEqual(kinds(ledger), ['made_task', 'changed_task', 'handed_to_agents']);
@@ -122,9 +122,9 @@ test('flipping the AI agents switch records one engagement each time', async () 
 
 test('if the engagement cannot be written, the change is not saved either, and says so', async () => {
   const { ledger, tasks, files } = setup();
-  const task = await createTask(tasks, { title: 'Keep me' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'Keep me' }, 'wavecenter', 'admin');
   ledger.failInsert = true;
-  await assert.rejects(createTask(tasks, { title: 'Never saved' }, 'wavecenter'), /ledger is down/);
+  await assert.rejects(createTask(tasks, { title: 'Never saved' }, 'wavecenter', 'admin'), /ledger is down/);
   assert.equal(tasks.rows.size, 1);
   await assert.rejects(updateTask(tasks, task.id, { status: 'done' }, 'wavecenter'), /ledger is down/);
   assert.equal(tasks.rows.get(task.id)?.status, 'todo');
@@ -162,9 +162,9 @@ test('a member\'s ledger holds only their own engagements, newest first, with th
   const ledger = new MemoryEngagementStore();
   const dane = new MemoryTaskStore('dane', ledger);
   const other = new MemoryTaskStore('someone-else', ledger);
-  const t = await createTask(dane, { title: 'a' }, 'wavecenter');
+  const t = await createTask(dane, { title: 'a' }, 'wavecenter', 'admin');
   await updateTask(dane, t.id, { status: 'done' }, 'wavecenter');
-  await createTask(other, { title: 'b' }, 'wavecenter');
+  await createTask(other, { title: 'b' }, 'wavecenter', 'admin');
   const mine = ledger.ledgerFor('dane');
   assert.deepEqual((await mine.latest(10)).map((e) => e.kind), ['finished_task', 'made_task']);
   assert.equal(await mine.total(), 6);

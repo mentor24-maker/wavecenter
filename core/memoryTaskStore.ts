@@ -70,6 +70,10 @@ export class MemoryTaskStore implements TaskStore {
     return { ...updated };
   }
 
+  async approve(id: string, tool: string): Promise<Task | null> {
+    return this.update(id, { status: 'todo', tool }, { status: 'proposed' });
+  }
+
   async remove(id: string, tool: string): Promise<boolean> {
     const task = this.rows.get(id);
     if (!task) return false;

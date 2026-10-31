@@ -67,11 +67,12 @@ export function sortTasks<T extends ViewTask>(tasks: T[], sort: Sort): T[] {
     .map(({ t }) => t);
 }
 
-export const STATUS_FILTERS = ["all", "open", "done", "ticked", "with-agents"] as const;
+export const STATUS_FILTERS = ["all", "open", "proposed", "done", "ticked", "with-agents"] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 export const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
   all: "Any status",
   open: "Open",
+  proposed: "Proposed",
   done: "Done",
   ticked: "Ticked for AI agents",
   "with-agents": "With AI agents",
@@ -125,6 +126,8 @@ function statusMatches(t: ViewTask, status: StatusFilter): boolean {
       return true;
     case "open":
       return !done;
+    case "proposed":
+      return t.status === "proposed";
     case "done":
       return done;
     case "ticked":

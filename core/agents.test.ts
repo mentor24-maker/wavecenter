@@ -28,12 +28,13 @@ test('agentOrder takes the oldest first within a priority', () => {
   assert.deepEqual(order.map((t: { id: string }) => t.id), ['older', 'middle', 'newer']);
 });
 
-test('agentOrder leaves out unticked and done tasks', () => {
+test('agentOrder leaves out unticked, done, handed-over and proposed tasks', () => {
   const order = agentOrder([
     task('ticked', 'normal', '2026-10-01T00:00:00Z'),
     task('unticked', 'urgent', '2026-10-01T00:00:00Z', { agentSelected: false }),
     task('done', 'urgent', '2026-10-01T00:00:00Z', { status: 'done' }),
     task('handed', 'urgent', '2026-10-01T00:00:00Z', { agentTicketUrl: 'https://app.clickup.com/t/x' }),
+    task('proposed', 'urgent', '2026-10-01T00:00:00Z', { status: 'proposed' }),
   ]);
   assert.deepEqual(order.map((t: { id: string }) => t.id), ['ticked']);
 });
@@ -60,7 +61,7 @@ test('setAgentsOn refuses a missing tool, and says so when the save does not lan
 
 test('a task starts normal priority and unticked; priority and the tick change through updateTask', async () => {
   const store = new MemoryTaskStore();
-  const made = await createTask(store, { title: 'Logo' }, 'wavecenter');
+  const made = await createTask(store, { title: 'Logo' }, 'wavecenter', 'admin');
   assert.equal(made.priority, 'normal');
   assert.equal(made.agentSelected, false);
   const changed = await updateTask(store, made.id, { priority: 'high', agentSelected: true }, 'wavecenter');
@@ -71,7 +72,7 @@ test('a task starts normal priority and unticked; priority and the tick change t
 
 test('a done task cannot be ticked for agents, and finishing a task unticks it', async () => {
   const store = new MemoryTaskStore();
-  const made = await createTask(store, { title: 'Logo' }, 'wavecenter');
+  const made = await createTask(store, { title: 'Logo' }, 'wavecenter', 'admin');
   await updateTask(store, made.id, { agentSelected: true }, 'wavecenter');
   const done = await updateTask(store, made.id, { status: 'done' }, 'wavecenter');
   assert.equal(done.agentSelected, false);
@@ -81,7 +82,7 @@ test('a done task cannot be ticked for agents, and finishing a task unticks it',
 const TICKET = 'https://app.clickup.com/t/abc123';
 
 async function tickedTask(store: MemoryTaskStore, title = 'Logo') {
-  const made = await createTask(store, { title }, 'wavecenter');
+  const made = await createTask(store, { title }, 'wavecenter', 'admin');
   return updateTask(store, made.id, { agentSelected: true }, 'wavecenter');
 }
 
@@ -114,7 +115,7 @@ test('a task is never handed off twice, even when two passes race', async () => 
 
 test('handOffTask refuses unticked, done or unknown tasks, a bad link and a missing tool, changing nothing', async () => {
   const store = new MemoryTaskStore();
-  const plain = await createTask(store, { title: 'Not ticked' }, 'wavecenter');
+  const plain = await createTask(store, { title: 'Not ticked' }, 'wavecenter', 'admin');
   await assert.rejects(handOffTask(store, plain.id, TICKET, 'loop-handoff'), /not ticked/);
   await assert.rejects(handOffTask(store, 'nope', TICKET, 'loop-handoff'), /No task/);
   const t = await tickedTask(store);
@@ -163,4 +164,13 @@ test('reopening a done task forgets its old ticket, so ticking it again hands it
   await completeHandOff(store, t.id, TICKET, 'loop-handoff');
   const reopened = await updateTask(store, t.id, { status: 'todo' }, 'wavecenter');
   assert.equal(reopened.agentTicketUrl, null);
+});
+
+test('handOffTask refuses a proposed task, even one ticked by a client that went around core', async () => {
+  const store = new MemoryTaskStore();
+  const made = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
+  store.rows.get(made.id)!.agentSelected = true;
+  await assert.rejects(handOffTask(store, made.id, 'https://app.clickup.com/t/abc', 'loop-handoff'), /still proposed/);
+  assert.equal((await store.get(made.id))?.agentTicketUrl, null);
+  assert.equal((await store.get(made.id))?.status, 'proposed');
 });

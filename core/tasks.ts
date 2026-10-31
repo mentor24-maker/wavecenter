@@ -18,9 +18,20 @@
  */
 import { CoreError, requireTool } from './tool.ts';
 import { requirePointsValue } from './points.ts';
+import { DEFAULT_ROLE, type RoleKey } from './members.ts';
 
-export const TASK_STATUSES = ['todo', 'doing', 'done'] as const;
+/**
+ * `proposed` is where a task added by a member who is not an admin starts:
+ * it waits for an admin to approve it (`approveTask`), which makes it `todo`.
+ * Until then its status cannot change and it cannot go to AI agents.
+ */
+export const TASK_STATUSES = ['proposed', 'todo', 'doing', 'done'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** Only an admin approves a proposed task. */
+export function mayApproveTasks(role: RoleKey | null | undefined): boolean {
+  return role === 'admin';
+}
 
 /** Most urgent first. The same four values as ClickUp, so they map one to one. */
 export const TASK_PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const;
@@ -102,6 +113,12 @@ export interface TaskStore {
    * top-level. Returns false if there is no such task the caller may delete.
    */
   remove(id: string, tool: string): Promise<boolean>;
+  /**
+   * Move one proposed task, anyone's, to todo on behalf of `tool`. Returns
+   * null if there is no such task still proposed. The database lets only an
+   * admin do this (`approve_task`), repeating core's rule.
+   */
+  approve(id: string, tool: string): Promise<Task | null>;
 }
 
 export interface NewTask {
@@ -173,13 +190,28 @@ async function requireParent(store: TaskStore, parentTaskId: string, childId?: s
   return parentTaskId;
 }
 
-/** Create a task on behalf of `tool`. */
-export async function createTask(store: TaskStore, input: NewTask, tool: string): Promise<Task> {
+/**
+ * Create a task on behalf of `tool`, for a member whose role is
+ * `creatorRole`. An admin's task starts as todo; anyone else's starts as
+ * proposed and waits for an admin to approve it. A creator whose role is not
+ * given is treated as a member with no role recorded: a contributor.
+ */
+export async function createTask(
+  store: TaskStore,
+  input: NewTask,
+  tool: string,
+  creatorRole: RoleKey = DEFAULT_ROLE,
+): Promise<Task> {
+  const admin = mayApproveTasks(creatorRole);
+  const status = requireStatus(input.status ?? (admin ? 'todo' : 'proposed'));
+  if (!admin && status !== 'proposed') {
+    throw new CoreError('Only an admin can add a task that skips approval. Your task is added as Proposed.');
+  }
   const row: NewTaskRow = {
     tool: requireTool(tool),
     title: requireTitle(input.title),
     notes: input.notes ?? null,
-    status: requireStatus(input.status ?? 'todo'),
+    status,
     parentTaskId: input.parentTaskId ? await requireParent(store, input.parentTaskId) : null,
     points: requirePointsValue(input.points ?? 0),
     position: requirePosition(input.position ?? 0),
@@ -203,7 +235,16 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
   const row: TaskRowChanges = { tool: named };
   if (changes.title !== undefined) row.title = requireTitle(changes.title);
   if (changes.notes !== undefined) row.notes = changes.notes;
-  if (changes.status !== undefined) row.status = requireStatus(changes.status);
+  // A proposed task keeps that status until an admin approves it, and no task goes back to it.
+  let now: Task | null | undefined;
+  const current = async () => (now === undefined ? (now = await store.get(id)) : now);
+  if (changes.status !== undefined) {
+    row.status = requireStatus(changes.status);
+    if (row.status === 'proposed') throw new CoreError('A task is Proposed only when it is added; it cannot be moved back to Proposed.');
+    if ((await current())?.status === 'proposed') {
+      throw new CoreError('This task is still Proposed. An admin needs to approve it before its status can change.');
+    }
+  }
   if (changes.parentTaskId !== undefined) {
     row.parentTaskId = changes.parentTaskId ? await requireParent(store, changes.parentTaskId, id) : null;
   }
@@ -211,8 +252,10 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
   if (changes.priority !== undefined) row.priority = requirePriority(changes.priority);
   if (changes.agentSelected !== undefined) {
     if (typeof changes.agentSelected !== 'boolean') throw new CoreError('Ticking a task for AI agents is yes or no.');
-    if (changes.agentSelected && (row.status ?? (await store.get(id))?.status) === 'done') {
-      throw new CoreError('A done task cannot be handed to AI agents. Reopen it first.');
+    const status = changes.agentSelected ? row.status ?? (await current())?.status : undefined;
+    if (status === 'done') throw new CoreError('A done task cannot be handed to AI agents. Reopen it first.');
+    if (status === 'proposed') {
+      throw new CoreError('A proposed task cannot be handed to AI agents until an admin approves it.');
     }
     row.agentSelected = changes.agentSelected;
   }
@@ -224,6 +267,20 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
   const updated = await store.update(id, row);
   if (!updated) throw new CoreError(`No task ${id} was found that you may change.`);
   return updated;
+}
+
+/**
+ * An admin approves a proposed task on behalf of `tool`: it becomes todo, and
+ * work on it can start. `approverRole` is the role of the member asking;
+ * anyone but an admin is refused and nothing changes.
+ */
+export async function approveTask(store: TaskStore, id: string, approverRole: RoleKey, tool: string): Promise<Task> {
+  const named = requireTool(tool);
+  if (!mayApproveTasks(approverRole)) throw new CoreError('Only an admin can approve a proposed task. Nothing was changed.');
+  const approved = await store.approve(id, named);
+  if (!approved) throw new CoreError('This task is no longer proposed. It may already be approved, or it was deleted. Nothing was changed.');
+  if (approved.status !== 'todo') throw new CoreError('The approval did not save. Nothing changed; try again.');
+  return approved;
 }
 
 /**
