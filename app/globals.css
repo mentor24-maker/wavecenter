@@ -31,12 +31,26 @@
  *   --accent 10.8 /  9.3 /  7.7 /  6.3
  *   --error   9.0 /  7.7 /  6.5 /  5.2   (7.8 on --error-bg)
  *   --line    6.0 /  5.1 /  4.3 /  3.5   (the gold hairline)
+ *
+ * The Add Task box alone (Dane, 2026-10-30: "a darker shade of blue") sits
+ * on --add-bg, a deeper blue than --level-3. In light mode the usual
+ * --accent and gold hairline would fall below their marks there, so the
+ * box carries a darker --accent (#004d68) and --line (#7d5c10) of its own.
+ * Measured contrast on --add-bg (light #8ccfeb / dark #0e3a56):
+ *   --fg     9.2 / 10.7
+ *   --muted  5.0 /  6.9
+ *   --accent 5.4 /  7.4
+ *   --error  4.8 /  6.1
+ *   --line   3.6 /  4.1   (the gold hairline)
  */
 :root {
   --level-0: #f2fbfe;
   --level-1: #ddf3fb;
   --level-2: #c4ebf7;
   --level-3: #aae1f2;
+  --add-bg: #8ccfeb;
+  --add-accent: #004d68;
+  --add-line: #7d5c10;
   --bg: var(--level-0);
   --surface: var(--level-0);
   --field: #ffffff;
@@ -58,6 +72,9 @@
     --level-1: #0b2a34;
     --level-2: #113844;
     --level-3: #184755;
+    --add-bg: #0e3a56;
+    --add-accent: var(--accent);
+    --add-line: var(--line);
     --field: #03131a;
     --fg: #e4f6f9;
     --muted: #a6cbd3;
@@ -113,7 +130,7 @@ html, body {
   }
 }
 .site-inner {
-  max-width: 90rem; margin: 0 auto; padding: 1.05rem var(--space); min-height: 5.625rem;
+  max-width: 90rem; margin: 0 auto; padding: 0.6rem var(--space); min-height: 5.625rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
@@ -122,15 +139,22 @@ html, body {
 }
 .brand b { color: #fff; font-weight: 700; }
 .mark { width: 3.375rem; height: 3.375rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
-.who { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
-.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; line-height: 1.25; }
+/* Signed in, the right side fills the bar's height: the name and Sign out at
+   the top in small text, the menu along the bottom. */
+.who { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between;
+  align-items: flex-end; gap: 0.35rem; min-width: 0; }
+.who .menu { display: flex; align-items: center; gap: 0.85rem; }
+.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; max-width: 100%; line-height: 1.25; }
 /* The member's name sits directly above Sign out. */
-.who .name { color: #fff; font-size: 0.9rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .name { color: #fff; font-size: 0.8rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .account button.quiet { font-size: 0.8rem; }
 /* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
+/* A browser drops the bar's shadow on buttons; Sign out needs it on the picture too. */
+.site button.quiet { text-shadow: inherit; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
 /* Bold is wider: on a phone, tighter gaps keep Sign out on screen. */
-@media (max-width: 30rem) { .site-inner, .who { gap: 0.5rem; } }
+@media (max-width: 30rem) { .site-inner, .who .menu { gap: 0.5rem; } }
 
 /* Every page has the same 1440px main body, and the header bar above lines up with it. */
 main {
@@ -222,9 +246,15 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 
 /* The to-do list. Wraps cleanly down to a phone-width screen. */
 /* The add form: title on one line, details below, then parent and priority. */
-/* The Add Task box: the darkest step of the ladder (in dark mode, the most
-   raised), so it stands out from the AI agents and filter boxes beside it. */
-.add { display: flex; flex-direction: column; gap: 0.5rem; margin: var(--space) 0 0.5rem; }
+/* The Add Task box: a deeper blue than any step of the ladder, so it stands
+   out from the AI agents and filter boxes beside it. It folds shut behind its
+   heading, so the page leads with the task list. */
+.add {
+  display: flex; flex-direction: column; gap: 0.5rem; margin: var(--space) 0 0.5rem;
+  --surface: var(--add-bg); --accent: var(--add-accent); --line: var(--add-line);
+}
+.add h2 { margin: 0; }
+.add-fields { display: flex; flex-direction: column; gap: 0.5rem; }
 .add .line { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .add .line input { flex: 1; min-width: 0; }
 .add select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
@@ -317,12 +347,12 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 
 @media (max-width: 30rem) {
   main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
-  .site-inner { padding: 0.9rem 0.75rem; }
+  .site-inner { padding: 0.6rem 0.75rem; }
   h1 { font-size: 1.5rem; }
   .tasks { padding: 0 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
-  /* Four menu items leave no room for the name on a phone: the logo alone
+  /* Five menu items leave no room for the name on a phone: the logo alone
      still leads home, and its link keeps the "WaveCenter home" label. */
   .brand span { display: none; }
   .who .account { max-width: 9rem; }
