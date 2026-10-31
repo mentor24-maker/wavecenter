@@ -19,7 +19,7 @@
  * and the supabase CLI.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -139,6 +139,36 @@ export function isLocalUrl(url) {
   } catch {
     return false;
   }
+}
+
+/**
+ * The test database is shared by every folder on the machine (db:test and
+ * the Evolution screenshots both rebuild it), so one user at a time holds
+ * this lock: a folder made atomically, older than 30 minutes counts as left
+ * behind.
+ */
+export const TEST_DB_LOCK = join(tmpdir(), 'wavecenter-db-test.lock');
+const LOCK_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * Take the test-database lock. Returns { ok: true, tookOverMinutes } (null
+ * when the lock was free) or { ok: false } when another run holds it.
+ */
+export function takeTestDbLock({ lock = TEST_DB_LOCK, now = Date.now() } = {}) {
+  try {
+    mkdirSync(lock);
+    return { ok: true, tookOverMinutes: null };
+  } catch {
+    let age = 0;
+    try { age = now - statSync(lock).mtimeMs; } catch { /* gone already */ }
+    if (age < LOCK_STALE_MS) return { ok: false };
+    return { ok: true, tookOverMinutes: Math.round(age / 60000) };
+  }
+}
+
+/** Give the test-database lock back. */
+export function releaseTestDbLock({ lock = TEST_DB_LOCK } = {}) {
+  rmSync(lock, { recursive: true, force: true });
 }
 
 /** The "Database:" paragraph of the merge note. */

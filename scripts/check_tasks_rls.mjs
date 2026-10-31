@@ -16,7 +16,9 @@
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); and that the game layer
  * scores every change while letting each member read only their own
- * engagements and nobody write them (`public.engagements`).
+ * engagements and nobody write them (`public.engagements`); and that every
+ * member reads the Evolution rows and screenshots but only the service key
+ * writes them (`public.evolution_entries` and the private `evolution` bucket).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -285,6 +287,11 @@ function teamStore(member) {
 }
 
 const storedPaths = [];
+const EVO_BUCKET = 'evolution';
+const evoSha = randomBytes(20).toString('hex');
+const evoPath = `check-tasks-rls-${evoSha}.png`;
+// A 1x1 transparent PNG.
+const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const teamIds = [];
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
@@ -655,6 +662,34 @@ try {
   const doomedLeft = Array.isArray(doomedFolder.json) ? doomedFolder.json.map((o) => o.name) : doomedFolder.json;
   check('deleting a task deletes its comments’ stored files', Array.isArray(doomedLeft) && doomedLeft.length === 0, `left in the folder ${JSON.stringify(doomedLeft)}`);
 
+  // evolution_entries and the evolution bucket: every member reads the
+  // Evolution screenshots and their rows; only the script, with the service
+  // key, writes them.
+  const evoRow = { commit_sha: evoSha, merged_at: new Date().toISOString(), title: 'check_tasks_rls test entry', page: '/', screenshot_path: evoPath, capture_state: 'captured' };
+  const evoPut = await fetch(`${URL_}/storage/v1/object/${EVO_BUCKET}/${evoPath}`, { method: 'POST', headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, 'Content-Type': 'image/png' }, body: TINY_PNG });
+  const evoIns = await admin('/rest/v1/evolution_entries', { method: 'POST', prefer: 'return=representation', body: evoRow });
+  check('the script (service key) can store a screenshot and its row', evoPut.status < 300 && evoIns.status < 300, `storage HTTP ${evoPut.status}, row HTTP ${evoIns.status} ${JSON.stringify(evoIns.json)}`);
+  const evoRead = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}&select=title`, { token: b.token });
+  check('a member can read the Evolution rows', evoRead.status === 200 && evoRead.json?.length === 1, `HTTP ${evoRead.status} ${JSON.stringify(evoRead.json)}`);
+  const evoAnon = await call(`/rest/v1/evolution_entries?select=commit_sha`);
+  check('a signed-out visitor sees no Evolution rows', evoAnon.status >= 400 || (Array.isArray(evoAnon.json) && evoAnon.json.length === 0), `HTTP ${evoAnon.status}`);
+  const evoForge = await call('/rest/v1/evolution_entries', { method: 'POST', token: a.token, body: { ...evoRow, commit_sha: randomBytes(20).toString('hex') } });
+  const evoEdit = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { title: 'changed' } });
+  const evoWipe = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('a member cannot add, change or delete an Evolution row', evoForge.status >= 400 && (evoEdit.status >= 400 || evoEdit.json?.length === 0) && (evoWipe.status >= 400 || evoWipe.json?.length === 0),
+    `add HTTP ${evoForge.status}, change HTTP ${evoEdit.status} ${JSON.stringify(evoEdit.json)}, delete HTTP ${evoWipe.status} ${JSON.stringify(evoWipe.json)}`);
+  const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });
+  check('a member can read a stored screenshot', evoObj.status === 200, `HTTP ${evoObj.status}`);
+  const evoPublic = await call(`/storage/v1/object/public/${EVO_BUCKET}/${evoPath}`);
+  const evoAnonObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`);
+  check('the evolution bucket is private: a signed-out request for a screenshot is refused', evoPublic.status >= 400 && evoAnonObj.status >= 400, `public HTTP ${evoPublic.status}, signed-out HTTP ${evoAnonObj.status}`);
+  const evoSign = await call(`/storage/v1/object/upload/sign/${EVO_BUCKET}/${a.id}-forged.png`, { method: 'POST', token: a.token, body: {} });
+  const evoUp = await fetch(`${URL_}/storage/v1/object/${EVO_BUCKET}/${a.id}-forged.png`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${a.token}`, 'Content-Type': 'image/png' }, body: TINY_PNG });
+  const evoDel = await call(`/storage/v1/object/${EVO_BUCKET}`, { method: 'DELETE', token: a.token, body: { prefixes: [evoPath] } });
+  const evoStill = await admin(`/storage/v1/object/list/${EVO_BUCKET}`, { method: 'POST', body: { prefix: '', search: evoPath } });
+  check('a member cannot upload or delete a screenshot', evoSign.status >= 400 && evoUp.status >= 400 && Array.isArray(evoStill.json) && evoStill.json.some((o) => o.name === evoPath),
+    `sign HTTP ${evoSign.status}, upload HTTP ${evoUp.status}, delete HTTP ${evoDel.status}, still stored ${JSON.stringify(evoStill.json?.map?.((o) => o.name))}`);
+
   // The game layer: every change above was scored by the database, each
   // member sees only their own engagements, and nobody can write the ledger.
   const parent = await createTask(a.store, { title: 'A’s plan' }, TOOL);
@@ -780,6 +815,12 @@ try {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
 } finally {
+  const evoGone = await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE' });
+  const evoObjGone = await admin(`/storage/v1/object/${EVO_BUCKET}`, { method: 'DELETE', body: { prefixes: [evoPath, `${users[0]}-forged.png`] } });
+  if (evoGone.status >= 300 || evoObjGone.status >= 300) {
+    failures += 1;
+    console.error(`could not delete the test Evolution entry ${evoSha}: row HTTP ${evoGone.status}, picture HTTP ${evoObjGone.status} — delete it by hand in the Supabase dashboard`);
+  }
   // Deleting a user does not delete a team they made, so clear the test teams.
   if (teamIds.length) {
     const cleared = await admin(`/rest/v1/teams?id=in.(${teamIds.join(',')})`, { method: 'DELETE' });

@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   migrationFiles, lastJson, pushList, missingOnRemote, scrub, cliError, isLocalUrl, databaseLine, applyMigrations, cliEnv,
+  takeTestDbLock, releaseTestDbLock,
 } from './migrations.mjs';
+import { mkdtempSync, utimesSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Real output shapes, copied from supabase CLI 2.115.0 on the test database (2026-10-29).
 const DRY_RUN = [
@@ -201,4 +205,16 @@ test('apply: no database address means no apply, said plainly', () => {
   const { run, ran } = fakeRun({});
   assert.match(applyMigrations({ repoDir: '.', commit: 'abc', dbUrl: '', run }).error, /DATABASE_URL is not set/);
   assert.deepEqual(ran, []);
+});
+
+test('the test-database lock lets one run in at a time, and takes over one left for 30 minutes', () => {
+  const lock = join(mkdtempSync(join(tmpdir(), 'lock-test-')), 'db.lock');
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: null });
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: false });
+  const old = (Date.now() - 31 * 60 * 1000) / 1000;
+  utimesSync(lock, old, old);
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: 31 });
+  releaseTestDbLock({ lock });
+  assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: null });
+  releaseTestDbLock({ lock });
 });

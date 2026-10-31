@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
+
+WaveCenter now has the camera and the photo album for its own history.
+The album is a new private table and picture store on the live database,
+which every signed-in member can look at and nobody can change from the
+browser. The camera is a script on the Mac Mini. For any past change it
+rebuilds that old version of WaveCenter, fills a private local copy of the
+database with the real tasks, members and points as they stood the moment
+that change went live, signs in as Dane, and takes a picture of the screen
+the change touched. Then it wipes the local copy, so real member data never
+lingers there. The old version never sees a live key, and live data is only
+ever read. After this merges, the camera runs once over every change since
+the first commit. Two follow-up tickets then add a picture on every merge
+and a page where members scroll through them.
+
 ## 2026-10-31 — Database changes can go live again when Dane writes merge (#78)
 
 Since 29 October, every pull request that changed the database was refused
