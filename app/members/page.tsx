@@ -24,7 +24,7 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * and below it which role may do what (core/members.ts). Any role with
  * "View members" sees the table; the buttons in its Actions column are the
  * ones the viewer's role may use (memberActions), which today means an admin
- * changing roles. Each member is shown only as their profile allows other
+ * changing roles and messaging members. Each member is shown only as their profile allows other
  * members to see them: their avatar, and their name if their profile is
  * public. A role that may not view members gets a plain message instead of an
  * empty table. Signed-out visitors are sent to sign in.
@@ -88,6 +88,7 @@ export default async function Members() {
         <p className="lede">
           Everyone in WaveCenter and their role.{" "}
           {actions.includes("change-role") ? "A role change saves as soon as you pick it." : "Only an admin can change a role."}
+          {actions.includes("message") && " The envelope writes to a member: the message is saved in WaveCenter and emailed to them."}
         </p>
         <p className="note">
           Task permissions are recorded but do not change what anyone may do on tasks yet: every member still reads

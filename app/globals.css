@@ -529,6 +529,23 @@ ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }
 
+/* The Members page's Actions column: the role picker and the Message envelope side by side. */
+td.member-actions { white-space: nowrap; }
+td.member-actions > * { vertical-align: middle; }
+td.member-actions .block { white-space: normal; }
+
+/* The Message form, a dialog over the Members page. */
+dialog.message-form {
+  --surface: var(--level-1);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1rem 1.25rem; width: min(32rem, calc(100vw - 2rem)); white-space: normal; text-align: left;
+}
+dialog.message-form::backdrop { background: rgb(0 0 0 / 0.45); }
+dialog.message-form h2 { margin-top: 0; }
+dialog.message-form label { display: block; margin-bottom: 0.75rem; font-weight: 600; }
+dialog.message-form input, dialog.message-form textarea { display: block; width: 100%; margin-top: 0.25rem; font-weight: 400; }
+dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
+
 /* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
    the whole screen, the logo top left, the introduction left-middle and the
    log-in form on the right. The picture is darkened behind the white

@@ -9,7 +9,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = '.next/static';
-const FORBIDDEN = ['SERVICE_ROLE', 'service_role', 'DATABASE_URL', 'CLICKUP_API_TOKEN'];
+const FORBIDDEN = ['SERVICE_ROLE', 'service_role', 'DATABASE_URL', 'CLICKUP_API_TOKEN', 'RESEND_API_KEY'];
 
 if (!existsSync(ROOT)) {
   console.error(`check:browser-secrets: ${ROOT} does not exist — run \`npm run build\` first. That is a failure, not a pass.`);
