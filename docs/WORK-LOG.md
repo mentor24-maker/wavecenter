@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — A Team Manager page: group members into teams (#73)
+
+Dane can now group members into teams. A new **Teams** page (in the header
+menu) lists every team with its name, a short web-address name called a
+slug, a description and how many members it has; clicking a team shows who
+is on it. Admins and editors, the choice Dane made on the ticket, can make,
+change and delete teams and add or take members off them; everyone else can
+look but sees no buttons. Members on a team are shown exactly as their own
+privacy setting allows: a private member appears only as "Anonymous member",
+and no email address ever shows. Deleting a team never deletes anyone's
+account. The two new database tables were locked down from the moment they
+were made, and sixteen new automatic checks prove a member without
+permission cannot change them.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
