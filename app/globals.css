@@ -148,6 +148,8 @@ html, body {
 /* The member's name sits directly above Sign out. */
 .who .name { color: #fff; font-size: 0.8rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who .account button.quiet { font-size: 0.8rem; }
+/* Signed out, the two ways in sit side by side. */
+.way-in { display: flex; align-items: center; gap: 0.85rem; }
 /* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
 /* A browser drops the bar's shadow on buttons; Sign out needs it on the picture too. */

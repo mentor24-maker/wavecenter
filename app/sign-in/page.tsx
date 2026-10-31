@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { sendMagicLink } from "../auth/actions";
+import { signIn } from "../auth/actions";
 import SiteHeader from "../SiteHeader";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../lib/supabase";
 
@@ -8,15 +8,17 @@ import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings
 // address bar is ever echoed onto the page.
 const ERRORS: Record<string, string> = {
   email: "That does not look like an email address. Check it and try again.",
-  send: "The log-in email could not be sent. Try again in a minute; if it keeps failing, the email service needs a look.",
-  rate: "Too many log-in emails were sent in a short time. Wait a few minutes, then try again.",
-  expired: "That log-in link has expired or was already used. Enter your email to get a fresh one.",
-  link: "That log-in link did not work. Links only work in the browser that asked for them, so request a new one here and open it in this browser.",
+  mismatch: "That email and password do not match. Check them and try again, or reset your password below.",
+  unconfirmed: "You have not confirmed your email address yet. Open the link in the email we sent when you registered, then log in.",
+  rate: "Too many log-in attempts in a short time. Wait a few minutes, then try again.",
+  failed: "Logging in did not work just now. Try again in a minute; if it keeps failing, the log-in service needs a look.",
+  expired: "That email link has expired or was already used. Log in below, or ask for a new link with \"Forgot your password?\".",
+  link: "That email link did not work. Links only work in the browser you registered or asked for the reset in. If you were confirming your email, it is confirmed: log in below.",
   setup: "Logging in is not switched on for this copy of WaveCenter yet: its Supabase settings are missing.",
 };
 
 export default async function SignIn({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const { sent, error } = await searchParams;
+  const { error } = await searchParams;
 
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
@@ -29,11 +31,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
       <SiteHeader showSignIn={false} />
       <main>
         <h1>Log in</h1>
-        {sent ? (
-          <p className="lede">Check your email. We sent you a log-in link; open it in this browser.</p>
-        ) : (
-          <p className="lede">Enter your email and we will send you a link that logs you in. No password.</p>
-        )}
+        <p className="lede">Log in with your email and password.</p>
         {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
         {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
         {missing.length > 0 ? (
@@ -41,12 +39,21 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
             {ERRORS.setup} Missing: {missing.join(", ")}.
           </p>
         ) : (
-          <form action={sendMagicLink} className="stack panel">
+          <form action={signIn} className="stack panel">
             <label htmlFor="email">Email</label>
             <input id="email" name="email" type="email" autoComplete="email" required />
-            <button type="submit">{sent ? "Send another link" : "Email me a log-in link"}</button>
+            <label htmlFor="password">Password</label>
+            <input id="password" name="password" type="password" autoComplete="current-password" required />
+            <button type="submit">Log in</button>
           </form>
         )}
+        <p className="note">
+          <Link href="/forgot-password">Forgot your password?</Link> Members who joined before passwords
+          existed set their first one there.
+        </p>
+        <p className="note">
+          No account yet? <Link href="/register">Register</Link>
+        </p>
         <p className="note">
           <Link href="/">Back to WaveCenter</Link>
         </p>

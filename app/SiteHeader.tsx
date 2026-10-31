@@ -5,8 +5,8 @@ import { signOut } from "./auth/actions";
  * The bar across the top of every page, over Dane's water-drop picture: the
  * gold-and-aqua rings and the WaveCenter name, which always
  * leads home, and on the right either who is signed in (the name on their
- * profile, or their email until they set one) with Sign out beneath it, or a
- * way in. The page passes what it already knows about the visitor, so the
+ * profile, or their email until they set one) with Sign out beneath it, or
+ * the two ways in: Log in and Register. The page passes what it already knows about the visitor, so the
  * header never asks Supabase a second time. A signed-in member also gets a
  * menu: Home first (the dashboard, at `/`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
@@ -49,7 +49,12 @@ export default function SiteHeader({
             </nav>
           </div>
         ) : (
-          showSignIn && <Link href="/sign-in" className="quiet">Log in</Link>
+          showSignIn && (
+            <nav className="way-in" aria-label="Log in or register">
+              <Link href="/sign-in" className="quiet">Log in</Link>
+              <Link href="/register" className="quiet">Register</Link>
+            </nav>
+          )
         )}
       </div>
     </header>
