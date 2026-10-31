@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — The top banner is taller, with a bigger logo and name (#77)
+
+Dane asked for the bar across the top of every page to stand out more. It
+is now 150px tall instead of 90px, and the gold-and-aqua rings and the
+"WaveCenter" name grew by the same amount, so the header reads bigger and
+bolder while the menu and Sign out stay the size they were. On a phone the
+bar is just as tall, but the rings stay a little smaller there so they do
+not bump into the menu.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task

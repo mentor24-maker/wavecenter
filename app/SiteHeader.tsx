@@ -27,7 +27,7 @@ export default function SiteHeader({
       <div className="site-inner">
         <Link href="/" className="brand" aria-label="WaveCenter home">
           {/* Dane's gold-and-aqua rings (public/brand/mark.png); the picture behind the bar is set in globals.css. */}
-          <img className="mark" src="/brand/mark.png" alt="" width={54} height={54} />
+          <img className="mark" src="/brand/mark.png" alt="" width={90} height={90} />
           <span>
             Wave<b>Center</b>
           </span>

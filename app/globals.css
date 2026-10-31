@@ -130,15 +130,15 @@ html, body {
   }
 }
 .site-inner {
-  max-width: 90rem; margin: 0 auto; padding: 0.6rem var(--space); min-height: 5.625rem;
+  max-width: 90rem; margin: 0 auto; padding: 0.75rem var(--space); min-height: 9.375rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
-  display: inline-flex; align-items: center; gap: 0.8rem;
-  color: #fff; text-decoration: none; font-size: 1.95rem; letter-spacing: -0.01em;
+  display: inline-flex; align-items: center; gap: 1.33rem;
+  color: #fff; text-decoration: none; font-size: 3.25rem; letter-spacing: -0.01em;
 }
 .brand b { color: #fff; font-weight: 700; }
-.mark { width: 3.375rem; height: 3.375rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
+.mark { width: 5.625rem; height: 5.625rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
 /* Signed in, the right side fills the bar's height: the name and Sign out at
    the top in small text, the menu along the bottom. */
 .who { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between;
@@ -355,6 +355,8 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   /* Five menu items leave no room for the name on a phone: the logo alone
      still leads home, and its link keeps the "WaveCenter home" label. */
   .brand span { display: none; }
+  /* The 90px rings would run into the menu; the bar stays 150px tall. */
+  .mark { width: 4rem; height: 4rem; }
   .who .account { max-width: 9rem; }
 }
 
