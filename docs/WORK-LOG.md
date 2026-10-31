@@ -22,6 +22,18 @@ Closing the form while it is still sending is refused, so the same message
 cannot be sent twice by accident, and a subject that is only blank lines is
 refused by the database as well as by the form.
 
+## 2026-10-31 — The home page becomes a landing page with the log-in form on it (#75)
+
+Visitors who were not logged in used to see a plain placeholder page with
+"Log in" and "Register" buttons that took them somewhere else. Now the home
+page is a proper front door: Dane's water-drop picture fills the screen, the
+logo sits top left, the introduction to WaveCenter is on the left, and the
+box to log in with email and password is right there on the right, with the
+"Forgot your password?" and "Register" links under it. A wrong password or
+a mistyped email is explained on the home page itself. The home page and the
+separate log-in page now share one form, so their wording can never drift
+apart. On a phone, the introduction sits above the form.
+
 ## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
 
 Logging in used to mean typing your email and waiting for a one-time link.

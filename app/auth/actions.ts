@@ -60,20 +60,30 @@ export async function register(formData: FormData) {
   redirect("/register?sent=1");
 }
 
+/**
+ * The pages the log-in form sits on. Its messages go back to the page that
+ * sent it; anything else falls back to `/sign-in`, so the form can never be
+ * used to send a visitor to some other address.
+ */
+const FORM_PAGES = ["/", "/sign-in"];
+
 /** A member logs in with their email and password. */
 export async function signIn(formData: FormData) {
+  const from = field(formData, "from");
+  const back = FORM_PAGES.includes(from) ? from : "/sign-in";
+
   const email = field(formData, "email").trim();
   const password = field(formData, "password");
-  if (!looksLikeEmail(email)) redirect("/sign-in?error=email");
-  if (!password) redirect("/sign-in?error=mismatch");
+  if (!looksLikeEmail(email)) redirect(`${back}?error=email`);
+  if (!password) redirect(`${back}?error=mismatch`);
 
   const supabase = await supabaseForRequest();
-  if (!supabase) redirect("/sign-in?error=setup");
+  if (!supabase) redirect(`${back}?error=setup`);
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     logFailure("log in", error);
-    redirect(`/sign-in?error=${signInFailure(error)}`);
+    redirect(`${back}?error=${signInFailure(error)}`);
   }
   redirect("/");
 }
