@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — A tidier top bar: name and Sign out at the top, menu along the bottom (#67)
+
+Dane asked for the signed-in part of the header to be laid out more neatly.
+His name and the Sign out button now sit in smaller text at the top right of
+the bar, and the menu (Home, Tasks, Game, Profile, Members) runs along the
+bottom edge, where before they sat side by side in the middle. The bar is the
+same height and the logo is in the same place. Sign out also gained the soft
+shadow the rest of the header text has, so the smaller words still read
+clearly over the water-drop picture. On a phone, every menu item and Sign out
+still fit on screen.
+
 ## 2026-10-30 — The header shows the water-drop picture the other way round (#65)
 
 Dane wanted the version of the header picture with the dark colours on the
