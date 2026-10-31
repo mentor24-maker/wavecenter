@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Admins can write to a member from the Members page (#69)
+
+Each row on the Members page now has a small envelope for admins. Clicking it
+opens a form with a subject and a message. Sending saves the message in
+WaveCenter, in a new private messages table that only the sender and the
+recipient can read, and then emails it to the member through Resend, the
+email service Dane chose. The email comes from a WaveCenter address, and
+replies go to Dane's Gmail. The form always says what really happened: sent,
+saved but not emailed (and why), or not sent. The member's email address
+never leaves the server. Until Dane adds the Resend key, messages still save,
+and the form says email is not set up yet.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
