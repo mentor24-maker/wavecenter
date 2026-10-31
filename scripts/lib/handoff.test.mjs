@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   nextHandOff, recordHandOff, syncBack, serviceDb, taskLine, ticketIdFromUrl, ticketPriority, ticketProblems,
-  ticketOutcome, returnNote,
+  ticketOutcome, returnNote, emptyTakes, withTake, pickFromLine, skipLine, SKIP_AFTER_TAKES,
 } from './handoff.mjs';
 import { MemoryTaskStore } from '../../core/memoryTaskStore.ts';
 import { createTask, updateTask } from '../../core/tasks.ts';
@@ -71,6 +71,93 @@ test('a task already handed off is not offered again', async () => {
   await handOffTask(store, t.id, 'https://app.clickup.com/t/first', 'loop-handoff');
   const next = await nextHandOff(fakeDb(store));
   assert.equal(next.task, null);
+});
+
+test('a task two passes took without a ticket is skipped, and the next one comes back', async () => {
+  const store = new MemoryTaskStore();
+  const stuck = await ticked(store, 'Use the other version of the header background', 'high');
+  const second = await ticked(store, 'second in line');
+  const db = fakeDb(store);
+
+  let takes = emptyTakes();
+  for (let pass = 1; pass <= SKIP_AFTER_TAKES; pass += 1) {
+    const next = await nextHandOff(db, takes);
+    assert.equal(next.task?.id, stuck.id, `pass ${pass} still takes the first task`);
+    assert.deepEqual(next.skipped, []);
+    takes = withTake(next.takes, next.task, new Date('2026-10-30T21:12:00Z'));
+  }
+
+  const next = await nextHandOff(db, takes);
+  assert.equal(next.task?.id, second.id);
+  assert.equal(next.waiting, 2);
+  assert.equal(next.skipped.length, 1);
+  assert.equal(next.skipped[0].task.id, stuck.id);
+  assert.equal(next.skipped[0].count, SKIP_AFTER_TAKES);
+  const line = skipLine(next.skipped[0]);
+  assert.match(line, /^SKIPPED "Use the other version of the header background"/);
+  assert.match(line, /2 pass\(es\) took it and none recorded a ticket, last at Oct 30, 2026, 3:12 PM Mountain/);
+});
+
+test('a skipped task stops being skipped once it gets a ticket, is unticked, or is edited', async () => {
+  const store = new MemoryTaskStore();
+  const stuck = await ticked(store, 'stuck', 'high');
+  const second = await ticked(store, 'second');
+  const db = fakeDb(store);
+  const t1 = await store.get(stuck.id);
+
+  // A ticket: it leaves the line, and its take is forgotten.
+  let takes = withTake(withTake(emptyTakes(), t1), t1);
+  await handOffTask(store, stuck.id, 'https://app.clickup.com/t/abc123', 'loop-handoff');
+  let next = await nextHandOff(db, takes);
+  assert.equal(next.task?.id, second.id);
+  assert.deepEqual(next.skipped, []);
+  assert.equal(next.takes.takes[stuck.id], undefined, 'a task with a ticket is forgotten');
+
+  // Unticked and ticked again: a fresh start, even with no pass in between.
+  const store2 = new MemoryTaskStore();
+  const s2 = await ticked(store2, 'stuck', 'high');
+  await ticked(store2, 'second');
+  const db2 = fakeDb(store2);
+  const t2 = await store2.get(s2.id);
+  takes = withTake(withTake(emptyTakes(), t2), t2);
+  assert.equal((await nextHandOff(db2, takes)).skipped.length, 1);
+  await new Promise((r) => setTimeout(r, 2));
+  await updateTask(store2, s2.id, { agentSelected: false }, 'wavecenter');
+  next = await nextHandOff(db2, takes);
+  assert.equal(next.takes.takes[s2.id], undefined, 'an unticked task is forgotten');
+  await new Promise((r) => setTimeout(r, 2));
+  await updateTask(store2, s2.id, { agentSelected: true }, 'wavecenter');
+  next = await nextHandOff(db2, takes);
+  assert.equal(next.task?.id, s2.id, 'ticked again, it is first in line again');
+  assert.deepEqual(next.skipped, []);
+
+  // Edited: the old takes no longer count.
+  await new Promise((r) => setTimeout(r, 2));
+  const t3 = await store2.get(s2.id);
+  takes = withTake(withTake(emptyTakes(), t3), t3);
+  await new Promise((r) => setTimeout(r, 2));
+  await updateTask(store2, s2.id, { notes: 'the dark colours on the left' }, 'wavecenter');
+  assert.equal((await nextHandOff(db2, takes)).task?.id, s2.id);
+});
+
+test('when every waiting task is stuck, nothing is handed over and the reason says so', async () => {
+  const store = new MemoryTaskStore();
+  const only = await ticked(store, 'only one');
+  const t = await store.get(only.id);
+  const next = await nextHandOff(fakeDb(store), withTake(withTake(emptyTakes(), t), t));
+  assert.equal(next.task, null);
+  assert.equal(next.skipped.length, 1);
+  assert.match(next.why, /All 1 ticked task\(s\) waiting are skipped/);
+});
+
+test('one take is not a skip, and withTake never changes the takes it is given', () => {
+  const task = { id: 'a', title: 'A', updatedAt: '2026-10-30T00:00:00Z' };
+  const before = emptyTakes();
+  const once = withTake(before, task);
+  assert.deepEqual(before, emptyTakes());
+  assert.equal(once.takes.a.count, 1);
+  assert.equal(pickFromLine([task], once).task, task);
+  assert.equal(pickFromLine([task], withTake(once, task)).task, null);
 });
 
 test('Urgent carries over only when the member set it on their own screen', () => {
