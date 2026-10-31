@@ -529,6 +529,19 @@ ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }
 
+/* Game management: one block per action, its trigger, and its form. */
+.rules { list-style: none; padding: 0; margin: 0 0 var(--space); }
+.rule { padding: 0.75rem 0 1rem; border-bottom: 1px solid var(--line); }
+.rule h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+.trigger { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; margin: 0 0 0.5rem; font-size: 0.9rem; color: var(--muted); }
+.trigger dd { margin: 0; overflow-wrap: anywhere; }
+.rule-form { display: flex; flex-direction: column; gap: 0.35rem; max-width: 48rem; }
+.rule-form .rule-line { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.rule-form .rule-line label { display: flex; flex-direction: column; gap: 0.25rem; }
+.rule-form .rule-line .grow { flex: 1 1 16rem; }
+.rule-form .rule-line .points input { width: 6rem; }
+.rule-form p { margin: 0.25rem 0 0; }
+
 /* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
    the whole screen, the logo top left, the introduction left-middle and the
    log-in form on the right. The picture is darkened behind the white

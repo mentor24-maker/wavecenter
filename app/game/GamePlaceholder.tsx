@@ -3,7 +3,7 @@ import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
-import GameMenu, { type GamePage } from "./GameMenu";
+import GameMenu, { mayManageGame, type GamePage } from "./GameMenu";
 
 /**
  * A Game page that is not built yet: the Game heading, the Game menu with
@@ -18,16 +18,16 @@ export default async function GamePlaceholder({ current, message }: { current: G
 
   if (supabase && !user && !checkFailed) redirect("/sign-in");
 
-  const [name, isAdmin] = supabase && user
-    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id)])
-    : [null, false];
+  const [name, isAdmin, mayManage] = supabase && user
+    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id), mayManageGame(supabase, user.id)])
+    : [null, false, false];
 
   return (
     <>
       <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>Game</h1>
-        <GameMenu current={current} />
+        <GameMenu current={current} mayManage={mayManage} />
         {!supabase ? (
           <p className="error" role="alert">This copy of WaveCenter has no database settings, so there is nothing to show.</p>
         ) : !user ? (

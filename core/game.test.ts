@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore } from './agents.ts';
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
-  ENGAGEMENT_KINDS, STARTING_SCORING_RULES, engagementKindForTask, recordEngagement, scoreEngagement, totalPoints,
-  type EngagementInput,
+  ENGAGEMENT_KINDS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule, changeScoringRule,
+  checkRuleFields, engagementKindForTask, isWired, kindFromName, mayManageScoring, recordEngagement, scoreEngagement, totalPoints,
+  type EngagementInput, type GameActor,
 } from './game.ts';
+import { saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
 import { createTask, deleteTask, updateTask } from './tasks.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
@@ -181,4 +183,118 @@ test('engagementKindForTask and totalPoints', () => {
   assert.equal(engagementKindForTask(open, { status: 'doing', agentTicketUrl: 'https://x' }), 'handed_to_agents');
   assert.equal(totalPoints([{ points: 1 }, { points: 5 }]), 6);
   assert.equal(totalPoints([]), 0);
+});
+
+test('saving a profile records one engagement each time', async () => {
+  const ledger = new MemoryEngagementStore();
+  // What the member_profiles trigger does: score the save inside it.
+  const profiles: MemberProfileStore & { row: MemberProfile | null } = {
+    row: null,
+    async get() { return this.row; },
+    async save(p) {
+      await recordEngagement(ledger, { memberId: 'dane', kind: 'changed_profile', tool: p.tool });
+      this.row = { ...p };
+      return this.row;
+    },
+  };
+  const profile = { displayName: 'Dane', avatar: 'sun', bio: null, visibility: 'public' };
+  await saveProfile(profiles, profile, 'wavecenter');
+  await saveProfile(profiles, { ...profile, bio: 'Builds WaveCenter.' }, 'wavecenter');
+  assert.deepEqual(kinds(ledger), ['changed_profile', 'changed_profile']);
+});
+
+test('every kind names the core function that triggers it, its database trigger, and a test that exists', async () => {
+  assert.deepEqual(Object.keys(SCORING_TRIGGERS).sort(), [...ENGAGEMENT_KINDS].sort());
+  const migrations = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+    .map((f) => readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8'))
+    .join('\n');
+  for (const kind of ENGAGEMENT_KINDS) {
+    const t = SCORING_TRIGGERS[kind];
+    for (const part of ['fn', 'file', 'database', 'test', 'testFile'] as const) assert.ok(t?.[part], `${kind} has no ${part}`);
+    const module = await import(new URL(`../${t.file}`, import.meta.url).href);
+    assert.equal(typeof module[t.fn], 'function', `${kind}: ${t.file} exports no function ${t.fn}`);
+    const tests = readFileSync(new URL(`../${t.testFile}`, import.meta.url), 'utf8');
+    assert.ok(tests.includes(`test('${t.test}'`), `${kind}: ${t.testFile} has no test "${t.test}"`);
+    assert.ok(migrations.includes(`function public.${t.database}()`), `${kind}: no migration makes public.${t.database}`);
+    assert.ok(migrations.includes(`'${kind}'`), `${kind}: no migration names it`);
+  }
+});
+
+const ADMIN: GameActor = { role: 'admin' };
+const rule = async (ledger: MemoryEngagementStore, kind: string) => (await ledger.rules()).find((r) => r.kind === kind)!;
+
+test('an admin changes what an action is worth: the next engagement earns it, earlier ones keep theirs', async () => {
+  const { ledger, tasks } = setup();
+  await createTask(tasks, { title: 'Before' }, 'wavecenter');
+  const change = await changeScoringRule(ledger, ADMIN, { kind: 'made_task', name: ' Made a task ', description: 'Added a task.', criteria: 'A new task is saved.', points: 3 }, 'wavecenter');
+  assert.equal(change.before.points, 1);
+  assert.deepEqual(change.after, { kind: 'made_task', name: 'Made a task', description: 'Added a task.', criteria: 'A new task is saved.', points: 3, position: 1 });
+  assert.equal(change.tool, 'wavecenter');
+  assert.equal(ledger.ruleTools.get('made_task'), 'wavecenter');
+  await createTask(tasks, { title: 'After' }, 'wavecenter');
+  assert.deepEqual(ledger.rows.map((e) => [e.kind, e.points]), [['made_task', 1], ['made_task', 3]]);
+});
+
+test('only a role with "Manage game scoring" may change or add an action, and nothing is saved otherwise', async () => {
+  const ledger = new MemoryEngagementStore();
+  const fields = { kind: 'made_task', name: 'Made a task', points: 100 };
+  for (const actor of [{ role: 'contributor' }, { role: 'editor' }, { role: null }, { role: 'admin', grants: { admin: ['member.edit'] } }] as GameActor[]) {
+    assert.equal(mayManageScoring(actor), false, JSON.stringify(actor));
+    await assert.rejects(changeScoringRule(ledger, actor, fields, 'wavecenter'), /Only an admin can manage the game scoring/);
+    await assert.rejects(addScoringRule(ledger, actor, { name: 'Wrote a comment', points: 2 }, 'wavecenter'), /Only an admin/);
+  }
+  assert.deepEqual(await ledger.rules(), STARTING_SCORING_RULES);
+  assert.equal(mayManageScoring(ADMIN), true);
+  assert.equal(mayManageScoring({ role: 'editor', grants: { editor: ['game.edit'] } }), true, 'follows the grants the database holds');
+});
+
+test('points must be a whole number from 0 up, and every action needs a name; anything else saves nothing', async () => {
+  const ledger = new MemoryEngagementStore();
+  const bad: [object, RegExp][] = [
+    [{ points: -1 }, /can't be negative.*Nothing was saved/],
+    [{ points: 2.5 }, /whole number.*Nothing was saved/],
+    [{ points: '3' }, /whole number/],
+    [{ points: null }, /whole number/],
+    [{ name: '   ' }, /needs a name/],
+    [{ name: 'x'.repeat(RULE_NAME_MAX + 1) }, /at most 80 characters/],
+    [{ description: 'x'.repeat(RULE_TEXT_MAX + 1) }, /at most 500 characters/],
+    [{ criteria: 7 }, /must be text/],
+  ];
+  for (const [extra, message] of bad) {
+    await assert.rejects(changeScoringRule(ledger, ADMIN, { kind: 'made_task', name: 'Made a task', points: 2, ...extra }, 'wavecenter'), message);
+    await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 2, ...extra }, 'wavecenter'), message);
+  }
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { kind: 'made_task', name: 'Made a task', points: 2 }, ''), /must name the tool/);
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { kind: 'won_lottery', name: 'Won', points: 2 }, 'wavecenter'), /no action "won_lottery"/);
+  assert.deepEqual(await ledger.rules(), STARTING_SCORING_RULES);
+  assert.deepEqual(checkRuleFields({ name: 'A', points: 0 }), { name: 'A', description: '', criteria: '', points: 0 }, '0 is allowed');
+});
+
+test('a rule change or a new action that does not save says so', async () => {
+  const ledger = new MemoryEngagementStore();
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { kind: 'made_task', name: 'Made a task', points: 4 }, 'wavecenter'), /did not save/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 4 }, 'wavecenter'), /did not save/);
+  assert.equal((await rule(ledger, 'made_task')).points, 1);
+});
+
+test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
+  const ledger = new MemoryEngagementStore();
+  const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 11 });
+  assert.equal(isWired(added.kind), false);
+  assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
+  await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
+  assert.equal(ledger.rows.length, 0);
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'wrote a  COMMENT', points: 1 }, 'wavecenter'), /already an action "Wrote a comment!" \(wrote_a_comment\)/);
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Made a task', points: 9 }, 'wavecenter'), /already an action/);
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: '123', points: 1 }, 'wavecenter'), /at least one letter/);
+  assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
+});
+
+test('the migration checks the same lengths core does and grants Manage game scoring to admins only', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261030120000_game_scoring_admin.sql', import.meta.url), 'utf8');
+  assert.match(sql, new RegExp(`length\\(name\\) <= ${RULE_NAME_MAX} and length\\(description\\) <= ${RULE_TEXT_MAX} and length\\(criteria\\) <= ${RULE_TEXT_MAX}`));
+  assert.doesNotMatch(sql, /grant (insert|update|delete|all)[^;]* on public\.game_scoring_rules/i, 'members never write the table directly');
 });

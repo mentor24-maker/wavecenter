@@ -3,11 +3,17 @@
  * scoring rules and the signed-in member's own engagements. It acts through
  * the member's session, so row-level security keeps it to their rows.
  *
- * It only reads. Engagements are written by the database itself, inside the
- * same save as each change (supabase/migrations/20261027120000_game_layer.sql),
- * so there is nothing here that writes, and nothing a page could forge.
+ * The ledger only reads. Engagements are written by the database itself,
+ * inside the same save as each change
+ * (supabase/migrations/20261027120000_game_layer.sql), so there is nothing
+ * here that writes one, and nothing a page could forge.
+ *
+ * `supabaseScoringRuleStore` is the `ScoringRuleStore` the Game management
+ * screen changes rules through. It calls the database's `update_scoring_rule`
+ * and `add_scoring_rule`, which refuse any role without "Manage game scoring"
+ * (supabase/migrations/20261030120000_game_scoring_admin.sql).
  */
-import type { Engagement, EngagementLedger, ScoringRule } from "../../core/game.ts";
+import type { Engagement, EngagementLedger, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -62,5 +68,29 @@ export function supabaseEngagementLedger(supabase: Client, memberId: string): En
       // No row yet means no engagements yet: a total of zero, not an error.
       return Number(data?.points ?? 0);
     },
+  };
+}
+
+export function supabaseScoringRuleStore(supabase: Client): ScoringRuleStore {
+  const save = async (fn: string, kind: string, fields: Parameters<ScoringRuleStore["update"]>[1], tool: string) => {
+    const { data, error } = await supabase.rpc(fn, {
+      [fn === "add_scoring_rule" ? "new_kind" : "rule_kind"]: kind,
+      new_name: fields.name,
+      new_description: fields.description,
+      new_criteria: fields.criteria,
+      new_points: fields.points,
+      tool,
+    });
+    if (error) throw new Error(`The database refused to save the scoring rule: ${error.message}`);
+    return data && typeof data === "object" && "kind" in data ? ruleFromRow(data) : null;
+  };
+  return {
+    async rules() {
+      const { data, error } = await supabase.from("game_scoring_rules").select().order("position");
+      if (error) failed("the scoring rules", error);
+      return (data ?? []).map(ruleFromRow);
+    },
+    update: (kind, fields, tool) => save("update_scoring_rule", kind, fields, tool),
+    add: (kind, fields, tool) => save("add_scoring_rule", kind, fields, tool),
   };
 }

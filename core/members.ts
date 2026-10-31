@@ -35,6 +35,7 @@ export const PERMISSIONS = [
   { key: 'task.delete', label: 'Delete task' },
   { key: 'member.read', label: 'View members' },
   { key: 'member.edit', label: 'Change member roles' },
+  { key: 'game.edit', label: 'Manage game scoring' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
@@ -42,10 +43,11 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * Which role starts with which permission. Contributors edit only their own
  * tasks. Every member views the member list; only an admin changes roles
  * (Dane, 2026-10-29: "Only admins will get edit/delete functionality under
- * the Actions column. Other members get view functionality").
+ * the Actions column. Other members get view functionality"). Only an admin
+ * manages the game's scoring rules (core/game.ts, `changeScoringRule`).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'game.edit'],
   editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read'],
   contributor: ['task.read', 'task.create', 'task.edit', 'member.read'],
   reviewer: ['task.read', 'member.read'],
