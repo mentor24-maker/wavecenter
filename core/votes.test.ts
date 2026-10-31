@@ -10,7 +10,7 @@ import { averagePoints, averagePriority, castVote, requireNotVotedOn, summarizeV
 async function setup() {
   const ledger = new MemoryEngagementStore();
   const tasks = new MemoryTaskStore('dane');
-  const task = await createTask(tasks, { title: 'Plan the launch', points: 3, priority: 'normal' }, 'wavecenter');
+  const task = await createTask(tasks, { title: 'Plan the launch', points: 3, priority: 'normal' }, 'wavecenter', 'admin');
   const votes = new MemoryVoteStore(tasks, ledger);
   return { ledger, tasks, task, votes, dane: votes.as('dane'), second: votes.as('second') };
 }

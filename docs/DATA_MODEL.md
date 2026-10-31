@@ -38,7 +38,7 @@ One row is one task: something a member means to do, is doing, or has done.
 | `title` | What the task is, in a few words. Required, and cannot be blank. |
 | `notes` | Anything longer: detail, links, thoughts. Optional. |
 | `owner_id` | **The member the task belongs to.** Filled in automatically with whoever is signed in. |
-| `status` | **Where the task stands:** `todo`, `doing` or `done`. Starts at `todo`. No other values are accepted. |
+| `status` | **Where the task stands:** `proposed`, `todo`, `doing` or `done`. An admin's new task starts at `todo`; anyone else's starts at `proposed` and waits for an admin to approve it (`approve_task`), which makes it `todo`. A proposed task's status cannot change any other way, and it cannot be ticked for or handed to AI agents. No other values are accepted. |
 | `parent_task_id` | **The bigger task this one is part of**, if any. Empty for a top-level task. |
 | `points` | **What the task is worth**: its suggested value, as a whole number. Starts at 0, is never empty and never below zero. Locked once the task is done. |
 | `position` | Where the task sits in its list, so members can put tasks in their own order. |

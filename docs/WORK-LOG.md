@@ -179,6 +179,18 @@ edited, or is unticked and ticked again. A hand-off pass may now run for 15
 minutes instead of two hours (a working one takes a minute or two), so a
 frozen pass costs minutes. Build and review keep their two-hour limit.
 
+## 2026-10-30 — New tasks from members who are not admins wait for an admin's approval (#60)
+
+Until now, any member could add a task and it went straight into the work
+pile, where it could be ticked off or handed to the AI agents. Now a task
+added by anyone who is not an admin starts as Proposed. The member who
+added it is told so straight away, under the add form and on the task's own
+page. A proposed task cannot be ticked off or sent to the AI agents. An
+admin sees an Approve button on it, and one click makes it a normal to-do.
+The database enforces the same rule, so nobody can get around it by going
+past the website. Admins' own tasks start as to-do, as before. This matters
+because Dane, as admin, now decides what actually gets worked on.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested

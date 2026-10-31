@@ -14,7 +14,9 @@
  * changes a role
  * (`public.member_roles`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
- * editor changes them (`public.teams`, `public.team_members`); and that the game layer
+ * editor changes them (`public.teams`, `public.team_members`); that a task
+ * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
+ * and only an admin approves it (`approve_task`); and that the game layer
  * scores every change while letting each member read only their own
  * engagements and nobody write them (`public.engagements`); that only an
  * admin changes a scoring rule or adds an action, through the database's own
@@ -46,7 +48,7 @@ import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
-import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
+import { approveTask, createTask, deleteTask, updateTask } from '../core/tasks.ts';
 import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
 
@@ -359,6 +361,27 @@ try {
   const anon = await call('/rest/v1/tasks?select=title');
   check('a signed-out visitor sees no tasks', anon.status >= 400 || (Array.isArray(anon.json) && anon.json.length === 0), `HTTP ${anon.status} ${anon.json?.message ?? JSON.stringify(anon.json)}`);
 
+  // Proposed: A and B are contributors, so their tasks wait for an admin.
+  check('a contributor’s new task starts as Proposed', insA.status === 'proposed' && insB.status === 'proposed', `A ${insA.status}, B ${insB.status}`);
+  const skip = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'B skips the queue', status: 'todo', agent_selected: true } });
+  const skipped = skip.json?.[0];
+  check('the database files a contributor’s task as Proposed and unticked, whatever the client asks', skip.status < 300 && skipped?.status === 'proposed' && skipped?.agent_selected === false,
+    `HTTP ${skip.status} ${JSON.stringify(skipped ?? skip.json)}`);
+  const selfApprove = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { status: 'todo' } });
+  check('a contributor cannot take their own task out of Proposed', selfApprove.status >= 400, `HTTP ${selfApprove.status} ${JSON.stringify(selfApprove.json)}`);
+  const tickProposed = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { agent_selected: true } });
+  check('a proposed task cannot be ticked for AI agents, even straight at the table', tickProposed.status >= 400, `HTTP ${tickProposed.status} ${JSON.stringify(tickProposed.json)}`);
+  let tickRefused = '';
+  try { await updateTask(b.store, taskB, { agentSelected: true }, TOOL); } catch (err) { tickRefused = err.message; }
+  check('core refuses to tick a proposed task too, in plain words', /until an admin approves it/.test(tickRefused), tickRefused || 'the tick went through');
+  const rpcApprove = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: b.token, body: { task: taskB, tool: TOOL } });
+  check('a contributor cannot approve a task through the database function', rpcApprove.status >= 400, `HTTP ${rpcApprove.status} ${JSON.stringify(rpcApprove.json)}`);
+  const stillProposed = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=status,agent_selected`);
+  check('B’s task is still Proposed and unticked afterwards', stillProposed.json?.[0]?.status === 'proposed' && stillProposed.json?.[0]?.agent_selected === false, JSON.stringify(stillProposed.json));
+  // Approve A's task with the service key, as an admin would, so A can finish it below.
+  const approvedA = await admin(`/rest/v1/tasks?id=eq.${insA.id}`, { method: 'PATCH', prefer: 'return=representation', body: { status: 'todo', tool: TOOL } });
+  if (approvedA.status >= 300 || approvedA.json?.[0]?.status !== 'todo') throw new Error(`could not approve A’s task: HTTP ${approvedA.status} ${JSON.stringify(approvedA.json)}`);
+
   const row = await updateTask(a.store, insA.id, { status: 'done' }, TOOL);
   check('A can finish A’s own task through core, and it is stamped done', row.status === 'done' && !!row.completedAt && row.updatedAt >= row.createdAt, `completed_at ${row.completedAt}`);
 
@@ -456,6 +479,10 @@ try {
   check('a non-admin cannot read another member’s role through a database function', peekRole.status >= 400 || !['admin', 'editor', 'contributor', 'reviewer', 'viewer'].includes(peekRole.json), `HTTP ${peekRole.status} ${JSON.stringify(peekRole.json)}`);
   const peekRow = await call(`/rest/v1/member_roles?member_id=eq.${a.id}&select=role`, { token: b.token });
   check('a non-admin cannot read another member’s role row', Array.isArray(peekRow.json) && peekRow.json.length === 0, `HTTP ${peekRow.status} ${JSON.stringify(peekRow.json)}`);
+  const approvedB = await approveTask(a.store, skipped.id, 'admin', TOOL);
+  check('an admin approves another member’s proposed task through core, and it becomes todo', approvedB.status === 'todo' && approvedB.ownerId === b.id && approvedB.tool === TOOL, JSON.stringify(approvedB));
+  const again = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: a.token, body: { task: skipped.id, tool: TOOL } });
+  check('approving a task that is no longer proposed changes nothing', again.status === 200 && Array.isArray(again.json) && again.json.length === 0, `HTTP ${again.status} ${JSON.stringify(again.json)}`);
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);
@@ -725,7 +752,7 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
     'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'deleted_task',
   ];
@@ -738,7 +765,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 18, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

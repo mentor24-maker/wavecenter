@@ -105,6 +105,11 @@ test('priority, status, points and creator each narrow, and they combine', () =>
   assert.equal(matches(t, { ...NO_FILTER, status: 'ticked' }), true);
   assert.equal(matches(t, { ...NO_FILTER, status: 'with-agents' }), false);
   assert.equal(matches(task('x', { agentTicketUrl: 'https://x' }), { ...NO_FILTER, status: 'with-agents' }), true);
+  assert.equal(matches(t, { ...NO_FILTER, status: 'proposed' }), false);
+  const proposed = task('p', { status: 'proposed' });
+  assert.equal(matches(proposed, { ...NO_FILTER, status: 'proposed' }), true);
+  assert.equal(matches(proposed, { ...NO_FILTER, status: 'open' }), true, 'a proposed task is still open');
+  assert.equal(matches(proposed, { ...NO_FILTER, status: 'done' }), false);
   assert.equal(matches(t, { ...NO_FILTER, minPoints: '5', maxPoints: '5' }), true);
   assert.equal(matches(t, { ...NO_FILTER, minPoints: '6' }), false);
   assert.equal(matches(t, { ...NO_FILTER, maxPoints: '4' }), false);
