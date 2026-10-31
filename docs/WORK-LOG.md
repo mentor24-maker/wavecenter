@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
+
+On the Tasks page, the whole Add Task form used to sit open above the task
+list, so members scrolled past it every time. Now it folds shut behind its
+heading, the same way the Done section does: click "Add Task" to open it,
+click again to fold it, and it starts shut every time the page loads. If
+adding a task fails, the form stays open so the error is never hidden. The
+box is also a deeper blue, with its link colour and gold border darkened
+just enough that everything in it stays easy to read.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested
