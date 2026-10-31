@@ -1,7 +1,7 @@
 /**
  * The mission paragraph, which also says what a DEO is. The signed-out front
- * page, About WaveCenter and What is a DEO all show this same text until Dane
- * writes their own (his choice, 2026-10-29). The DEO is canon from his
+ * page and About WaveCenter show this same text until Dane writes their own
+ * (his choice, 2026-10-29); What is a DEO has its own whitepaper summary. The DEO is canon from his
  * whitepaper, so no wording is added here without him.
  */
 export default function Mission() {
