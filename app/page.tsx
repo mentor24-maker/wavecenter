@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { mayDo, ROLES, type RoleKey } from "../core/members.ts";
+import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
@@ -41,7 +41,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   if (supabase && user) return <Dashboard supabase={supabase} user={user} />;
-  const { sent, error } = await searchParams;
+  const { error } = await searchParams;
 
   return (
     <div className="landing">
@@ -65,7 +65,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         </section>
         <section className="landing-form panel" aria-labelledby="log-in-heading">
           <h2 id="log-in-heading">Log in or join</h2>
-          <SignInForm from="/" sent={sent} error={error} checkFailed={checkFailed} />
+          <SignInForm from="/" error={error} checkFailed={checkFailed} />
         </section>
       </main>
     </div>
@@ -84,7 +84,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
       <main>
         <h1>Home</h1>
         <div className="dashboard">
