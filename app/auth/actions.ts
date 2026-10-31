@@ -8,13 +8,23 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { supabaseForRequest } from "../lib/supabase";
 
+/**
+ * The pages the log-in form sits on. Its messages go back to the page that
+ * sent it; anything else falls back to `/sign-in`, so the form can never be
+ * used to send a visitor to some other address.
+ */
+const FORM_PAGES = ["/", "/sign-in"];
+
 /** Email the member a one-time sign-in link (a "magic link"). */
 export async function sendMagicLink(formData: FormData) {
+  const from = String(formData.get("from") ?? "");
+  const back = FORM_PAGES.includes(from) ? from : "/sign-in";
+
   const email = String(formData.get("email") ?? "").trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect("/sign-in?error=email");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect(`${back}?error=email`);
 
   const supabase = await supabaseForRequest();
-  if (!supabase) redirect("/sign-in?error=setup");
+  if (!supabase) redirect(`${back}?error=setup`);
 
   // The link in the email comes back to this same site, whichever address
   // (preview, production, local) the member is using.
@@ -27,9 +37,9 @@ export async function sendMagicLink(formData: FormData) {
   });
   if (error) {
     console.error(`sign-in: could not send the link: ${error.status ?? ""} ${error.code ?? ""} ${error.message}`);
-    redirect(`/sign-in?error=${error.status === 429 ? "rate" : "send"}`);
+    redirect(`${back}?error=${error.status === 429 ? "rate" : "send"}`);
   }
-  redirect("/sign-in?sent=1");
+  redirect(`${back}?sent=1`);
 }
 
 export async function signOut() {
