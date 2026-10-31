@@ -9,12 +9,69 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ## 2026-10-31 — Teams gets its own place in the top menu (#72)
 
-Signed-in members now see **Teams** at the end of the top menu. It opens a
+Signed-in members now see **Teams** in the top menu, right after
+Members. It opens a
 new Teams page that explains what a Team is (a group of members focused on
 one part of the WaveCenter project) and names the example teams: UX Design,
 Community, App Pipeline, Blockchain, Privacy, Security and Infrastructure.
 Nothing is saved yet; joining teams and managing them come in later tasks.
 This gives those tasks a home to build on.
+
+## 2026-10-31 — Table headings become a dark blue bar (#76)
+
+The header rows of the Tasks list and the Members table were plain grey
+text with a line under them, easy to lose. Now each is a dark blue bar
+with white bold column names and no line, the way Dane asked, with
+"Actions" centred. The white text is easy to read on the blue (it passes
+the accessibility contrast mark with room to spare), the sorted column
+still shows its arrow, and the keyboard outline turns white so it shows
+up. The read-only tables on the Game and Members pages stay as they were.
+
+## 2026-10-31 — The home page becomes a landing page with the log-in form on it (#75)
+
+Visitors who were not logged in used to see a plain placeholder page with
+"Log in" and "Register" buttons that took them somewhere else. Now the home
+page is a proper front door: Dane's water-drop picture fills the screen, the
+logo sits top left, the introduction to WaveCenter is on the left, and the
+box to log in with email and password is right there on the right, with the
+"Forgot your password?" and "Register" links under it. A wrong password or
+a mistyped email is explained on the home page itself. The home page and the
+separate log-in page now share one form, so their wording can never drift
+apart. On a phone, the introduction sits above the form.
+
+## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
+
+Logging in used to mean typing your email and waiting for a one-time link.
+Now WaveCenter works the standard way: a new visitor registers with an email
+and a password, confirms the address from the email they are sent, and from
+then on logs in with email and password. "Forgot your password?" emails a
+link to set a new one, and that is also how members who joined before
+passwords existed set their first. Every mistake (a wrong password, two
+passwords that do not match, an email already registered, an email that
+could not be sent) shows a plain message instead of failing quietly. The
+live Supabase project needs its "Confirm email" setting switched on for the
+confirm step to be required.
+
+## 2026-10-31 — Done tasks sit on a light grey row instead of being crossed out (#70)
+
+On the Tasks page, a finished task's title used to be crossed out and
+faded, which made it hard to read. Now the title stays plain and black, and
+the whole row sits on a light grey background, so done tasks still stand
+apart from open ones without being hard to read. On a device set to dark
+mode the row is a dark grey a shade lighter than the page, with the usual
+light text. Every colour on the grey was measured to stay easy to read.
+
+## 2026-10-30 — Admins get an Admin menu item and a placeholder Admin page (#68)
+
+Admins needed a place for the powerful tools still to come. The top menu now
+shows **Admin** to members whose role is Admin, and to nobody else. It opens
+a new Admin page that, for now, says the tools are not built yet and are
+coming in later tasks. Hiding the link is not enough, because anyone can
+type the address, so the page checks the role too: another role is told,
+by name, that it may not open the Admin area. If WaveCenter can't read
+someone's role, it plays safe: no link, and the page says the role could not
+be loaded. One rule decides who counts as an admin, and the menu and the page
+share it, so they can't disagree.
 
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
