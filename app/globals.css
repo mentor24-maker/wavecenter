@@ -263,7 +263,8 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .add textarea { height: 3.4rem; }
 
 .tasks {
-  list-style: none; padding: 0 var(--space); margin: 0;
+  --tasks-pad: var(--space);
+  list-style: none; padding: 0 var(--tasks-pad); margin: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
 }
 /* Each task is a row of columns: AI, Title, Priority, Points, Created,
@@ -304,6 +305,25 @@ button.sort {
 }
 button.sort:hover { color: var(--fg); }
 [aria-sort="ascending"] button.sort, [aria-sort="descending"] button.sort { color: var(--accent); }
+
+/* The header row of a table members edit (Tasks, Members; Dane, 2026-10-31):
+   a dark blue bar, white bold headings (7.1:1 on #015F80), no line under it,
+   Actions centred. The sorted column keeps its arrow as the cue, and the
+   focus ring turns white so it shows on the blue. The bar runs the full
+   width of the task list, out to its rounded top corners. The Members
+   table's own bar is with the table rules below. */
+.task.head {
+  background: #015f80; color: #fff; font-weight: 700; border-bottom: 0;
+  margin: 0 calc(-1 * var(--tasks-pad)); padding: 0.45rem var(--tasks-pad);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+}
+.task.head .note, .task.head .cell small { color: #fff; }
+.task.head button.sort, .task.head [aria-sort] button.sort,
+table.members button.sort, table.members [aria-sort] button.sort { color: #fff; font-weight: 700; }
+.task.head button.sort:hover, table.members button.sort:hover { text-decoration: underline; }
+.task.head :focus-visible, table.members th :focus-visible { outline-color: #fff; }
+.task.head input[type="checkbox"] { accent-color: #fff; }
+.task.head .col-actions { justify-content: center; }
 .arrow { font-size: 0.65rem; min-width: 0.65rem; }
 .hint { font-size: 0.9rem; margin-bottom: 0.5rem; }
 
@@ -349,7 +369,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
   .site-inner { padding: 0.6rem 0.75rem; }
   h1 { font-size: 1.5rem; }
-  .tasks { padding: 0 0.75rem; }
+  .tasks { --tasks-pad: 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
   /* Five menu items leave no room for the name on a phone: the logo alone
@@ -445,6 +465,12 @@ table.game th { text-align: left; font-size: 0.85rem; color: var(--muted); font-
 table.game th, table.game td { padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.game .num { text-align: right; white-space: nowrap; padding-right: 0; }
 table.game .block { display: block; font-size: 0.9rem; }
+/* The Members table's header: the same dark blue bar as the task list's
+   (above). The Game page's tables and the permissions grid stay plain. The
+   first column steps in so its text clears the bar's edge. */
+table.game.members th { background: #015f80; color: #fff; font-weight: 700; border-bottom: 0; }
+table.game.members th:first-child, table.game.members td:first-child { padding-left: 0.5rem; }
+table.game.members th.actions { text-align: center; }
 /* The Members page's roles-and-permissions grid: space between the permission columns. */
 table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
 
