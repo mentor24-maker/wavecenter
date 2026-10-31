@@ -1,0 +1,203 @@
+/**
+ * The pure rules behind the Evolution screenshots (scripts/evolution_capture.mjs):
+ * which page a change is pictured on, what the live data looked like at the
+ * moment it merged, and the row each change gets in `evolution_entries`.
+ * Tested in evolution.test.mjs; nothing here touches git, a database or a
+ * browser.
+ */
+
+export const CAPTURE_STATES = ['captured', 'no screen', 'failed'];
+
+/** The bucket the screenshots live in (private; members read, only the script writes). */
+export const BUCKET = 'evolution';
+
+/** A merge commit's subject, "<PR title> (#12)", split into the title and the PR number. */
+export function parseSubject(subject) {
+  const s = String(subject || '').trim();
+  const m = s.match(/^(.*\S)\s+\(#(\d+)\)$/);
+  return m ? { title: m[1], prNumber: Number(m[2]) } : { title: s, prNumber: null };
+}
+
+/** The first ClickUp ticket link in a PR body, or null. */
+export function ticketUrl(text) {
+  const m = String(text || '').match(/https:\/\/app\.clickup\.com\/t\/[A-Za-z0-9]+/);
+  return m ? m[0] : null;
+}
+
+const PAGE_FILE = /^page\.(tsx|ts|jsx|js)$/;
+
+/** The route directories that have a page at this commit, e.g. "", "tasks", "tasks/[id]". */
+function routeDirs(files) {
+  const dirs = new Set();
+  for (const f of files) {
+    if (!f.startsWith('app/')) continue;
+    const parts = f.slice(4).split('/');
+    if (PAGE_FILE.test(parts.at(-1))) dirs.add(parts.slice(0, -1).join('/'));
+  }
+  return dirs;
+}
+
+/**
+ * Which page to photograph for one change, or null for "no screen".
+ *
+ *   changed: the paths the change touched
+ *   files:   every path in the repository at that change
+ *
+ * - A file under app/<segment>/ pictures /<segment>, or the deepest page
+ *   under it that holds the file (so app/game/leaderboard/page.tsx pictures
+ *   /game/leaderboard). A dynamic folder such as tasks/[id] comes back as
+ *   "/tasks/[id]"; the capture puts a real task's id in its place.
+ * - app/page.tsx pictures /.
+ * - Files that belong to no page (app/SiteHeader.tsx, app/globals.css,
+ *   app/lib/, app/layout.tsx, app/auth/, or a folder whose page does not
+ *   exist yet) are shared: they picture the Home page / when it exists, else
+ *   /tasks. Until the Home dashboard (#54) the task list itself lived at /.
+ * - When several pages are touched, the one with the most changed files wins,
+ *   shared files counting for the Home page (so #54, which added the Home
+ *   dashboard and moved the list to /tasks, pictures /); on a tie, the
+ *   shorter address (so a change to a section and its sub-pages pictures the
+ *   section).
+ * - No app/ change, or no page at all at that change: null.
+ */
+export function choosePage({ changed, files }) {
+  const dirs = routeDirs(files || []);
+  if (!dirs.size) return null;
+  const appChanges = (changed || []).filter((f) => f.startsWith('app/'));
+  if (!appChanges.length) return null;
+
+  const votes = new Map();
+  let shared = 0;
+  for (const f of appChanges) {
+    const parts = f.slice(4).split('/').slice(0, -1);
+    let route = null;
+    for (let n = parts.length; n >= 1; n -= 1) {
+      const dir = parts.slice(0, n).join('/');
+      if (dirs.has(dir)) { route = dir; break; }
+    }
+    if (route === null && parts.length === 0 && f.slice(4).match(PAGE_FILE)) route = '';
+    if (route === null) { shared += 1; continue; }
+    votes.set(route, (votes.get(route) || 0) + 1);
+  }
+
+  const home = dirs.has('') ? '' : dirs.has('tasks') ? 'tasks' : null;
+  if (shared && home !== null) votes.set(home, (votes.get(home) || 0) + shared);
+  if (!votes.size) return null;
+  const [best] = [...votes].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length || a[0].localeCompare(b[0]));
+  return `/${best[0]}`;
+}
+
+/** Fill a dynamic page such as /tasks/[id] with a task that existed then; null if there was none. */
+export function fillPage(page, tasks) {
+  if (!page || !page.includes('[')) return page;
+  const newest = [...(tasks || [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  return newest ? page.replace(/\[[^\]]+\]/, newest.id) : null;
+}
+
+/**
+ * The tables copied into the local database, and what "existed by then"
+ * means for each. Rows in a table with `created_at` count from that moment.
+ * Tables keyed only by member (settings, profile, role) have no creation
+ * time, so they count once their member exists. The reference lists (roles,
+ * permissions, scoring rules) come from that change's own migrations, not
+ * from live.
+ */
+export const COPIED_TABLES = ['tasks', 'task_comments', 'task_votes', 'task_files', 'engagements', 'member_settings', 'member_profiles', 'member_roles'];
+
+const MEMBER_COLUMNS = ['owner_id', 'member_id'];
+
+/**
+ * The live rows as they stood at `mergedAt`, shaped for a database that has
+ * only `columns` (table -> list of column names; a table missing from it did
+ * not exist at that change and is skipped).
+ *
+ *   live: { users: [auth users], tables: { name: [rows] } }
+ *
+ * Returns { users, tables } holding only what existed by then: members whose
+ * account was made by then; tasks made by then, done only if completed by
+ * then (otherwise open); every other row made by then, belonging to members
+ * and tasks that existed by then. Columns the old database lacks are dropped.
+ */
+export function asOf(live, { mergedAt, columns }) {
+  const t = Date.parse(mergedAt);
+  if (Number.isNaN(t)) throw new Error(`asOf: not a time: ${mergedAt}`);
+  const by = (iso) => iso != null && Date.parse(iso) <= t;
+
+  const users = (live.users || []).filter((u) => by(u.created_at));
+  const memberIds = new Set(users.map((u) => u.id));
+  const tables = {};
+
+  const keep = (name, rows) => {
+    const cols = columns[name];
+    if (!cols) return;
+    tables[name] = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => cols.includes(k))));
+  };
+  const ownedByMember = (r) => MEMBER_COLUMNS.every((c) => !(c in r) || r[c] == null || memberIds.has(r[c]));
+
+  const liveTasks = (live.tables?.tasks || []).filter((r) => by(r.created_at) && ownedByMember(r));
+  const taskIds = new Set(liveTasks.map((r) => r.id));
+  const tasks = liveTasks.map((r) => {
+    const row = { ...r };
+    if (row.parent_task_id && !taskIds.has(row.parent_task_id)) row.parent_task_id = null;
+    if (row.updated_at && !by(row.updated_at)) row.updated_at = mergedAt;
+    if (row.status === 'done' && !by(row.completed_at)) {
+      row.status = 'todo';
+      row.completed_at = null;
+    } else if (row.status !== 'done') {
+      row.completed_at = null;
+    }
+    return row;
+  });
+  keep('tasks', tasks);
+
+  const commentIds = new Set();
+  for (const name of COPIED_TABLES) {
+    if (name === 'tasks') continue;
+    const rows = (live.tables?.[name] || []).filter((r) =>
+      ('created_at' in r ? by(r.created_at) : true)
+      && ownedByMember(r)
+      && (!('task_id' in r) || r.task_id == null || taskIds.has(r.task_id))
+      && (!('comment_id' in r) || r.comment_id == null || commentIds.has(r.comment_id)));
+    if (name === 'task_comments') for (const r of rows) commentIds.add(r.id);
+    keep(name, rows);
+  }
+  return { users, tables };
+}
+
+/**
+ * The `evolution_entries` row for one change. Refuses a `captured` row with
+ * no stored screenshot and a `failed` row with no reason (rule 6: never say
+ * a picture is there when it is not).
+ */
+export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, page, screenshotPath, state, reason }) {
+  if (!/^[0-9a-f]{40}$/.test(String(sha))) throw new Error(`entryRow: not a full commit id: ${sha}`);
+  if (!CAPTURE_STATES.includes(state)) throw new Error(`entryRow: unknown capture state "${state}"`);
+  if (state === 'captured' && (!page || !screenshotPath)) throw new Error('entryRow: a captured row needs its page and its stored screenshot');
+  if (state === 'failed' && !String(reason || '').trim()) throw new Error('entryRow: a failed row needs a reason');
+  return {
+    commit_sha: sha,
+    merged_at: mergedAt,
+    pr_number: prNumber ?? null,
+    title,
+    ticket_url: ticket ?? null,
+    page: page ?? null,
+    screenshot_path: state === 'captured' ? screenshotPath : null,
+    capture_state: state,
+    failure_reason: state === 'failed' ? String(reason).trim().slice(0, 500) : null,
+  };
+}
+
+/** A time as a Mountain-time date and clock, e.g. "2026-10-30 14:05 MDT". */
+export function mountain(iso) {
+  const d = new Date(iso);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
+  }).formatToParts(d).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+}
+
+/** One line of `npm run evolution -- list`. */
+export function listLine(row) {
+  const state = row.capture_state === 'failed' ? `failed (${row.failure_reason})` : row.capture_state;
+  return [String(row.commit_sha).slice(0, 7), mountain(row.merged_at), state, row.page || '-', row.title].join('\t');
+}
