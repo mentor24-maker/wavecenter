@@ -503,3 +503,43 @@ ul.plain { list-style: none; padding: 0; margin: 0 0 var(--space); }
 ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }
+
+/* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
+   the whole screen, the logo top left, the introduction left-middle and the
+   log-in form on the right. The picture is darkened behind the white
+   introduction: at 0.6 the brightest gold in it falls to about 15% luminance,
+   which keeps white text above 4.5:1 (plus a shadow). On a wide screen the
+   form's side needs less, because the form sits on its own solid panel. On a
+   phone the two stack, introduction first, and the darkening is even. */
+.landing {
+  min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column;
+  color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+  background:
+    linear-gradient(rgb(8 28 44 / 0.6), rgb(8 28 44 / 0.6)),
+    #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+}
+@media (min-width: 56rem) {
+  .landing {
+    background:
+      linear-gradient(90deg, rgb(8 28 44 / 0.7), rgb(8 28 44 / 0.6) 55%, rgb(8 28 44 / 0.3)),
+      #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+  }
+}
+.landing-top { width: 100%; max-width: 90rem; margin: 0 auto; padding: 1rem var(--space); }
+.landing .brand:focus-visible { outline-color: #fff; }
+/* No menu shares the top here, so the name stays beside the logo on a phone too. */
+.landing .brand span { display: inline; }
+.landing-body {
+  flex: 1; width: 100%; display: grid; grid-template-columns: 1fr; align-content: center;
+  gap: calc(var(--space) * 2); padding-top: var(--space);
+}
+@media (min-width: 56rem) {
+  .landing-body { grid-template-columns: minmax(0, 1.3fr) minmax(20rem, 1fr); align-items: center; gap: calc(var(--space) * 4); }
+}
+.landing-intro { max-width: 38rem; font-size: 1.1rem; }
+.landing-intro h1 { font-size: clamp(2rem, 4vw, 3rem); margin-bottom: var(--space); }
+.landing-intro a { color: #fff; }
+/* The form keeps the site's normal colours on its own panel, not the picture's. */
+.landing-form { color: var(--fg); text-shadow: none; max-width: 28rem; width: 100%; justify-self: end; padding: 1.25rem 1.5rem; }
+.landing-form .stack { max-width: none; margin-bottom: 0; border: 0; padding: 0; background: none; }
+@media (max-width: 55.99rem) { .landing-form { justify-self: stretch; max-width: none; } }
