@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { Engagement, ScoringRule } from "../../core/game.ts";
+import { isWired, mayManageScoring, type Engagement, type ScoringRule } from "../../core/game.ts";
 import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
-import { headerIsAdmin } from "../lib/memberRoleStore";
+import { headerIsAdmin, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import GameMenu from "./GameMenu";
@@ -46,7 +46,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 /**
  * The Game page (My Points in the Game menu): the signed-in member's points total, their finished tasks
  * and what those are worth, how points are earned (the scoring rules), and
- * their latest engagements, newest first. A visitor who is not signed in is
+ * their latest engagements, newest first. An admin also gets Manage in the Game
+ * menu (./manage), where the rules change. A visitor who is not signed in is
  * sent to sign in. Every part that could not be read says so on its own, and
  * an empty list says why it is empty (engineering rule 7).
  */
@@ -76,21 +77,25 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, isAdmin, rules, total, latest, finished] = await Promise.all([
+  const [name, isAdmin, rules, total, latest, finished, role, lists] = await Promise.all([
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
     read(() => readFinishedTasks(supabase, user.id)),
+    read(() => myRole(supabase, user.id)),
+    read(() => readRolesAndPermissions(supabase)),
   ]);
+  // The menu's Manage item shows only when the role and grants were read and allow it.
+  const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
 
   return (
     <>
       <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>Game</h1>
-        <GameMenu current="points" />
+        <GameMenu current="points" mayManage={mayManage} />
         <p className="lede">
           Everything you do in WaveCenter is recorded and earns points. The points are set by the rules below, never
           by the tool you used.
@@ -183,6 +188,7 @@ function RulesTable({ rules }: { rules: Read<ScoringRule[]> }) {
             <td>
               <b>{r.name}</b>
               {r.description && <span className="note block">{r.description}</span>}
+              {!isWired(r.kind) && <span className="badge block">Not active yet: nothing records this action, so it earns nothing.</span>}
             </td>
             <td className="note">{r.criteria}</td>
             <td className="num">{r.points}</td>

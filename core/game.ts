@@ -21,6 +21,8 @@
  *
  * Plain-words description of the two tables: docs/DATA_MODEL.md.
  */
+import { mayDo, type RoleKey } from './members.ts';
+import { requirePointsValue } from './points.ts';
 import { CoreError, requireTool } from './tool.ts';
 import type { Task } from './tasks.ts';
 
@@ -42,9 +44,13 @@ export const ENGAGEMENT_KINDS = [
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
-/** One row of `game_scoring_rules`: a kind of engagement and what it is worth. */
+/**
+ * One row of `game_scoring_rules`: a kind of engagement and what it is worth.
+ * Its kind is one of `ENGAGEMENT_KINDS`, or a new action an admin added that
+ * no part of WaveCenter records yet (see `isWired`).
+ */
 export interface ScoringRule {
-  kind: EngagementKind;
+  kind: string;
   /** What the member did, in a few words: "Made a task". */
   name: string;
   description: string;
@@ -98,10 +104,11 @@ export interface EngagementLedger {
 
 /**
  * The rules WaveCenter starts with, as the migrations seed them (a test keeps
- * the two in step). The values are placeholders until Dane, or later a
- * members' vote, sets them; for now they change only through a migration.
+ * the two in step). Since 2026-10-30 an admin changes their wording and
+ * points on the Game management screen (`changeScoringRule`); a members' vote
+ * comes later.
  */
-export const STARTING_SCORING_RULES: readonly ScoringRule[] = [
+export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementKind })[] = [
   { kind: 'made_task', name: 'Made a task', description: 'Added a task to WaveCenter.', criteria: 'A new task is saved.', points: 1, position: 1 },
   { kind: 'changed_task', name: 'Changed a task', description: 'Edited a task: its title, details, priority, points, place or AI tick.', criteria: 'A saved change to a task that neither finishes it nor hands it to AI agents.', points: 1, position: 2 },
   { kind: 'finished_task', name: 'Finished a task', description: 'Marked a task done.', criteria: 'A task that was not done becomes done.', points: 5, position: 3 },
@@ -167,4 +174,190 @@ export function engagementKindForTask(
 /** Add up a list of engagements' points. */
 export function totalPoints(engagements: readonly Pick<Engagement, 'points'>[]): number {
   return engagements.reduce((sum, e) => sum + e.points, 0);
+}
+
+/**
+ * Where each kind of engagement comes from, so anyone can confirm it (Dane,
+ * 2026-10-30: "Each score should be directly associated with specific
+ * functions that can be easily tested and confirmed"): the core function
+ * that decides or makes the change, the database trigger that records it
+ * inside the same save, and the test that proves it fires. A test checks
+ * every function is exported where it says and every test exists by name.
+ */
+export interface ScoringTrigger {
+  /** The core function, and the file it is exported from. */
+  fn: string;
+  file: string;
+  /** The database function that records the engagement. */
+  database: string;
+  /** The test that proves it, and the file it is in. */
+  test: string;
+  testFile: string;
+}
+
+const TASK_CHANGE = {
+  fn: 'engagementKindForTask',
+  file: 'core/game.ts',
+  database: 'tasks_score',
+  test: 'making, changing, finishing and deleting a task each record exactly one engagement',
+  testFile: 'core/game.test.ts',
+};
+const FILES_TEST = 'attaching and removing a file each record one engagement; deleting the task with its files records one';
+
+export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
+  made_task: TASK_CHANGE,
+  changed_task: TASK_CHANGE,
+  finished_task: TASK_CHANGE,
+  deleted_task: TASK_CHANGE,
+  attached_file: { fn: 'attachFile', file: 'core/files.ts', database: 'task_files_score', test: FILES_TEST, testFile: 'core/game.test.ts' },
+  removed_file: { fn: 'removeFile', file: 'core/files.ts', database: 'task_files_score', test: FILES_TEST, testFile: 'core/game.test.ts' },
+  handed_to_agents: {
+    ...TASK_CHANGE,
+    test: 'handing a task to agents is its own kind, credited to the member, naming the hand-off lane',
+  },
+  switched_agents: {
+    fn: 'setAgentsOn', file: 'core/agents.ts', database: 'member_settings_score',
+    test: 'flipping the AI agents switch records one engagement each time', testFile: 'core/game.test.ts',
+  },
+  changed_profile: {
+    fn: 'saveProfile', file: 'core/profiles.ts', database: 'member_profiles_score',
+    test: 'saving a profile records one engagement each time', testFile: 'core/game.test.ts',
+  },
+  voted_on_task: {
+    fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',
+    test: 'every vote cast, changed or withdrawn is scored for the voter', testFile: 'core/votes.test.ts',
+  },
+};
+
+/**
+ * Is something in WaveCenter wired to record this kind? Only the kinds in
+ * `ENGAGEMENT_KINDS` are. A new action an admin adds stays inactive, earning
+ * nothing, until an agent wires it to a function, a trigger and a test
+ * (Dane, 2026-10-30, option B).
+ */
+export function isWired(kind: string): kind is EngagementKind {
+  return ENGAGEMENT_KINDS.includes(kind as EngagementKind);
+}
+
+/** The longest name, and the longest description or criteria, a rule may have. The migration checks the same. */
+export const RULE_NAME_MAX = 80;
+export const RULE_TEXT_MAX = 500;
+
+/** The parts of a rule an admin may change: its wording and what it is worth. */
+export type RuleFields = Pick<ScoringRule, 'name' | 'description' | 'criteria' | 'points'>;
+
+/** Who is asking to manage the rules: their role, and the grants the database holds if they were read. */
+export interface GameActor {
+  role: RoleKey | null | undefined;
+  grants?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** What core needs from storage to manage the rules. Every value it writes was checked here. */
+export interface ScoringRuleStore {
+  rules(): Promise<ScoringRule[]>;
+  /** Write a rule's wording and points. Returns the rule as stored, or null if nothing was written. */
+  update(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null>;
+  /** Add a new rule at the end of the list. Returns it as stored, or null if nothing was written. */
+  add(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null>;
+}
+
+/** May this member change the scoring rules? Only a role with "Manage game scoring" may (admin, to start). */
+export function mayManageScoring(actor: GameActor): boolean {
+  return mayDo(actor.role, 'game.edit', actor.grants);
+}
+
+function text(value: unknown, what: string, max: number): string {
+  if (value == null) return '';
+  if (typeof value !== 'string') throw new CoreError(`The ${what} must be text.`);
+  const trimmed = value.trim();
+  if (trimmed.length > max) throw new CoreError(`The ${what} can be at most ${max} characters; this one is ${trimmed.length}.`);
+  return trimmed;
+}
+
+/** A rule's wording and points, trimmed and checked, or a message a person can read. */
+export function checkRuleFields(input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown }): RuleFields {
+  const name = text(input.name, 'name', RULE_NAME_MAX);
+  if (!name) throw new CoreError('Every action needs a name, such as "Made a task". Nothing was saved.');
+  const description = text(input.description, 'description', RULE_TEXT_MAX);
+  const criteria = text(input.criteria, 'criteria', RULE_TEXT_MAX);
+  let points: number;
+  try {
+    points = requirePointsValue(input.points);
+  } catch (err) {
+    throw new CoreError(`${(err as Error).message} Nothing was saved.`);
+  }
+  return { name, description, criteria, points };
+}
+
+/**
+ * The kind a new action gets from its name: lower-case letters, words joined
+ * by "_" ("Wrote a comment" → "wrote_a_comment"). The database allows only
+ * these characters in a kind.
+ */
+export function kindFromName(name: string): string {
+  const kind = name.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!kind) throw new CoreError('An action\'s name needs at least one letter (a to z). Nothing was saved.');
+  return kind;
+}
+
+function requireManager(actor: GameActor): void {
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can manage the game scoring. Nothing was saved.');
+}
+
+function sameFields(rule: ScoringRule, fields: RuleFields): boolean {
+  return rule.name === fields.name && rule.description === fields.description && rule.criteria === fields.criteria && rule.points === fields.points;
+}
+
+/** What one rule change did. */
+export interface ScoringRuleChange {
+  before: ScoringRule;
+  after: ScoringRule;
+  tool: string;
+}
+
+/**
+ * The only way a scoring rule changes. Refused unless the actor may manage
+ * scoring, the rule exists and the new wording and points pass
+ * `checkRuleFields`. The change counts from the very next engagement; what
+ * was already earned keeps the points it was given. Throws if what comes back
+ * is not what was asked for, so a failed save is never reported as saved.
+ */
+export async function changeScoringRule(
+  store: ScoringRuleStore,
+  actor: GameActor,
+  change: { kind: string; name?: unknown; description?: unknown; criteria?: unknown; points?: unknown },
+  tool: string,
+): Promise<ScoringRuleChange> {
+  const named = requireTool(tool);
+  requireManager(actor);
+  const fields = checkRuleFields(change);
+  const before = (await store.rules()).find((r) => r.kind === change.kind);
+  if (!before) throw new CoreError(`There is no action "${String(change.kind)}" to change. Reload the page.`);
+  const after = await store.update(before.kind, fields, named);
+  if (!after || !sameFields(after, fields)) throw new CoreError('The change did not save. Nothing changed; try again.');
+  return { before, after, tool: named };
+}
+
+/**
+ * Add a new action to the scoring rules. Its kind comes from its name
+ * (`kindFromName`); neither the kind nor the name may be taken. It is inactive until an agent wires
+ * it into WaveCenter (`isWired`): until then nothing records it, so it earns
+ * nothing.
+ */
+export async function addScoringRule(
+  store: ScoringRuleStore,
+  actor: GameActor,
+  input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown },
+  tool: string,
+): Promise<ScoringRule> {
+  const named = requireTool(tool);
+  requireManager(actor);
+  const fields = checkRuleFields(input);
+  const kind = kindFromName(fields.name);
+  const sameName = (r: ScoringRule) => r.name.trim().toLowerCase() === fields.name.toLowerCase();
+  const taken = (await store.rules()).find((r) => r.kind === kind || sameName(r));
+  if (taken) throw new CoreError(`There is already an action "${taken.name}" (${taken.kind}). Change that one, or pick another name. Nothing was saved.`);
+  const added = await store.add(kind, fields, named);
+  if (!added || added.kind !== kind || !sameFields(added, fields)) throw new CoreError('The new action did not save. Nothing changed; try again.');
+  return added;
 }

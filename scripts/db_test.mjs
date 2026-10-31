@@ -22,16 +22,12 @@
  *
  * Exit 0 = migrations applied and every check held. Exit 1 = something failed.
  */
-import { mkdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { isLocalUrl, lastJson } from './lib/migrations.mjs';
+import { isLocalUrl, lastJson, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
-const LOCK = join(tmpdir(), 'wavecenter-db-test.lock');
-const STALE_MS = 30 * 60 * 1000;
 
 class Refused extends Error {}
 /** Stop the run. Thrown, not process.exit, so the lock is always released. */
@@ -45,17 +41,12 @@ function supabase(args, { quiet = false } = {}) {
   return r;
 }
 
-try {
-  mkdirSync(LOCK);
-} catch {
-  let age = 0;
-  try { age = Date.now() - statSync(LOCK).mtimeMs; } catch { /* gone already */ }
-  if (age < STALE_MS) {
-    console.error(`db:test FAILED — another db:test is using the test database (lock ${LOCK}). Run it again when that one finishes.`);
-    process.exit(1);
-  }
-  console.log(`db:test: taking over a lock left ${Math.round(age / 60000)} minutes ago.`);
+const lock = takeTestDbLock();
+if (!lock.ok) {
+  console.error(`db:test FAILED — another run is using the test database (lock ${TEST_DB_LOCK}). Run it again when that one finishes.`);
+  process.exit(1);
 }
+if (lock.tookOverMinutes !== null) console.log(`db:test: taking over a lock left ${lock.tookOverMinutes} minutes ago.`);
 
 let code = 1;
 try {
@@ -81,6 +72,6 @@ try {
   console.error(`db:test FAILED — ${err.message}`);
   code = 1;
 } finally {
-  rmSync(LOCK, { recursive: true, force: true });
+  releaseTestDbLock();
 }
 process.exit(code);

@@ -19,7 +19,7 @@
  * and the supabase CLI.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -53,10 +53,45 @@ export function lastJson(output, key) {
   return null;
 }
 
+/**
+ * The supabase CLI (2.115.0) prints a JSON line only when it thinks an AI
+ * agent is running it (CLAUDECODE, CODEX_*, GEMINI_CLI and so on). From
+ * launchd, where the merge lane runs, it prints human text instead. Every
+ * reader below takes either form; the JSON one wins when both are there.
+ */
+const plain = (output) => String(output || '').replace(/\x1b\[[0-9;]*m/g, '');
+
 /** The files `supabase db push` says it would push (or pushed), or null if it did not say. */
 export function pushList(output) {
   const v = lastJson(output, 'migrations');
-  return v && Array.isArray(v.migrations) ? v.migrations.map(String) : null;
+  if (v && Array.isArray(v.migrations)) return v.migrations.map(String);
+  // Human form: "Would push these migrations:" then one " • <file>.sql" line each.
+  const lines = plain(output).split('\n');
+  const at = lines.findIndex((l) => l.trim() === 'Would push these migrations:');
+  if (at >= 0) {
+    const files = [];
+    for (const line of lines.slice(at + 1)) {
+      const m = line.match(/^\s*\u2022\s+(\S+\.sql)\s*$/);
+      if (!m) break;
+      files.push(m[1]);
+    }
+    return files.length ? files : null;
+  }
+  return lines.some((l) => l.trim() === 'Remote database is up to date.') ? [] : null;
+}
+
+/** The versions `supabase migration list` shows in its Remote column, or null when unreadable. */
+function remoteVersions(listOutput) {
+  const v = lastJson(listOutput, 'migrations');
+  if (v && Array.isArray(v.migrations)) return v.migrations.map((m) => String(m && m.remote || '').trim()).filter(Boolean);
+  // Human form: a "Local | Remote | Time (UTC)" table, each cell in backticks.
+  const lines = plain(listOutput).split('\n');
+  if (!lines.some((l) => /^\s*Local\s*\|\s*Remote\s*\|/.test(l))) return null;
+  return lines
+    .map((l) => l.match(/^\s*`([^`]*)`\s*\|\s*`([^`]*)`\s*\|/))
+    .filter(Boolean)
+    .map((m) => m[2].trim())
+    .filter(Boolean);
 }
 
 /**
@@ -64,10 +99,21 @@ export function pushList(output) {
  * applied on the remote database. Null when the listing could not be read.
  */
 export function missingOnRemote(listOutput, files) {
-  const v = lastJson(listOutput, 'migrations');
-  if (!v || !Array.isArray(v.migrations)) return null;
-  const applied = new Set(v.migrations.map((m) => String(m && m.remote || '').trim()).filter(Boolean));
+  const remote = remoteVersions(listOutput);
+  if (!remote) return null;
+  const applied = new Set(remote);
   return (files || []).filter((f) => !applied.has(String(f).split('_')[0]));
+}
+
+/**
+ * The environment the merge lane runs the CLI in: this one minus every
+ * variable the CLI reads as "an AI agent is running me". The lane runs from
+ * launchd with none of them set, so stripping them means a Claude session
+ * testing this code sees the same human output the lane does.
+ */
+export function cliEnv(env = process.env) {
+  const agent = /^(AGENT|AI_AGENT|CLAUDECODE|REPL_ID|OPENCODE|GEMINI_CLI.*|CLAUDE_CODE.*|CODEX_.*|CURSOR_.*|AUGMENT_.*|OPENCODE_.*|COPILOT_.*)$/;
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !agent.test(k)));
 }
 
 /** Never let a database address (which carries its password) into a note or a log. */
@@ -79,7 +125,9 @@ export function scrub(text) {
 export function cliError(output) {
   const v = lastJson(output, 'error');
   const msg = v && v.error && typeof v.error === 'object' ? v.error.message : null;
-  const text = msg || String(output || '').trim().split('\n').filter(Boolean).slice(-3).join(' ');
+  // The CLI's "a new version is available" nudge comes last; it is never the error.
+  const lines = plain(output).trim().split('\n').filter((l) => l.trim() && !/^(A new version of Supabase CLI is available|We recommend updating regularly)/.test(l));
+  const text = msg || lines.slice(-3).join(' ');
   return scrub(text).slice(0, 400) || 'no message';
 }
 
@@ -91,6 +139,36 @@ export function isLocalUrl(url) {
   } catch {
     return false;
   }
+}
+
+/**
+ * The test database is shared by every folder on the machine (db:test and
+ * the Evolution screenshots both rebuild it), so one user at a time holds
+ * this lock: a folder made atomically, older than 30 minutes counts as left
+ * behind.
+ */
+export const TEST_DB_LOCK = join(tmpdir(), 'wavecenter-db-test.lock');
+const LOCK_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * Take the test-database lock. Returns { ok: true, tookOverMinutes } (null
+ * when the lock was free) or { ok: false } when another run holds it.
+ */
+export function takeTestDbLock({ lock = TEST_DB_LOCK, now = Date.now() } = {}) {
+  try {
+    mkdirSync(lock);
+    return { ok: true, tookOverMinutes: null };
+  } catch {
+    let age = 0;
+    try { age = now - statSync(lock).mtimeMs; } catch { /* gone already */ }
+    if (age < LOCK_STALE_MS) return { ok: false };
+    return { ok: true, tookOverMinutes: Math.round(age / 60000) };
+  }
+}
+
+/** Give the test-database lock back. */
+export function releaseTestDbLock({ lock = TEST_DB_LOCK } = {}) {
+  rmSync(lock, { recursive: true, force: true });
 }
 
 /** The "Database:" paragraph of the merge note. */
@@ -111,8 +189,9 @@ export function databaseLine({ files, applied }) {
  */
 export function applyMigrations({ repoDir, commit, dbUrl, run = spawnSync }) {
   if (!dbUrl) return { ok: false, error: 'DATABASE_URL is not set, so the live database cannot be reached.' };
+  const env = cliEnv();
   const sh = (cmd, args) => {
-    const r = run(cmd, args, { encoding: 'utf8', cwd: repoDir });
+    const r = run(cmd, args, { encoding: 'utf8', cwd: repoDir, env });
     return { ok: r.status === 0, out: `${r.stdout || ''}\n${r.stderr || ''}` };
   };
   const work = mkdtempSync(join(tmpdir(), 'wavecenter-migrations-'));
