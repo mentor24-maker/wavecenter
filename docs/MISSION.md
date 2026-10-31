@@ -15,7 +15,8 @@ defines what a DEO is but does not mention WaveCenter or a Web alternative.
 ## What a DEO is (from the whitepaper)
 
 Source: *White Paper: The Decentralized Engagement Organization — Dane v2*
-(Dane Christensen with Claude Fable, July 2026).
+(Dane Christensen with Claude Fable, July 2026). The full text is in
+[canon/deo-whitepaper.md](canon/deo-whitepaper.md); this section is a digest.
 
 A DEO is an organization in which **human engagement, not capital
 investment,** is the founding resource, the operating fuel and the purpose.
