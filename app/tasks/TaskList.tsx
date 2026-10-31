@@ -159,6 +159,8 @@ export default function TaskList({
   const [justProposed, setJustProposed] = useState(false);
   // Done starts folded, so the page leads with the work still to do.
   const [doneOpen, setDoneOpen] = useState(false);
+  /** The Add Task form starts folded shut, so the page leads with the list. */
+  const [addOpen, setAddOpen] = useState(false);
 
   /** Set the filters. A new status opens Done if it can show done tasks, and folds it if it cannot. */
   function chooseFilter(next: Filter) {
@@ -253,10 +255,13 @@ export default function TaskList({
   const shownDone = sectionTasks(shown, contextOnly, (t) => t.status === "done");
   const creators = [...new Set(tasks.map((t) => t.ownerId))].sort((a, b) => (a === userId ? -1 : b === userId ? 1 : 0));
 
+  // A failed add is never folded out of sight: its error keeps the form open.
+  const addShown = addOpen || failure?.at === "new";
+
   const row = (t: ListTask, inSection: ListTask[], sub = false) => {
     const taskVotes = votesByTask.get(t.id) ?? [];
     const myVote = taskVotes.find((v) => v.memberId === userId) ?? null;
-    return (
+  return (
     <TaskRow
       // A fresh row whenever the saved values change, so the boxes show them.
       key={`${t.id}:${t.title}:${t.notes}:${t.points}:${t.priority}:${t.parentTaskId}:${myVote?.points}:${myVote?.priority}`}
@@ -380,61 +385,69 @@ export default function TaskList({
       {intro}
 
       <form onSubmit={add} className="add box level-3" aria-labelledby="add-task-heading">
-        <h2 id="add-task-heading">Add Task</h2>
-        <div className="line">
-          <input
-            aria-label="New task"
-            placeholder="Add a task and press Enter"
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-          />
-          <button type="submit" disabled={pending || !draft.title.trim()}>Add</button>
-        </div>
-        <textarea
-          aria-label="Details of the new task"
-          placeholder="Details (optional)"
-          rows={2}
-          value={draft.notes}
-          onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-        />
-        <div className="line">
-          <select
-            aria-label="Parent of the new task"
-            value={draft.parentTaskId}
-            onChange={(e) => setDraft({ ...draft, parentTaskId: e.target.value })}
-          >
-            <option value="">Not a sub-task</option>
-            {topLevel.map((p) => (
-              <option key={p.id} value={p.id}>Sub-task of: {p.title}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Priority of the new task"
-            value={draft.priority}
-            onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
-          >
-            {TASK_PRIORITIES.map((p) => (
-              <option key={p} value={p}>{PRIORITY_LABEL[p]} priority</option>
-            ))}
-          </select>
-          <label className="link attach">
-            attach
-            <input type="file" multiple hidden aria-label="Attach files to the new task" disabled={pending} onChange={pickForNew} />
-          </label>
-        </div>
-        {draftFiles.length > 0 && (
-          <p className="note">
-            To attach when you add:{" "}
-            {draftFiles.map((f, i) => (
-              <span key={i} className="chip">
-                {f.name}{" "}
-                <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
-              </span>
-            ))}
-          </p>
+        <h2 id="add-task-heading">
+          <button type="button" className="section-toggle" aria-expanded={addShown} aria-controls="add-task-fields" onClick={() => setAddOpen(!addShown)}>
+            <span aria-hidden="true">{addShown ? "▾" : "▸"}</span> Add Task
+          </button>
+        </h2>
+        {addShown && (
+          <div id="add-task-fields" className="add-fields">
+            <div className="line">
+              <input
+                aria-label="New task"
+                placeholder="Add a task and press Enter"
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              />
+              <button type="submit" disabled={pending || !draft.title.trim()}>Add</button>
+            </div>
+            <textarea
+              aria-label="Details of the new task"
+              placeholder="Details (optional)"
+              rows={2}
+              value={draft.notes}
+              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            />
+            <div className="line">
+              <select
+                aria-label="Parent of the new task"
+                value={draft.parentTaskId}
+                onChange={(e) => setDraft({ ...draft, parentTaskId: e.target.value })}
+              >
+                <option value="">Not a sub-task</option>
+                {topLevel.map((p) => (
+                  <option key={p.id} value={p.id}>Sub-task of: {p.title}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Priority of the new task"
+                value={draft.priority}
+                onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
+              >
+                {TASK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{PRIORITY_LABEL[p]} priority</option>
+                ))}
+              </select>
+              <label className="link attach">
+                attach
+                <input type="file" multiple hidden aria-label="Attach files to the new task" disabled={pending} onChange={pickForNew} />
+              </label>
+            </div>
+            {draftFiles.length > 0 && (
+              <p className="note">
+                To attach when you add:{" "}
+                {draftFiles.map((f, i) => (
+                  <span key={i} className="chip">
+                    {f.name}{" "}
+                    <button type="button" className="link" aria-label={`Do not attach "${f.name}"`} onClick={() => setDraftFiles((now) => now.filter((_, j) => j !== i))}>×</button>
+                  </span>
+                ))}
+              </p>
+            )}
+            {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
+          </div>
         )}
         {justProposed && <p className="note proposed-notice" role="status">{PROPOSED_NOTICE}</p>}
-        {failure?.at === "new" && <p className="error" role="alert">{failure.message}</p>}
       </form>
       {files.error && (
         <p className="error" role="alert">

@@ -7,6 +7,27 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
+
+On the Tasks page, the whole Add Task form used to sit open above the task
+list, so members scrolled past it every time. Now it folds shut behind its
+heading, the same way the Done section does: click "Add Task" to open it,
+click again to fold it, and it starts shut every time the page loads. If
+adding a task fails, the form stays open so the error is never hidden. The
+box is also a deeper blue, with its link colour and gold border darkened
+just enough that everything in it stays easy to read.
+
+## 2026-10-30 — A tidier top bar: name and Sign out at the top, menu along the bottom (#67)
+
+Dane asked for the signed-in part of the header to be laid out more neatly.
+His name and the Sign out button now sit in smaller text at the top right of
+the bar, and the menu (Home, Tasks, Game, Profile, Members) runs along the
+bottom edge, where before they sat side by side in the middle. The bar is the
+same height and the logo is in the same place. Sign out also gained the soft
+shadow the rest of the header text has, so the smaller words still read
+clearly over the water-drop picture. On a phone, every menu item and Sign out
+still fit on screen.
+
 ## 2026-10-30 — The header shows the water-drop picture the other way round (#65)
 
 Dane wanted the version of the header picture with the dark colours on the
