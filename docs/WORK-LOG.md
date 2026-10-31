@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Done tasks sit on a light grey row instead of being crossed out (#70)
+
+On the Tasks page, a finished task's title used to be crossed out and
+faded, which made it hard to read. Now the title stays plain and black, and
+the whole row sits on a light grey background, so done tasks still stand
+apart from open ones without being hard to read. On a device set to dark
+mode the row is a dark grey a shade lighter than the page, with the usual
+light text. Every colour on the grey was measured to stay easy to read.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
