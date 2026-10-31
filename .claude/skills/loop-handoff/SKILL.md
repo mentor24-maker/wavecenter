@@ -24,7 +24,7 @@ or handle either.
 
 ```bash
 npm run clickup -- handoff-sync                                 # finished tickets back to their tasks
-npm run clickup -- handoff-next                                 # the next task, as JSON (exit 3: none, and why)
+npm run clickup -- handoff-next --take                          # the next task, as JSON (exit 3: none, and why)
 npm run clickup -- task --name "..." --status Queued --priority <p> --tags from-wavecenter --body-file - --id-out <file>
 npm run clickup -- ask --task <ticket> --status "Needs your input" --body-file -
 npm run clickup -- handoff-record --task <wavecenter-id> --ticket <ticket-id>
@@ -44,11 +44,16 @@ only lands if the task still has no ticket.
    into your report. A failure on one task leaves that task as it was; say
    which, and carry on.
 
-2. **Find the next task.** `npm run clickup -- handoff-next`.
+2. **Find the next task.** `npm run clickup -- handoff-next --take`.
+   `--take` writes down that this pass took the task. A task two passes
+   already took without recording a ticket is skipped, and each skip prints a
+   `SKIPPED "<title>" …` line: paste every one into your report, so Dane sees
+   which task is stuck. Never use `--take` outside a lane pass.
    - Exit **3**: nothing to hand over (the switch is off for everyone, or no
      ticked task is waiting). Report the reason it printed and **stop**. With
      the switch off, no new ticket is ever filed; tickets already filed carry
-     on through the pipeline as normal.
+     on through the pipeline as normal. If every waiting task is skipped, the
+     reason says so: paste the `SKIPPED` lines too.
    - Exit **1**: it could not read the database. Report the error and stop.
    - Exit **0**: stdout is the task as JSON: `id`, `title`, `notes`,
      `priority`, `ticketPriority`, `createdAt`, `taskLine`, `tag`.
@@ -121,8 +126,8 @@ only lands if the task still has no ticket.
    then `status --status Live`. `handoff-sync` ignores tickets no task points
    to, so this never touches the task.
 
-8. **Report** in plain words: the sync line, then the name of the ticket you
-   filed and its link (or why none was filed). Then stop. **One hand-off per
+8. **Report** in plain words: the sync line, any `SKIPPED` lines, then the
+   name of the ticket you filed and its link (or why none was filed). Then stop. **One hand-off per
    pass**, even if more are waiting: it limits how far a mistake can spread.
 
 ## Guardrails

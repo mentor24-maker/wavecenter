@@ -18,6 +18,30 @@ the WaveCenter name sits, heavier over the gold where the menu sits, and even
 across the whole bar on narrower screens. The text stays clearly readable at
 every width.
 
+## 2026-10-30 — What is a DEO now explains what a DEO is (#64)
+
+The What is a DEO page used to show a single paragraph and a note saying more
+was coming. It now gives a newcomer a two-minute summary of Dane's DEO
+whitepaper, in seven short sections: engagement instead of money as the
+starting point, the game layer that counts every contribution, how decisions
+are made, why nobody is paid in dollars inside, privacy and invited members,
+AI that helps people rather than replacing them, and the four seasons a DEO
+grows through. Every sentence comes from the whitepaper, and the page ends
+with a link to the whitepaper itself. The About WaveCenter page is unchanged.
+
+## 2026-10-30 — One stuck task no longer holds up every ticked task behind it (#63)
+
+This afternoon three hand-off passes in a row froze on the same task, and
+the ten tasks waiting behind it sat for about five hours while the Loop
+Queue looked empty. Now the hand-off lane remembers which task each pass
+took. Once two passes have taken a task and neither filed its ticket, the
+next pass skips it and hands over the next task instead, and names the
+skipped task by its title in its report and in the lane's log, so Dane can
+see which one is stuck. The task is tried again once it gets a ticket, is
+edited, or is unticked and ticked again. A hand-off pass may now run for 15
+minutes instead of two hours (a working one takes a minute or two), so a
+frozen pass costs minutes. Build and review keep their two-hour limit.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested
