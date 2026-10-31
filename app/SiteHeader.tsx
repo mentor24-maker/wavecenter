@@ -11,15 +11,19 @@ import { signOut } from "./auth/actions";
  * menu: Home first (the dashboard, at `/`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
  * points are, their profile, and Members (`/members`). Every member gets
- * Members; the page itself decides what a non-admin may see there. The menu
+ * Members; the page itself decides what a non-admin may see there. An admin
+ * also gets Admin (`/admin`); the page says `isAdmin`, from the same rule
+ * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
  * runs along the bottom of the bar, under the name and Sign out.
  * The bar's content is as wide as every page's main body, so the two line up.
  */
 export default function SiteHeader({
   name,
+  isAdmin = false,
   showSignIn = true,
 }: {
   name?: string | null;
+  isAdmin?: boolean;
   showSignIn?: boolean;
 }) {
   return (
@@ -46,6 +50,7 @@ export default function SiteHeader({
               <Link href="/game" className="quiet">Game</Link>
               <Link href="/profile" className="quiet">Profile</Link>
               <Link href="/members" className="quiet">Members</Link>
+              {isAdmin && <Link href="/admin" className="quiet">Admin</Link>}
             </nav>
           </div>
         ) : (

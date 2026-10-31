@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { mayDo, ROLES, type RoleKey } from "../core/members.ts";
+import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
@@ -75,7 +75,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
       <main>
         <h1>Home</h1>
         <div className="dashboard">
