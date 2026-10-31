@@ -113,7 +113,7 @@ html, body {
   }
 }
 .site-inner {
-  max-width: 90rem; margin: 0 auto; padding: 1.05rem var(--space); min-height: 5.625rem;
+  max-width: 90rem; margin: 0 auto; padding: 0.6rem var(--space); min-height: 5.625rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
 }
 .brand {
@@ -122,15 +122,22 @@ html, body {
 }
 .brand b { color: #fff; font-weight: 700; }
 .mark { width: 3.375rem; height: 3.375rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
-.who { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
-.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; line-height: 1.25; }
+/* Signed in, the right side fills the bar's height: the name and Sign out at
+   the top in small text, the menu along the bottom. */
+.who { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between;
+  align-items: flex-end; gap: 0.35rem; min-width: 0; }
+.who .menu { display: flex; align-items: center; gap: 0.85rem; }
+.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; max-width: 100%; line-height: 1.25; }
 /* The member's name sits directly above Sign out. */
-.who .name { color: #fff; font-size: 0.9rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .name { color: #fff; font-size: 0.8rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .account button.quiet { font-size: 0.8rem; }
 /* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
+/* A browser drops the bar's shadow on buttons; Sign out needs it on the picture too. */
+.site button.quiet { text-shadow: inherit; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
 /* Bold is wider: on a phone, tighter gaps keep Sign out on screen. */
-@media (max-width: 30rem) { .site-inner, .who { gap: 0.5rem; } }
+@media (max-width: 30rem) { .site-inner, .who .menu { gap: 0.5rem; } }
 
 /* Every page has the same 1440px main body, and the header bar above lines up with it. */
 main {
@@ -317,12 +324,12 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 
 @media (max-width: 30rem) {
   main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
-  .site-inner { padding: 0.9rem 0.75rem; }
+  .site-inner { padding: 0.6rem 0.75rem; }
   h1 { font-size: 1.5rem; }
   .tasks { padding: 0 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
-  /* Four menu items leave no room for the name on a phone: the logo alone
+  /* Five menu items leave no room for the name on a phone: the logo alone
      still leads home, and its link keeps the "WaveCenter home" label. */
   .brand span { display: none; }
   .who .account { max-width: 9rem; }

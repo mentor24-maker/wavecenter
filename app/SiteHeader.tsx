@@ -11,7 +11,8 @@ import { signOut } from "./auth/actions";
  * menu: Home first (the dashboard, at `/`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
  * points are, their profile, and Members (`/members`). Every member gets
- * Members; the page itself decides what a non-admin may see there.
+ * Members; the page itself decides what a non-admin may see there. The menu
+ * runs along the bottom of the bar, under the name and Sign out.
  * The bar's content is as wide as every page's main body, so the two line up.
  */
 export default function SiteHeader({
@@ -33,17 +34,19 @@ export default function SiteHeader({
         </Link>
         {name ? (
           <div className="who">
-            <Link href="/" className="quiet">Home</Link>
-            <Link href="/tasks" className="quiet">Tasks</Link>
-            <Link href="/game" className="quiet">Game</Link>
-            <Link href="/profile" className="quiet">Profile</Link>
-            <Link href="/members" className="quiet">Members</Link>
             <div className="account">
               <span className="name" title={name}>{name}</span>
               <form action={signOut}>
                 <button type="submit" className="quiet">Sign out</button>
               </form>
             </div>
+            <nav className="menu" aria-label="Main menu">
+              <Link href="/" className="quiet">Home</Link>
+              <Link href="/tasks" className="quiet">Tasks</Link>
+              <Link href="/game" className="quiet">Game</Link>
+              <Link href="/profile" className="quiet">Profile</Link>
+              <Link href="/members" className="quiet">Members</Link>
+            </nav>
           </div>
         ) : (
           showSignIn && <Link href="/sign-in" className="quiet">Log in</Link>
