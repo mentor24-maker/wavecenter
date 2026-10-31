@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, memberActions,
+  DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, mayOpenAdmin, memberActions,
   memberPermissions, roleOf, setMemberRole,
 } from './members.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
@@ -70,6 +70,11 @@ test('the member-table buttons: an admin gets Change role, everyone else gets no
 test('only an admin may manage members', () => {
   assert.equal(mayManageMembers('admin'), true);
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null] as const) assert.equal(mayManageMembers(role), false, String(role));
+});
+
+test('only an admin may open the Admin area; an unread role may not', () => {
+  assert.equal(mayOpenAdmin('admin'), true);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) assert.equal(mayOpenAdmin(role), false, String(role));
 });
 
 test('a member with no role recorded is a contributor', async () => {
