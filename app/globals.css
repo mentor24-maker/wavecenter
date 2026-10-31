@@ -42,6 +42,17 @@
  *   --accent 5.4 /  7.4
  *   --error  4.8 /  6.1
  *   --line   3.6 /  4.1   (the gold hairline)
+ *
+ * A done task's row (Dane, 2026-10-31: "make the background color for Done
+ * items a light grey. Make the Done title black.") sits on --done-bg, a
+ * neutral grey, with its title in --done-fg: black in light mode, the usual
+ * --fg in dark mode, where the grey is a step lighter than the page.
+ * Measured contrast on --done-bg (light #e6e6e6 / dark #2a2f31):
+ *   --done-fg 16.8 / 12.2
+ *   --muted    6.9 /  7.8
+ *   --accent   5.7 /  8.4
+ *   --error    6.6 /  7.0
+ *   --line     3.4 /  4.6   (the gold hairline)
  */
 :root {
   --level-0: #f2fbfe;
@@ -51,6 +62,8 @@
   --add-bg: #8ccfeb;
   --add-accent: #004d68;
   --add-line: #7d5c10;
+  --done-bg: #e6e6e6;
+  --done-fg: #000000;
   --bg: var(--level-0);
   --surface: var(--level-0);
   --field: #ffffff;
@@ -75,6 +88,8 @@
     --add-bg: #0e3a56;
     --add-accent: var(--accent);
     --add-line: var(--line);
+    --done-bg: #2a2f31;
+    --done-fg: var(--fg);
     --field: #03131a;
     --fg: #e4f6f9;
     --muted: #a6cbd3;
@@ -148,6 +163,8 @@ html, body {
 /* The member's name sits directly above Sign out. */
 .who .name { color: #fff; font-size: 0.8rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who .account button.quiet { font-size: 0.8rem; }
+/* Signed out, the two ways in sit side by side. */
+.way-in { display: flex; align-items: center; gap: 0.85rem; }
 /* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
 /* A browser drops the bar's shadow on buttons; Sign out needs it on the picture too. */
@@ -263,8 +280,8 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 .add textarea { height: 3.4rem; }
 
 .tasks {
-  --tasks-pad: var(--space);
-  list-style: none; padding: 0 var(--tasks-pad); margin: 0;
+  --pad-x: var(--space);
+  list-style: none; padding: 0 var(--pad-x); margin: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
 }
 /* Each task is a row of columns: AI, Title, Priority, Points, Created,
@@ -277,7 +294,14 @@ button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default
 }
 .task:last-child { border-bottom: 0; }
 .task.sub .col-title { padding-left: 1.5rem; border-left: 2px solid var(--line); }
-.task.done .col-title .title { text-decoration: line-through; color: var(--muted); }
+/* A done row's grey runs the full width of the list box (out over its side
+   padding), rounding with the box at the bottom. */
+.task.done {
+  background: var(--done-bg);
+  margin: 0 calc(-1 * var(--pad-x)); padding-left: var(--pad-x); padding-right: var(--pad-x);
+}
+.task.done:last-child { border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px); }
+.task.done .col-title .title { color: var(--done-fg); }
 /* Shown only because a sub-task of it matches the filter. */
 .task.context { opacity: 0.55; }
 .task input[type="checkbox"] { width: 1.15rem; height: 1.15rem; margin: 0; accent-color: var(--accent); }
@@ -314,7 +338,7 @@ button.sort:hover { color: var(--fg); }
    table's own bar is with the table rules below. */
 .task.head {
   background: #015f80; color: #fff; font-weight: 700; border-bottom: 0;
-  margin: 0 calc(-1 * var(--tasks-pad)); padding: 0.45rem var(--tasks-pad);
+  margin: 0 calc(-1 * var(--pad-x)); padding: 0.45rem var(--pad-x);
   border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
 }
 .task.head .note, .task.head .cell small { color: #fff; }
@@ -369,7 +393,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   main { padding: 0.75rem 0.75rem calc(var(--space) * 2); }
   .site-inner { padding: 0.6rem 0.75rem; }
   h1 { font-size: 1.5rem; }
-  .tasks { --tasks-pad: 0.75rem; }
+  .tasks { --pad-x: 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
   /* Five menu items leave no room for the name on a phone: the logo alone
@@ -504,3 +528,43 @@ ul.plain { list-style: none; padding: 0; margin: 0 0 var(--space); }
 ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
 .task-discussion .discussion > h3 { display: none; }
+
+/* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
+   the whole screen, the logo top left, the introduction left-middle and the
+   log-in form on the right. The picture is darkened behind the white
+   introduction: at 0.6 the brightest gold in it falls to about 15% luminance,
+   which keeps white text above 4.5:1 (plus a shadow). On a wide screen the
+   form's side needs less, because the form sits on its own solid panel. On a
+   phone the two stack, introduction first, and the darkening is even. */
+.landing {
+  min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column;
+  color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+  background:
+    linear-gradient(rgb(8 28 44 / 0.6), rgb(8 28 44 / 0.6)),
+    #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+}
+@media (min-width: 56rem) {
+  .landing {
+    background:
+      linear-gradient(90deg, rgb(8 28 44 / 0.7), rgb(8 28 44 / 0.6) 55%, rgb(8 28 44 / 0.3)),
+      #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+  }
+}
+.landing-top { width: 100%; max-width: 90rem; margin: 0 auto; padding: 1rem var(--space); }
+.landing .brand:focus-visible { outline-color: #fff; }
+/* No menu shares the top here, so the name stays beside the logo on a phone too. */
+.landing .brand span { display: inline; }
+.landing-body {
+  flex: 1; width: 100%; display: grid; grid-template-columns: 1fr; align-content: center;
+  gap: calc(var(--space) * 2); padding-top: var(--space);
+}
+@media (min-width: 56rem) {
+  .landing-body { grid-template-columns: minmax(0, 1.3fr) minmax(20rem, 1fr); align-items: center; gap: calc(var(--space) * 4); }
+}
+.landing-intro { max-width: 38rem; font-size: 1.1rem; }
+.landing-intro h1 { font-size: clamp(2rem, 4vw, 3rem); margin-bottom: var(--space); }
+.landing-intro a { color: #fff; }
+/* The form keeps the site's normal colours on its own panel, not the picture's. */
+.landing-form { color: var(--fg); text-shadow: none; max-width: 28rem; width: 100%; justify-self: end; padding: 1.25rem 1.5rem; }
+.landing-form .stack { max-width: none; margin-bottom: 0; border: 0; padding: 0; background: none; }
+@media (max-width: 55.99rem) { .landing-form { justify-self: stretch; max-width: none; } }

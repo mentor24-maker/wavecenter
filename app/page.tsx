@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { mayDo, ROLES, type RoleKey } from "../core/members.ts";
+import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
-import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "./lib/supabase";
+import { currentUser, supabaseForRequest } from "./lib/supabase";
 import { shownName } from "./members/memberView";
 import Mission from "./Mission";
+import SignInForm from "./sign-in/SignInForm";
 import SiteHeader from "./SiteHeader";
 
 /** How many of the newest members Home shows. */
@@ -25,40 +26,49 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * Signed out: the placeholder page, which says what this is, plus a way to
- * sign in. Signed in: Home, a dashboard of boxes (Dane, 2026-10-29): About
+ * Signed out: the landing page (Dane, 2026-10-31): his water-drop picture
+ * across the whole screen, the logo top left, an introduction on the left
+ * and the log-in form on the right, the same form `/sign-in` shows. On a
+ * phone the introduction sits above the form. Signed in: Home, a dashboard
+ * of boxes (Dane, 2026-10-29): About
  * WaveCenter and What is a DEO (callouts to their own pages), the tasks
  * being worked on right now, the leaderboard (a placeholder until it works),
  * and the newest members. Each box that could not be read says so on its
  * own, and an empty box says why (engineering rule 7). The task list itself
  * is at `/tasks`.
  */
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   if (supabase && user) return <Dashboard supabase={supabase} user={user} />;
+  const { error } = await searchParams;
 
   return (
-    <>
-      <SiteHeader />
-      <main>
-        <h1>WaveCenter</h1>
-        <p className="lede">The hub of the DEO movement. Coming soon.</p>
-        <Mission />
-        <p className="note">
-          Today it is a simple to-do list. It will become a project management tool,
-          then the platform the DEO builds itself with.
-        </p>
-        {checkFailed && (
-          <p className="error" role="alert">
-            {SIGN_IN_CHECK_FAILED}
+    <div className="landing">
+      <header className="landing-top">
+        <Link href="/" className="brand" aria-label="WaveCenter home">
+          {/* The same rings and name as the bar on every other page; the picture behind the page is set in globals.css. */}
+          <img className="mark" src="/brand/mark.png" alt="" width={54} height={54} />
+          <span>
+            Wave<b>Center</b>
+          </span>
+        </Link>
+      </header>
+      <main className="landing-body">
+        <section className="landing-intro">
+          <h1>The hub of the DEO movement</h1>
+          <Mission />
+          <p>
+            Today it is a simple to-do list. It will become a project management tool,
+            then the platform the DEO builds itself with.
           </p>
-        )}
-        <p>
-          <Link href="/sign-in" className="button">Log in</Link>
-        </p>
+        </section>
+        <section className="landing-form panel" aria-labelledby="log-in-heading">
+          <h2 id="log-in-heading">Log in or join</h2>
+          <SignInForm from="/" error={error} checkFailed={checkFailed} />
+        </section>
       </main>
-    </>
+    </div>
   );
 }
 
@@ -74,7 +84,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
       <main>
         <h1>Home</h1>
         <div className="dashboard">

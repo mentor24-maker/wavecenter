@@ -7,7 +7,7 @@
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core.
  */
-import { isRole, roleOf, type MemberRoleStore, type RoleKey } from "../../core/members.ts";
+import { isRole, mayOpenAdmin, roleOf, type MemberRoleStore, type RoleKey } from "../../core/members.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -35,6 +35,18 @@ export function supabaseMemberRoleStore(supabase: Client): MemberRoleStore {
 /** The signed-in member's own role. Read failures throw, so a caller can say so. */
 export function myRole(supabase: Client, memberId: string): Promise<RoleKey> {
   return roleOf(supabaseMemberRoleStore(supabase), memberId);
+}
+
+/**
+ * For the header: may the signed-in member open the Admin area? A role that
+ * could not be read counts as no, so the Admin link never shows by mistake.
+ */
+export async function headerIsAdmin(supabase: Client, memberId: string): Promise<boolean> {
+  try {
+    return mayOpenAdmin(await myRole(supabase, memberId));
+  } catch {
+    return false;
+  }
 }
 
 /** One row of the Members page: only what each member's profile lets other members see. */
