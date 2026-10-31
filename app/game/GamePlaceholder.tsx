@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { headerName } from "../lib/memberProfileStore";
+import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import GameMenu, { type GamePage } from "./GameMenu";
@@ -17,11 +18,13 @@ export default async function GamePlaceholder({ current, message }: { current: G
 
   if (supabase && !user && !checkFailed) redirect("/sign-in");
 
-  const name = supabase && user ? await headerName(supabase, user) : null;
+  const [name, isAdmin] = supabase && user
+    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id)])
+    : [null, false];
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>Game</h1>
         <GameMenu current={current} />

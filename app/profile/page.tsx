@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
 import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
+import { headerIsAdmin } from "../lib/memberRoleStore";
 import SiteHeader from "../SiteHeader";
 import PrivacySummary from "./PrivacySummary";
 import ProfileForm from "./ProfileForm";
@@ -33,6 +34,7 @@ export default async function Profile() {
     );
   }
 
+  const isAdmin = await headerIsAdmin(supabase, user.id);
   let profile: MemberProfile | null = null;
   let neverSaved = false;
   let readError: string | null = null;
@@ -46,7 +48,7 @@ export default async function Profile() {
 
   return (
     <>
-      <SiteHeader name={profile?.displayName?.trim() || (user.email ?? "you")} />
+      <SiteHeader name={profile?.displayName?.trim() || (user.email ?? "you")} isAdmin={isAdmin} />
       <main>
         <h1>Your profile</h1>
         <p className="lede">
