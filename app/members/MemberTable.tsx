@@ -83,7 +83,7 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
             {sortHeading("name", "Member")}
             {sortHeading("joined", "Joined")}
             {sortHeading("role", "Role")}
-            {actions.length > 0 && <th scope="col">Actions</th>}
+            {actions.length > 0 && <th scope="col" className="actions">Actions</th>}
           </tr>
         </thead>
         <tbody>
