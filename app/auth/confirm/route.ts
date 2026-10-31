@@ -1,14 +1,17 @@
 /**
- * Where the link in the sign-in email lands. It trades the one-time code in
- * the link for a session cookie, then sends the member to their tasks.
+ * Where the links in WaveCenter's emails land: the confirm-your-address email
+ * sent on registering, and the set-a-new-password email. It trades the
+ * one-time code in the link for a session cookie, then sends the member on:
+ * a reset link to the set-a-new-password page, everything else home.
  *
  * Supabase's default email sends `?code=` (the PKCE flow: the code only works
- * in the browser that asked for the link). A customised email template may
- * send `?token_hash=&type=` instead; both are accepted.
+ * in the browser that registered or asked for the reset). A customised email
+ * template may send `?token_hash=&type=` instead; both are accepted.
  */
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseForRequest } from "../../lib/supabase";
+import { afterEmailLink } from "../authErrors";
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -16,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   // Supabase itself reports an expired or already-used link this way.
   if (params.get("error") || params.get("error_code")) {
-    console.error(`sign-in link refused by Supabase: ${params.get("error_code")} ${params.get("error_description")}`);
+    console.error(`email link refused by Supabase: ${params.get("error_code")} ${params.get("error_description")}`);
     return to("/sign-in?error=expired");
   }
 
@@ -34,8 +37,8 @@ export async function GET(request: NextRequest) {
       : { error: new Error("the link had no code in it") };
 
   if (error) {
-    console.error(`sign-in link failed: ${error.message}`);
+    console.error(`email link failed: ${error.message}`);
     return to("/sign-in?error=link");
   }
-  return to("/");
+  return to(afterEmailLink(params.get("next"), type));
 }
