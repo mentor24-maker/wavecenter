@@ -37,6 +37,7 @@ export const PERMISSIONS = [
   { key: 'member.edit', label: 'Change member roles' },
   { key: 'team.read', label: 'View teams' },
   { key: 'team.edit', label: 'Manage teams' },
+  { key: 'game.edit', label: 'Manage game scoring' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
@@ -46,9 +47,11 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * (Dane, 2026-10-29: "Only admins will get edit/delete functionality under
  * the Actions column. Other members get view functionality"). Every member
  * views the teams; admins and editors manage them (Dane, 2026-10-30, "B").
+ * Only an admin manages the game's scoring rules (core/game.ts,
+ * `changeScoringRule`).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit'],
   editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit'],
   contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read'],
   reviewer: ['task.read', 'member.read', 'team.read'],

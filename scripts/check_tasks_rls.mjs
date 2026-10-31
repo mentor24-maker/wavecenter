@@ -16,9 +16,12 @@
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); and that the game layer
  * scores every change while letting each member read only their own
- * engagements and nobody write them (`public.engagements`); and that every
- * member reads the Evolution rows and screenshots but only the service key
- * writes them (`public.evolution_entries` and the private `evolution` bucket).
+ * engagements and nobody write them (`public.engagements`); that only an
+ * admin changes a scoring rule or adds an action, through the database's own
+ * functions, with the change counting from the next engagement
+ * (`public.game_scoring_rules`); and that every member reads the Evolution
+ * rows and screenshots but only the service key writes them
+ * (`public.evolution_entries` and the private `evolution` bucket).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -38,7 +41,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -88,6 +91,25 @@ async function makeUser(tag) {
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
   const token = signin.json.access_token;
   return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token, ownerId: made.json.id }) };
+}
+
+/** A ScoringRuleStore (core/game.ts) over REST, acting as one member. */
+function scoringStore(member) {
+  const save = async (fn, kindParam, kind, fields, tool) => {
+    const got = await call(`/rest/v1/rpc/${fn}`, {
+      method: 'POST', token: member.token,
+      body: { [kindParam]: kind, new_name: fields.name, new_description: fields.description, new_criteria: fields.criteria, new_points: fields.points, tool },
+    });
+    if (got.status >= 300) throw new Error(`${fn} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return got.json;
+  };
+  return {
+    async rules() {
+      return (await call('/rest/v1/game_scoring_rules?select=*&order=position', { token: member.token })).json ?? [];
+    },
+    update: (kind, fields, tool) => save('update_scoring_rule', 'rule_kind', kind, fields, tool),
+    add: (kind, fields, tool) => save('add_scoring_rule', 'new_kind', kind, fields, tool),
+  };
 }
 
 /** A MemberSettingsStore (core/agents.ts) over REST, acting as one member. */
@@ -740,6 +762,72 @@ try {
   const anonEng = await call('/rest/v1/engagements?select=kind');
   const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
   check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);
+
+  // Game management (20261031140000_game_scoring_admin.sql): only a role with
+  // game.edit (admin; A is one, B a viewer) changes a rule or adds an action,
+  // only through update_scoring_rule / add_scoring_rule; a change counts from
+  // the next engagement; what was earned keeps its points. Whatever this
+  // changes is put back below, so the rules end as they started.
+  const ruleRow = async (kind) => (await admin(`/rest/v1/game_scoring_rules?kind=eq.${kind}&select=kind,name,description,criteria,points,position,tool,changed_by`)).json?.[0];
+  const original = await ruleRow('made_task');
+  const addedName = `RLS check ${[...randomBytes(6)].map((n) => String.fromCharCode(97 + (n % 26))).join('')}`;
+  const addedKind = addedName.toLowerCase().replace(/[^a-z]+/g, '_');
+  try {
+    const rpcBody = (extra = {}) => ({ rule_kind: 'made_task', new_name: original.name, new_description: original.description, new_criteria: original.criteria, new_points: 1000, tool: TOOL, ...extra });
+    const addBody = { new_kind: addedKind, new_name: addedName, new_description: '', new_criteria: '', new_points: 2, tool: TOOL };
+    const byB = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: b.token, body: rpcBody() });
+    const addByB = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: b.token, body: addBody });
+    const byAnon = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', body: rpcBody() });
+    check('a non-admin cannot change a scoring rule or add an action through the database', byB.status >= 400 && addByB.status >= 400 && byAnon.status >= 400,
+      `HTTP ${byB.status} ${byB.json?.message ?? ''} / ${addByB.status} / signed out ${byAnon.status}`);
+    const bumpRuleB = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { points: 1000 } });
+    const forgeRule = await call('/rest/v1/game_scoring_rules', { method: 'POST', token: a.token, body: { kind: 'forged_rule', name: 'Forged', points: 1000 } });
+    const wipeRule = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+    check('not even an admin writes or deletes a rule directly through the API', [bumpRuleB, wipeRule].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)) && forgeRule.status >= 400,
+      `PATCH ${bumpRuleB.status} / POST ${forgeRule.status} / DELETE ${wipeRule.status}`);
+    const negative = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ new_points: -1 }) });
+    const noPoints = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ new_points: null }) });
+    const noToolRule = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ tool: ' ' }) });
+    check('negative or missing points, and no tool, are refused even for an admin', [negative, noPoints, noToolRule].every((r) => r.status >= 400), `HTTP ${negative.status} / ${noPoints.status} / ${noToolRule.status}`);
+    check('and nothing refused was saved', (await ruleRow('made_task'))?.points === original.points, JSON.stringify(await ruleRow('made_task')));
+
+    let refusedRule = '';
+    try {
+      await changeScoringRule(scoringStore(b), { role: 'viewer' }, { ...original, points: 1000 }, TOOL);
+    } catch (err) {
+      refusedRule = err.message;
+    }
+    check('a non-admin cannot change a rule through core either', /Only an admin/.test(refusedRule), refusedRule || 'the change went through');
+
+    const madeBefore = (await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_task&select=points`, { token: a.token })).json ?? [];
+    const changed = await changeScoringRule(scoringStore(a), { role: 'admin' }, { ...original, points: original.points + 2 }, TOOL);
+    const stored = await ruleRow('made_task');
+    check('an admin changes a rule through core, and the database records who and with which tool',
+      changed.after.points === original.points + 2 && stored?.points === original.points + 2 && stored?.tool === TOOL && stored?.changed_by === a.id, JSON.stringify(stored));
+    await createTask(a.store, { title: 'Worth more now' }, TOOL);
+    const madeAfter = (await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_task&select=points&order=created_at`, { token: a.token })).json ?? [];
+    check('the next engagement earns the new value; earlier ones keep theirs',
+      madeAfter.length === madeBefore.length + 1 && madeAfter.at(-1)?.points === original.points + 2 && madeAfter.slice(0, -1).every((e) => e.points === original.points),
+      JSON.stringify(madeAfter));
+
+    const added = await addScoringRule(scoringStore(a), { role: 'admin' }, { name: addedName, points: 2 }, TOOL);
+    const listed = (await call('/rest/v1/game_scoring_rules?select=kind,position&order=position', { token: b.token })).json ?? [];
+    check('an admin adds a new action through core; every member sees it, last in the list',
+      added.kind === addedKind && listed.at(-1)?.kind === addedKind && listed.at(-1)?.position === listed.length, JSON.stringify(listed.slice(-2)));
+    const again = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: a.token, body: addBody });
+    const badKind = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: a.token, body: { ...addBody, new_kind: 'Bad-Kind1' } });
+    check('the same action cannot be added twice, and a kind must be a to z and _', again.status >= 400 && badKind.status >= 400, `HTTP ${again.status} / ${badKind.status}`);
+    const earned = (await call(`/rest/v1/engagements?kind=eq.${addedKind}&select=id`, { token: a.token })).json ?? [];
+    check('a new action earns nothing until it is wired in', Array.isArray(earned) && earned.length === 0, JSON.stringify(earned));
+  } finally {
+    const { kind, position, tool, changed_by, ...wording } = original ?? {};
+    const restored = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { ...wording, tool, changed_by } });
+    const removed = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'DELETE' });
+    if (restored.status >= 300 || removed.status >= 300) {
+      failures += 1;
+      console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} by hand`);
+    }
+  }
 
   // task_votes: any member votes on any task, only ever through their own
   // vote, and the database makes the average the task's points and priority.
