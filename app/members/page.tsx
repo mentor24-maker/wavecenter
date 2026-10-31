@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { STARTING_ROLE_PERMISSIONS, mayDo, memberActions, ROLES } from "../../core/members.ts";
+import { STARTING_ROLE_PERMISSIONS, mayDo, mayOpenAdmin, memberActions, ROLES } from "../../core/members.ts";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -61,7 +61,7 @@ export default async function Members() {
   if (!mayView) {
     return (
       <>
-        <SiteHeader name={name} />
+        <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
         <main>
           <h1>Members</h1>
           {role.error !== null ? (
@@ -82,7 +82,7 @@ export default async function Members() {
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
       <main>
         <h1>Members</h1>
         <p className="lede">
