@@ -7,6 +7,33 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
+
+WaveCenter now has the camera and the photo album for its own history.
+The album is a new private table and picture store on the live database,
+which every signed-in member can look at and nobody can change from the
+browser. The camera is a script on the Mac Mini. For any past change it
+rebuilds that old version of WaveCenter, fills a private local copy of the
+database with the real tasks, members and points as they stood the moment
+that change went live, signs in as Dane, and takes a picture of the screen
+the change touched. Then it wipes the local copy, so real member data never
+lingers there. The old version never sees a live key, and live data is only
+ever read. After this merges, the camera runs once over every change since
+the first commit. Two follow-up tickets then add a picture on every merge
+and a page where members scroll through them.
+
+## 2026-10-31 — Database changes can go live again when Dane writes merge (#78)
+
+Since 29 October, every pull request that changed the database was refused
+by the merge lane, even after Dane wrote `merge`, and five tickets were
+stuck waiting. The cause: the Supabase tool only gives its tidy,
+machine-readable answer when it thinks an AI assistant is running it. The
+merge lane runs on the Mac Mini on a timer with no assistant, so the tool
+answered in plain English and the lane could not read it. The lane now reads
+the plain-English answer too, and always runs the tool the same way, so what
+a Claude session tests is exactly what the lane sees. If the answer is
+anything it does not recognise, it still refuses rather than guess.
+
 ## 2026-10-31 — The top banner is taller, with a bigger logo and name (#77)
 
 Dane asked for the bar across the top of every page to stand out more. It
@@ -62,6 +89,20 @@ box to log in with email and password is right there on the right, with the
 a mistyped email is explained on the home page itself. The home page and the
 separate log-in page now share one form, so their wording can never drift
 apart. On a phone, the introduction sits above the form.
+
+## 2026-10-31 — A Team Manager page: group members into teams (#73)
+
+Dane can now group members into teams. A new **Teams** page (in the header
+menu) lists every team with its name, a short web-address name called a
+slug, a description and how many members it has; clicking a team shows who
+is on it. Admins and editors, the choice Dane made on the ticket, can make,
+change and delete teams and add or take members off them; everyone else can
+look but sees no buttons. Members on a team are shown exactly as their own
+privacy setting allows: a private member appears only as "Anonymous member",
+and no email address ever shows. Deleting a team never deletes anyone's
+account. The two new database tables were locked down from the moment they
+were made, and sixteen new automatic checks prove a member without
+permission cannot change them.
 
 ## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
 
@@ -153,6 +194,18 @@ edited, or is unticked and ticked again. A hand-off pass may now run for 15
 minutes instead of two hours (a working one takes a minute or two), so a
 frozen pass costs minutes. Build and review keep their two-hour limit.
 
+## 2026-10-30 — New tasks from members who are not admins wait for an admin's approval (#60)
+
+Until now, any member could add a task and it went straight into the work
+pile, where it could be ticked off or handed to the AI agents. Now a task
+added by anyone who is not an admin starts as Proposed. The member who
+added it is told so straight away, under the add form and on the task's own
+page. A proposed task cannot be ticked off or sent to the AI agents. An
+admin sees an Approve button on it, and one click makes it a normal to-do.
+The database enforces the same rule, so nobody can get around it by going
+past the website. Admins' own tasks start as to-do, as before. This matters
+because Dane, as admin, now decides what actually gets worked on.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested
@@ -172,6 +225,19 @@ them and switches the filter to Any status (Dane's choice), and clicking it
 again folds them away. "Clear filters" now goes back to this starting view.
 This matters because the list was growing a long tail of finished work that
 pushed the open tasks out of the way.
+
+## 2026-10-30 — An admin can now set what each action is worth, and add new actions, on a Game management screen (#57)
+
+What each action earns (1 point for making a task, 5 for finishing one, and
+so on) used to change only through a code change. Now an admin opens
+**Manage** in the Game menu and changes any action's name, wording
+and points. The new value counts from the next time someone does it, and
+points already earned keep their old value. An admin can also add a brand-new
+action, as Dane chose; it shows as "Not active yet" and earns nothing until
+an agent wires it into WaveCenter. Every working action shows the piece of
+code that triggers it and the test that proves it, so anyone can check.
+Only admins see Manage in the menu or can do any of this; anyone else who
+opens the page is told only an admin may, and the database refuses them too.
 
 ## 2026-10-30 — Agents can read the DEO whitepaper from the repository (#59)
 
@@ -195,6 +261,8 @@ word for word. Anyone can read that page, signed in or not. This matters
 because the profile page asks members what to share; now it also tells them
 why WaveCenter starts them hidden, without sending them off to another site.
 
+---
+
 ## 2026-10-30 — The Game area gets a menu: My Points, Leaderboard and Manage (#56)
 
 The Game page now has a small menu under its heading with three choices.
@@ -204,6 +272,8 @@ are new pages that, for now, say in one plain sentence that they are coming
 in a later task, so they never look blank or broken. The menu underlines the
 page you are on. This gives the later leaderboard and game-management work
 a place to land.
+
+---
 
 ## 2026-10-30 — WaveCenter gets a Home page; the task list moves to its own Tasks page (#54)
 

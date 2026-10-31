@@ -35,7 +35,7 @@ function fakeDb(store, agentsOn = ['member-1']) {
 }
 
 async function ticked(store, title, priority = 'normal') {
-  const t = await createTask(store, { title, priority }, 'wavecenter');
+  const t = await createTask(store, { title, priority }, 'wavecenter', 'admin');
   await new Promise((r) => setTimeout(r, 2)); // distinct created times
   return updateTask(store, t.id, { agentSelected: true }, 'wavecenter');
 }

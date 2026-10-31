@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, deleteTask, updateTask } from './tasks.ts';
+import { approveTask, createTask, deleteTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
 test('createTask fills in the defaults and records the tool', async () => {
   const store = new MemoryTaskStore('dane');
-  const task = await createTask(store, { title: '  Buy milk ' }, 'wavecenter');
+  const task = await createTask(store, { title: '  Buy milk ' }, 'wavecenter', 'admin');
   assert.equal(task.title, 'Buy milk');
   assert.equal(task.status, 'todo');
   assert.equal(task.points, 0);
@@ -36,7 +36,7 @@ test('createTask refuses a missing tool, a blank title, a bad status and bad poi
 
 test('updateTask changes the record and stamps the tool that changed it', async () => {
   const store = new MemoryTaskStore();
-  const task = await createTask(store, { title: 'Buy milk' }, 'wavecenter');
+  const task = await createTask(store, { title: 'Buy milk' }, 'wavecenter', 'admin');
   const done = await updateTask(store, task.id, { title: 'Buy oat milk', status: 'done' }, 'phone-app');
   assert.equal(done.title, 'Buy oat milk');
   assert.equal(done.status, 'done');
@@ -117,4 +117,53 @@ test('createTask saves details, a parent and a priority given together, and upda
   assert.equal(task.tool, 'wavecenter');
   const cleared = await updateTask(store, task.id, { notes: null }, 'wavecenter');
   assert.equal(cleared.notes, null);
+});
+
+test('a task added by anyone but an admin starts as proposed; an admin\'s starts as todo', async () => {
+  const store = new MemoryTaskStore();
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) {
+    assert.equal((await createTask(store, { title: `By a ${role}` }, 'wavecenter', role)).status, 'proposed');
+  }
+  assert.equal((await createTask(store, { title: 'No role given' }, 'wavecenter')).status, 'proposed');
+  assert.equal((await createTask(store, { title: 'By an admin' }, 'wavecenter', 'admin')).status, 'todo');
+  await assert.rejects(createTask(store, { title: 'Skip the queue', status: 'todo' }, 'wavecenter', 'contributor'), /Only an admin/);
+  assert.equal(store.rows.size, 6);
+});
+
+test('a proposed task keeps its status and cannot go to AI agents until it is approved', async () => {
+  const store = new MemoryTaskStore();
+  const task = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
+  await assert.rejects(updateTask(store, task.id, { status: 'done' }, 'wavecenter'), /still Proposed. An admin needs to approve it/);
+  await assert.rejects(updateTask(store, task.id, { status: 'todo' }, 'wavecenter'), /still Proposed/);
+  await assert.rejects(updateTask(store, task.id, { agentSelected: true }, 'wavecenter'), /cannot be handed to AI agents until an admin approves it/);
+  const renamed = await updateTask(store, task.id, { title: 'Better idea', priority: 'high' }, 'wavecenter');
+  assert.equal(renamed.status, 'proposed', 'other changes still save, and leave it proposed');
+  assert.equal(renamed.agentSelected, false);
+  const approved = await createTask(store, { title: 'Plan' }, 'wavecenter', 'admin');
+  await assert.rejects(updateTask(store, approved.id, { status: 'proposed' }, 'wavecenter'), /only when it is added/);
+});
+
+test('only an admin approves a proposed task, which becomes todo; anyone else is refused and nothing changes', async () => {
+  const store = new MemoryTaskStore();
+  const task = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) {
+    await assert.rejects(approveTask(store, task.id, role, 'wavecenter'), (err: Error) =>
+      err instanceof CoreError && /Only an admin can approve/.test(err.message));
+  }
+  assert.equal((await store.get(task.id))?.status, 'proposed');
+  await assert.rejects(approveTask(store, task.id, 'admin', ''), /must name the tool/);
+  const approved = await approveTask(store, task.id, 'admin', 'wavecenter');
+  assert.equal(approved.status, 'todo');
+  assert.equal(approved.tool, 'wavecenter');
+  await assert.rejects(approveTask(store, task.id, 'admin', 'wavecenter'), /no longer proposed/);
+  await assert.rejects(approveTask(store, 'task-404', 'admin', 'wavecenter'), /no longer proposed/);
+  const ticked = await updateTask(store, task.id, { agentSelected: true }, 'wavecenter');
+  assert.equal(ticked.agentSelected, true, 'once approved it can go to AI agents');
+});
+
+test('an approval that does not land says so', async () => {
+  const store = new MemoryTaskStore();
+  const task = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
+  store.approve = async () => ({ ...(await store.get(task.id))! });
+  await assert.rejects(approveTask(store, task.id, 'admin', 'wavecenter'), /did not save/);
 });

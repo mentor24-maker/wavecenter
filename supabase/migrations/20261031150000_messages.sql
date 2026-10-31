@@ -27,7 +27,7 @@
 -- rows already there.
 
 insert into public.permissions (key, label, position) values
-  ('member.message', 'Message members', 7)
+  ('member.message', 'Message members', 10)
 on conflict (key) do nothing;
 
 insert into public.role_permissions (role, permission) values

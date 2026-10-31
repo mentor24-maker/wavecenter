@@ -113,7 +113,7 @@ test('an email result that does not record still reports the email truthfully', 
 });
 
 test('the migration turns on row-level security in the same file that makes the table', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261031120000_messages.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261031150000_messages.sql', import.meta.url), 'utf8');
   const made = sql.indexOf('create table if not exists public.messages');
   const secured = sql.indexOf('alter table public.messages enable row level security');
   assert.ok(made >= 0 && secured > made);

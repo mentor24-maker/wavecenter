@@ -13,9 +13,18 @@
  * their own role row, every member lists the members, and only an admin
  * changes a role
  * (`public.member_roles`); that only an admin sends a message, and only its
- * sender and recipient read it (`public.messages`); and that the game layer
+ * sender and recipient read it (`public.messages`); that every member reads the teams and their
+ * members (each shown only as their profile allows) but only an admin or an
+ * editor changes them (`public.teams`, `public.team_members`); that a task
+ * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
+ * and only an admin approves it (`approve_task`); and that the game layer
  * scores every change while letting each member read only their own
- * engagements and nobody write them (`public.engagements`).
+ * engagements and nobody write them (`public.engagements`); that only an
+ * admin changes a scoring rule or adds an action, through the database's own
+ * functions, with the change counting from the next engagement
+ * (`public.game_scoring_rules`); and that every member reads the Evolution
+ * rows and screenshots but only the service key writes them
+ * (`public.evolution_entries` and the private `evolution` bucket).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -35,11 +44,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
 import { setMemberRole } from '../core/members.ts';
+import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
-import { createTask, deleteTask, updateTask } from '../core/tasks.ts';
+import { approveTask, createTask, deleteTask, updateTask } from '../core/tasks.ts';
 import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
 
@@ -84,6 +94,25 @@ async function makeUser(tag) {
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
   const token = signin.json.access_token;
   return { tag, id: made.json.id, email, token, store: restTaskStore({ url: URL_, apiKey: ANON, token, ownerId: made.json.id }) };
+}
+
+/** A ScoringRuleStore (core/game.ts) over REST, acting as one member. */
+function scoringStore(member) {
+  const save = async (fn, kindParam, kind, fields, tool) => {
+    const got = await call(`/rest/v1/rpc/${fn}`, {
+      method: 'POST', token: member.token,
+      body: { [kindParam]: kind, new_name: fields.name, new_description: fields.description, new_criteria: fields.criteria, new_points: fields.points, tool },
+    });
+    if (got.status >= 300) throw new Error(`${fn} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return got.json;
+  };
+  return {
+    async rules() {
+      return (await call('/rest/v1/game_scoring_rules?select=*&order=position', { token: member.token })).json ?? [];
+    },
+    update: (kind, fields, tool) => save('update_scoring_rule', 'rule_kind', kind, fields, tool),
+    add: (kind, fields, tool) => save('add_scoring_rule', 'new_kind', kind, fields, tool),
+  };
 }
 
 /** A MemberSettingsStore (core/agents.ts) over REST, acting as one member. */
@@ -243,7 +272,52 @@ function roleStore(member) {
   };
 }
 
+/** A TeamStore (core/teams.ts) over REST, acting as one member. */
+function teamStore(member) {
+  const fromRow = (r) => r && { id: r.id, name: r.name, slug: r.slug, description: r.description, tool: r.tool, createdAt: r.created_at, createdBy: r.created_by };
+  const rows = (got, what) => {
+    if (got.status >= 300) throw new Error(`${what} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return Array.isArray(got.json) ? got.json : [];
+  };
+  return {
+    async get(id) {
+      return fromRow(rows(await call(`/rest/v1/teams?id=eq.${id}`, { token: member.token }), 'teams read')[0]) ?? null;
+    },
+    async slugInUse(slug, exceptId) {
+      const not = exceptId ? `&id=neq.${exceptId}` : '';
+      return rows(await call(`/rest/v1/teams?slug=eq.${slug}${not}&select=id`, { token: member.token }), 'teams slug check').length > 0;
+    },
+    async insert(fields, tool) {
+      const got = await call('/rest/v1/teams', { method: 'POST', token: member.token, prefer: 'return=representation', body: { ...fields, tool } });
+      const made = fromRow(rows(got, 'teams insert')[0]) ?? null;
+      if (made) teamIds.push(made.id);
+      return made;
+    },
+    async update(id, fields, tool) {
+      return fromRow(rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body: { ...fields, tool } }), 'teams update')[0]) ?? null;
+    },
+    async remove(id) {
+      return rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'teams delete').length > 0;
+    },
+    async hasMember(teamId, memberId) {
+      return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}&select=member_id`, { token: member.token }), 'team_members read').length > 0;
+    },
+    async addMember(teamId, memberId, tool) {
+      return rows(await call('/rest/v1/team_members', { method: 'POST', token: member.token, prefer: 'return=representation', body: { team_id: teamId, member_id: memberId, tool } }), 'team_members insert').length > 0;
+    },
+    async removeMember(teamId, memberId) {
+      return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'team_members delete').length > 0;
+    },
+  };
+}
+
 const storedPaths = [];
+const EVO_BUCKET = 'evolution';
+const evoSha = randomBytes(20).toString('hex');
+const evoPath = `check-tasks-rls-${evoSha}.png`;
+// A 1x1 transparent PNG.
+const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+const teamIds = [];
 
 const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows);
 
@@ -287,6 +361,27 @@ try {
 
   const anon = await call('/rest/v1/tasks?select=title');
   check('a signed-out visitor sees no tasks', anon.status >= 400 || (Array.isArray(anon.json) && anon.json.length === 0), `HTTP ${anon.status} ${anon.json?.message ?? JSON.stringify(anon.json)}`);
+
+  // Proposed: A and B are contributors, so their tasks wait for an admin.
+  check('a contributor’s new task starts as Proposed', insA.status === 'proposed' && insB.status === 'proposed', `A ${insA.status}, B ${insB.status}`);
+  const skip = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'B skips the queue', status: 'todo', agent_selected: true } });
+  const skipped = skip.json?.[0];
+  check('the database files a contributor’s task as Proposed and unticked, whatever the client asks', skip.status < 300 && skipped?.status === 'proposed' && skipped?.agent_selected === false,
+    `HTTP ${skip.status} ${JSON.stringify(skipped ?? skip.json)}`);
+  const selfApprove = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { status: 'todo' } });
+  check('a contributor cannot take their own task out of Proposed', selfApprove.status >= 400, `HTTP ${selfApprove.status} ${JSON.stringify(selfApprove.json)}`);
+  const tickProposed = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { agent_selected: true } });
+  check('a proposed task cannot be ticked for AI agents, even straight at the table', tickProposed.status >= 400, `HTTP ${tickProposed.status} ${JSON.stringify(tickProposed.json)}`);
+  let tickRefused = '';
+  try { await updateTask(b.store, taskB, { agentSelected: true }, TOOL); } catch (err) { tickRefused = err.message; }
+  check('core refuses to tick a proposed task too, in plain words', /until an admin approves it/.test(tickRefused), tickRefused || 'the tick went through');
+  const rpcApprove = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: b.token, body: { task: taskB, tool: TOOL } });
+  check('a contributor cannot approve a task through the database function', rpcApprove.status >= 400, `HTTP ${rpcApprove.status} ${JSON.stringify(rpcApprove.json)}`);
+  const stillProposed = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=status,agent_selected`);
+  check('B’s task is still Proposed and unticked afterwards', stillProposed.json?.[0]?.status === 'proposed' && stillProposed.json?.[0]?.agent_selected === false, JSON.stringify(stillProposed.json));
+  // Approve A's task with the service key, as an admin would, so A can finish it below.
+  const approvedA = await admin(`/rest/v1/tasks?id=eq.${insA.id}`, { method: 'PATCH', prefer: 'return=representation', body: { status: 'todo', tool: TOOL } });
+  if (approvedA.status >= 300 || approvedA.json?.[0]?.status !== 'todo') throw new Error(`could not approve A’s task: HTTP ${approvedA.status} ${JSON.stringify(approvedA.json)}`);
 
   const row = await updateTask(a.store, insA.id, { status: 'done' }, TOOL);
   check('A can finish A’s own task through core, and it is stamped done', row.status === 'done' && !!row.completedAt && row.updatedAt >= row.createdAt, `completed_at ${row.completedAt}`);
@@ -385,6 +480,10 @@ try {
   check('a non-admin cannot read another member’s role through a database function', peekRole.status >= 400 || !['admin', 'editor', 'contributor', 'reviewer', 'viewer'].includes(peekRole.json), `HTTP ${peekRole.status} ${JSON.stringify(peekRole.json)}`);
   const peekRow = await call(`/rest/v1/member_roles?member_id=eq.${a.id}&select=role`, { token: b.token });
   check('a non-admin cannot read another member’s role row', Array.isArray(peekRow.json) && peekRow.json.length === 0, `HTTP ${peekRow.status} ${JSON.stringify(peekRow.json)}`);
+  const approvedB = await approveTask(a.store, skipped.id, 'admin', TOOL);
+  check('an admin approves another member’s proposed task through core, and it becomes todo', approvedB.status === 'todo' && approvedB.ownerId === b.id && approvedB.tool === TOOL, JSON.stringify(approvedB));
+  const again = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: a.token, body: { task: skipped.id, tool: TOOL } });
+  check('approving a task that is no longer proposed changes nothing', again.status === 200 && Array.isArray(again.json) && again.json.length === 0, `HTTP ${again.status} ${JSON.stringify(again.json)}`);
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);
@@ -444,6 +543,59 @@ try {
   const aRecordsAgain = await recordRpc(a, toBRow?.id, 'failed');
   check('the sender records the email result once', aRecords.status === 200 && aRecords.json === 'sent' && aRecordsAgain.status >= 400, `first HTTP ${aRecords.status} ${JSON.stringify(aRecords.json)}, second HTTP ${aRecordsAgain.status}`);
   check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
+
+  // Teams: every role reads them and their members; only an admin or an
+  // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through
+  // core or straight at the tables. A is an admin and B a viewer by now.
+  const teamDeps = (member) => ({ teams: teamStore(member), roles: roleStore(member) });
+  const slug = `rls-check-${randomUUID().slice(0, 8)}`;
+  const teamA = await createTeam(teamDeps(a), { actorId: a.id, name: 'RLS check team', slug, description: 'Made by check_tasks_rls.' }, TOOL);
+  check('an admin makes a team through core, and it names its tool', teamA.slug === slug && teamA.tool === TOOL && teamA.createdBy === a.id, JSON.stringify(teamA));
+  const dupSlug = await call('/rest/v1/teams', { method: 'POST', token: a.token, body: { name: 'Again', slug } });
+  check('the database refuses a slug already taken', dupSlug.status === 409 || dupSlug.json?.code === '23505', `HTTP ${dupSlug.status} ${dupSlug.json?.message ?? ''}`);
+  const badSlug = await call('/rest/v1/teams', { method: 'POST', token: a.token, body: { name: 'Bad', slug: 'Not A Slug' } });
+  check('the database refuses a malformed slug', badSlug.status >= 400, `HTTP ${badSlug.status} ${badSlug.json?.message ?? ''}`);
+  const forgedMaker = await call('/rest/v1/teams', { method: 'POST', token: a.token, body: { name: 'Forged', slug: `${slug}-x`, created_by: b.id } });
+  check('nobody can record someone else as a team’s maker', forgedMaker.status >= 400, `HTTP ${forgedMaker.status} ${forgedMaker.json?.message ?? ''}`);
+  await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: a.id }, TOOL);
+  await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: b.id }, TOOL);
+
+  const teamsB = await call(`/rest/v1/teams?id=eq.${teamA.id}&select=name`, { token: b.token });
+  check('a viewer reads the teams', teamsB.status === 200 && teamsB.json?.length === 1, JSON.stringify(teamsB.json));
+  const listTeamB = await call('/rest/v1/rpc/list_team_members', { method: 'POST', token: b.token, body: {} });
+  const onTeam = (listTeamB.json ?? []).filter?.((r) => r.team_id === teamA.id) ?? [];
+  const tA = onTeam.find((r) => r.member_id === a.id);
+  const tB = onTeam.find((r) => r.member_id === b.id);
+  check('a viewer lists a team’s members', listTeamB.status === 200 && onTeam.length === 2, `HTTP ${listTeamB.status} ${JSON.stringify(listTeamB.json)?.slice(0, 200)}`);
+  check('the team list shows a public name, hides a private profile, and carries no email', tA?.display_name === 'A' && tA?.avatar === 'sun' && tB?.display_name === null && tB?.avatar === null && !JSON.stringify(listTeamB.json).includes('@'), `A ${JSON.stringify(tA)}, B ${JSON.stringify(tB)}`);
+
+  const refusedTeam = await createTeam(teamDeps(b), { actorId: b.id, name: 'Viewer team', slug: `${slug}-v`, description: null }, TOOL).then(() => '', (e) => e.message);
+  check('a viewer cannot make a team through core', /Only an admin or an editor/.test(refusedTeam), refusedTeam || 'the team was made');
+  const forgedTeam = await call('/rest/v1/teams', { method: 'POST', token: b.token, body: { name: 'Viewer team', slug: `${slug}-v` } });
+  check('a viewer cannot make a team straight at the table', forgedTeam.status >= 400, `HTTP ${forgedTeam.status} ${forgedTeam.json?.message ?? ''}`);
+  const renameB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'Hijacked' } });
+  check('a viewer cannot change a team', renameB.status >= 400 || (Array.isArray(renameB.json) && renameB.json.length === 0), `HTTP ${renameB.status} ${JSON.stringify(renameB.json)}`);
+  const dropB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('a viewer cannot delete a team', dropB.status >= 400 || (Array.isArray(dropB.json) && dropB.json.length === 0), `HTTP ${dropB.status} ${JSON.stringify(dropB.json)}`);
+  const leaveB = await call(`/rest/v1/team_members?team_id=eq.${teamA.id}&member_id=eq.${a.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  const joinB = await call('/rest/v1/team_members', { method: 'POST', token: b.token, body: { team_id: teamA.id, member_id: b.id } });
+  check('a viewer cannot change a team’s members', (leaveB.status >= 400 || leaveB.json?.length === 0) && joinB.status >= 400, `remove HTTP ${leaveB.status} ${JSON.stringify(leaveB.json)}, add HTTP ${joinB.status}`);
+  const anonTeams = await call('/rest/v1/teams?select=id');
+  const anonTeamList = await call('/rest/v1/rpc/list_team_members', { method: 'POST', body: {} });
+  check('a signed-out visitor sees no teams and cannot list their members', (anonTeams.status >= 400 || anonTeams.json?.length === 0) && anonTeamList.status >= 400, `teams HTTP ${anonTeams.status}, list HTTP ${anonTeamList.status}`);
+
+  // An editor manages teams too: make B one for a moment.
+  await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'editor' }, TOOL);
+  const edited = await updateTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id, name: 'RLS check team', slug, description: 'Changed by an editor.' }, TOOL);
+  check('an editor changes a team through core', edited.description === 'Changed by an editor.', JSON.stringify(edited));
+  await removeTeamMember(teamDeps(b), { actorId: b.id, teamId: teamA.id, memberId: b.id }, TOOL);
+  check('an editor removes a member from a team', !(await teamStore(a).hasMember(teamA.id, b.id)), 'B is still on the team');
+  await deleteTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id }, TOOL);
+  const goneTeam = await admin(`/rest/v1/teams?id=eq.${teamA.id}&select=id`);
+  const goneLinks = await admin(`/rest/v1/team_members?team_id=eq.${teamA.id}&select=member_id`);
+  const stillA2 = await admin(`/auth/v1/admin/users/${a.id}`);
+  check('deleting a team removes its member links and no member account', goneTeam.json?.length === 0 && goneLinks.json?.length === 0 && stillA2.status === 200, `team ${JSON.stringify(goneTeam.json)}, links ${JSON.stringify(goneLinks.json)}, A HTTP ${stillA2.status}`);
+  await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
 
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
@@ -600,6 +752,34 @@ try {
   const doomedLeft = Array.isArray(doomedFolder.json) ? doomedFolder.json.map((o) => o.name) : doomedFolder.json;
   check('deleting a task deletes its comments’ stored files', Array.isArray(doomedLeft) && doomedLeft.length === 0, `left in the folder ${JSON.stringify(doomedLeft)}`);
 
+  // evolution_entries and the evolution bucket: every member reads the
+  // Evolution screenshots and their rows; only the script, with the service
+  // key, writes them.
+  const evoRow = { commit_sha: evoSha, merged_at: new Date().toISOString(), title: 'check_tasks_rls test entry', page: '/', screenshot_path: evoPath, capture_state: 'captured' };
+  const evoPut = await fetch(`${URL_}/storage/v1/object/${EVO_BUCKET}/${evoPath}`, { method: 'POST', headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, 'Content-Type': 'image/png' }, body: TINY_PNG });
+  const evoIns = await admin('/rest/v1/evolution_entries', { method: 'POST', prefer: 'return=representation', body: evoRow });
+  check('the script (service key) can store a screenshot and its row', evoPut.status < 300 && evoIns.status < 300, `storage HTTP ${evoPut.status}, row HTTP ${evoIns.status} ${JSON.stringify(evoIns.json)}`);
+  const evoRead = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}&select=title`, { token: b.token });
+  check('a member can read the Evolution rows', evoRead.status === 200 && evoRead.json?.length === 1, `HTTP ${evoRead.status} ${JSON.stringify(evoRead.json)}`);
+  const evoAnon = await call(`/rest/v1/evolution_entries?select=commit_sha`);
+  check('a signed-out visitor sees no Evolution rows', evoAnon.status >= 400 || (Array.isArray(evoAnon.json) && evoAnon.json.length === 0), `HTTP ${evoAnon.status}`);
+  const evoForge = await call('/rest/v1/evolution_entries', { method: 'POST', token: a.token, body: { ...evoRow, commit_sha: randomBytes(20).toString('hex') } });
+  const evoEdit = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { title: 'changed' } });
+  const evoWipe = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('a member cannot add, change or delete an Evolution row', evoForge.status >= 400 && (evoEdit.status >= 400 || evoEdit.json?.length === 0) && (evoWipe.status >= 400 || evoWipe.json?.length === 0),
+    `add HTTP ${evoForge.status}, change HTTP ${evoEdit.status} ${JSON.stringify(evoEdit.json)}, delete HTTP ${evoWipe.status} ${JSON.stringify(evoWipe.json)}`);
+  const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });
+  check('a member can read a stored screenshot', evoObj.status === 200, `HTTP ${evoObj.status}`);
+  const evoPublic = await call(`/storage/v1/object/public/${EVO_BUCKET}/${evoPath}`);
+  const evoAnonObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`);
+  check('the evolution bucket is private: a signed-out request for a screenshot is refused', evoPublic.status >= 400 && evoAnonObj.status >= 400, `public HTTP ${evoPublic.status}, signed-out HTTP ${evoAnonObj.status}`);
+  const evoSign = await call(`/storage/v1/object/upload/sign/${EVO_BUCKET}/${a.id}-forged.png`, { method: 'POST', token: a.token, body: {} });
+  const evoUp = await fetch(`${URL_}/storage/v1/object/${EVO_BUCKET}/${a.id}-forged.png`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${a.token}`, 'Content-Type': 'image/png' }, body: TINY_PNG });
+  const evoDel = await call(`/storage/v1/object/${EVO_BUCKET}`, { method: 'DELETE', token: a.token, body: { prefixes: [evoPath] } });
+  const evoStill = await admin(`/storage/v1/object/list/${EVO_BUCKET}`, { method: 'POST', body: { prefix: '', search: evoPath } });
+  check('a member cannot upload or delete a screenshot', evoSign.status >= 400 && evoUp.status >= 400 && Array.isArray(evoStill.json) && evoStill.json.some((o) => o.name === evoPath),
+    `sign HTTP ${evoSign.status}, upload HTTP ${evoUp.status}, delete HTTP ${evoDel.status}, still stored ${JSON.stringify(evoStill.json?.map?.((o) => o.name))}`);
+
   // The game layer: every change above was scored by the database, each
   // member sees only their own engagements, and nobody can write the ledger.
   const parent = await createTask(a.store, { title: 'A’s plan' }, TOOL);
@@ -613,7 +793,7 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
     'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'deleted_task',
   ];
@@ -626,7 +806,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 18, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
@@ -650,6 +830,72 @@ try {
   const anonEng = await call('/rest/v1/engagements?select=kind');
   const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
   check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);
+
+  // Game management (20261031140000_game_scoring_admin.sql): only a role with
+  // game.edit (admin; A is one, B a viewer) changes a rule or adds an action,
+  // only through update_scoring_rule / add_scoring_rule; a change counts from
+  // the next engagement; what was earned keeps its points. Whatever this
+  // changes is put back below, so the rules end as they started.
+  const ruleRow = async (kind) => (await admin(`/rest/v1/game_scoring_rules?kind=eq.${kind}&select=kind,name,description,criteria,points,position,tool,changed_by`)).json?.[0];
+  const original = await ruleRow('made_task');
+  const addedName = `RLS check ${[...randomBytes(6)].map((n) => String.fromCharCode(97 + (n % 26))).join('')}`;
+  const addedKind = addedName.toLowerCase().replace(/[^a-z]+/g, '_');
+  try {
+    const rpcBody = (extra = {}) => ({ rule_kind: 'made_task', new_name: original.name, new_description: original.description, new_criteria: original.criteria, new_points: 1000, tool: TOOL, ...extra });
+    const addBody = { new_kind: addedKind, new_name: addedName, new_description: '', new_criteria: '', new_points: 2, tool: TOOL };
+    const byB = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: b.token, body: rpcBody() });
+    const addByB = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: b.token, body: addBody });
+    const byAnon = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', body: rpcBody() });
+    check('a non-admin cannot change a scoring rule or add an action through the database', byB.status >= 400 && addByB.status >= 400 && byAnon.status >= 400,
+      `HTTP ${byB.status} ${byB.json?.message ?? ''} / ${addByB.status} / signed out ${byAnon.status}`);
+    const bumpRuleB = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { points: 1000 } });
+    const forgeRule = await call('/rest/v1/game_scoring_rules', { method: 'POST', token: a.token, body: { kind: 'forged_rule', name: 'Forged', points: 1000 } });
+    const wipeRule = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+    check('not even an admin writes or deletes a rule directly through the API', [bumpRuleB, wipeRule].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)) && forgeRule.status >= 400,
+      `PATCH ${bumpRuleB.status} / POST ${forgeRule.status} / DELETE ${wipeRule.status}`);
+    const negative = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ new_points: -1 }) });
+    const noPoints = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ new_points: null }) });
+    const noToolRule = await call('/rest/v1/rpc/update_scoring_rule', { method: 'POST', token: a.token, body: rpcBody({ tool: ' ' }) });
+    check('negative or missing points, and no tool, are refused even for an admin', [negative, noPoints, noToolRule].every((r) => r.status >= 400), `HTTP ${negative.status} / ${noPoints.status} / ${noToolRule.status}`);
+    check('and nothing refused was saved', (await ruleRow('made_task'))?.points === original.points, JSON.stringify(await ruleRow('made_task')));
+
+    let refusedRule = '';
+    try {
+      await changeScoringRule(scoringStore(b), { role: 'viewer' }, { ...original, points: 1000 }, TOOL);
+    } catch (err) {
+      refusedRule = err.message;
+    }
+    check('a non-admin cannot change a rule through core either', /Only an admin/.test(refusedRule), refusedRule || 'the change went through');
+
+    const madeBefore = (await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_task&select=points`, { token: a.token })).json ?? [];
+    const changed = await changeScoringRule(scoringStore(a), { role: 'admin' }, { ...original, points: original.points + 2 }, TOOL);
+    const stored = await ruleRow('made_task');
+    check('an admin changes a rule through core, and the database records who and with which tool',
+      changed.after.points === original.points + 2 && stored?.points === original.points + 2 && stored?.tool === TOOL && stored?.changed_by === a.id, JSON.stringify(stored));
+    await createTask(a.store, { title: 'Worth more now' }, TOOL);
+    const madeAfter = (await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_task&select=points&order=created_at`, { token: a.token })).json ?? [];
+    check('the next engagement earns the new value; earlier ones keep theirs',
+      madeAfter.length === madeBefore.length + 1 && madeAfter.at(-1)?.points === original.points + 2 && madeAfter.slice(0, -1).every((e) => e.points === original.points),
+      JSON.stringify(madeAfter));
+
+    const added = await addScoringRule(scoringStore(a), { role: 'admin' }, { name: addedName, points: 2 }, TOOL);
+    const listed = (await call('/rest/v1/game_scoring_rules?select=kind,position&order=position', { token: b.token })).json ?? [];
+    check('an admin adds a new action through core; every member sees it, last in the list',
+      added.kind === addedKind && listed.at(-1)?.kind === addedKind && listed.at(-1)?.position === listed.length, JSON.stringify(listed.slice(-2)));
+    const again = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: a.token, body: addBody });
+    const badKind = await call('/rest/v1/rpc/add_scoring_rule', { method: 'POST', token: a.token, body: { ...addBody, new_kind: 'Bad-Kind1' } });
+    check('the same action cannot be added twice, and a kind must be a to z and _', again.status >= 400 && badKind.status >= 400, `HTTP ${again.status} / ${badKind.status}`);
+    const earned = (await call(`/rest/v1/engagements?kind=eq.${addedKind}&select=id`, { token: a.token })).json ?? [];
+    check('a new action earns nothing until it is wired in', Array.isArray(earned) && earned.length === 0, JSON.stringify(earned));
+  } finally {
+    const { kind, position, tool, changed_by, ...wording } = original ?? {};
+    const restored = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { ...wording, tool, changed_by } });
+    const removed = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'DELETE' });
+    if (restored.status >= 300 || removed.status >= 300) {
+      failures += 1;
+      console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} by hand`);
+    }
+  }
 
   // task_votes: any member votes on any task, only ever through their own
   // vote, and the database makes the average the task's points and priority.
@@ -725,6 +971,20 @@ try {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);
 } finally {
+  const evoGone = await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE' });
+  const evoObjGone = await admin(`/storage/v1/object/${EVO_BUCKET}`, { method: 'DELETE', body: { prefixes: [evoPath, `${users[0]}-forged.png`] } });
+  if (evoGone.status >= 300 || evoObjGone.status >= 300) {
+    failures += 1;
+    console.error(`could not delete the test Evolution entry ${evoSha}: row HTTP ${evoGone.status}, picture HTTP ${evoObjGone.status} — delete it by hand in the Supabase dashboard`);
+  }
+  // Deleting a user does not delete a team they made, so clear the test teams.
+  if (teamIds.length) {
+    const cleared = await admin(`/rest/v1/teams?id=in.(${teamIds.join(',')})`, { method: 'DELETE' });
+    if (cleared.status >= 300) {
+      failures += 1;
+      console.error(`could not delete the test teams ${teamIds.join(', ')}: HTTP ${cleared.status} — delete them by hand in the Supabase dashboard`);
+    }
+  }
   // Deleting a user does not delete their stored files, so clear them first.
   if (storedPaths.length) {
     const cleared = await admin(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', body: { prefixes: storedPaths } });

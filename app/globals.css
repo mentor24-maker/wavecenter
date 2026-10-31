@@ -431,6 +431,9 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
 .task .cell small { font-size: 0.7rem; color: var(--muted); }
 .task input.ai { accent-color: var(--accent); }
 .badge { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+/* A proposed task waits for an admin: a muted label, and the admin's small Approve button. */
+.badge.proposed { color: var(--muted); font-style: italic; }
+.task button.approve { padding: 0.2rem 0.55rem; font-size: 0.85rem; margin-right: 0.35rem; white-space: nowrap; }
 
 /* Attached files: pictures as small thumbnails, other files as links. A long
    file name wraps instead of pushing the page sideways on a phone. */
@@ -499,6 +502,14 @@ table.game.members th:first-child, table.game.members td:first-child { padding-l
 table.game.members th.actions { text-align: center; }
 /* The Members page's roles-and-permissions grid: space between the permission columns. */
 table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
+/* The Team Manager: a team's form and its member list, opened under its row. */
+.team-form { max-width: 32rem; margin: 0.5rem 0 var(--space); }
+.team-form h3, .team-members h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.team-form p, .team-members p { margin: 0 0 0.5rem; }
+.team-member-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
+.team-member-list li { padding: 0.2rem 0; }
+table.teams td { overflow-wrap: anywhere; }
+table.teams .num { padding-right: 1.5rem; }
 
 /* Whose a task is, under its date; and the vote line under every task. */
 .task .col-created .owner { display: block; color: var(--muted); font-size: 0.8rem; white-space: normal; }
@@ -547,6 +558,18 @@ dialog.message-form h2 { margin-top: 0; }
 dialog.message-form label { display: block; margin-bottom: 0.75rem; font-weight: 600; }
 dialog.message-form input, dialog.message-form textarea { display: block; width: 100%; margin-top: 0.25rem; font-weight: 400; }
 dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
+/* Game management: one block per action, its trigger, and its form. */
+.rules { list-style: none; padding: 0; margin: 0 0 var(--space); }
+.rule { padding: 0.75rem 0 1rem; border-bottom: 1px solid var(--line); }
+.rule h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+.trigger { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; margin: 0 0 0.5rem; font-size: 0.9rem; color: var(--muted); }
+.trigger dd { margin: 0; overflow-wrap: anywhere; }
+.rule-form { display: flex; flex-direction: column; gap: 0.35rem; max-width: 48rem; }
+.rule-form .rule-line { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.rule-form .rule-line label { display: flex; flex-direction: column; gap: 0.25rem; }
+.rule-form .rule-line .grow { flex: 1 1 16rem; }
+.rule-form .rule-line .points input { width: 6rem; }
+.rule-form p { margin: 0.25rem 0 0; }
 
 /* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
    the whole screen, the logo top left, the introduction left-middle and the

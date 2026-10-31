@@ -7,7 +7,7 @@ import { MemoryTaskStore } from './memoryTaskStore.ts';
 
 async function oneTask(points = 0) {
   const store = new MemoryTaskStore();
-  const task = await createTask(store, { title: 'Write the plan', points }, 'wavecenter');
+  const task = await createTask(store, { title: 'Write the plan', points }, 'wavecenter', 'admin');
   return { store, task };
 }
 

@@ -103,6 +103,11 @@ export function supabaseTaskStore(supabase: Client, memberId: string): TaskStore
       if (error) failed("save the change", error);
       return data?.[0] ? fromRow(data[0]) : null;
     },
+    async approve(id, tool) {
+      const { data, error } = await supabase.rpc("approve_task", { task: id, tool });
+      if (error) failed("approve the task", error);
+      return Array.isArray(data) && data[0] ? fromRow(data[0]) : null;
+    },
     async remove(id, tool) {
       const { data, error } = await supabase.from("tasks").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("delete the task", error);
