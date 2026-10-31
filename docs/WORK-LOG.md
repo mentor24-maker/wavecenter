@@ -16,6 +16,18 @@ apart from open ones without being hard to read. On a device set to dark
 mode the row is a dark grey a shade lighter than the page, with the usual
 light text. Every colour on the grey was measured to stay easy to read.
 
+## 2026-10-30 — Admins get an Admin menu item and a placeholder Admin page (#68)
+
+Admins needed a place for the powerful tools still to come. The top menu now
+shows **Admin** to members whose role is Admin, and to nobody else. It opens
+a new Admin page that, for now, says the tools are not built yet and are
+coming in later tasks. Hiding the link is not enough, because anyone can
+type the address, so the page checks the role too: another role is told,
+by name, that it may not open the Admin area. If WaveCenter can't read
+someone's role, it plays safe: no link, and the page says the role could not
+be loaded. One rule decides who counts as an admin, and the menu and the page
+share it, so they can't disagree.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
