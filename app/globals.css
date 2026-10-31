@@ -447,6 +447,14 @@ table.game .num { text-align: right; white-space: nowrap; padding-right: 0; }
 table.game .block { display: block; font-size: 0.9rem; }
 /* The Members page's roles-and-permissions grid: space between the permission columns. */
 table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
+/* The Team Manager: a team's form and its member list, opened under its row. */
+.team-form { max-width: 32rem; margin: 0.5rem 0 var(--space); }
+.team-form h3, .team-members h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.team-form p, .team-members p { margin: 0 0 0.5rem; }
+.team-member-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
+.team-member-list li { padding: 0.2rem 0; }
+table.teams td { overflow-wrap: anywhere; }
+table.teams .num { padding-right: 1.5rem; }
 
 /* Whose a task is, under its date; and the vote line under every task. */
 .task .col-created .owner { display: block; color: var(--muted); font-size: 0.8rem; white-space: normal; }
