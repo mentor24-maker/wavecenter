@@ -19,6 +19,16 @@ The database enforces the same rule, so nobody can get around it by going
 past the website. Admins' own tasks start as to-do, as before. This matters
 because Dane, as admin, now decides what actually gets worked on.
 
+## 2026-10-30 — The Tasks page opens on the work still to do (#61)
+
+The Tasks page now starts with its Status filter set to Open, so the first
+thing a member sees is what is left to do. The finished tasks sit folded
+under a "Done (N)" heading that shows how many there are; clicking it opens
+them and switches the filter to Any status (Dane's choice), and clicking it
+again folds them away. "Clear filters" now goes back to this starting view.
+This matters because the list was growing a long tail of finished work that
+pushed the open tasks out of the way.
+
 ## 2026-10-30 — Members can read how WaveCenter protects their privacy (#58)
 
 Your profile now has a box called "Your privacy on WaveCenter": a few short

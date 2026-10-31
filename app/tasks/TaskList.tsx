@@ -54,13 +54,14 @@ import AttachedFiles from "./AttachedFiles";
 import Discussion from "./Discussion";
 import { picked, screenFiles, UNREACHABLE, uploadFiles } from "./upload";
 import {
+  DEFAULT_FILTER,
   filterTasks,
   fullDate,
   isFiltering,
   nextSort,
-  NO_FILTER,
   PRIORITY_LABEL,
   sectionTasks,
+  statusShowsDone,
   shortDate,
   sortTasks,
   STATUS_FILTERS,
@@ -154,8 +155,23 @@ export default function TaskList({
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [sort, setSort] = useState<Sort>(null);
-  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const [filter, setFilter] = useState<Filter>(DEFAULT_FILTER);
   const [justProposed, setJustProposed] = useState(false);
+  // Done starts folded, so the page leads with the work still to do.
+  const [doneOpen, setDoneOpen] = useState(false);
+
+  /** Set the filters. A new status opens Done if it can show done tasks, and folds it if it cannot. */
+  function chooseFilter(next: Filter) {
+    if (next.status !== filter.status) setDoneOpen(statusShowsDone(next.status));
+    setFilter(next);
+  }
+
+  /** Open or fold Done. Opening it while the filter hides every done task switches to Any status. */
+  function toggleDone() {
+    if (doneOpen) return setDoneOpen(false);
+    setDoneOpen(true);
+    if (!statusShowsDone(filter.status)) setFilter({ ...filter, status: "all" });
+  }
 
   /** Run one save; report how it went. Resolves true only on a confirmed save. */
   function run(at: string, action: () => Promise<SaveResult>): Promise<boolean> {
@@ -324,7 +340,7 @@ export default function TaskList({
   const noMatch = (which: string) => (
     <p className="note">
       No {which} tasks match this filter.{" "}
-      <button type="button" className="link" onClick={() => setFilter(NO_FILTER)}>Clear the filter</button>
+      <button type="button" className="link" onClick={() => chooseFilter(DEFAULT_FILTER)}>Clear the filter</button>
     </p>
   );
 
@@ -461,7 +477,7 @@ export default function TaskList({
             <select
               aria-label="Filter by status"
               value={filter.status}
-              onChange={(e) => setFilter({ ...filter, status: e.target.value as Filter["status"] })}
+              onChange={(e) => chooseFilter({ ...filter, status: e.target.value as Filter["status"] })}
             >
               {STATUS_FILTERS.map((s) => (
                 <option key={s} value={s}>{STATUS_FILTER_LABEL[s]}</option>
@@ -499,7 +515,7 @@ export default function TaskList({
               ))}
             </select>
             {filtering && (
-              <button type="button" className="link" onClick={() => setFilter(NO_FILTER)}>Clear filters</button>
+              <button type="button" className="link" onClick={() => chooseFilter(DEFAULT_FILTER)}>Clear filters</button>
             )}
           </form>
           {filtering && (
@@ -535,16 +551,31 @@ export default function TaskList({
               {!shownOpen.length && failure?.at === "all" && <p className="error" role="alert">{failure.message}</p>}
             </>
           )}
-          <h2>Done</h2>
           {!done.length ? (
-            <p className="note">Nothing done yet. Tick the Done box at the right end of a task&rsquo;s row when you finish it.</p>
-          ) : shownDone.length ? (
-            <ul className="tasks" role="table" aria-label="Done tasks">
-              {head(null)}
-              {section(shownDone)}
-            </ul>
+            <>
+              <h2>Done</h2>
+              <p className="note">Nothing done yet. Tick the Done box at the right end of a task&rsquo;s row when you finish it.</p>
+            </>
           ) : (
-            noMatch("done")
+            <>
+              <h2>
+                <button type="button" className="section-toggle" aria-expanded={doneOpen} aria-controls="done-tasks" onClick={toggleDone}>
+                  <span aria-hidden="true">{doneOpen ? "▾" : "▸"}</span> Done ({done.length})
+                </button>
+              </h2>
+              {doneOpen && (
+                <div id="done-tasks">
+                  {shownDone.length ? (
+                    <ul className="tasks" role="table" aria-label="Done tasks">
+                      {head(null)}
+                      {section(shownDone)}
+                    </ul>
+                  ) : (
+                    noMatch("done")
+                  )}
+                </div>
+              )}
+            </>
           )}
         </>
       )}

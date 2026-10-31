@@ -184,6 +184,12 @@ button.link, label.link, button.quiet, a.quiet {
 }
 button.quiet, a.quiet { text-decoration: none; font-size: 0.95rem; white-space: nowrap; }
 button.quiet:hover, a.quiet:hover { text-decoration: underline; }
+/* A section heading that folds its section open and shut: it reads as the heading it is. */
+button.section-toggle {
+  background: none; padding: 0; border: 0; font: inherit; letter-spacing: inherit;
+  text-transform: inherit; color: inherit; cursor: pointer;
+}
+button.section-toggle:hover { color: var(--accent); }
 textarea { width: 100%; resize: vertical; }
 button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default; }
 

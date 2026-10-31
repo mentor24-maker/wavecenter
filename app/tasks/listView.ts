@@ -92,15 +92,24 @@ export interface Filter {
 
 export const NO_FILTER: Filter = { text: "", priority: "all", status: "all", minPoints: "", maxPoints: "", creator: "all" };
 
+/** How the Tasks page opens, and what "Clear filters" goes back to: the work still to do. */
+export const DEFAULT_FILTER: Filter = { ...NO_FILTER, status: "open" };
+
+/** Has the member changed any filter away from how the page opens? */
 export function isFiltering(f: Filter): boolean {
   return (
     f.text.trim() !== "" ||
-    f.priority !== "all" ||
-    f.status !== "all" ||
+    f.priority !== DEFAULT_FILTER.priority ||
+    f.status !== DEFAULT_FILTER.status ||
     f.minPoints.trim() !== "" ||
     f.maxPoints.trim() !== "" ||
-    f.creator !== "all"
+    f.creator !== DEFAULT_FILTER.creator
   );
+}
+
+/** Can a done task match this status filter? Open, Ticked and With AI agents hide every one. */
+export function statusShowsDone(status: StatusFilter): boolean {
+  return status === "all" || status === "done";
 }
 
 /** A points limit typed in the filter bar, or null when it is blank or not a number. */
@@ -149,7 +158,6 @@ export function matches(t: ViewTask, f: Filter): boolean {
  * them dimmed. Order is kept.
  */
 export function filterTasks<T extends ViewTask>(tasks: T[], f: Filter): { shown: T[]; contextOnly: Set<string> } {
-  if (!isFiltering(f)) return { shown: tasks, contextOnly: new Set() };
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const matched = new Set(tasks.filter((t) => matches(t, f)).map((t) => t.id));
   const contextOnly = new Set<string>();
