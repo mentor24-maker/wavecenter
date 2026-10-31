@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { headerName } from "./lib/memberProfileStore";
+import { headerIsAdmin } from "./lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "./lib/supabase";
 import Mission from "./Mission";
 import SiteHeader from "./SiteHeader";
@@ -21,11 +22,13 @@ export default async function InfoPage({
 }) {
   const supabase = await supabaseForRequest();
   const { user } = supabase ? await currentUser(supabase) : { user: null };
-  const name = supabase && user ? await headerName(supabase, user) : null;
+  const [name, isAdmin] = supabase && user
+    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id)])
+    : [null, false];
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>{title}</h1>
         {children ?? (
