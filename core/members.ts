@@ -10,7 +10,8 @@
  * (every member reads every task and changes only their own). A later ticket
  * makes them count. The member permissions do count: `member.read` decides
  * who may see the member list (the database's `list_members` asks it too),
- * and `member.edit` decides who gets the buttons in each row.
+ * `member.edit` who gets the role picker in each row, and `member.message`
+ * who gets the Message button (the database's `send_message` asks it too).
  *
  * Like the profile (core/profiles.ts), roles are reached through a store a
  * client supplies, and every change names its tool.
@@ -38,6 +39,7 @@ export const PERMISSIONS = [
   { key: 'team.read', label: 'View teams' },
   { key: 'team.edit', label: 'Manage teams' },
   { key: 'game.edit', label: 'Manage game scoring' },
+  { key: 'member.message', label: 'Message members' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
@@ -48,10 +50,10 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * the Actions column. Other members get view functionality"). Every member
  * views the teams; admins and editors manage them (Dane, 2026-10-30, "B").
  * Only an admin manages the game's scoring rules (core/game.ts,
- * `changeScoringRule`).
+ * `changeScoringRule`) and messages members to start (core/messages.ts).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message'],
   editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit'],
   contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read'],
   reviewer: ['task.read', 'member.read', 'team.read'],
@@ -89,6 +91,7 @@ export function mayDo(
  */
 export const MEMBER_ACTIONS = [
   { key: 'change-role', label: 'Change role', permission: 'member.edit' },
+  { key: 'message', label: 'Message', permission: 'member.message' },
 ] as const satisfies readonly { key: string; label: string; permission: PermissionKey }[];
 export type MemberActionKey = (typeof MEMBER_ACTIONS)[number]['key'];
 

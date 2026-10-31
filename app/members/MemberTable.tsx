@@ -23,6 +23,7 @@ import {
   type MemberSort,
   type MemberSortKey,
 } from "./memberView";
+import MessageButton from "./MessageButton";
 import RolePicker from "./RolePicker";
 
 export type MemberTableRow = MemberRow & { joinedLabel: string };
@@ -108,10 +109,11 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
                   <td className="note">{m.joinedLabel}</td>
                   <td>{roleName(m.role)}</td>
                   {actions.length > 0 && (
-                    <td>
+                    <td className="member-actions">
                       {actions.includes("change-role") && (
                         <RolePicker memberId={m.memberId} initial={m.role} label={you ? "you" : name} />
                       )}
+                      {actions.includes("message") && <MessageButton memberId={m.memberId} label={you ? "yourself" : name} />}
                     </td>
                   )}
                 </tr>

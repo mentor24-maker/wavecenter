@@ -12,7 +12,8 @@
  * the roles and permissions lists but nobody writes them, a member reads only
  * their own role row, every member lists the members, and only an admin
  * changes a role
- * (`public.member_roles`); that every member reads the teams and their
+ * (`public.member_roles`); that only an admin sends a message, and only its
+ * sender and recipient read it (`public.messages`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
@@ -92,7 +93,7 @@ async function makeUser(tag) {
   const signin = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
   if (signin.status >= 300) throw new Error(`could not sign in test user ${tag}: HTTP ${signin.status} ${JSON.stringify(signin.json)}`);
   const token = signin.json.access_token;
-  return { tag, id: made.json.id, token, store: restTaskStore({ url: URL_, apiKey: ANON, token, ownerId: made.json.id }) };
+  return { tag, id: made.json.id, email, token, store: restTaskStore({ url: URL_, apiKey: ANON, token, ownerId: made.json.id }) };
 }
 
 /** A ScoringRuleStore (core/game.ts) over REST, acting as one member. */
@@ -502,6 +503,46 @@ try {
   check('a signed-out visitor sees no roles and cannot list members', (anonRoleRows.status >= 400 || anonRoleRows.json?.length === 0) && anonList.status >= 400, `rows HTTP ${anonRoleRows.status}, list HTTP ${anonList.status}`);
   const stillViewer = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}&select=role`);
   check('B is still a viewer afterwards', stillViewer.json?.[0]?.role === 'viewer', JSON.stringify(stillViewer.json));
+
+  // Messages: only a role with Message members (admin) saves one, only
+  // through send_message; the sender and the recipient read it and nobody
+  // else; nobody writes the table directly; only the sender records the
+  // email result, once.
+  const sendRpc = (who, body) => call('/rest/v1/rpc/send_message', { method: 'POST', token: who.token, body });
+  const viewerSends = await sendRpc(b, { recipient: a.id, subject: 'Hi', body: 'Hello', tool: TOOL });
+  check('a viewer cannot send a message', viewerSends.status >= 400, `HTTP ${viewerSends.status} ${viewerSends.json?.message ?? ''}`);
+  const forgeMessage = await call('/rest/v1/messages', { method: 'POST', token: b.token, body: { sender_id: a.id, recipient_id: b.id, subject: 'Forged', body: 'x', tool: TOOL } });
+  check('a member cannot write a message row directly', forgeMessage.status >= 400, `HTTP ${forgeMessage.status} ${forgeMessage.json?.message ?? ''}`);
+  const emptySubject = await sendRpc(a, { recipient: b.id, subject: ' ', body: 'Hello', tool: TOOL });
+  check('the database refuses a message with no subject', emptySubject.status >= 400, `HTTP ${emptySubject.status} ${emptySubject.json?.message ?? ''}`);
+  // core's trim() strips tabs and line breaks too; the database must agree.
+  const newlineSubject = await sendRpc(a, { recipient: b.id, subject: '\n\t', body: 'Hello', tool: TOOL });
+  check('the database refuses a message whose subject is only a line break and a tab', newlineSubject.status >= 400, `HTTP ${newlineSubject.status} ${newlineSubject.json?.message ?? ''}`);
+  const newlineBody = await sendRpc(a, { recipient: b.id, subject: 'Hi', body: '\r\n', tool: TOOL });
+  check('the database refuses a message whose text is only line breaks', newlineBody.status >= 400, `HTTP ${newlineBody.status} ${newlineBody.json?.message ?? ''}`);
+  const noToolMessage = await sendRpc(a, { recipient: b.id, subject: 'Hi', body: 'Hello', tool: ' ' });
+  check('the database refuses a message with no tool name', noToolMessage.status >= 400, `HTTP ${noToolMessage.status} ${noToolMessage.json?.message ?? ''}`);
+  const toB = await sendRpc(a, { recipient: b.id, subject: 'Hi B', body: 'Hello B', tool: TOOL });
+  const toBRow = Array.isArray(toB.json) ? toB.json[0] : null;
+  check('an admin sends a message, and the server gets the recipient’s address back', toB.status === 200 && !!toBRow?.id && toBRow?.recipient_email === b.email, `HTTP ${toB.status} ${JSON.stringify(toB.json)?.replace(/[^@\s"]+@/g, '…@')}`);
+  const toSelf = await sendRpc(a, { recipient: a.id, subject: 'Note to self', body: 'Private', tool: TOOL });
+  const toSelfRow = Array.isArray(toSelf.json) ? toSelf.json[0] : null;
+  const messagesB = await call('/rest/v1/messages?select=id,subject,sender_id,recipient_id,email_status', { token: b.token });
+  check('the recipient reads their message, and not a message between others', messagesB.json?.length === 1 && messagesB.json[0].id === toBRow?.id && messagesB.json[0].email_status === 'pending', JSON.stringify(messagesB.json));
+  const messagesA = await call('/rest/v1/messages?select=id', { token: a.token });
+  check('the sender reads the messages they sent', messagesA.json?.length === 2, JSON.stringify(messagesA.json));
+  const anonMessages = await call('/rest/v1/messages?select=id');
+  check('a signed-out visitor reads no messages', anonMessages.status >= 400 || anonMessages.json?.length === 0, `HTTP ${anonMessages.status}`);
+  const editMessage = await call(`/rest/v1/messages?id=eq.${toBRow?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { body: 'Changed' } });
+  const wipeMessage = await call(`/rest/v1/messages?id=eq.${toBRow?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('nobody changes or deletes a message directly', (editMessage.status >= 400 || editMessage.json?.length === 0) && (wipeMessage.status >= 400 || wipeMessage.json?.length === 0), `edit HTTP ${editMessage.status}, delete HTTP ${wipeMessage.status}`);
+  const recordRpc = (who, message, status) => call('/rest/v1/rpc/record_message_email', { method: 'POST', token: who.token, body: { message, status } });
+  const bRecords = await recordRpc(b, toBRow?.id, 'sent');
+  check('only the sender records how the email went', bRecords.status >= 400, `HTTP ${bRecords.status} ${bRecords.json?.message ?? ''}`);
+  const aRecords = await recordRpc(a, toBRow?.id, 'sent');
+  const aRecordsAgain = await recordRpc(a, toBRow?.id, 'failed');
+  check('the sender records the email result once', aRecords.status === 200 && aRecords.json === 'sent' && aRecordsAgain.status >= 400, `first HTTP ${aRecords.status} ${JSON.stringify(aRecords.json)}, second HTTP ${aRecordsAgain.status}`);
+  check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
 
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through

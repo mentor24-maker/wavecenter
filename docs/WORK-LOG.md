@@ -63,6 +63,21 @@ the accessibility contrast mark with room to spare), the sorted column
 still shows its arrow, and the keyboard outline turns white so it shows
 up. The read-only tables on the Game and Members pages stay as they were.
 
+## 2026-10-31 — Admins can write to a member from the Members page (#69)
+
+Each row on the Members page now has a small envelope for admins. Clicking it
+opens a form with a subject and a message. Sending saves the message in
+WaveCenter, in a new private messages table that only the sender and the
+recipient can read, and then emails it to the member through Resend, the
+email service Dane chose. The email comes from a WaveCenter address, and
+replies go to Dane's Gmail. The form always says what really happened: sent,
+saved but not emailed (and why), or not sent. The member's email address
+never leaves the server. Until Dane adds the Resend key, messages still save,
+and the form says email is not set up yet.
+Closing the form while it is still sending is refused, so the same message
+cannot be sent twice by accident, and a subject that is only blank lines is
+refused by the database as well as by the form.
+
 ## 2026-10-31 — The home page becomes a landing page with the log-in form on it (#75)
 
 Visitors who were not logged in used to see a plain placeholder page with

@@ -220,6 +220,16 @@ Supabase), Supabase's built-in sender only delivers to members of the Supabase
 organisation and only a few emails an hour. That is enough for Dane; it must
 change before anyone else is invited.
 
+**Email to members.** An admin's message from the Members page is emailed
+through **Resend** (Dane's choice, 2026-10-30), by its plain HTTPS API, so it
+works on any host (`app/lib/mailer.ts`). Gmail does not let another service
+send as a gmail.com address, so the email comes from a WaveCenter address on
+a domain verified in Resend, and replies go to Dane's Gmail. Without
+`RESEND_API_KEY` the message is still saved, and the form says plainly that
+it was not emailed. The key goes into Doppler `wavecenter` (`dev` and `prd`)
+and into Vercel for Production and Preview, then a redeploy (rule 4). This is
+separate from the sign-in links above, which still use Supabase's sender.
+
 ## The core is separate from the framework
 
 `core/` holds the task record, the points rules and the who-may-do-what
@@ -273,6 +283,9 @@ dashboard.
 | `SUPABASE_SERVICE_ROLE_KEY` | bypasses row-level security entirely | **server only, never the browser** |
 | `DATABASE_URL` | the Postgres connection string, with the database password | **server only** |
 | `CLICKUP_API_TOKEN` | the ClickUp token, a reference to StarCaster's `dev` config | scripts only |
+| `RESEND_API_KEY` | the Resend key that sends members' messages by email (see "Email to members" below) | **server only** |
+| `MESSAGE_FROM` | optional; the address messages come from. Default `WaveCenter <messages@wavecenter.com>` | server |
+| `MESSAGE_REPLY_TO` | optional; where replies go. Default `daneofearth@gmail.com` | server |
 
 `stg` and `prd` hold the three Supabase names as **references** to `dev`
 (`${wavecenter.dev.<NAME>}`), because there is one Supabase project for now.

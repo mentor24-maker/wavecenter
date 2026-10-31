@@ -15,10 +15,10 @@ function setup() {
   return store;
 }
 
-test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones and the game one', () => {
+test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones, the game one and Message members', () => {
   assert.deepEqual(ROLES.map((r) => r.key), ['admin', 'editor', 'contributor', 'reviewer', 'viewer']);
   assert.deepEqual(PERMISSIONS.map((p) => p.key), [
-    'task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit',
+    'task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message',
   ]);
 });
 
@@ -26,7 +26,7 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
   const read = (file: string) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
   const files = [
     read('20261029120000_member_roles.sql'), read('20261029210000_member_permissions.sql'),
-    read('20261031120000_teams.sql'), read('20261031140000_game_scoring_admin.sql'),
+    read('20261031120000_teams.sql'), read('20261031140000_game_scoring_admin.sql'), read('20261031150000_messages.sql'),
   ];
   const roles = [...files[0].matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
     .map((m) => ({ key: m[1], name: m[2], description: m[3].replace(/''/g, "'") }));
@@ -43,7 +43,7 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
   assert.deepEqual(grants, STARTING_ROLE_PERMISSIONS);
 });
 
-test('memberPermissions gives each role its grants; admin has all nine, editor all four task ones', () => {
+test('memberPermissions gives each role its grants; admin has all ten, editor all four task ones', () => {
   assert.deepEqual(memberPermissions('admin'), PERMISSIONS.map((p) => p.key));
   assert.deepEqual(memberPermissions('editor'), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit']);
   assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read']);
@@ -52,10 +52,11 @@ test('memberPermissions gives each role its grants; admin has all nine, editor a
   assert.deepEqual(memberPermissions('viewer', { viewer: ['task.read', 'task.comment'] }), ['task.read', 'task.comment']);
 });
 
-test('every role views the members; only an admin changes roles or manages game scoring', () => {
+test('every role views the members; only an admin changes roles, manages game scoring or messages members', () => {
   for (const r of ROLES) assert.equal(mayDo(r.key, 'member.read'), true, r.key);
   for (const r of ROLES) assert.equal(mayDo(r.key, 'member.edit'), r.key === 'admin', r.key);
   for (const r of ROLES) assert.equal(mayDo(r.key, 'game.edit'), r.key === 'admin', r.key);
+  for (const r of ROLES) assert.equal(mayDo(r.key, 'member.message'), r.key === 'admin', r.key);
   assert.equal(mayDo(null, 'member.read'), false);
   assert.equal(mayDo(undefined, 'member.read'), false);
 });
@@ -71,9 +72,10 @@ test('mayDo follows the grants the database holds, not only the starting ones', 
   assert.equal(mayDo('admin', 'member.edit', {}), false);
 });
 
-test('the member-table buttons: an admin gets Change role, everyone else gets none', () => {
-  assert.deepEqual(MEMBER_ACTIONS.map((a) => a.key), ['change-role']);
-  assert.deepEqual(memberActions('admin'), ['change-role']);
+test('the member-table buttons: an admin gets Change role and Message, everyone else gets none', () => {
+  assert.deepEqual(MEMBER_ACTIONS.map((a) => a.key), ['change-role', 'message']);
+  assert.deepEqual(memberActions('admin'), ['change-role', 'message']);
+  assert.deepEqual(memberActions('admin', { admin: ['member.message'] }), ['message']);
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null] as const) assert.deepEqual(memberActions(role), [], String(role));
   assert.deepEqual(memberActions('admin', { admin: ['member.read'] }), []);
 });

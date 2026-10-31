@@ -7,8 +7,9 @@ What WaveCenter stores, in plain words. The tables: `tasks`;
 private file-storage bucket; `task_comments`, each task's Discussion; the
 game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
-`member_roles`; the two that hold teams, `teams` and `team_members`; and
-`evolution_entries`, the record of how WaveCenter looked after each change.
+`member_roles`; the two that hold teams, `teams` and `team_members`;
+`evolution_entries`, the record of how WaveCenter looked after each change;
+and `messages`, what admins write to members.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -25,7 +26,8 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 API; `20261029210000_member_permissions.sql` added the member permissions and
 let every member list the members; `20261031120000_teams.sql` added teams
 and the team permissions; `20261031130000_evolution.sql` added
-`evolution_entries` and the `evolution` bucket); this page
+`evolution_entries` and the `evolution` bucket; `20261031150000_messages.sql`
+added `messages` and the Message members permission); this page
 explains them.
 
 ## The `tasks` table
@@ -228,8 +230,8 @@ count** (2026-10-29): `member.read` decides who may list the members, and
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`) and **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles and manages game scoring. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) and **message members** (`member.message`, added by `20261031150000_messages.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and messages members. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -255,10 +257,37 @@ their avatar (none if their profile is private) and their name only if
 their profile is public. No email address leaves the database. The list has
 a filter row (name, role), headings that sort (Member, Joined, Role), and an
 Actions column with the buttons the viewer's role may use (`memberActions`
-in `core/members.ts`): today, an admin's role picker. Adding and removing
+in `core/members.ts`): today, an admin's role picker and Message envelope
+(see "Messages to members" below). Adding and removing
 members is left out for now (Dane, 2026-10-29). Below the list, a table
 shows which role has which permission. A role without `member.read` that
 opens the page is told so.
+
+### Messages to members: `messages`
+
+An admin writes to a member from the Members page (Dane, 2026-10-30). Each
+message is saved, then emailed to the member through Resend (his choice,
+2026-10-30); the email comes from a WaveCenter address and replies go to
+Dane's Gmail.
+
+| Column | What it holds |
+|---|---|
+| `sender_id`, `recipient_id` | Who wrote it and who it is for. |
+| `subject`, `body` | The message, plain text: up to 200 and 10,000 characters. |
+| `tool` | The tool that sent it (`wavecenter` for the Members page). |
+| `email_status` | `pending` until the server reports how the email went: `sent` or `failed`. A failed email still leaves the message saved, and the form says so. |
+| `emailed_at`, `created_at` | When it was emailed and when it was written. |
+
+Row-level security was on from the moment the table was made. The sender and
+the recipient read a message; **nobody else does**, and nobody writes the
+table directly. A message is saved only through the database function
+`send_message`, which refuses a role without `member.message`, an empty
+subject or message, and a message that names no tool; `sendMessage` in
+`core/messages.ts` applies the same rules first. `send_message` hands the
+recipient's email address back to the server so it can email them; it never
+goes to the browser, and every address read leaves a saved message behind.
+The email result is recorded only through `record_message_email`, by the
+sender, once. There is no screen for reading messages yet (a later ticket).
 
 ### Teams: `teams` and `team_members`
 
@@ -386,7 +415,8 @@ neither can change or delete it (tasks, settings and attached files alike),
 that neither can read, change or delete the other's Discussion comments or
 the files attached to them, that
 each votes only through their own vote and the average lands on the task,
-that only an admin lists members or changes a role, and
+that only an admin lists members or changes a role, that only an admin
+sends a message and only its sender and recipient read it, and
 then deletes them both along with their files.
 
 ## The game layer: `game_scoring_rules` and `engagements`
