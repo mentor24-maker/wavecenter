@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Table headings become a dark blue bar (#76)
+
+The header rows of the Tasks list and the Members table were plain grey
+text with a line under them, easy to lose. Now each is a dark blue bar
+with white bold column names and no line, the way Dane asked, with
+"Actions" centred. The white text is easy to read on the blue (it passes
+the accessibility contrast mark with room to spare), the sorted column
+still shows its arrow, and the keyboard outline turns white so it shows
+up. The read-only tables on the Game and Members pages stay as they were.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
