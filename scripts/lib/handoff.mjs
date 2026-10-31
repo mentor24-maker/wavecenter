@@ -67,20 +67,85 @@ export function serviceDb({ url, serviceKey, fetch: fetchFn = fetch }) {
 }
 
 /**
- * The next task to hand off: of every member whose switch is on, their
- * ticked, unfinished tasks with no ticket yet, in `agentOrder`.
- * @returns {Promise<{ task: Task, waiting: number } | { task: null, why: string }>}
+ * How many passes may take the same task without recording a ticket before
+ * the lane skips it. On 2026-10-30 three passes in a row froze on one task and
+ * the ten behind it waited five hours.
  */
-export async function nextHandOff(db) {
+export const SKIP_AFTER_TAKES = 2;
+
+/**
+ * The lane's memory of which task each pass took (`handoff-next --take`):
+ * `{ takes: { [taskId]: { title, updatedAt, count, lastAt } } }`. It lives in
+ * a small file on the Mini (scripts/clickup.mjs reads and writes it); these
+ * functions only work on the plain object.
+ */
+export function emptyTakes() {
+  return { takes: {} };
+}
+
+/** A take still counts only while the task is unchanged: an edit, an untick and re-tick, all start it afresh. */
+function takeOf(takes, task) {
+  const entry = takes?.takes?.[task.id];
+  return entry && entry.updatedAt === task.updatedAt ? entry : null;
+}
+
+/**
+ * Pick from the waiting line, skipping every task that `skipAfter` passes
+ * already took without recording a ticket. Returns the pick, the skipped
+ * tasks (with how often they were taken), and the takes with every task that
+ * left the line (got a ticket, unticked, done) or changed since forgotten.
+ * @param {Task[]} line in agentOrder
+ */
+export function pickFromLine(line, takes, { skipAfter = SKIP_AFTER_TAKES } = {}) {
+  const kept = emptyTakes();
+  for (const t of line) {
+    const entry = takeOf(takes, t);
+    if (entry) kept.takes[t.id] = entry;
+  }
+  const skipped = [];
+  let task = null;
+  for (const t of line) {
+    const count = kept.takes[t.id]?.count ?? 0;
+    if (count >= skipAfter) { skipped.push({ task: t, count, lastAt: kept.takes[t.id].lastAt }); continue; }
+    task = t;
+    break;
+  }
+  return { task, skipped, takes: kept };
+}
+
+/** The takes after a pass took `task`. Never changes the object it is given. */
+export function withTake(takes, task, now = new Date()) {
+  const count = (takeOf(takes, task)?.count ?? 0) + 1;
+  return { takes: { ...takes.takes, [task.id]: { title: task.title, updatedAt: task.updatedAt, count, lastAt: now.toISOString() } } };
+}
+
+/** The plain-words line for a skipped task, for the pass report and the lane log. */
+export function skipLine({ task, count, lastAt }) {
+  const when = lastAt ? `, last at ${new Date(lastAt).toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'medium', timeStyle: 'short' })} Mountain` : '';
+  return `SKIPPED "${task.title}" (task ${task.id}): ${count} pass(es) took it and none recorded a ticket${when}. `
+    + 'It stays skipped until it gets a ticket, is edited, or is unticked and ticked again.';
+}
+
+/**
+ * The next task to hand off: of every member whose switch is on, their
+ * ticked, unfinished tasks with no ticket yet, in `agentOrder`, skipping any
+ * task the lane is stuck on (see `pickFromLine`).
+ * @returns {Promise<{ task: Task | null, waiting: number, skipped: any[], takes: any, why?: string }>}
+ */
+export async function nextHandOff(db, takes = emptyTakes()) {
   const members = await db.read('member_settings?agents_on=eq.true&select=owner_id');
-  if (!members.length) return { task: null, why: 'No member has "Launch AI Agents" on, so nothing is handed over.' };
+  if (!members.length) return { task: null, waiting: 0, skipped: [], takes: emptyTakes(), why: 'No member has "Launch AI Agents" on, so nothing is handed over.' };
   const owners = members.map((m) => m.owner_id).join(',');
   const rows = await db.read(
     `tasks?owner_id=in.(${owners})&agent_selected=eq.true&status=neq.done&agent_ticket_url=is.null&select=*`,
   );
   const line = agentOrder(rows.map(fromRow));
-  if (!line.length) return { task: null, why: `${members.length} member(s) have agents on, but no ticked task is waiting.` };
-  return { task: line[0], waiting: line.length };
+  if (!line.length) return { task: null, waiting: 0, skipped: [], takes: emptyTakes(), why: `${members.length} member(s) have agents on, but no ticked task is waiting.` };
+  const pick = pickFromLine(line, takes);
+  if (!pick.task) {
+    return { ...pick, waiting: line.length, why: `All ${line.length} ticked task(s) waiting are skipped: the lane got stuck on each one.` };
+  }
+  return { ...pick, waiting: line.length };
 }
 
 /**
