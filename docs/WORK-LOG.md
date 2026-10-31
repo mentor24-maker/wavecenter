@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Teams gets its own place in the top menu (#72)
+
+Signed-in members now see **Teams** in the top menu, right after
+Members. It opens a
+new Teams page that explains what a Team is (a group of members focused on
+one part of the WaveCenter project) and names the example teams: UX Design,
+Community, App Pipeline, Blockchain, Privacy, Security and Infrastructure.
+Nothing is saved yet; joining teams and managing them come in later tasks.
+This gives those tasks a home to build on.
+
 ## 2026-10-31 — Table headings become a dark blue bar (#76)
 
 The header rows of the Tasks list and the Members table were plain grey
