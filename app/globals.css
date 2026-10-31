@@ -91,15 +91,26 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 
-/* The bar across the top of every page: Dane's water-drop picture, darkened
-   at both ends so the white bold name and menu read clearly over it (at least
-   4.5:1 behind the text, plus a shadow), and the gold-and-aqua rings as the logo. */
+/* The bar across the top of every page: Dane's water-drop picture, dark blues
+   on the left and bright gold on the right, darkened so the white bold name
+   and menu read clearly over it (at least 4.5:1 behind the text, plus a
+   shadow), and the gold-and-aqua rings as the logo. On a wide screen the name
+   sits on the dark side and needs less darkening; the menu sits on the gold
+   and needs more. A narrower screen shows only the bright middle of the
+   picture behind everything, so it darkens evenly. */
 .site {
   color: #fff; font-weight: 700; border-bottom: 1px solid var(--line);
   background:
-    linear-gradient(90deg, rgb(8 28 44 / 0.62), rgb(8 28 44 / 0.3) 50%, rgb(8 28 44 / 0.62)),
-    #2c4a63 url("/brand/header-drop.jpg") center 70% / cover no-repeat;
+    linear-gradient(90deg, rgb(8 28 44 / 0.62), rgb(8 28 44 / 0.62)),
+    #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+}
+@media (min-width: 80rem) {
+  .site {
+    background:
+      linear-gradient(90deg, rgb(8 28 44 / 0.5), rgb(8 28 44 / 0.4) 30%, rgb(8 28 44 / 0.62) 50%),
+      #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
+  }
 }
 .site-inner {
   max-width: 90rem; margin: 0 auto; padding: 1.05rem var(--space); min-height: 5.625rem;
