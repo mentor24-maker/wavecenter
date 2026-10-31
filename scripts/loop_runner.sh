@@ -37,6 +37,18 @@ if [ "$ONCE" = 0 ] && [ -f "$REPO/.git" ] && grep -q '^gitdir:.*worktrees' "$REP
   exit 1
 fi
 
+# How long one pass may run before it is stopped. A build or review pass can
+# take an hour; a working hand-off pass takes 1 to 2 minutes, so a frozen one
+# (2026-10-30: three in a row, two hours each) is stopped after 15 minutes.
+# LOOP_PASS_LIMIT_SECONDS overrides it for every lane.
+limit_of() {
+  case "$1" in
+    loop-handoff) echo 900 ;;
+    *)            echo 7200 ;;
+  esac
+}
+LIMIT="${LOOP_PASS_LIMIT_SECONDS:-$(limit_of "$SKILL")}"
+
 LOG="$HOME/loop-logs/wavecenter-$SKILL.log"
 LOCK="$HOME/loop-logs/wavecenter-$SKILL.lock"
 mkdir -p "$HOME/loop-logs"
@@ -94,11 +106,11 @@ while true; do
   fi
 
   echo "" >> "$LOG"
-  echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL =====" >> "$LOG"
+  echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL (time limit ${LIMIT}s) =====" >> "$LOG"
   # The pass's output goes to the log as it happens AND to its own file, so
   # the sign-in check below reads this pass only, not an older one. A --once
   # pass also prints it here, for whoever ran it.
-  "$REPO/scripts/run_with_time_limit.sh" "${LOOP_PASS_LIMIT_SECONDS:-7200}" -- \
+  "$REPO/scripts/run_with_time_limit.sh" "$LIMIT" -- \
     "$CLAUDE_BIN" -p "/$SKILL" \
     --allowedTools Bash Edit Write Read Glob Grep Task TodoWrite WebFetch \
     2>&1 | tee "$PASS_OUT" | if [ "$ONCE" = 1 ]; then tee -a "$LOG"; else cat >> "$LOG"; fi
@@ -107,7 +119,7 @@ while true; do
   # about the process, not a verdict on the pass. The pass's own report is.
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /$SKILL (exit $CODE — not a verdict; the pass's report above is) =====" >> "$LOG"
   if [ "$CODE" -eq 124 ]; then
-    echo "[loop-runner] the pass hit the ${LOOP_PASS_LIMIT_SECONDS:-7200}s time limit and was stopped; its ticket may still be in Building — the next pass or a person should hand it back." >> "$LOG"
+    echo "[loop-runner] the pass hit the ${LIMIT}s time limit and was stopped; its ticket may still be in Building — the next pass or a person should hand it back." >> "$LOG"
   fi
   # Only Claude's own sign-in errors, and only in this pass's last lines: a
   # pass that merely mentions "not logged in" (gh, supabase) is not one.

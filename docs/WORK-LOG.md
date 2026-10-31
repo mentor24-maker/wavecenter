@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — One stuck task no longer holds up every ticked task behind it (#63)
+
+This afternoon three hand-off passes in a row froze on the same task, and
+the ten tasks waiting behind it sat for about five hours while the Loop
+Queue looked empty. Now the hand-off lane remembers which task each pass
+took. Once two passes have taken a task and neither filed its ticket, the
+next pass skips it and hands over the next task instead, and names the
+skipped task by its title in its report and in the lane's log, so Dane can
+see which one is stuck. The task is tried again once it gets a ticket, is
+edited, or is unticked and ticked again. A hand-off pass may now run for 15
+minutes instead of two hours (a working one takes a minute or two), so a
+frozen pass costs minutes. Build and review keep their two-hour limit.
+
 ## 2026-10-30 — The agents check for work more often (#62)
 
 The agent jobs on the Mac Mini rest between passes. Until now each one rested
