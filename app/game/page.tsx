@@ -6,6 +6,7 @@ import type { Task } from "../../core/tasks.ts";
 import { supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
+import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import GameMenu from "./GameMenu";
@@ -75,8 +76,9 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, rules, total, latest, finished] = await Promise.all([
+  const [name, isAdmin, rules, total, latest, finished] = await Promise.all([
     headerName(supabase, user),
+    headerIsAdmin(supabase, user.id),
     read(() => ledger.rules()),
     read(() => ledger.total()),
     read(() => ledger.latest(LATEST)),
@@ -85,7 +87,7 @@ export default async function Game() {
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <h1>Game</h1>
         <GameMenu current="points" />
