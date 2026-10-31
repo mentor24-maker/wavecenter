@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Teams gets its own place in the top menu (#72)
+
+Signed-in members now see **Teams** at the end of the top menu. It opens a
+new Teams page that explains what a Team is (a group of members focused on
+one part of the WaveCenter project) and names the example teams: UX Design,
+Community, App Pipeline, Blockchain, Privacy, Security and Infrastructure.
+Nothing is saved yet; joining teams and managing them come in later tasks.
+This gives those tasks a home to build on.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
