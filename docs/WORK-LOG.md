@@ -17,6 +17,39 @@ adding a task fails, the form stays open so the error is never hidden. The
 box is also a deeper blue, with its link colour and gold border darkened
 just enough that everything in it stays easy to read.
 
+## 2026-10-30 — A tidier top bar: name and Sign out at the top, menu along the bottom (#67)
+
+Dane asked for the signed-in part of the header to be laid out more neatly.
+His name and the Sign out button now sit in smaller text at the top right of
+the bar, and the menu (Home, Tasks, Game, Profile, Members) runs along the
+bottom edge, where before they sat side by side in the middle. The bar is the
+same height and the logo is in the same place. Sign out also gained the soft
+shadow the rest of the header text has, so the smaller words still read
+clearly over the water-drop picture. On a phone, every menu item and Sign out
+still fit on screen.
+
+## 2026-10-30 — The header shows the water-drop picture the other way round (#65)
+
+Dane wanted the version of the header picture with the dark colours on the
+left. It is the same picture flipped left to right, so the old one was flipped
+and swapped in, and the old file removed. Flipping it put the bright gold behind
+the menu on the right, which would have made the white menu hard to read. So
+the shading over the picture changed too: lighter over the dark left side where
+the WaveCenter name sits, heavier over the gold where the menu sits, and even
+across the whole bar on narrower screens. The text stays clearly readable at
+every width.
+
+## 2026-10-30 — What is a DEO now explains what a DEO is (#64)
+
+The What is a DEO page used to show a single paragraph and a note saying more
+was coming. It now gives a newcomer a two-minute summary of Dane's DEO
+whitepaper, in seven short sections: engagement instead of money as the
+starting point, the game layer that counts every contribution, how decisions
+are made, why nobody is paid in dollars inside, privacy and invited members,
+AI that helps people rather than replacing them, and the four seasons a DEO
+grows through. Every sentence comes from the whitepaper, and the page ends
+with a link to the whitepaper itself. The About WaveCenter page is unchanged.
+
 ## 2026-10-30 — One stuck task no longer holds up every ticked task behind it (#63)
 
 This afternoon three hand-off passes in a row froze on the same task, and
