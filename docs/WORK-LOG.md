@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — The home page becomes a landing page with the log-in form on it (#75)
+
+Visitors who were not logged in used to see a plain placeholder page with a
+"Log in" button that took them somewhere else. Now the home page is a proper
+front door: Dane's water-drop picture fills the screen, the logo sits top
+left, the introduction to WaveCenter is on the left, and the box to log in
+or join is right there on the right. Typing your email on the home page
+sends the log-in link and says "Check your email" without leaving the page.
+The home page and the separate log-in page now share one form, so their
+wording can never drift apart. On a phone, the introduction sits above the
+form.
+
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 
 On the Tasks page, the whole Add Task form used to sit open above the task
