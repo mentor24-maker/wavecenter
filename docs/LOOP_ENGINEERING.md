@@ -172,7 +172,7 @@ launchd agents, `com.wavecenter.loop-build` and `com.wavecenter.loop-review`,
 beside StarCaster's. Each keeps the committed `scripts/loop_runner.sh` alive
 across crashes and reboots; each pass is a fresh headless Claude Code session
 that pulls `main`, runs one skill, and sleeps 15 minutes. A pass has a
-two-hour time limit. Nobody starts a loop by hand while those are loaded: a
+two-hour time limit (the hand-off lane's is 15 minutes; see below). Nobody starts a loop by hand while those are loaded: a
 second claimant makes the check-then-act claim unsound.
 
 So the question is never "shall I start one", it is "what is it doing":
@@ -290,6 +290,22 @@ Each pass does two things:
    **With AI agents** and a link to its ticket.
 
 Turning the switch off stops new hand-offs. Tickets already filed carry on.
+
+**A task the lane gets stuck on is skipped, not waited on.** On 2026-10-30
+three passes in a row froze on the same first task, and the ten tasks behind
+it waited about five hours. Now each pass's `handoff-next --take` writes down
+which task it took, in `~/loop-logs/wavecenter-handoff-takes.json` on the
+Mini. Once two passes have taken a task and neither recorded a ticket, later
+passes skip it and take the next one in line. Every skip is named by its
+title, in the pass report and in the lane log
+(`~/loop-logs/wavecenter-loop-handoff.log`, lines starting `[handoff-next]`),
+so you can see which task is stuck. It stops being skipped as soon as it gets
+a ticket, or you edit it, or untick and tick it again. A plain
+`handoff-next` (no `--take`) only shows what the next pass would take and
+never counts as a take. A hand-off pass also has a 15-minute time limit
+instead of two hours (a working one takes 1 to 2 minutes), so a frozen pass
+costs minutes. A running lane keeps its old limit until it is restarted:
+`./scripts/install_loop_runner.sh` from the main checkout.
 
 Safety: the lane reads every member's tasks with the Supabase service key,
 which lives in Doppler on the Mini and never reaches the website or a browser.
