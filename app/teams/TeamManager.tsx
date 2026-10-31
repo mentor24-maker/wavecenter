@@ -22,6 +22,9 @@ export type TeamView = Team & { members: { memberId: string; avatar: string | nu
 /** A member a manager may add to a team. */
 export type Candidate = { memberId: string; label: string };
 
+/** Example teams (from the first Teams page, #72), offered as ideas while there are none. */
+const EXAMPLE_TEAMS = ["UX Design", "Community", "App Pipeline", "Blockchain", "Privacy", "Security", "Infrastructure"];
+
 const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again.";
 
 /** Run a server action, turning a lost connection into a plain failure. */
@@ -74,7 +77,8 @@ export default function TeamManager({
       {teams.length === 0 ? (
         <p className="note" role="status">
           No teams yet.{" "}
-          {manage ? "Click Create team to make the first one." : "An admin or an editor can make the first one."}
+          {manage ? "Click Create team to make the first one." : "An admin or an editor can make the first one."}{" "}
+          Some example teams: {EXAMPLE_TEAMS.join(", ")}.
         </p>
       ) : (
         <table className="game teams">

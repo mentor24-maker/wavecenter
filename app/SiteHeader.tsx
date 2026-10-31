@@ -11,7 +11,7 @@ import { signOut } from "./auth/actions";
  * menu: Home first (the dashboard, at `/`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
  * points are, their profile, Members (`/members`) and Teams (`/teams`, the
- * Team Manager). Every member gets Members and Teams; each page itself
+ * Team Manager: the groups members work in). Every member gets Members and Teams; each page itself
  * decides what the member's role may see and do there. An admin also gets
  * Admin (`/admin`); the page says `isAdmin`, from the same rule
  * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
@@ -32,7 +32,7 @@ export default function SiteHeader({
       <div className="site-inner">
         <Link href="/" className="brand" aria-label="WaveCenter home">
           {/* Dane's gold-and-aqua rings (public/brand/mark.png); the picture behind the bar is set in globals.css. */}
-          <img className="mark" src="/brand/mark.png" alt="" width={54} height={54} />
+          <img className="mark" src="/brand/mark.png" alt="" width={90} height={90} />
           <span>
             Wave<b>Center</b>
           </span>

@@ -107,7 +107,8 @@ export default async function Teams() {
       <main>
         <h1>Team Manager</h1>
         <p className="lede">
-          Every team in WaveCenter and who is on it.{" "}
+          Teams are groups of members who focus on specific parts of the WaveCenter project. Here is every
+          team and who is on it.{" "}
           {manage ? "You can make, change and delete teams and their member lists." : "Only an admin or an editor can change the teams."}
         </p>
         {loadError !== null ? (
