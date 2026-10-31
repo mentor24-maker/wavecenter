@@ -25,8 +25,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * Signed out: the placeholder page, which says what this is, plus a way to
- * sign in. Signed in: Home, a dashboard of boxes (Dane, 2026-10-29): About
+ * Signed out: the placeholder page, which says what this is, plus the ways
+ * in: Log in and Register. Signed in: Home, a dashboard of boxes (Dane, 2026-10-29): About
  * WaveCenter and What is a DEO (callouts to their own pages), the tasks
  * being worked on right now, the leaderboard (a placeholder until it works),
  * and the newest members. Each box that could not be read says so on its
@@ -55,7 +55,8 @@ export default async function Home() {
           </p>
         )}
         <p>
-          <Link href="/sign-in" className="button">Log in</Link>
+          <Link href="/sign-in" className="button">Log in</Link>{" "}
+          <Link href="/register" className="button">Register</Link>
         </p>
       </main>
     </>
