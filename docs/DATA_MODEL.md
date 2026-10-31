@@ -7,7 +7,8 @@ What WaveCenter stores, in plain words. Today that is seven tables: `tasks`;
 private file-storage bucket; `task_comments`, each task's Discussion; the
 game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
-`member_roles`.
+`member_roles`; and `evolution_entries`, the record of how WaveCenter
+looked after each change.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -22,7 +23,9 @@ bucket; `20261027120000_game_layer.sql` added the game layer, and
 `20261029120000_member_roles.sql` added roles and permissions;
 `20261029180000_member_role_private.sql` hid the role-lookup helper from the
 API; `20261029210000_member_permissions.sql` added the member permissions and
-let every member list the members); this page
+let every member list the members;
+`20261031120000_evolution.sql` added `evolution_entries` and the `evolution`
+bucket); this page
 explains them.
 
 ## The `tasks` table
@@ -401,6 +404,35 @@ engagements, with times in Mountain time.
 This does not yet change a task's own `points`: what a task is worth and what
 a member has earned are kept separate for now. Levels, rewards, a leaderboard
 and an admin screen for the game are later tickets.
+
+## Evolution: `evolution_entries`
+
+One row per change merged into `main` (each first-parent commit), with a
+screenshot of the screen that change touched, taken as the screen looked at
+that moment with the real tasks, members and points of the time (Dane,
+2026-10-30). The pictures live in a private file-storage bucket, `evolution`.
+Both are written only by `npm run evolution` (`scripts/evolution_capture.mjs`)
+on the Mac Mini, with the service key; that script's header says how it
+rebuilds "the data as it stood" and what it cannot show.
+
+| Column | What it holds |
+|---|---|
+| `commit_sha` | The change's full commit id on `main`. One row per change. |
+| `merged_at` | When it merged. |
+| `pr_number` | Its pull request number, if it had one (the first commit did not). |
+| `title` | The pull request's title, which is the ticket's name, word for word. |
+| `ticket_url` | The ClickUp ticket the pull request links to, if it named one. |
+| `page` | The address photographed, such as `/game`. Empty for a change with no screen. |
+| `screenshot_path` | The picture's name in the `evolution` bucket. Set only when the picture is stored. |
+| `capture_state` | `captured` (picture stored), `no screen` (the change touched no page; a text-only entry, not a failure) or `failed`. |
+| `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
+| `captured_at` | When the row was last written. |
+
+The table refuses a `captured` row without its stored picture and a `failed`
+row without a reason (engineering rule 6). Row-level security is on from the
+migration that made the table: signed-in members read every row and every
+picture; signed-out visitors read nothing; nobody adds, changes or deletes
+either from the browser. `check:tasks-rls` proves each of those.
 
 ## Why the four fields are there from day one
 

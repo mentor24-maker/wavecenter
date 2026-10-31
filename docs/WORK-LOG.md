@@ -29,6 +29,21 @@ a mistyped email is explained on the home page itself. The home page and the
 separate log-in page now share one form, so their wording can never drift
 apart. On a phone, the introduction sits above the form.
 
+## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
+
+WaveCenter now has the camera and the photo album for its own history.
+The album is a new private table and picture store on the live database,
+which every signed-in member can look at and nobody can change from the
+browser. The camera is a script on the Mac Mini. For any past change it
+rebuilds that old version of WaveCenter, fills a private local copy of the
+database with the real tasks, members and points as they stood the moment
+that change went live, signs in as Dane, and takes a picture of the screen
+the change touched. Then it wipes the local copy, so real member data never
+lingers there. The old version never sees a live key, and live data is only
+ever read. After this merges, the camera runs once over every change since
+the first commit. Two follow-up tickets then add a picture on every merge
+and a page where members scroll through them.
+
 ## 2026-10-31 — Register, confirm your email, and log in with a password (#71)
 
 Logging in used to mean typing your email and waiting for a one-time link.
