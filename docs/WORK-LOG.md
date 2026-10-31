@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-30 — What is a DEO now explains what a DEO is (#64)
+
+The What is a DEO page used to show a single paragraph and a note saying more
+was coming. It now gives a newcomer a two-minute summary of Dane's DEO
+whitepaper, in seven short sections: engagement instead of money as the
+starting point, the game layer that counts every contribution, how decisions
+are made, why nobody is paid in dollars inside, privacy and invited members,
+AI that helps people rather than replacing them, and the four seasons a DEO
+grows through. Every sentence comes from the whitepaper, and the page ends
+with a link to the whitepaper itself. The About WaveCenter page is unchanged.
+
 ## 2026-10-30 — One stuck task no longer holds up every ticked task behind it (#63)
 
 This afternoon three hand-off passes in a row froze on the same task, and
