@@ -44,8 +44,8 @@ export type MessageOutcome =
 export function messageProblem(subject: string, body: string): string | null {
   if (subject.trim() === '') return 'A message needs a subject.';
   if (body.trim() === '') return 'A message needs some text.';
-  if (subject.trim().length > SUBJECT_MAX) return `The subject is too long: keep it under ${SUBJECT_MAX} characters.`;
-  if (body.trim().length > BODY_MAX) return `The message is too long: keep it under ${BODY_MAX} characters.`;
+  if (subject.trim().length > SUBJECT_MAX) return `The subject is too long: keep it to ${SUBJECT_MAX} characters or fewer.`;
+  if (body.trim().length > BODY_MAX) return `The message is too long: keep it to ${BODY_MAX} characters or fewer.`;
   return null;
 }
 

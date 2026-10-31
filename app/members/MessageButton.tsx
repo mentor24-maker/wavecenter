@@ -8,7 +8,7 @@
  * (engineering rule 6). The member's email address never comes to the
  * browser.
  */
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useTransition, type FormEvent, type SyntheticEvent } from "react";
 import { messageProblem } from "../../core/messages.ts";
 import { sendMemberMessage } from "./actions";
 
@@ -24,17 +24,23 @@ export default function MessageButton({ memberId, label }: { memberId: string; l
   const [pending, startTransition] = useTransition();
 
   function open() {
-    setMessage(null);
+    // Clear an old refusal, but keep a "sent" or "saved" result: if the
+    // dialog was shut while sending, reopening is how the admin learns how it
+    // went. The fields were emptied when it was stored, so it cannot go twice.
+    if (message?.kind === "error") setMessage(null);
     dialog.current?.showModal();
   }
 
   function close() {
+    if (pending) return;
     dialog.current?.close();
-    if (message && message.kind !== "error") {
-      setSubject("");
-      setBody("");
-    }
     setMessage(null);
+  }
+
+  // The browser closes a dialog on Escape by itself. Refuse while a send is
+  // under way, so its result always lands on an open form the admin can read.
+  function onCancel(e: SyntheticEvent) {
+    if (pending) e.preventDefault();
   }
 
   function send(e: FormEvent) {
@@ -48,8 +54,14 @@ export default function MessageButton({ memberId, label }: { memberId: string; l
     startTransition(async () => {
       try {
         const result = await sendMemberMessage(memberId, subject, body);
-        if (!result.ok) setMessage({ kind: "error", text: `Not sent. ${result.error}` });
-        else if (result.emailed) setMessage({ kind: "sent", text: `Sent. The message is saved and was emailed to ${label}.` });
+        if (!result.ok) {
+          setMessage({ kind: "error", text: `Not sent. ${result.error}` });
+          return;
+        }
+        // Stored: empty the fields now, so the same message cannot go twice.
+        setSubject("");
+        setBody("");
+        if (result.emailed) setMessage({ kind: "sent", text: `Sent. The message is saved and was emailed to ${label}.` });
         else setMessage({ kind: "saved", text: `The message is saved in WaveCenter, but it was not emailed. ${result.reason}` });
       } catch {
         setMessage({ kind: "error", text: UNREACHABLE });
@@ -65,7 +77,7 @@ export default function MessageButton({ memberId, label }: { memberId: string; l
           <path d="M3 6h18v12H3zM3 6l9 7 9-7" />
         </svg>
       </button>
-      <dialog ref={dialog} className="message-form" aria-label={`Message ${label}`} onClose={close}>
+      <dialog ref={dialog} className="message-form" aria-label={`Message ${label}`} onCancel={onCancel} onClose={close}>
         <form onSubmit={send}>
           <h2>Message {label}</h2>
           <label>

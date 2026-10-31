@@ -416,6 +416,11 @@ try {
   check('a member cannot write a message row directly', forgeMessage.status >= 400, `HTTP ${forgeMessage.status} ${forgeMessage.json?.message ?? ''}`);
   const emptySubject = await sendRpc(a, { recipient: b.id, subject: ' ', body: 'Hello', tool: TOOL });
   check('the database refuses a message with no subject', emptySubject.status >= 400, `HTTP ${emptySubject.status} ${emptySubject.json?.message ?? ''}`);
+  // core's trim() strips tabs and line breaks too; the database must agree.
+  const newlineSubject = await sendRpc(a, { recipient: b.id, subject: '\n\t', body: 'Hello', tool: TOOL });
+  check('the database refuses a message whose subject is only a line break and a tab', newlineSubject.status >= 400, `HTTP ${newlineSubject.status} ${newlineSubject.json?.message ?? ''}`);
+  const newlineBody = await sendRpc(a, { recipient: b.id, subject: 'Hi', body: '\r\n', tool: TOOL });
+  check('the database refuses a message whose text is only line breaks', newlineBody.status >= 400, `HTTP ${newlineBody.status} ${newlineBody.json?.message ?? ''}`);
   const noToolMessage = await sendRpc(a, { recipient: b.id, subject: 'Hi', body: 'Hello', tool: ' ' });
   check('the database refuses a message with no tool name', noToolMessage.status >= 400, `HTTP ${noToolMessage.status} ${noToolMessage.json?.message ?? ''}`);
   const toB = await sendRpc(a, { recipient: b.id, subject: 'Hi B', body: 'Hello B', tool: TOOL });

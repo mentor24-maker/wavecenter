@@ -18,6 +18,9 @@ replies go to Dane's Gmail. The form always says what really happened: sent,
 saved but not emailed (and why), or not sent. The member's email address
 never leaves the server. Until Dane adds the Resend key, messages still save,
 and the form says email is not set up yet.
+Closing the form while it is still sending is refused, so the same message
+cannot be sent twice by accident, and a subject that is only blank lines is
+refused by the database as well as by the form.
 
 ## 2026-10-30 — The Add Task box folds shut and turns a darker blue (#66)
 

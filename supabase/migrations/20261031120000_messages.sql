@@ -19,6 +19,10 @@
 -- leaves a stored message, so no address is ever read without a record of
 -- who read it and why. `list_members` still carries no address.
 --
+-- Every trim strips spaces, tabs and line breaks, not just spaces, so a
+-- subject that is only a newline is refused here as it is in core, whose
+-- trim() strips all of them.
+--
 -- Additive and safe to re-run: every create checks first, every insert skips
 -- rows already there.
 
@@ -34,9 +38,9 @@ create table if not exists public.messages (
   id           uuid primary key default gen_random_uuid(),
   sender_id    uuid not null references auth.users (id) on delete cascade,
   recipient_id uuid not null references auth.users (id) on delete cascade,
-  subject      text not null check (length(btrim(subject)) between 1 and 200),
-  body         text not null check (length(btrim(body)) between 1 and 10000),
-  tool         text not null check (length(btrim(tool)) > 0),
+  subject      text not null check (length(btrim(subject, E' \t\n\r\f\x0B')) between 1 and 200),
+  body         text not null check (length(btrim(body, E' \t\n\r\f\x0B')) between 1 and 10000),
+  tool         text not null check (length(btrim(tool, E' \t\n\r\f\x0B')) > 0),
   -- pending until the server reports how the email went: sent, or failed.
   email_status text not null default 'pending' check (email_status in ('pending', 'sent', 'failed')),
   emailed_at   timestamptz,
@@ -71,7 +75,7 @@ begin
   if caller is null then
     raise exception 'You are signed out, so no message was sent.' using errcode = '42501';
   end if;
-  if tool is null or length(btrim(tool)) = 0 then
+  if tool is null or length(btrim(tool, E' \t\n\r\f\x0B')) = 0 then
     raise exception 'Every change must name the tool making it, and none was given.' using errcode = '22023';
   end if;
   if not exists (
@@ -83,14 +87,14 @@ begin
   if not exists (select 1 from auth.users u where u.id = recipient) then
     raise exception 'There is no such member.' using errcode = '22023';
   end if;
-  if subject is null or length(btrim(subject)) = 0 then
+  if subject is null or length(btrim(subject, E' \t\n\r\f\x0B')) = 0 then
     raise exception 'A message needs a subject.' using errcode = '22023';
   end if;
-  if body is null or length(btrim(body)) = 0 then
+  if body is null or length(btrim(body, E' \t\n\r\f\x0B')) = 0 then
     raise exception 'A message needs some text.' using errcode = '22023';
   end if;
   insert into public.messages (sender_id, recipient_id, subject, body, tool)
-  values (caller, recipient, btrim(subject), btrim(body), btrim(tool))
+  values (caller, recipient, btrim(subject, E' \t\n\r\f\x0B'), btrim(body, E' \t\n\r\f\x0B'), btrim(tool, E' \t\n\r\f\x0B'))
   returning messages.id into made;
   return query select made, u.email::text from auth.users u where u.id = recipient;
 end;
