@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Each Evolution card pictures the screen its change was about (#89)
+
+Every card in the Evolution scroller was showing the same picture, the Home
+page, because the files every page shares (the colours, the header) all
+counted for Home and drowned out the page a change was really about. The
+screenshot taker now picks the page that matters: one the change's title
+names, then one it added, then the one it changed most. So the game page
+change shows the game page and the profile change shows the profile page.
+The same page can show on two cards in a row, so you can watch each page
+change over time, but a picture that comes out exactly the same as the one
+before is left off. A new retake command re-photographs the old
+cards whose page changes, and a retake that fails leaves the old card as it
+was.
+
+---
+
 ## 2026-11-01 — A step-by-step guide to switch on WaveCenter email (#90)
 
 WaveCenter could already send email through Resend, but it had no key, so
@@ -19,6 +35,8 @@ misbehaves. Two checks show whether it worked: `npm run doctor` now says
 whether the key is in place, and `npm run email:test` sends one test email
 and says plainly whether it went. Email now comes from
 `noreply@wavecenter.com`, the address Dane chose on the ticket.
+
+---
 
 ## 2026-11-01 — The Evolution scroller moves to Home, half as tall again (#87)
 
