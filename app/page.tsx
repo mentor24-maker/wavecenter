@@ -35,7 +35,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * being worked on right now, the leaderboard (a placeholder until it works),
  * and the newest members. Each box that could not be read says so on its
  * own, and an empty box says why (engineering rule 7). The task list itself
- * is at `/tasks`.
+ * is at `/tasks`. Home sits on the same water-drop picture, header
+ * included (Dane, 2026-10-31), its boxes frosted glass with an icon each.
  */
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const supabase = await supabaseForRequest();
@@ -83,25 +84,25 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
   ]);
 
   return (
-    <>
-      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
+    <div className="home-page">
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} onPicture />
       <main>
         <h1>Home</h1>
         <div className="dashboard">
           <section className="box level-1 callout">
-            <h2>About WaveCenter</h2>
+            <h2><BoxIcon name="about" />About WaveCenter</h2>
             <p>The hub of the DEO movement: what it is for and where it is going.</p>
             <p><Link href="/about">Read about WaveCenter &rarr;</Link></p>
           </section>
 
           <section className="box level-1 callout">
-            <h2>What is a DEO</h2>
+            <h2><BoxIcon name="deo" />What is a DEO</h2>
             <p>What a Decentralized Engagement Organization is.</p>
             <p><Link href="/deo">Read what a DEO is &rarr;</Link></p>
           </section>
 
           <section className="box level-1">
-            <h2>Currently working tasks</h2>
+            <h2><BoxIcon name="working" />Currently working tasks</h2>
             {working.error ? (
               <p className="error" role="alert">
                 The tasks being worked on could not be loaded: {working.error.message}. Try reloading the page.
@@ -120,17 +121,17 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
           </section>
 
           <section className="box level-1">
-            <h2>Leaderboard</h2>
+            <h2><BoxIcon name="leaderboard" />Leaderboard</h2>
             <p className="note" role="status">The leaderboard is coming. Until then, your own points are on the <Link href="/game">Game</Link> page.</p>
           </section>
 
           <section className="box level-1">
-            <h2>Latest members</h2>
+            <h2><BoxIcon name="members" />Latest members</h2>
             <LatestMembers supabase={supabase} role={role} lists={lists} />
           </section>
         </div>
       </main>
-    </>
+    </div>
   );
 }
 
@@ -191,3 +192,57 @@ async function LatestMembers({
 function newestFirst(a: MemberRow, b: MemberRow): number {
   return a.joinedAt < b.joinedAt ? 1 : a.joinedAt > b.joinedAt ? -1 : 0;
 }
+
+/** The small line drawing in each Home box's heading. Decorative: the heading says it in words. */
+function BoxIcon({ name }: { name: "about" | "deo" | "working" | "leaderboard" | "members" }) {
+  return (
+    <span className="box-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        {ICONS[name]}
+      </svg>
+    </span>
+  );
+}
+
+const ICONS = {
+  // A drop with a ripple under it: WaveCenter itself.
+  about: (
+    <>
+      <path d="M12 3c2.5 3.2 4 5.6 4 7.5a4 4 0 0 1-8 0C8 8.6 9.5 6.2 12 3z" />
+      <path d="M4 19c2.7-1.6 5.3-1.6 8 0s5.3 1.6 8 0" />
+    </>
+  ),
+  // Three linked circles: an organisation with no centre.
+  deo: (
+    <>
+      <circle cx="12" cy="5" r="2.5" />
+      <circle cx="5" cy="18" r="2.5" />
+      <circle cx="19" cy="18" r="2.5" />
+      <path d="M10.8 7.2 6.2 15.8M13.2 7.2l4.6 8.6M7.5 18h9" />
+    </>
+  ),
+  // A checklist: tasks under way.
+  working: (
+    <>
+      <path d="m4 6 1.5 1.5L8 5M4 12l1.5 1.5L8 11" />
+      <path d="M11 6.5h9M11 12.5h9M11 18.5h9" />
+      <circle cx="6" cy="18.5" r="1.5" />
+    </>
+  ),
+  // A trophy.
+  leaderboard: (
+    <>
+      <path d="M8 4h8v5a4 4 0 0 1-8 0V4z" />
+      <path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9.5 17h5" />
+    </>
+  ),
+  // Two people.
+  members: (
+    <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20a6 6 0 0 1 12 0" />
+      <circle cx="17" cy="9" r="2.5" />
+      <path d="M16 14.2a5 5 0 0 1 5 5.3" />
+    </>
+  ),
+};

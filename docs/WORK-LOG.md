@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Home sits on the water-drop picture (#83)
+
+The signed-in Home page now has the same water-drop picture as the log-in
+page behind it, from the very top of the screen to the bottom, header
+included. Only the header bar is darkened, exactly as much as it is today;
+the rest of the picture shows as it is. The boxes on Home are now like
+frosted glass: half see-through, with a tight shadow, rounder corners and a
+small icon beside each heading. A plain half-see-through box made the text
+too hard to read over the brightest and darkest parts of the picture, so the
+picture behind each box is softly blurred and toned, which keeps every word
+easy to read in light and dark mode. Other pages are unchanged.
+
+---
+
 ## 2026-10-31 — The Set a new password page gets the full-screen picture (#84)
 
 The page a member lands on from a password-reset email showed the water-drop

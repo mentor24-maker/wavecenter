@@ -17,18 +17,22 @@ import { signOut } from "./auth/actions";
  * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
  * runs along the bottom of the bar, under the name and Log out.
  * The bar's content is as wide as every page's main body, so the two line up.
+ * `onPicture` (Home only) keeps the bar's darkening but drops its own picture,
+ * so the page's picture behind it shows through unbroken.
  */
 export default function SiteHeader({
   name,
   isAdmin = false,
   showSignIn = true,
+  onPicture = false,
 }: {
   name?: string | null;
   isAdmin?: boolean;
   showSignIn?: boolean;
+  onPicture?: boolean;
 }) {
   return (
-    <header className="site">
+    <header className={onPicture ? "site on-picture" : "site"}>
       <div className="site-inner">
         <Link href="/" className="brand" aria-label="WaveCenter home">
           {/* Dane's gold-and-aqua rings (public/brand/mark.png); the picture behind the bar is set in globals.css. */}

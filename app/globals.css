@@ -133,19 +133,16 @@ html, body {
    narrower screen shows only the bright middle of the picture behind
    everything, so it darkens evenly (0.4). */
 .site {
+  --site-shade: linear-gradient(90deg, rgb(8 28 44 / 0.4), rgb(8 28 44 / 0.4));
   color: #fff; font-weight: 700; border-bottom: 1px solid var(--line);
-  background:
-    linear-gradient(90deg, rgb(8 28 44 / 0.4), rgb(8 28 44 / 0.4)),
-    #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
+  background: var(--site-shade), #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
   text-shadow: 0 0 2px rgb(0 0 0 / 0.85), 0 1px 3px rgb(0 0 0 / 0.85), 0 0 12px rgb(0 0 0 / 0.7);
 }
 @media (min-width: 80rem) {
-  .site {
-    background:
-      linear-gradient(90deg, rgb(8 28 44 / 0.33), rgb(8 28 44 / 0.27) 30%, rgb(8 28 44 / 0.4) 50%),
-      #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
-  }
+  .site { --site-shade: linear-gradient(90deg, rgb(8 28 44 / 0.33), rgb(8 28 44 / 0.27) 30%, rgb(8 28 44 / 0.4) 50%); }
 }
+/* On Home the bar keeps its darkening but shows the page's own picture through it. */
+.site.on-picture { background: var(--site-shade); }
 .site-inner {
   max-width: 90rem; margin: 0 auto; padding: 0.75rem var(--space); min-height: 9.375rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
@@ -542,6 +539,53 @@ table.teams .num { padding-right: 1.5rem; }
 /* Home: a grid of boxes, as many across as fit (one on a phone). */
 .dashboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space); margin-top: var(--space); }
 .dashboard .callout p:last-child { font-weight: 600; }
+
+/* Home sits on Dane's water-drop picture (2026-10-31): one picture fixed
+   behind the whole page, header included. Only the header bar is darkened
+   (its own shade, as on every other page); below it the picture is bare.
+   The boxes and the heading are frosted glass: a 50% box colour over the
+   picture, which is blurred and toned down behind them. At a plain 50% the
+   text fails on this picture (body text 3.6:1 light, 2.8:1 dark, over its
+   darkest blue and brightest gold). Through the frosting, the worst point
+   anywhere in the picture measures (text / secondary / link / error):
+     light  8.5 / 4.6 / 5.0 / 5.3   (links and errors one step deeper here)
+     dark   8.7 / 5.6 / 6.0 / 5.0
+   A browser without the frosting gets an 85% box instead, which passes too. */
+.home-page::before {
+  content: ""; position: fixed; inset: 0; z-index: -1;
+  background: #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+}
+/* Its own layer, so the picture paints above the plain page colour on body. */
+.home-page {
+  isolation: isolate;
+  --glass: rgb(221 243 251 / 0.5); --frost: blur(12px) contrast(0.35) brightness(1.6);
+  --accent: #004d68; --error: #86170f;
+}
+@media (prefers-color-scheme: dark) {
+  .home-page { --glass: rgb(11 42 52 / 0.5); --frost: blur(12px) contrast(0.45) brightness(0.55); --accent: #6fdbe6; --error: #ffa198; }
+}
+.home-page main > h1, .home-page .dashboard .box {
+  background: var(--glass); -webkit-backdrop-filter: var(--frost); backdrop-filter: var(--frost);
+  border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 3px 8px rgb(0 0 0 / 0.25);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .home-page { --glass: rgb(221 243 251 / 0.85); }
+  @media (prefers-color-scheme: dark) { .home-page { --glass: rgb(11 42 52 / 0.85); } }
+}
+.home-page main > h1 { display: inline-block; padding: 0.3rem 0.9rem; }
+.home-page .dashboard { gap: calc(var(--space) * 1.25); align-items: start; }
+.home-page .dashboard .box { padding: 1rem 1.15rem 1.1rem; }
+.home-page .dashboard .box > h2:first-child {
+  display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem;
+  color: var(--fg); font-size: 0.85rem;
+}
+/* Each heading's icon sits in a round badge in the link colour. */
+.box-icon {
+  flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent);
+}
+.box-icon svg { width: 1.1rem; height: 1.1rem; }
 ul.plain { list-style: none; padding: 0; margin: 0 0 var(--space); }
 ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
