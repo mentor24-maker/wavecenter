@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The Evolution view (Dane, 2026-10-30: "It's a thumbnail scroller."): a
+ * The Evolution scroller (Dane, 2026-10-30: "It's a thumbnail scroller."),
+ * on Home since 2026-11-01: a
  * row of cards, one per change merged into main, oldest on the left and
  * newest on the right, opened scrolled to the newest. A phone swipes the
  * row; a keyboard tabs through the cards or scrolls the focused row with the
@@ -105,7 +106,7 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
 function CardFacts({ card }: { card: EvolutionCard }) {
   return (
     <div className="evolution-facts">
-      <h2>{card.title}</h2>
+      <h3>{card.title}</h3>
       <p className="note">
         Merged {card.mergedAt}
         {card.page && card.state === "captured" ? <> &middot; shows {card.page}</> : null}

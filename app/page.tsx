@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
+import { loadEvolution } from "./lib/evolutionReads";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "./lib/supabase";
@@ -8,6 +9,7 @@ import { shownName } from "./members/memberView";
 import Mission from "./Mission";
 import SignInForm from "./sign-in/SignInForm";
 import SiteHeader from "./SiteHeader";
+import Evolution from "./tasks/Evolution";
 
 /** How many of the newest members Home shows. */
 const LATEST_MEMBERS = 5;
@@ -33,7 +35,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * of boxes (Dane, 2026-10-29): About
  * WaveCenter and What is a DEO (callouts to their own pages), the tasks
  * being worked on right now, the leaderboard (a placeholder until it works),
- * and the newest members. Each box that could not be read says so on its
+ * and the newest members, then Evolution across the full width (moved here
+ * from the Tasks page, its pictures 50% taller: Dane, 2026-11-01). Each box that could not be read says so on its
  * own, and an empty box says why (engineering rule 7). The task list itself
  * is at `/tasks`. Home sits on the same water-drop picture, header
  * included (Dane, 2026-10-31), its boxes frosted glass with an icon each.
@@ -76,11 +79,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
-  const [name, working, role, lists] = await Promise.all([
+  const [name, working, role, lists, evolution] = await Promise.all([
     headerName(supabase, user),
     supabase.from("tasks").select("id, title").eq("status", "doing").order("position").order("created_at"),
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
+    read(() => loadEvolution(supabase)),
   ]);
 
   return (
@@ -128,6 +132,25 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
           <section className="box level-1">
             <h2><BoxIcon name="members" />Latest members</h2>
             <LatestMembers supabase={supabase} role={role} lists={lists} />
+          </section>
+
+          <section className="box level-1 wide" id="evolution">
+            <h2><BoxIcon name="evolution" />Evolution</h2>
+            <p className="note">How WaveCenter looked right after each change was merged, from the first commit to today.</p>
+            {evolution.error !== null || evolution.value.error ? (
+              <p className="error" role="alert">
+                The changes could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
+              </p>
+            ) : evolution.value.cards.length === 0 ? (
+              <p className="note" role="status">No changes have been captured yet: the screenshot taker has not run.</p>
+            ) : (
+              <>
+                {evolution.value.problems.map((p) => (
+                  <p key={p} className="error" role="alert">{p}</p>
+                ))}
+                <Evolution cards={evolution.value.cards} />
+              </>
+            )}
           </section>
         </div>
       </main>
@@ -194,7 +217,7 @@ function newestFirst(a: MemberRow, b: MemberRow): number {
 }
 
 /** The small line drawing in each Home box's heading. Decorative: the heading says it in words. */
-function BoxIcon({ name }: { name: "about" | "deo" | "working" | "leaderboard" | "members" }) {
+function BoxIcon({ name }: { name: keyof typeof ICONS }) {
   return (
     <span className="box-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -243,6 +266,13 @@ const ICONS = {
       <path d="M3 20a6 6 0 0 1 12 0" />
       <circle cx="17" cy="9" r="2.5" />
       <path d="M16 14.2a5 5 0 0 1 5 5.3" />
+    </>
+  ),
+  // A strip of film: the screenshots of each change.
+  evolution: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4" />
     </>
   ),
 };
