@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — The Evolution scroller moves to Home, half as tall again (#87)
+
+The row of screenshots showing how WaveCenter looked after each change now
+lives on the signed-in Home page, in a box across the full width below the
+others, instead of behind a switch on the Tasks page. Each picture is half
+as tall again as before, so the old screens are easier to make out. It
+still opens on the newest change, a click still shows a picture full size,
+and the arrow keys still step through them. The Tasks page is back to just
+the task list, and an old link to the Evolution view now lands on Home's box
+instead of nowhere. Dane chose this option on the ticket.
+
+---
+
 ## 2026-11-01 — Evolution cards speak in Dane's own words (#85)
 
 Each card in the Evolution scroller now shows what Dane actually asked for,

@@ -1,13 +1,13 @@
 /**
- * The pure rules behind the Tasks page's Evolution view: which view the
- * address asks for, which changes are cards, the words and link each card
- * shows, and how the full-size view steps.
+ * The pure rules behind the Evolution scroller on Home: whether an old
+ * `/tasks?view=evolution` link asks for it, which changes are cards, the
+ * words and link each card shows, and how the full-size view steps.
  * Merge dates use listView's fullDate, so they read like the task list's.
  * No database, no React; tested in evolutionView.test.ts.
  */
 export type TasksView = "list" | "evolution";
 
-/** `/tasks?view=evolution` is the Evolution view; anything else is the list. */
+/** `/tasks?view=evolution`, an old link to the Evolution view, now sent to Home; anything else is the list. */
 export function viewFrom(param: string | string[] | undefined): TasksView {
   const value = Array.isArray(param) ? param[0] : param;
   return value === "evolution" ? "evolution" : "list";

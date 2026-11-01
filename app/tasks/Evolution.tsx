@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * The Evolution view (Dane, 2026-10-30: "It's a thumbnail scroller."): a
- * row of cards, one per change merged into main that altered a screen,
- * oldest on the left and newest on the right, opened scrolled to the newest.
+ * The Evolution scroller (Dane, 2026-10-30: "It's a thumbnail scroller."),
+ * on Home since 2026-11-01: a row of cards, one per change merged into main
+ * that altered a screen, oldest on the left and newest on the right, opened
+ * scrolled to the newest.
  * Each card is labeled with Dane's own words that asked for the change and
  * one link to where he said them (Dane, 2026-10-31: "use my prompt only,
  * with a link to the thread"). A phone swipes the
