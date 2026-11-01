@@ -10,8 +10,8 @@
  * order. Only reads; nothing here writes.
  */
 import Link from "next/link";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { cardNote, step, type EvolutionCard } from "./evolutionView";
+import { useEffect, useRef, useState } from "react";
+import { arrowStep, cardNote, step, type EvolutionCard } from "./evolutionView";
 
 export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   const strip = useRef<HTMLOListElement>(null);
@@ -30,15 +30,23 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   }
 
   function move(by: -1 | 1) {
-    if (open === null) return;
-    const next = step(open, by, cards.length);
-    if (next !== null) setOpen(next);
+    setOpen((at) => (at === null ? null : step(at, by, cards.length) ?? at));
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); }
-    if (e.key === "ArrowRight") { e.preventDefault(); move(1); }
-  }
+  // While the full-size view is open, the arrow keys step it whatever has
+  // focus (a disabled end button sends focus to the page body).
+  const isOpen = open !== null;
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKey(e: globalThis.KeyboardEvent) {
+      const by = arrowStep(e.key);
+      if (by === null) return;
+      e.preventDefault();
+      setOpen((at) => (at === null ? null : step(at, by, cards.length) ?? at));
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen, cards.length]);
 
   // When the full-size view closes, put the row where the last change shown sits.
   function onClose() {
@@ -70,7 +78,7 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
         ))}
       </ol>
 
-      <dialog ref={dialog} className="evolution-full" aria-label="Screenshot, full size" onClose={onClose} onKeyDown={onKey}>
+      <dialog ref={dialog} className="evolution-full" aria-label="Screenshot, full size" onClose={onClose}>
         {current && open !== null && (
           <>
             <div className="evolution-full-bar">

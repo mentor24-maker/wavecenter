@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cardNote, prUrl, step, tasksByTicket, ticketId, viewFrom } from './evolutionView.ts';
+import { arrowStep, cardNote, prUrl, step, tasksByTicket, ticketId, viewFrom } from './evolutionView.ts';
 
 test('only ?view=evolution opens the Evolution view; anything else is the list', () => {
   assert.equal(viewFrom('evolution'), 'evolution');
@@ -43,4 +43,17 @@ test('a card without a picture says why in plain words', () => {
   );
   assert.match(cardNote({ state: 'captured', imageUrl: null, failureReason: null, page: '/game' }) ?? '', /screenshot of \/game could not be loaded/);
   assert.equal(cardNote({ state: 'captured', imageUrl: 'https://x/signed', failureReason: null, page: '/game' }), null);
+});
+
+test('the arrow keys still step back after Next is clicked to the last change', () => {
+  // Click Next from the first of three until it stops at the last...
+  let at = 0;
+  for (let i = 0; i < 5; i++) at = step(at, 1, 3) ?? at;
+  assert.equal(at, 2);
+  // ...then ArrowLeft steps back, and ArrowRight from the first steps on.
+  at = step(at, arrowStep('ArrowLeft')!, 3) ?? at;
+  assert.equal(at, 1);
+  assert.equal(step(0, arrowStep('ArrowRight')!, 3), 1);
+  assert.equal(arrowStep('Escape'), null);
+  assert.equal(arrowStep('a'), null);
 });

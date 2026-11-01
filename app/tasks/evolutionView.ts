@@ -63,6 +63,18 @@ export function step(index: number, by: -1 | 1, count: number): number | null {
   return next >= 0 && next < count ? next : null;
 }
 
+/**
+ * Which way an arrow key steps the full-size view, or null for any other key.
+ * Heard on the whole document while the view is open, not only on the
+ * dialog: once Previous or Next disables at an end, the browser drops focus
+ * to the page body, and a listener on the dialog would stop hearing keys.
+ */
+export function arrowStep(key: string): -1 | 1 | null {
+  if (key === "ArrowLeft") return -1;
+  if (key === "ArrowRight") return 1;
+  return null;
+}
+
 /** What a card says instead of a picture. */
 export function cardNote(card: Pick<EvolutionCard, "state" | "imageUrl" | "failureReason" | "page">): string | null {
   if (card.state === "no screen") return "This change did not alter any screen.";
