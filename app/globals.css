@@ -546,6 +546,17 @@ table.teams .num { padding-right: 1.5rem; }
 /* Home: a grid of boxes, as many across as fit (one on a phone). */
 .dashboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space); margin-top: var(--space); }
 .dashboard .callout p:last-child { font-weight: 600; }
+/* A box across the whole row, such as Evolution, whose cards scroll sideways. */
+.dashboard .wide { grid-column: 1 / -1; min-width: 0; }
+/* Home's rows (Dane, 2026-11-01): four boxes across the top, all the same
+   height (two by two on a tablet, one column on a phone); then Evolution;
+   then two boxes side by side, stacked on a phone. */
+.dashboard.four { grid-template-columns: 1fr; grid-auto-rows: 1fr; }
+.dashboard.two { grid-template-columns: 1fr; }
+@media (min-width: 40rem) { .dashboard.four { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 48rem) { .dashboard.two { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 72rem) { .dashboard.four { grid-template-columns: repeat(4, 1fr); } }
+.home-page .dashboard.four, .home-page .dashboard.two { align-items: stretch; }
 
 /* Home sits on Dane's water-drop picture (2026-10-31): one picture fixed
    behind the whole page, header included. Only the header bar is darkened
@@ -574,7 +585,7 @@ table.teams .num { padding-right: 1.5rem; }
 @media (prefers-color-scheme: dark) {
   .home-page { --glass: rgb(11 42 52 / 0.3); --frost: blur(12px) contrast(0.45) brightness(0.55); --muted: #c4e0e6; --accent: #8fe6ee; --error: #ffbab3; }
 }
-.home-page main > h1, .home-page .dashboard .box {
+.home-page .dashboard > .box {
   background: var(--glass); -webkit-backdrop-filter: var(--frost); backdrop-filter: var(--frost);
   border: 1px solid var(--line); border-radius: 14px;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 3px 8px rgb(0 0 0 / 0.25);
@@ -583,10 +594,9 @@ table.teams .num { padding-right: 1.5rem; }
   .home-page { --glass: rgb(221 243 251 / 0.85); }
   @media (prefers-color-scheme: dark) { .home-page { --glass: rgb(11 42 52 / 0.85); } }
 }
-.home-page main > h1 { display: inline-block; padding: 0.3rem 0.9rem; }
-.home-page .dashboard { gap: calc(var(--space) * 1.25); align-items: start; }
-.home-page .dashboard .box { padding: 1rem 1.15rem 1.1rem; }
-.home-page .dashboard .box > h2:first-child {
+.home-page .dashboard { gap: calc(var(--space) * 1.25); align-items: start; margin-top: calc(var(--space) * 1.25); }
+.home-page .dashboard > .box { padding: 1rem 1.15rem 1.1rem; }
+.home-page .dashboard > .box > h2:first-child {
   display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem;
   color: var(--fg); font-size: 0.85rem;
 }
@@ -678,31 +688,45 @@ dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
 .landing-single .landing-form { justify-self: auto; }
 .landing-single .landing-form h1 { margin-bottom: var(--space); }
 
-/* The Tasks page's List | Evolution switch, beside the heading; the view you are on is underlined, as in the Game menu. */
+/* The Tasks page's heading line, which the "Launch AI Agents" switch shares. */
 .tasks-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.5rem; }
 .tasks-heading h1 { margin: 0; }
-.view-switch { display: flex; gap: 1rem; }
-.view-switch a { padding: 0.2rem 0; border-bottom: 3px solid transparent; font-weight: 600; text-decoration: none; }
-.view-switch a:hover { text-decoration: underline; }
-.view-switch a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
 main > .tasks-heading { margin: 0 0 0.35rem; }
 
-/* The Evolution view: one row of cards that scrolls sideways (a swipe on a
-   phone), each card snapping into place; the full-size picture is a dialog. */
+/* Evolution, on Home: one row of cards that scrolls sideways (a swipe on a
+   phone), each card snapping into place; the full-size picture is a dialog.
+   Each picture is half as tall again as on the 18rem cards the Tasks page
+   had (Dane, 2026-11-01): the picture inside an 18rem card is 18rem less the
+   card's padding (1.7rem) and borders (4px), so the card grows to 1.5 times
+   that picture plus the same padding and borders. A narrow screen caps a card
+   at the row's width between the arrows, so one whole card always shows. */
 .evolution {
   list-style: none; margin: 0 0 var(--space); padding: 0.25rem 0.25rem 0.75rem;
   display: flex; gap: var(--space); overflow-x: auto; scroll-snap-type: x proximity;
   overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
 }
 .evolution:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The row between its two arrow buttons: big round buttons in the link
+   colour, so stepping through the changes is obvious; greyed out at an end. */
+.evolution-rail { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 var(--space); }
+.evolution-rail .evolution { flex: 1; min-width: 0; margin: 0; }
+button.evolution-arrow {
+  flex: none; display: grid; place-items: center; width: 3rem; height: 3rem; padding: 0; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+button.evolution-arrow svg { width: 1.6rem; height: 1.6rem; }
+button.evolution-arrow:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+@media (max-width: 30rem) { button.evolution-arrow { width: 2.25rem; height: 2.25rem; } }
 .evolution-card {
-  flex: 0 0 min(18rem, 80vw); scroll-snap-align: center;
+  flex: 0 0 min(calc(1.5 * (18rem - 1.7rem - 4px) + 1.7rem + 4px), 100%); scroll-snap-align: center;
   display: flex; flex-direction: column; gap: 0.5rem;
 }
 .evolution-thumb { display: block; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--field); cursor: zoom-in; overflow: hidden; }
 .evolution-thumb img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; }
 .evolution-text { margin: 0; aspect-ratio: 16 / 10; display: flex; align-items: center; padding: 0.75rem; border: 1px dashed var(--line); border-radius: 6px; }
-.evolution-facts h2 { margin: 0 0 0.25rem; font-size: 1rem; line-height: 1.3; text-transform: none; letter-spacing: normal; color: var(--fg); }
+.evolution-facts .evolution-words { margin: 0 0 0.35rem; font-size: 1rem; line-height: 1.35; color: var(--fg); white-space: pre-line; }
+blockquote.evolution-words { padding-left: 0.6rem; border-left: 3px solid var(--accent); }
+.evolution-words.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .evolution-facts p { margin: 0 0 0.25rem; font-size: 0.9rem; }
 .evolution-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; }
 dialog.evolution-full {

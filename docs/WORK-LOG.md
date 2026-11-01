@@ -7,6 +7,34 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — The Evolution scroller moves to Home, half as tall again (#87)
+
+The row of screenshots showing how WaveCenter looked after each change now
+lives on the signed-in Home page, in a box across the full width below the
+others, instead of behind a switch on the Tasks page. Each picture is half
+as tall again as before, so the old screens are easier to make out. It
+still opens on the newest change, a click still shows a picture full size,
+and the arrow keys still step through them. The Tasks page is back to just
+the task list, and an old link to the Evolution view now lands on Home's box
+instead of nowhere. Dane chose this option on the ticket.
+
+---
+
+## 2026-11-01 — Evolution cards speak in Dane's own words (#85)
+
+Each card in the Evolution scroller now shows what Dane actually asked for,
+word for word, with one "See the thread" link to where he asked it: the
+WaveCenter task, or the ClickUp ticket. The agent-written ticket names and
+the row of PR and ticket links are gone, because Dane found them hard to
+follow. Where none of his words were ever written down (mostly the earliest
+changes), the card says in a few plain words what changed instead, as he
+chose. Changes that never touched a screen no longer appear, so every card
+shows something you can see. His words are stored with each change, and
+one command on the Mac Mini fills them in for the changes already recorded
+without retaking any picture.
+
+---
+
 ## 2026-10-31 — Home sits on the water-drop picture (#83)
 
 The signed-in Home page now has the same water-drop picture as the log-in

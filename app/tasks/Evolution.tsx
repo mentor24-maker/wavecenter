@@ -1,11 +1,17 @@
 "use client";
 
 /**
- * The Evolution view (Dane, 2026-10-30: "It's a thumbnail scroller."): a
- * row of cards, one per change merged into main, oldest on the left and
- * newest on the right, opened scrolled to the newest. A phone swipes the
+ * The Evolution scroller (Dane, 2026-10-30: "It's a thumbnail scroller."),
+ * on Home since 2026-11-01: a row of cards, one per change merged into main
+ * that altered a screen, oldest on the left and newest on the right, opened
+ * scrolled to the newest.
+ * Each card is labeled with Dane's own words that asked for the change and
+ * one link to where he said them (Dane, 2026-10-31: "use my prompt only,
+ * with a link to the thread"). A phone swipes the
  * row; a keyboard tabs through the cards or scrolls the focused row with the
- * arrow keys. Clicking a card's picture opens it full size, where the
+ * arrow keys. A round arrow button at each end of the row steps it one card
+ * back or forward, greyed out at that end (Dane, 2026-11-01: "obvious
+ * advance and reverse arrow icons"). Clicking a card's picture opens it full size, where the
  * buttons or the left and right arrow keys step through the changes in merge
  * order. Only reads; nothing here writes.
  */
@@ -17,12 +23,32 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   const strip = useRef<HTMLOListElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [ends, setEnds] = useState({ atStart: true, atEnd: true });
+
+  // Which ends the row is scrolled to, so the arrow at that end greys out.
+  function measure() {
+    const el = strip.current;
+    if (!el) return;
+    setEnds({ atStart: el.scrollLeft <= 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 });
+  }
 
   // Open on the newest change.
   useEffect(() => {
     const el = strip.current;
     if (el) el.scrollLeft = el.scrollWidth;
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, []);
+
+  // One card back or forward: a card's width plus the gap between cards.
+  function slide(by: -1 | 1) {
+    const el = strip.current;
+    const card = el?.firstElementChild as HTMLElement | null;
+    if (!el || !card) return;
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    el.scrollBy({ left: by * (card.offsetWidth + gap), behavior: "smooth" });
+  }
 
   function show(index: number) {
     setOpen(index);
@@ -59,24 +85,32 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   return (
     <>
       <p className="note">
-        {cards.length} change{cards.length === 1 ? "" : "s"}, oldest on the left. Swipe or scroll sideways; click a picture to see it full size.
+        {cards.length} change{cards.length === 1 ? "" : "s"}, oldest on the left. Use the arrows, swipe or scroll sideways; click a picture to see it full size.
       </p>
-      <ol className="evolution" ref={strip} tabIndex={0} aria-label="Changes to WaveCenter, oldest first">
-        {cards.map((c, i) => (
-          <li key={c.sha} className="evolution-card box level-1">
-            {c.imageUrl ? (
-              <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${c.title}” full size`}>
-                {/* A signed link to a private picture: plain <img>, not next/image, which would fetch it through the web server. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.imageUrl} alt="" loading="lazy" />
-              </button>
-            ) : (
-              <p className={c.state === "failed" || c.state === "captured" ? "evolution-text error" : "evolution-text note"}>{cardNote(c)}</p>
-            )}
-            <CardFacts card={c} />
-          </li>
-        ))}
-      </ol>
+      <div className="evolution-rail">
+        <button type="button" className="evolution-arrow" onClick={() => slide(-1)} disabled={ends.atStart} aria-label="Older change">
+          <ArrowIcon back />
+        </button>
+        <ol className="evolution" ref={strip} tabIndex={0} aria-label="Changes to WaveCenter, oldest first" onScroll={measure}>
+          {cards.map((c, i) => (
+            <li key={c.sha} className="evolution-card box level-1">
+              {c.imageUrl ? (
+                <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${short(c.words)}” full size`}>
+                  {/* A signed link to a private picture: plain <img>, not next/image, which would fetch it through the web server. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.imageUrl} alt="" loading="lazy" />
+                </button>
+              ) : (
+                <p className="evolution-text error">{cardNote(c)}</p>
+              )}
+              <CardFacts card={c} />
+            </li>
+          ))}
+        </ol>
+        <button type="button" className="evolution-arrow" onClick={() => slide(1)} disabled={ends.atEnd} aria-label="Newer change">
+          <ArrowIcon />
+        </button>
+      </div>
 
       <dialog ref={dialog} className="evolution-full" aria-label="Screenshot, full size" onClose={onClose}>
         {current && open !== null && (
@@ -89,11 +123,11 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
             </div>
             {current.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={current.imageUrl} alt={`WaveCenter's ${current.page ?? ""} screen right after “${current.title}”`} />
+              <img src={current.imageUrl} alt={`WaveCenter's ${current.page ?? ""} screen right after “${short(current.words)}”`} />
             ) : (
-              <p className={current.state === "no screen" ? "note" : "error"}>{cardNote(current)}</p>
+              <p className="error">{cardNote(current)}</p>
             )}
-            <CardFacts card={current} />
+            <CardFacts card={current} full />
           </>
         )}
       </dialog>
@@ -101,20 +135,44 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   );
 }
 
-/** The title, the merge date, and the links to the PR, the ticket and the task. */
-function CardFacts({ card }: { card: EvolutionCard }) {
+/** A bold chevron pointing left (back) or right. */
+function ArrowIcon({ back = false }: { back?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+      <path d={back ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} />
+    </svg>
+  );
+}
+
+/** The first line of a card's words, for a picture's label. */
+function short(words: string): string {
+  const first = words.split("\n")[0].trim();
+  return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+}
+
+/** Dane's words (or, with none on record, what changed), the merge date, and the one link to the thread. */
+function CardFacts({ card, full = false }: { card: EvolutionCard; full?: boolean }) {
+  const thread = card.threadUrl;
   return (
     <div className="evolution-facts">
-      <h2>{card.title}</h2>
+      {card.fromDane ? (
+        <blockquote className={full ? "evolution-words" : "evolution-words clamped"}>{card.words}</blockquote>
+      ) : (
+        <p className={full ? "evolution-words" : "evolution-words clamped"}>{card.words}</p>
+      )}
       <p className="note">
         Merged {card.mergedAt}
-        {card.page && card.state === "captured" ? <> &middot; shows {card.page}</> : null}
+        {card.page ? <> &middot; shows {card.page}</> : null}
       </p>
-      <p className="evolution-links">
-        {card.prUrl && <a href={card.prUrl} target="_blank" rel="noreferrer">PR #{card.prNumber}</a>}
-        {card.ticketUrl && <a href={card.ticketUrl} target="_blank" rel="noreferrer">ClickUp ticket</a>}
-        {card.taskId && <Link href={`/tasks/${card.taskId}`}>WaveCenter task</Link>}
-      </p>
+      {thread && (
+        <p className="evolution-links">
+          {thread.startsWith("/") ? (
+            <Link href={thread}>See the thread</Link>
+          ) : (
+            <a href={thread} target="_blank" rel="noreferrer">See the thread</a>
+          )}
+        </p>
+      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@
  *                                                         skipping ones already captured
  *   npm run evolution -- missing                          every first-parent change on main with no row
  *                                                         yet, oldest first (the merge lane runs this)
+ *   npm run evolution -- words                            fill Dane's words and their thread on every
+ *                                                         recorded change that has none yet; no pictures
  *   npm run evolution -- list                             one line per recorded change
  *
  * Runs on the Mac Mini only: it needs the test database (Docker), and Doppler
@@ -56,6 +58,12 @@
  * wipes the local copy and gives the test database back, so the next pass
  * retakes it from the start.
  *
+ * Each row also keeps Dane's own words behind the change and a link to
+ * where he said them (danesWords), read from its ClickUp ticket through
+ * `scripts/clickup.mjs ticket-json`. The Evolution cards show those words.
+ * A ticket that cannot be read leaves them empty, and `words` fills them
+ * on a later run without retaking any picture.
+ *
  * Exit 0 = done. Exit 1 = something failed, said in plain words; a picture
  * that was not stored is never recorded as captured (engineering rule 6).
  * Exit 143 = stopped at the time limit.
@@ -68,7 +76,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -160,8 +168,14 @@ async function liveData() {
   return liveSnapshot;
 }
 
-/** Store the screenshot, then the row; read each back. Throws RunFailed on any failure. */
-async function record(row, pngFile) {
+/**
+ * Store the screenshot, then the row; read each back. Throws RunFailed on
+ * any failure. Empty words are left out of the write, so retaking a picture
+ * while ClickUp cannot be read never wipes words already stored.
+ */
+async function record(fullRow, pngFile) {
+  const row = { ...fullRow };
+  if (row.prompt == null) { delete row.prompt; delete row.thread_url; }
   if (row.capture_state === 'captured') {
     const put = await live(`/storage/v1/object/${BUCKET}/${row.screenshot_path}`, {
       method: 'POST', raw: readFileSync(pngFile), headers: { 'Content-Type': 'image/png', 'x-upsert': 'true' },
@@ -429,12 +443,33 @@ function commitInfo(rev) {
 }
 
 /**
+ * Dane's words behind a change, from its ticket: { prompt, threadUrl }, both
+ * null when the ticket holds none, or null when the ticket could not be read
+ * (said in the output, never recorded as "none").
+ */
+function ticketWords(url) {
+  const task = ticketId(url);
+  if (!task) return { prompt: null, threadUrl: null };
+  const got = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'ticket-json', '--task', task]);
+  const json = got.ok ? got.stdout.trim().split('\n').filter((l) => l.startsWith('{')).at(-1) : null;
+  if (!json) {
+    console.log(`  could not read ticket ${task} for Dane's words: ${tail(got.out)}`);
+    return null;
+  }
+  try { return danesWords(JSON.parse(json)); } catch (err) {
+    console.log(`  could not read ticket ${task} for Dane's words: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Picture one change. Returns the row it recorded (or would record, with
  * `dryRun`). Throws RunFailed when the run itself broke.
  */
 async function capture(rev, { dryRun = null } = {}) {
   const info = commitInfo(rev);
-  const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl };
+  const words = ticketWords(info.ticketUrl) ?? { prompt: null, threadUrl: null };
+  const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const pattern = choosePage(info);
   console.log(`${info.sha.slice(0, 7)} ${info.title}\n  page: ${pattern ?? 'no screen'}`);
   const finish = async (row, png) => {
@@ -555,6 +590,25 @@ try {
       ? `missing: captured ${todo.length} change(s) that had no row; ${failed} failed (each with its reason above).`
       : `missing: all ${shas.length} change(s) on main already have a row; nothing to capture.`);
     process.exit(0);
+  } else if (command === 'words') {
+    requireLive();
+    const todo = (await recorded()).filter((r) => r.prompt == null);
+    let filled = 0, none = 0, unread = 0;
+    for (const r of todo) {
+      const words = ticketWords(r.ticket_url);
+      if (!words) { unread += 1; continue; }
+      if (!words.prompt) { none += 1; continue; }
+      const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${r.commit_sha}&prompt=is.null`, {
+        method: 'PATCH', body: { prompt: words.prompt, thread_url: words.threadUrl }, headers: { Prefer: 'return=representation' },
+      });
+      if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.prompt !== words.prompt) {
+        throw new RunFailed(`saving Dane's words for ${r.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+      }
+      filled += 1;
+      console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  his words: ${words.prompt.split('\n')[0]}`);
+    }
+    console.log(`words: ${todo.length} change(s) had none; filled ${filled}, ${none} with none of Dane's words on their ticket, ${unread} whose ticket could not be read.`);
+    process.exit(unread ? 1 : 0);
   } else if (command === 'list') {
     requireLive();
     const rows = await recorded();
@@ -562,7 +616,7 @@ try {
     console.log(rows.length ? `${rows.length} change(s) recorded.` : 'No changes recorded yet: run `npm run evolution -- backfill`.');
     process.exit(0);
   } else {
-    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | list');
+    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | list');
     process.exit(1);
   }
 } catch (err) {
