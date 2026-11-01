@@ -600,7 +600,7 @@ dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
 .landing-top { width: 100%; max-width: 90rem; margin: 0 auto; padding: 1rem var(--space); }
 .landing .brand:focus-visible { outline-color: #fff; }
 /* No menu shares the top here, so the name stays beside the logo on a phone too. */
-.landing .brand span { display: inline; }
+.landing-top .brand span { display: inline; }
 .landing-body {
   flex: 1; width: 100%; display: grid; grid-template-columns: 1fr; align-content: center;
   gap: calc(var(--space) * 2); padding-top: var(--space);
@@ -615,6 +615,14 @@ dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
 .landing-form { color: var(--fg); text-shadow: none; max-width: 28rem; width: 100%; justify-self: end; padding: 1.25rem 1.5rem; }
 .landing-form .stack { max-width: none; margin-bottom: 0; border: 0; padding: 0; background: none; }
 @media (max-width: 55.99rem) { .landing-form { justify-self: stretch; max-width: none; } }
+/* Set a new password (Dane, 2026-10-31) sits on the same full-screen picture:
+   the header bar keeps its logo, name and menu but drops its own picture so
+   the one behind the page shows through, and the page's one panel sits in
+   the middle of the screen. */
+.landing .site { background: none; border-bottom: 0; }
+.landing-single { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; }
+.landing-single .landing-form { justify-self: auto; }
+.landing-single .landing-form h1 { margin-bottom: var(--space); }
 
 /* The Tasks page's List | Evolution switch, beside the heading; the view you are on is underlined, as in the Game menu. */
 .tasks-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.5rem; }
