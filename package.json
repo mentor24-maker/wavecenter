@@ -22,6 +22,7 @@
     "verify": "npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build && npm run check:browser-secrets",
     "check:browser-secrets": "node scripts/check_browser_secrets.mjs",
     "db:test": "node scripts/db_test.mjs",
+    "email:test": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/email_test.mjs",
     "evolution": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_capture.mjs"
   },
   "dependencies": {

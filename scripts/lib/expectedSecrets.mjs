@@ -13,6 +13,7 @@ export const EXPECTED_SECRETS = [
   { name: 'SUPABASE_SERVICE_ROLE_KEY', configs: ['dev', 'prd'], what: 'the server-only database key' },
   { name: 'DATABASE_URL', configs: ['dev', 'prd'], what: 'the Postgres connection string' },
   { name: 'CLICKUP_API_TOKEN', configs: ['dev'], what: 'the ClickUp token, for scripts only' },
+  { name: 'RESEND_API_KEY', configs: ['dev', 'prd'], what: 'the Resend key that sends email (server only)' },
 ];
 
 /**

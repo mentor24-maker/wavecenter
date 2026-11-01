@@ -23,6 +23,21 @@ was.
 
 ---
 
+## 2026-11-01 — A step-by-step guide to switch on WaveCenter email (#90)
+
+WaveCenter could already send email through Resend, but it had no key, so
+messages from the Members page were saved and never sent, and sign-in links
+only reached Dane. A new guide, `docs/EMAIL_SETUP.md`, walks Dane click by
+click through switching it on: prove WaveCenter owns `wavecenter.com`, make a
+key that can only send email, put it where the app and scripts read it, and
+send sign-in links through Resend too, with how to undo that last step if it
+misbehaves. Two checks show whether it worked: `npm run doctor` now says
+whether the key is in place, and `npm run email:test` sends one test email
+and says plainly whether it went. Email now comes from
+`noreply@wavecenter.com`, the address Dane chose on the ticket.
+
+---
+
 ## 2026-11-01 — The Evolution scroller moves to Home, half as tall again (#87)
 
 The row of screenshots showing how WaveCenter looked after each change now

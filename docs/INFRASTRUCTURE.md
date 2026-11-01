@@ -215,20 +215,24 @@ Any new domain the app answers on needs a Redirect URL entry the same day.
 the request leaves a matching cookie). Opening the email on a phone after
 asking on a laptop shows "That sign-in link did not work".
 
-**Email limits.** Until WaveCenter has its own email service (custom SMTP in
-Supabase), Supabase's built-in sender only delivers to members of the Supabase
-organisation and only a few emails an hour. That is enough for Dane; it must
-change before anyone else is invited.
+**Email limits.** Supabase's built-in sender only delivers to members of the
+Supabase organisation, a few emails an hour. That is enough for Dane; it must
+change before anyone else is invited. The fix is custom SMTP through Resend,
+step 4 of [EMAIL_SETUP.md](EMAIL_SETUP.md), which also raises the hourly limit.
+Until Dane has done that step, sign-in links still use the built-in sender.
 
 **Email to members.** An admin's message from the Members page is emailed
 through **Resend** (Dane's choice, 2026-10-30), by its plain HTTPS API, so it
 works on any host (`app/lib/mailer.ts`). Gmail does not let another service
-send as a gmail.com address, so the email comes from a WaveCenter address on
-a domain verified in Resend, and replies go to Dane's Gmail. Without
+send as a gmail.com address, so the email comes from
+`WaveCenter <noreply@wavecenter.com>` (Dane's choice, 2026-11-01) on
+`wavecenter.com`, verified in Resend, and replies go to Dane's Gmail. Without
 `RESEND_API_KEY` the message is still saved, and the form says plainly that
-it was not emailed. The key goes into Doppler `wavecenter` (`dev` and `prd`)
-and into Vercel for Production and Preview, then a redeploy (rule 4). This is
-separate from the sign-in links above, which still use Supabase's sender.
+it was not emailed. **How to switch it on, click by click:
+[EMAIL_SETUP.md](EMAIL_SETUP.md)** (verify the domain at Hostinger, make a
+sending-only key, put it in Doppler `dev` and `prd` and in Vercel, redeploy).
+`npm run email:test -- --to <address>` sends one test email and says plainly
+whether it went; `npm run doctor` shows whether the key is in Doppler.
 
 ## The core is separate from the framework
 
@@ -283,8 +287,8 @@ dashboard.
 | `SUPABASE_SERVICE_ROLE_KEY` | bypasses row-level security entirely | **server only, never the browser** |
 | `DATABASE_URL` | the Postgres connection string, with the database password | **server only** |
 | `CLICKUP_API_TOKEN` | the ClickUp token, a reference to StarCaster's `dev` config | scripts only |
-| `RESEND_API_KEY` | the Resend key that sends members' messages by email (see "Email to members" below) | **server only** |
-| `MESSAGE_FROM` | optional; the address messages come from. Default `WaveCenter <messages@wavecenter.com>` | server |
+| `RESEND_API_KEY` | the Resend key (sending access only) that sends members' messages, and, as the SMTP password in Supabase, sign-in links. In `dev` and `prd`; setup in [EMAIL_SETUP.md](EMAIL_SETUP.md) | **server only** |
+| `MESSAGE_FROM` | optional; the address messages come from. Default `WaveCenter <noreply@wavecenter.com>` | server |
 | `MESSAGE_REPLY_TO` | optional; where replies go. Default `daneofearth@gmail.com` | server |
 
 `stg` and `prd` hold the three Supabase names as **references** to `dev`
