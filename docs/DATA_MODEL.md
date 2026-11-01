@@ -512,8 +512,8 @@ rebuilds "the data as it stood" and what it cannot show.
 | `title` | The pull request's title, which is the ticket's name, word for word. |
 | `ticket_url` | The ClickUp ticket the pull request links to, if it named one. |
 | `page` | The address photographed, such as `/game`. Empty for a change with no screen. |
-| `screenshot_path` | The picture's name in the `evolution` bucket. Set only when the picture is stored. |
-| `capture_state` | `captured` (picture stored), `no screen` (the change touched no page; a text-only entry, not a failure) or `failed`. |
+| `screenshot_path` | The picture's name in the `evolution` bucket (`<commit>.png`, or `<commit>-<fingerprint>.png` for a retake). Set only when the picture is stored. |
+| `capture_state` | `captured` (picture stored), `no screen` (the change touched no page, or its picture came out exactly the same as the card before it; a text-only entry left off the scroller, not a failure) or `failed`. |
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
 | `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
 | `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |

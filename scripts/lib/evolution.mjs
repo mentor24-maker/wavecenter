@@ -37,53 +37,124 @@ function routeDirs(files) {
   return dirs;
 }
 
+/** The route a changed file under app/ belongs to: its deepest page folder, '' for app/page.tsx, or null (shared). */
+function routeOf(file, dirs) {
+  const parts = file.slice(4).split('/').slice(0, -1);
+  for (let n = parts.length; n >= 1; n -= 1) {
+    const dir = parts.slice(0, n).join('/');
+    if (dirs.has(dir)) return dir;
+  }
+  return parts.length === 0 && PAGE_FILE.test(file.slice(4)) && dirs.has('') ? '' : null;
+}
+
+const HOME_WORDS = /\b(home|dashboard)\b/i;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The top-level pages `text` names, in the order it names them: "home" or
+ * "dashboard" for the Home page, otherwise a page's own address word
+ * ("game", "profile", "members", "tasks", ...), whole words only.
+ */
+function namedPages(text, dirs) {
+  const t = String(text || '');
+  const found = [];
+  const home = t.match(HOME_WORDS);
+  if (home && dirs.has('')) found.push({ dir: '', at: home.index });
+  for (const dir of dirs) {
+    if (!dir || dir.includes('/') || dir.includes('[')) continue;
+    const m = t.match(new RegExp(`(^|[^\\w-])${escapeRe(dir)}(?![\\w-])`, 'i'));
+    if (m) found.push({ dir, at: m.index });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.dir);
+}
+
+/** A ticket name's fix, the part after "<what breaks and who feels it>: ". */
+function fixPart(title) {
+  const t = String(title || '');
+  const at = t.indexOf(': ');
+  return at > 0 ? t.slice(at + 2) : t;
+}
+
 /**
  * Which page to photograph for one change, or null for "no screen".
  *
  *   changed: the paths the change touched
+ *   added:   the paths it added (a subset of changed)
  *   files:   every path in the repository at that change
+ *   title:   the PR title; prompt: Dane's words behind it, when on record
+ *   previousPage: the page the card before it shows (the repeat rule)
  *
- * - A file under app/<segment>/ pictures /<segment>, or the deepest page
- *   under it that holds the file (so app/game/leaderboard/page.tsx pictures
- *   /game/leaderboard). A dynamic folder such as tasks/[id] comes back as
- *   "/tasks/[id]"; the capture puts a real task's id in its place.
- * - app/page.tsx pictures /.
- * - Files that belong to no page (app/SiteHeader.tsx, app/globals.css,
- *   app/lib/, app/layout.tsx, app/auth/, or a folder whose page does not
- *   exist yet) are shared: they picture the Home page / when it exists, else
- *   /tasks. Until the Home dashboard (#54) the task list itself lived at /.
- * - When several pages are touched, the one with the most changed files wins,
- *   shared files counting for the Home page (so #54, which added the Home
- *   dashboard and moved the list to /tasks, pictures /); on a tie, the
- *   shorter address (so a change to a section and its sub-pages pictures the
- *   section).
- * - No app/ change, or no page at all at that change: null.
+ * Every changed file under app/ belongs to a page: the deepest page folder
+ * that holds it (app/game/leaderboard/page.tsx is /game/leaderboard; a
+ * dynamic folder comes back as "/tasks/[id]", and the capture puts a real
+ * task's id in its place), or / for app/page.tsx. Files that belong to no
+ * page (app/SiteHeader.tsx, app/globals.css, app/lib/, app/layout.tsx,
+ * app/auth/, or a folder whose page does not exist yet) are shared.
+ *
+ * When the change touched a page, the most relevant touched page wins:
+ *   1. one the title names ("Dane wants a tidier Home: ..." is /; #54, which
+ *      added /about, /deo and /tasks but was about the new Home, is /);
+ *   2. then one the change added (#30 added /profile);
+ *   3. then the one with the most changed files;
+ *   4. then the shorter address (a section and its sub-pages is the section).
+ * Shared files no longer vote: a game page change that also touched
+ * app/lib/ is /game, not Home (Dane, 2026-11-01: "show the most relevant
+ * screenshot").
+ *
+ * When only shared files changed, the page the fix names decides (the part
+ * of the title after ": ", then Dane's words), else the Home page / when it
+ * exists, else /tasks. Until the Home dashboard (#54) the task list itself
+ * lived at /.
+ *
+ * Repeat rule (Dane: "no single screenshot should be repeated"): when the
+ * winner is the page the card before shows and the change touched another
+ * page, the next one wins instead.
+ *
+ * No app/ change, or no page at all at that change: null.
  */
-export function choosePage({ changed, files }) {
+export function choosePage({ changed, added, files, title, prompt }, { previousPage = null } = {}) {
   const dirs = routeDirs(files || []);
   if (!dirs.size) return null;
   const appChanges = (changed || []).filter((f) => f.startsWith('app/'));
   if (!appChanges.length) return null;
 
   const votes = new Map();
-  let shared = 0;
   for (const f of appChanges) {
-    const parts = f.slice(4).split('/').slice(0, -1);
-    let route = null;
-    for (let n = parts.length; n >= 1; n -= 1) {
-      const dir = parts.slice(0, n).join('/');
-      if (dirs.has(dir)) { route = dir; break; }
-    }
-    if (route === null && parts.length === 0 && f.slice(4).match(PAGE_FILE)) route = '';
-    if (route === null) { shared += 1; continue; }
-    votes.set(route, (votes.get(route) || 0) + 1);
+    const route = routeOf(f, dirs);
+    if (route !== null) votes.set(route, (votes.get(route) || 0) + 1);
   }
 
-  const home = dirs.has('') ? '' : dirs.has('tasks') ? 'tasks' : null;
-  if (shared && home !== null) votes.set(home, (votes.get(home) || 0) + shared);
-  if (!votes.size) return null;
-  const [best] = [...votes].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length || a[0].localeCompare(b[0]));
-  return `/${best[0]}`;
+  if (!votes.size) {
+    const named = [...namedPages(fixPart(title), dirs), ...namedPages(prompt, dirs)];
+    if (named.length) return `/${named[0]}`;
+    return dirs.has('') ? '/' : dirs.has('tasks') ? '/tasks' : null;
+  }
+
+  const inTitle = new Set(namedPages(title, dirs));
+  const addedPages = new Set((added || []).filter((f) => f.startsWith('app/') && PAGE_FILE.test(f.split('/').at(-1))).map((f) => f.slice(4).split('/').slice(0, -1).join('/')));
+  const ranked = [...votes.keys()].sort((a, b) =>
+    (inTitle.has(b) - inTitle.has(a))
+    || (addedPages.has(b) - addedPages.has(a))
+    || (votes.get(b) - votes.get(a))
+    || a.length - b.length
+    || a.localeCompare(b)).map((d) => `/${d}`);
+  if (ranked.length > 1 && previousPage != null && samePage(ranked[0], previousPage)) return ranked[1];
+  return ranked[0];
+}
+
+/** Whether a stored page (/tasks/<id>) is the page pattern (/tasks/[id]) choosePage gives. */
+export function samePage(pattern, page) {
+  if (pattern == null || page == null) return pattern === page;
+  const re = new RegExp(`^${pattern.split(/\[[^\]]+\]/).map(escapeRe).join('[^/]+')}$`);
+  return re.test(page);
+}
+
+/** The captured card just before a change merged at `mergedAt` (rows as stored), or null. */
+export function previousCard(rows, mergedAt) {
+  const t = Date.parse(mergedAt);
+  return (rows || [])
+    .filter((r) => r.capture_state === 'captured' && Date.parse(r.merged_at) < t)
+    .sort((a, b) => Date.parse(b.merged_at) - Date.parse(a.merged_at))[0] ?? null;
 }
 
 /** Fill a dynamic page such as /tasks/[id] with a task that existed then; null if there was none. */
