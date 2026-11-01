@@ -127,15 +127,16 @@ test('a change of only shared files pictures the page its fix names, else Home',
   assert.equal(choosePage({ changed: ['app/globals.css'], files: WITH_HOME, title: 'Fix the colours', prompt: 'The members page is too dark' }), '/members');
 });
 
-test('the repeat rule: a card does not show the same page as the card before when the change touched another', () => {
+test('the same page is pictured again when it is the change\'s focus', () => {
+  // Dane, 2026-11-01: "the image itself should be unique, not the page".
+  // A Home change after a Home card is still Home, even when it also
+  // touched another page (#88 after #86).
   const changed = ['app/page.tsx', 'app/tasks/Evolution.tsx'];
-  assert.equal(choosePage({ changed, files: WITH_HOME }), '/');
-  assert.equal(choosePage({ changed, files: WITH_HOME }, { previousPage: '/' }), '/tasks');
-  // With nothing else touched, the page stays.
-  assert.equal(choosePage({ changed: ['app/page.tsx'], files: WITH_HOME }, { previousPage: '/' }), '/');
-  assert.equal(choosePage({ changed: ['app/SiteHeader.tsx'], files: WITH_HOME }, { previousPage: '/' }), '/');
-  // A stored task page counts as the same page as its pattern.
-  assert.equal(choosePage({ changed: ['app/tasks/[id]/TaskDiscussion.tsx', 'app/tasks/[id]/page.tsx', 'app/members/page.tsx'], files: WITH_HOME }, { previousPage: '/tasks/abc' }), '/members');
+  assert.equal(choosePage({ changed, files: WITH_HOME, title: 'Dane wants a tidier Home: four equal pods' }), '/');
+  assert.equal(choosePage({ changed: ['app/page.tsx'], files: WITH_HOME }), '/');
+  assert.equal(choosePage({ changed: ['app/SiteHeader.tsx'], files: WITH_HOME }), '/');
+  // The page the change touched most wins, whatever the card before showed.
+  assert.equal(choosePage({ changed: ['app/tasks/[id]/TaskDiscussion.tsx', 'app/tasks/[id]/page.tsx', 'app/members/page.tsx'], files: WITH_HOME }), '/tasks/[id]');
 });
 
 test('samePage matches a stored page against its pattern', () => {

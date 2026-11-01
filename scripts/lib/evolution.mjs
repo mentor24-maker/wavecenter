@@ -82,7 +82,6 @@ function fixPart(title) {
  *   added:   the paths it added (a subset of changed)
  *   files:   every path in the repository at that change
  *   title:   the PR title; prompt: Dane's words behind it, when on record
- *   previousPage: the page the card before it shows (the repeat rule)
  *
  * Every changed file under app/ belongs to a page: the deepest page folder
  * that holds it (app/game/leaderboard/page.tsx is /game/leaderboard; a
@@ -106,13 +105,14 @@ function fixPart(title) {
  * exists, else /tasks. Until the Home dashboard (#54) the task list itself
  * lived at /.
  *
- * Repeat rule (Dane: "no single screenshot should be repeated"): when the
- * winner is the page the card before shows and the change touched another
- * page, the next one wins instead.
+ * The same page on two cards in a row is fine: the page a change is about
+ * is pictured as it looks now, so the cards show how each page changes over
+ * time (Dane, 2026-11-01: "the image itself should be unique, not the
+ * page"). Only an identical picture is left off, when it is taken.
  *
  * No app/ change, or no page at all at that change: null.
  */
-export function choosePage({ changed, added, files, title, prompt }, { previousPage = null } = {}) {
+export function choosePage({ changed, added, files, title, prompt }) {
   const dirs = routeDirs(files || []);
   if (!dirs.size) return null;
   const appChanges = (changed || []).filter((f) => f.startsWith('app/'));
@@ -138,7 +138,6 @@ export function choosePage({ changed, added, files, title, prompt }, { previousP
     || (votes.get(b) - votes.get(a))
     || a.length - b.length
     || a.localeCompare(b)).map((d) => `/${d}`);
-  if (ranked.length > 1 && previousPage != null && samePage(ranked[0], previousPage)) return ranked[1];
   return ranked[0];
 }
 

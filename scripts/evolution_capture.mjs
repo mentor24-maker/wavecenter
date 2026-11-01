@@ -23,8 +23,9 @@
  * supplies the live keys. `capture` for one change:
  *
  *   1. Works out the change's page (scripts/lib/evolution.mjs, choosePage):
- *      the page it added or its title names, not the shared files, and not
- *      the page the card before it shows when it touched another.
+ *      the page it added or its title names, not the shared files. The same
+ *      page as the card before it is fine (Dane: "the image itself should be
+ *      unique, not the page").
  *      No app/ change, or no app yet: a text-only "no screen" row, no picture.
  *   2. Checks the change out in a temporary git worktree, installs its
  *      packages and builds it. A change that will not build or start is a
@@ -505,7 +506,7 @@ async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const words = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url } : { prompt: null, threadUrl: null });
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
-  const pattern = choosePage({ ...info, prompt: words.prompt }, { previousPage: before?.page ?? null });
+  const pattern = choosePage({ ...info, prompt: words.prompt });
   console.log(`${info.sha.slice(0, 7)} ${info.title}\n  page: ${pattern ?? 'no screen'}`);
   const finish = async (row, png) => {
     if (dryRun) {
@@ -665,7 +666,7 @@ try {
     let prev = null;
     let retaken = 0, leftOff = 0, failed = 0, kept = 0;
     for (const row of (await recorded()).filter((r) => r.capture_state === 'captured')) {
-      const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt }, { previousPage: prev?.page ?? null });
+      const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt });
       const label = `${row.commit_sha.slice(0, 7)} ${row.title}`;
       if (pattern && !samePage(pattern, row.page)) {
         if (plan) {
