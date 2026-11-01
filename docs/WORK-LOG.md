@@ -21,6 +21,18 @@ easy to read in light and dark mode. Other pages are unchanged.
 
 ---
 
+## 2026-10-31 — The Set a new password page gets the full-screen picture (#84)
+
+The page a member lands on from a password-reset email showed the water-drop
+picture only in the bar across the top, then a plain page underneath. It now
+looks like the signed-out home page: the picture fills the whole screen, the
+top bar goes see-through over it, and whatever the page has to say (the
+new-password form, "saved", or an error) sits on one solid panel in the
+middle, so it stays easy to read. On a phone the top bar still fits. No other
+page changed, and resetting a password works exactly as before.
+
+---
+
 ## 2026-10-31 — The header picture shows its colours again (#82)
 
 The bar across the top of every signed-in page had a dark layer over the

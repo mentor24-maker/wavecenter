@@ -19,7 +19,9 @@ const ERRORS: Record<string, string> = {
 /**
  * Where the link in a reset email lands, once /auth/confirm has signed the
  * member in: they choose a new password. A signed-in member can also change
- * theirs here.
+ * theirs here. It sits on the home page's full-screen water-drop picture
+ * (Dane, 2026-10-31), the header see-through over it, and every state of
+ * the page on one solid panel so its text keeps its contrast.
  */
 export default async function ResetPassword({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const { saved, error } = await searchParams;
@@ -29,38 +31,40 @@ export default async function ResetPassword({ searchParams }: { searchParams: Pr
   const name = supabase && user ? await headerName(supabase, user) : null;
 
   return (
-    <>
+    <div className="landing">
       <SiteHeader name={name} />
-      <main>
-        <h1>Set a new password</h1>
-        {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
-        {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
-        {!supabase ? (
-          <p className="error" role="alert">{ERRORS.setup}</p>
-        ) : saved && user ? (
-          <>
-            <p className="lede">Your new password is saved, and you are signed in.</p>
-            <p>
-              <Link href="/" className="button">Go to WaveCenter</Link>
-            </p>
-          </>
-        ) : user ? (
-          <form action={setNewPassword} className="stack panel">
-            <label htmlFor="password">New password (at least {MIN_PASSWORD_LENGTH} characters)</label>
-            <input id="password" name="password" type="password" autoComplete="new-password" required />
-            <label htmlFor="confirm">Confirm new password</label>
-            <input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-            <button type="submit">Save new password</button>
-          </form>
-        ) : (
-          !checkFailed && (
-            <p className="lede">
-              This page needs the link from your reset email, and that link has not signed you in. Ask for a new
-              one on <Link href="/forgot-password">Forgot your password?</Link> and open it in this browser.
-            </p>
-          )
-        )}
+      <main className="landing-single">
+        <section className="landing-form panel" aria-labelledby="reset-heading">
+          <h1 id="reset-heading">Set a new password</h1>
+          {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
+          {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
+          {!supabase ? (
+            <p className="error" role="alert">{ERRORS.setup}</p>
+          ) : saved && user ? (
+            <>
+              <p className="lede">Your new password is saved, and you are signed in.</p>
+              <p>
+                <Link href="/" className="button">Go to WaveCenter</Link>
+              </p>
+            </>
+          ) : user ? (
+            <form action={setNewPassword} className="stack panel">
+              <label htmlFor="password">New password (at least {MIN_PASSWORD_LENGTH} characters)</label>
+              <input id="password" name="password" type="password" autoComplete="new-password" required />
+              <label htmlFor="confirm">Confirm new password</label>
+              <input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+              <button type="submit">Save new password</button>
+            </form>
+          ) : (
+            !checkFailed && (
+              <p className="lede">
+                This page needs the link from your reset email, and that link has not signed you in. Ask for a new
+                one on <Link href="/forgot-password">Forgot your password?</Link> and open it in this browser.
+              </p>
+            )
+          )}
+        </section>
       </main>
-    </>
+    </div>
   );
 }
