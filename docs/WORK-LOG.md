@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — The header picture shows its colours again (#82)
+
+The bar across the top of every signed-in page had a dark layer over the
+water-drop picture, heavy enough that it looked muddy. That layer is now
+about a third lighter, so the deep blues on the left and the gold on the
+right come through. To keep your name, Log out and the menu easy to read on
+the brighter picture, the shadow behind the white letters is a little
+stronger. Nothing else on the page moved.
+
+---
+
 ## 2026-10-31 — Your name is now the way to your Profile, and "Sign out" is "Log out" (#81)
 
 The top of every signed-in page is tidier. "Profile" no longer takes up a
