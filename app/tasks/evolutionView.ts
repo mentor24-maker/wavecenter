@@ -1,7 +1,7 @@
 /**
  * The pure rules behind the Tasks page's Evolution view: which view the
- * address asks for, how a change's merge date and links read, which
- * WaveCenter task a change belongs to, and how the full-size view steps.
+ * address asks for, which changes are cards, the words and link each card
+ * shows, and how the full-size view steps.
  * Merge dates use listView's fullDate, so they read like the task list's.
  * No database, no React; tested in evolutionView.test.ts.
  */
@@ -16,14 +16,14 @@ export function viewFrom(param: string | string[] | undefined): TasksView {
 /** One change merged into main, as a card shows it. */
 export type EvolutionCard = {
   sha: string;
-  title: string;
+  /** Dane's own words that asked for the change, or, with none on record, a short statement of what changed. */
+  words: string;
+  /** Whether `words` are Dane's own. */
+  fromDane: boolean;
+  /** Where the change was discussed: a WaveCenter task (/tasks/<id>), its ClickUp ticket, or its PR. */
+  threadUrl: string | null;
   /** The merge date in Mountain time, e.g. "Oct 31, 2026, 2:15 PM MT". */
   mergedAt: string;
-  prNumber: number | null;
-  prUrl: string | null;
-  ticketUrl: string | null;
-  /** The WaveCenter task whose agent ticket is this change's ticket, if any. */
-  taskId: string | null;
   state: "captured" | "no screen" | "failed";
   /** The page the screenshot shows, e.g. "/tasks". */
   page: string | null;
@@ -38,23 +38,43 @@ export function prUrl(prNumber: number | null): string | null {
   return prNumber && prNumber > 0 ? `${REPOSITORY}/pull/${prNumber}` : null;
 }
 
-/** The ticket id in a ClickUp link ("https://app.clickup.com/t/86bcvtyhn" → "86bcvtyhn"), or null. */
-export function ticketId(url: string | null | undefined): string | null {
-  const m = String(url ?? "").match(/app\.clickup\.com\/t\/([A-Za-z0-9]+)/);
-  return m ? m[1] : null;
+/**
+ * Only changes that altered a screen are cards (Dane, 2026-10-31: "Only
+ * show slides that have a visible change in the UI"): a change that touched
+ * no screen, or whose screen could not be rebuilt, is left out.
+ */
+export function showsOnScroller(state: EvolutionCard["state"]): boolean {
+  return state === "captured";
 }
 
 /**
- * Each ticket id mapped to the task that carries it, from the tasks'
- * `agent_ticket_url`. When two tasks carry the same ticket, the first wins.
+ * What a change was, in a few words, for a change with none of Dane's words
+ * on record (Dane, 2026-11-01: "a concise statement to say what the change
+ * was"). A ticket's name reads "<what breaks and who feels it>: <the fix>",
+ * so this is the fix, with a capital letter; a name without that shape is
+ * kept whole.
  */
-export function tasksByTicket(tasks: { id: string; agentTicketUrl: string | null }[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const t of tasks) {
-    const id = ticketId(t.agentTicketUrl);
-    if (id && !map.has(id)) map.set(id, t.id);
-  }
-  return map;
+export function changeStatement(title: string): string {
+  const t = String(title ?? "").trim();
+  const at = t.indexOf(": ");
+  const fix = at > 0 ? t.slice(at + 2).trim() : t;
+  return fix ? fix[0].toUpperCase() + fix.slice(1) : t;
+}
+
+/**
+ * The words and the thread link a card shows: Dane's words and where he
+ * said them when they are on record, else the short statement and the
+ * change's ticket (or its PR).
+ */
+export function cardWords(row: { title: string; prompt: string | null; thread_url: string | null; ticket_url: string | null; pr_number: number | null }): Pick<EvolutionCard, "words" | "fromDane" | "threadUrl"> {
+  const prompt = row.prompt?.trim();
+  if (prompt) return { words: prompt, fromDane: true, threadUrl: row.thread_url ?? row.ticket_url ?? prUrl(row.pr_number) };
+  return { words: changeStatement(row.title), fromDane: false, threadUrl: row.ticket_url ?? prUrl(row.pr_number) };
+}
+
+/** Why the scroller is empty when changes are recorded but none altered a screen (rule 7). */
+export function emptyScrollerNote(recorded: number): string {
+  return `None of the ${recorded} recorded change${recorded === 1 ? "" : "s"} altered a screen that could be photographed, so there is nothing to show yet.`;
 }
 
 /** The index the full-size view moves to, or null at either end. */

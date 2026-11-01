@@ -27,7 +27,9 @@ API; `20261029210000_member_permissions.sql` added the member permissions and
 let every member list the members; `20261031120000_teams.sql` added teams
 and the team permissions; `20261031130000_evolution.sql` added
 `evolution_entries` and the `evolution` bucket; `20261031150000_messages.sql`
-added `messages` and the Message members permission); this page
+added `messages` and the Message members permission;
+`20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
+words and the link to where he said them); this page
 explains them.
 
 ## The `tasks` table
@@ -513,7 +515,13 @@ rebuilds "the data as it stood" and what it cannot show.
 | `screenshot_path` | The picture's name in the `evolution` bucket. Set only when the picture is stored. |
 | `capture_state` | `captured` (picture stored), `no screen` (the change touched no page; a text-only entry, not a failure) or `failed`. |
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
+| `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
+| `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |
 | `captured_at` | When the row was last written. |
+
+The Evolution view shows only `captured` changes, each labeled with
+`prompt`. `npm run evolution -- words` fills `prompt` and `thread_url` on
+rows recorded before they existed, without retaking any picture.
 
 The table refuses a `captured` row without its stored picture and a `failed`
 row without a reason (engineering rule 6). Row-level security is on from the

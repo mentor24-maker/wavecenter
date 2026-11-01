@@ -1,13 +1,13 @@
 /**
- * The Evolution view's read: every change merged into main, oldest first,
- * with a short-lived signed link to each screenshot and the WaveCenter task
- * each change belongs to. It acts through the signed-in member's own
+ * The Evolution view's read: every change merged into main that altered a
+ * screen, oldest first, with Dane's words behind it and a short-lived signed
+ * link to its screenshot. It acts through the signed-in member's own
  * session, so row-level security decides what comes back; the bucket is
  * private, so a signed link is the only way to a picture, and a signed-out
  * visitor never gets one.
  */
 import { fullDate } from "../tasks/listView";
-import { prUrl, tasksByTicket, ticketId, type EvolutionCard } from "../tasks/evolutionView";
+import { cardWords, showsOnScroller, type EvolutionCard } from "../tasks/evolutionView";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -19,52 +19,41 @@ const EVOLUTION_BUCKET = "evolution";
 const PICTURE_LINK_SECONDS = 60 * 60;
 
 /**
- * The cards, oldest first. `error` means the changes themselves could not be
- * read. `problems` are the smaller failures (the picture links, the task
- * links) said on the page while the cards still show (rule 7).
+ * The cards, oldest first, and how many changes are recorded in all
+ * (`recorded`), so an empty scroller can say why it is empty. `error` means
+ * the changes and Dane's words could not be read. `problems` are the
+ * smaller failures (the picture links) said on the page while the cards
+ * still show (rule 7).
  */
-export async function loadEvolution(supabase: Client): Promise<{ cards: EvolutionCard[]; error: string | null; problems: string[] }> {
+export async function loadEvolution(supabase: Client): Promise<{ cards: EvolutionCard[]; recorded: number; error: string | null; problems: string[] }> {
   const { data: rows, error } = await supabase
     .from("evolution_entries")
-    .select("commit_sha, merged_at, pr_number, title, ticket_url, page, screenshot_path, capture_state, failure_reason")
+    .select("commit_sha, merged_at, pr_number, title, ticket_url, page, screenshot_path, capture_state, failure_reason, prompt, thread_url")
     .order("merged_at")
     .order("commit_sha");
-  if (error) return { cards: [], error: error.message, problems: [] };
-  if (!rows?.length) return { cards: [], error: null, problems: [] };
+  if (error) return { cards: [], recorded: 0, error: error.message, problems: [] };
+  if (!rows?.length) return { cards: [], recorded: 0, error: null, problems: [] };
 
+  const shown = rows.filter((r) => showsOnScroller(r.capture_state));
   const problems: string[] = [];
-  const paths = rows.filter((r) => r.capture_state === "captured" && r.screenshot_path).map((r) => r.screenshot_path as string);
-  const withTickets = rows.some((r) => ticketId(r.ticket_url));
-  const [links, tasks] = await Promise.all([
-    paths.length
-      ? supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
-      : { data: [], error: null },
-    withTickets
-      ? supabase.from("tasks").select("id, agent_ticket_url").not("agent_ticket_url", "is", null)
-      : { data: [], error: null },
-  ]);
+  const paths = shown.filter((r) => r.screenshot_path).map((r) => r.screenshot_path as string);
+  const links = paths.length
+    ? await supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
+    : { data: [], error: null };
   if (links.error) problems.push(`The screenshots could not be loaded: ${links.error.message}. Try reloading the page.`);
-  if (tasks.error) problems.push(`The links to WaveCenter tasks could not be read: ${tasks.error.message}.`);
   const pictures = new Map((links.data ?? []).filter((l) => l.signedUrl).map((l) => [l.path, l.signedUrl]));
-  const taskFor = tasksByTicket((tasks.data ?? []).map((t) => ({ id: t.id, agentTicketUrl: t.agent_ticket_url })));
 
   return {
-    cards: rows.map((r) => {
-      const ticket = ticketId(r.ticket_url);
-      return {
-        sha: r.commit_sha,
-        title: r.title,
-        mergedAt: fullDate(r.merged_at),
-        prNumber: r.pr_number,
-        prUrl: prUrl(r.pr_number),
-        ticketUrl: r.ticket_url,
-        taskId: ticket ? (taskFor.get(ticket) ?? null) : null,
-        state: r.capture_state,
-        page: r.page,
-        imageUrl: r.screenshot_path ? (pictures.get(r.screenshot_path) ?? null) : null,
-        failureReason: r.failure_reason,
-      };
-    }),
+    cards: shown.map((r) => ({
+      sha: r.commit_sha,
+      ...cardWords(r),
+      mergedAt: fullDate(r.merged_at),
+      state: r.capture_state,
+      page: r.page,
+      imageUrl: r.screenshot_path ? (pictures.get(r.screenshot_path) ?? null) : null,
+      failureReason: r.failure_reason,
+    })),
+    recorded: rows.length,
     error: null,
     problems,
   };

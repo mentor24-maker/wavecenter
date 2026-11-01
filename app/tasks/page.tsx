@@ -7,7 +7,7 @@ import { loadEvolution } from "../lib/evolutionReads";
 import { loadComments, loadFiles } from "../lib/taskReads";
 import SiteHeader from "../SiteHeader";
 import Evolution from "./Evolution";
-import { viewFrom, type TasksView } from "./evolutionView";
+import { emptyScrollerNote, viewFrom, type TasksView } from "./evolutionView";
 import TaskList, { type ListVote } from "./TaskList";
 import ViewSwitch from "./ViewSwitch";
 
@@ -60,7 +60,7 @@ function Heading({ view }: { view: TasksView }) {
 }
 
 async function EvolutionView({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
-  const [{ cards, error, problems }, name, isAdmin] = await Promise.all([
+  const [{ cards, recorded, error, problems }, name, isAdmin] = await Promise.all([
     loadEvolution(supabase),
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
@@ -70,13 +70,15 @@ async function EvolutionView({ supabase, user }: { supabase: Supabase; user: { i
       <SiteHeader name={name} isAdmin={isAdmin} />
       <main>
         <Heading view="evolution" />
-        <p className="note">How WaveCenter looked right after each change was merged, from the first commit to today.</p>
+        <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
         {error ? (
           <p className="error" role="alert">
-            The changes could not be loaded: {error}. Nothing has been lost; try reloading the page.
+            The changes and Dane&rsquo;s words for them could not be loaded: {error}. Nothing has been lost; try reloading the page.
           </p>
-        ) : cards.length === 0 ? (
+        ) : recorded === 0 ? (
           <p className="note">No changes have been captured yet: the screenshot taker has not run.</p>
+        ) : cards.length === 0 ? (
+          <p className="note">{emptyScrollerNote(recorded)}</p>
         ) : (
           <>
             {problems.map((p) => (

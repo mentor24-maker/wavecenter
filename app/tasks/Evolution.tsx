@@ -2,8 +2,11 @@
 
 /**
  * The Evolution view (Dane, 2026-10-30: "It's a thumbnail scroller."): a
- * row of cards, one per change merged into main, oldest on the left and
- * newest on the right, opened scrolled to the newest. A phone swipes the
+ * row of cards, one per change merged into main that altered a screen,
+ * oldest on the left and newest on the right, opened scrolled to the newest.
+ * Each card is labeled with Dane's own words that asked for the change and
+ * one link to where he said them (Dane, 2026-10-31: "use my prompt only,
+ * with a link to the thread"). A phone swipes the
  * row; a keyboard tabs through the cards or scrolls the focused row with the
  * arrow keys. Clicking a card's picture opens it full size, where the
  * buttons or the left and right arrow keys step through the changes in merge
@@ -65,13 +68,13 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
         {cards.map((c, i) => (
           <li key={c.sha} className="evolution-card box level-1">
             {c.imageUrl ? (
-              <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${c.title}” full size`}>
+              <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${short(c.words)}” full size`}>
                 {/* A signed link to a private picture: plain <img>, not next/image, which would fetch it through the web server. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.imageUrl} alt="" loading="lazy" />
               </button>
             ) : (
-              <p className={c.state === "failed" || c.state === "captured" ? "evolution-text error" : "evolution-text note"}>{cardNote(c)}</p>
+              <p className="evolution-text error">{cardNote(c)}</p>
             )}
             <CardFacts card={c} />
           </li>
@@ -89,11 +92,11 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
             </div>
             {current.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={current.imageUrl} alt={`WaveCenter's ${current.page ?? ""} screen right after “${current.title}”`} />
+              <img src={current.imageUrl} alt={`WaveCenter's ${current.page ?? ""} screen right after “${short(current.words)}”`} />
             ) : (
-              <p className={current.state === "no screen" ? "note" : "error"}>{cardNote(current)}</p>
+              <p className="error">{cardNote(current)}</p>
             )}
-            <CardFacts card={current} />
+            <CardFacts card={current} full />
           </>
         )}
       </dialog>
@@ -101,20 +104,35 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   );
 }
 
-/** The title, the merge date, and the links to the PR, the ticket and the task. */
-function CardFacts({ card }: { card: EvolutionCard }) {
+/** The first line of a card's words, for a picture's label. */
+function short(words: string): string {
+  const first = words.split("\n")[0].trim();
+  return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+}
+
+/** Dane's words (or, with none on record, what changed), the merge date, and the one link to the thread. */
+function CardFacts({ card, full = false }: { card: EvolutionCard; full?: boolean }) {
+  const thread = card.threadUrl;
   return (
     <div className="evolution-facts">
-      <h2>{card.title}</h2>
+      {card.fromDane ? (
+        <blockquote className={full ? "evolution-words" : "evolution-words clamped"}>{card.words}</blockquote>
+      ) : (
+        <p className={full ? "evolution-words" : "evolution-words clamped"}>{card.words}</p>
+      )}
       <p className="note">
         Merged {card.mergedAt}
-        {card.page && card.state === "captured" ? <> &middot; shows {card.page}</> : null}
+        {card.page ? <> &middot; shows {card.page}</> : null}
       </p>
-      <p className="evolution-links">
-        {card.prUrl && <a href={card.prUrl} target="_blank" rel="noreferrer">PR #{card.prNumber}</a>}
-        {card.ticketUrl && <a href={card.ticketUrl} target="_blank" rel="noreferrer">ClickUp ticket</a>}
-        {card.taskId && <Link href={`/tasks/${card.taskId}`}>WaveCenter task</Link>}
-      </p>
+      {thread && (
+        <p className="evolution-links">
+          {thread.startsWith("/") ? (
+            <Link href={thread}>See the thread</Link>
+          ) : (
+            <a href={thread} target="_blank" rel="noreferrer">See the thread</a>
+          )}
+        </p>
+      )}
     </div>
   );
 }

@@ -157,6 +157,7 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   queue [--list <id>] [--claimable | --status S]  the tickets, one per line: id, status, priority, created, name
   get --task <id>                                 header + body
   task-name --task <id>                           the name and nothing else (for a PR title)
+  ticket-json --task <id>                         read-only: tags, body and comments (oldest first) as JSON
   comments --task <id>                            the comments, oldest first
   waiting [--task <id>]                           read-only: is this ACTUALLY waiting on Dane? exit 0 no / 3 yes / 1 could not tell
   task --name "..." --body-file <f|-> [--list <id>] [--status S] [--priority p] [--tags a,b] [--id-out <file>]
@@ -375,6 +376,21 @@ if (cmd === 'whoami') {
   console.log('---');
   console.log(t.markdown_description || t.description || '(no body)');
   reportLimits();
+
+} else if (cmd === 'ticket-json') {
+  // Read-only, for scripts/evolution_capture.mjs: the ticket's tags, body and
+  // comments (oldest first) as one JSON object.
+  const task = arg('task');
+  if (!task) usage();
+  const t = await readTask(task);
+  const comments = newestFirst(await readComments(task)).reverse();
+  console.log(JSON.stringify({
+    id: t.id,
+    url: t.url,
+    tags: (t.tags || []).map((x) => x.name),
+    description: t.markdown_description || t.description || '',
+    comments: comments.map((c) => ({ text: c.comment_text || '', date: c.date })),
+  }));
 
 } else if (cmd === 'task-name') {
   const task = arg('task');
