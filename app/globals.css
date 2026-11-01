@@ -124,23 +124,25 @@ html, body {
 }
 
 /* The bar across the top of every page: Dane's water-drop picture, dark blues
-   on the left and bright gold on the right, darkened so the white bold name
-   and menu read clearly over it (at least 4.5:1 behind the text, plus a
-   shadow), and the gold-and-aqua rings as the logo. On a wide screen the name
-   sits on the dark side and needs less darkening; the menu sits on the gold
-   and needs more. A narrower screen shows only the bright middle of the
-   picture behind everything, so it darkens evenly. */
+   on the left and bright gold on the right, under a light dark-blue layer
+   (0.4 at most, so the picture's colours show) and the gold-and-aqua rings as
+   the logo. The white bold name and menu stay readable through a three-part
+   shadow: a tight dark edge, a soft drop and a wide halo behind every letter. On a
+   wide screen the name sits on the dark side and needs less darkening (0.33,
+   0.27 at 30%); the menu sits on the gold and needs more (0.4 from 50%). A
+   narrower screen shows only the bright middle of the picture behind
+   everything, so it darkens evenly (0.4). */
 .site {
   color: #fff; font-weight: 700; border-bottom: 1px solid var(--line);
   background:
-    linear-gradient(90deg, rgb(8 28 44 / 0.62), rgb(8 28 44 / 0.62)),
+    linear-gradient(90deg, rgb(8 28 44 / 0.4), rgb(8 28 44 / 0.4)),
     #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+  text-shadow: 0 0 2px rgb(0 0 0 / 0.85), 0 1px 3px rgb(0 0 0 / 0.85), 0 0 12px rgb(0 0 0 / 0.7);
 }
 @media (min-width: 80rem) {
   .site {
     background:
-      linear-gradient(90deg, rgb(8 28 44 / 0.5), rgb(8 28 44 / 0.4) 30%, rgb(8 28 44 / 0.62) 50%),
+      linear-gradient(90deg, rgb(8 28 44 / 0.33), rgb(8 28 44 / 0.27) 30%, rgb(8 28 44 / 0.4) 50%),
       #2c4a63 url("/brand/header-drop-dark-left.jpg") center 70% / cover no-repeat;
   }
 }
