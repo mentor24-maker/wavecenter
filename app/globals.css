@@ -688,8 +688,8 @@ main > .tasks-heading { margin: 0 0 0.35rem; }
    Each picture is half as tall again as on the 18rem cards the Tasks page
    had (Dane, 2026-11-01): the picture inside an 18rem card is 18rem less the
    card's padding (1.7rem) and borders (4px), so the card grows to 1.5 times
-   that picture plus the same padding and borders. A phone caps a card at 85%
-   of its width, so there it grows only as far as the screen allows. */
+   that picture plus the same padding and borders. A narrow screen caps a card
+   at the row's width between the arrows, so one whole card always shows. */
 .evolution {
   list-style: none; margin: 0 0 var(--space); padding: 0.25rem 0.25rem 0.75rem;
   display: flex; gap: var(--space); overflow-x: auto; scroll-snap-type: x proximity;
@@ -708,7 +708,7 @@ button.evolution-arrow svg { width: 1.6rem; height: 1.6rem; }
 button.evolution-arrow:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
 @media (max-width: 30rem) { button.evolution-arrow { width: 2.25rem; height: 2.25rem; } }
 .evolution-card {
-  flex: 0 0 min(calc(1.5 * (18rem - 1.7rem - 4px) + 1.7rem + 4px), 85vw); scroll-snap-align: center;
+  flex: 0 0 min(calc(1.5 * (18rem - 1.7rem - 4px) + 1.7rem + 4px), 100%); scroll-snap-align: center;
   display: flex; flex-direction: column; gap: 0.5rem;
 }
 .evolution-thumb { display: block; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--field); cursor: zoom-in; overflow: hidden; }
