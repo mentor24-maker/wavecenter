@@ -10,6 +10,7 @@ import Mission from "./Mission";
 import SignInForm from "./sign-in/SignInForm";
 import SiteHeader from "./SiteHeader";
 import Evolution from "./tasks/Evolution";
+import { emptyScrollerNote } from "./tasks/evolutionView";
 
 /** How many of the newest members Home shows. */
 const LATEST_MEMBERS = 5;
@@ -136,13 +137,15 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
           <section className="box level-1 wide" id="evolution">
             <h2><BoxIcon name="evolution" />Evolution</h2>
-            <p className="note">How WaveCenter looked right after each change was merged, from the first commit to today.</p>
+            <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
             {evolution.error !== null || evolution.value.error ? (
               <p className="error" role="alert">
-                The changes could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
+                The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
               </p>
-            ) : evolution.value.cards.length === 0 ? (
+            ) : evolution.value.recorded === 0 ? (
               <p className="note" role="status">No changes have been captured yet: the screenshot taker has not run.</p>
+            ) : evolution.value.cards.length === 0 ? (
+              <p className="note" role="status">{emptyScrollerNote(evolution.value.recorded)}</p>
             ) : (
               <>
                 {evolution.value.problems.map((p) => (

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -156,6 +156,57 @@ test('entryRow needs a reason for a failure, and keeps no picture for one', () =
 test('entryRow refuses a short commit id and an unknown state', () => {
   assert.throws(() => entryRow({ ...BASE, sha: 'cb2c1f1', state: 'no screen' }), /full commit id/);
   assert.throws(() => entryRow({ ...BASE, state: 'skipped' }), /unknown capture state/);
+});
+
+test('entryRow carries Dane\'s words and their thread, and no thread without words', () => {
+  const row = entryRow({ ...BASE, state: 'no screen', prompt: 'Use real data.', threadUrl: 'https://app.clickup.com/t/86x' });
+  assert.equal(row.prompt, 'Use real data.');
+  assert.equal(row.thread_url, 'https://app.clickup.com/t/86x');
+  const bare = entryRow({ ...BASE, state: 'no screen', threadUrl: 'https://app.clickup.com/t/86x' });
+  assert.equal(bare.prompt, null);
+  assert.equal(bare.thread_url, null);
+});
+
+const TASK = 'a1611610-e4d7-4b13-ac2f-bf909f57db1d';
+const FROM_WC = `## From WaveCenter
+
+\`\`\`css
+The header background overlay is too dark
+
+It appears there is a dark overlay on the header.
+\`\`\`
+
+WaveCenter task: ${TASK}
+
+## Goal
+Yes, there is a dark overlay.`;
+const CARD = (asked, when = '') => `DANE'S WORDS — the instruction behind this ticket\n\n${asked}\n\n${when ? `(${when})\n\n` : ''}WHAT'S GOING ON\n\nThe context.\n\n#############################\nNEEDED FROM DANE: merge\n\n[machine] posted by a loop`;
+
+test('a WaveCenter ticket gives the task\'s title and notes, verbatim, linking to the task', () => {
+  const words = danesWords({ url: 'https://app.clickup.com/t/86bcw3my3', tags: ['from-wavecenter'], description: FROM_WC, comments: [{ text: CARD('Something else') }] });
+  assert.equal(words.prompt, 'The header background overlay is too dark\n\nIt appears there is a dark overlay on the header.');
+  assert.equal(words.threadUrl, `/tasks/${TASK}`);
+});
+
+test('any other ticket gives the first card\'s asked words, without its when line, linking to the ticket', () => {
+  const words = danesWords({
+    url: 'https://app.clickup.com/t/86bcvtyhk',
+    tags: ['evolution'],
+    description: '## Goal\nx',
+    comments: [{ text: 'PR opened: https://github.com/x/y/pull/1' }, { text: CARD('Use real data. We can always redact later.', '2026-10-30, planning') }, { text: CARD('Later card') }],
+  });
+  assert.deepEqual(words, { prompt: 'Use real data. We can always redact later.', threadUrl: 'https://app.clickup.com/t/86bcvtyhk' });
+  // Words of several paragraphs are kept whole.
+  assert.equal(danesWords({ url: 'u', tags: [], comments: [{ text: CARD('One.\n\nTwo.') }] }).prompt, 'One.\n\nTwo.');
+});
+
+test('a ticket with none of Dane\'s words on record gives none', () => {
+  const none = { prompt: null, threadUrl: null };
+  assert.deepEqual(danesWords(null), none);
+  assert.deepEqual(danesWords({ url: 'u', tags: [], description: '## Goal', comments: [{ text: 'a plain note' }] }), none);
+  // A from-wavecenter tag with no block falls back to the card, then to none.
+  assert.deepEqual(danesWords({ url: 'u', tags: ['from-wavecenter'], description: '## Goal', comments: [] }), none);
+  assert.equal(danesWords({ url: 'u', tags: ['from-wavecenter'], description: '', comments: [{ text: CARD('Asked.') }] }).prompt, 'Asked.');
 });
 
 test('times are shown in Mountain time', () => {

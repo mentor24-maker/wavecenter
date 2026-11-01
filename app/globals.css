@@ -695,7 +695,9 @@ main > .tasks-heading { margin: 0 0 0.35rem; }
 .evolution-thumb { display: block; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--field); cursor: zoom-in; overflow: hidden; }
 .evolution-thumb img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; }
 .evolution-text { margin: 0; aspect-ratio: 16 / 10; display: flex; align-items: center; padding: 0.75rem; border: 1px dashed var(--line); border-radius: 6px; }
-.evolution-facts h3 { margin: 0 0 0.25rem; font-size: 1rem; line-height: 1.3; text-transform: none; letter-spacing: normal; color: var(--fg); }
+.evolution-facts .evolution-words { margin: 0 0 0.35rem; font-size: 1rem; line-height: 1.35; color: var(--fg); white-space: pre-line; }
+blockquote.evolution-words { padding-left: 0.6rem; border-left: 3px solid var(--accent); }
+.evolution-words.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .evolution-facts p { margin: 0 0 0.25rem; font-size: 0.9rem; }
 .evolution-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; }
 dialog.evolution-full {
