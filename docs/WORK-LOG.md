@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — The browser tab shows the gold-and-aqua logo (#91)
+
+The little picture in the browser tab was still the old all-blue rings, so
+the tab and the logo at the top of the page did not match. The tab now shows
+the same gold rings on aqua as the header logo; it is literally the same
+image file. Nothing else on the page changed.
+
+---
+
 ## 2026-11-01 — Each Evolution card pictures the screen its change was about (#89)
 
 Every card in the Evolution scroller was showing the same picture, the Home
