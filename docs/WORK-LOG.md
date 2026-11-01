@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Your profile shows your messages and lets every member send one (#93)
+
+Messages members sent each other were saved in WaveCenter, but there was no
+screen to read them. Your profile now has a Messaging section beside the
+profile form: Messages lists what you sent and received, newest first (click
+a subject to read it), and Send Message, folded until clicked, writes to any
+member picked from a list. As Dane chose, every member may now send, not only
+admins. To protect privacy, a member's message is saved and shown but not
+emailed yet: emailing it the old way would have let any member find out other
+members' email addresses. An admin's messages are still emailed as before.
+
+---
+
 ## 2026-11-01 — The browser tab shows the gold-and-aqua logo (#91)
 
 The little picture in the browser tab was still the old all-blue rings, so
