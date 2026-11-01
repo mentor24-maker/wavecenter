@@ -141,8 +141,15 @@ html, body {
 @media (min-width: 80rem) {
   .site { --site-shade: linear-gradient(90deg, rgb(8 28 44 / 0.33), rgb(8 28 44 / 0.27) 30%, rgb(8 28 44 / 0.4) 50%); }
 }
-/* On Home the bar keeps its darkening but shows the page's own picture through it. */
-.site.on-picture { background: var(--site-shade); }
+/* On Home the bar shows the page's own picture through it, and its darkening
+   fades out toward the bottom with no gold line, so header and page read as
+   one picture with no seam (Dane, 2026-11-01). The name at the top keeps the
+   full shade; the menu near the bottom leans on its three-part shadow. */
+.site.on-picture { position: relative; isolation: isolate; background: none; border-bottom-color: transparent; }
+.site.on-picture::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; background: var(--site-shade);
+  -webkit-mask-image: linear-gradient(#000 45%, transparent); mask-image: linear-gradient(#000 45%, transparent);
+}
 .site-inner {
   max-width: 90rem; margin: 0 auto; padding: 0.75rem var(--space); min-height: 9.375rem;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space);
@@ -542,14 +549,17 @@ table.teams .num { padding-right: 1.5rem; }
 
 /* Home sits on Dane's water-drop picture (2026-10-31): one picture fixed
    behind the whole page, header included. Only the header bar is darkened
-   (its own shade, as on every other page); below it the picture is bare.
-   The boxes and the heading are frosted glass: a 50% box colour over the
-   picture, which is blurred and toned down behind them. At a plain 50% the
-   text fails on this picture (body text 3.6:1 light, 2.8:1 dark, over its
-   darkest blue and brightest gold). Through the frosting, the worst point
-   anywhere in the picture measures (text / secondary / link / error):
-     light  8.5 / 4.6 / 5.0 / 5.3   (links and errors one step deeper here)
-     dark   8.7 / 5.6 / 6.0 / 5.0
+   (its own shade, fading out at its bottom edge); below it the picture is bare.
+   The boxes and the heading are frosted glass: a 30% box colour over the
+   picture (50% until Dane asked for 30%, 2026-11-01), which is blurred and
+   toned down behind them. At a plain 50% the text fails on this picture
+   (body text 3.6:1 light, 2.8:1 dark, over its darkest blue and brightest
+   gold). Through the frosting, the worst point anywhere in the picture
+   measures (text / secondary / link / error):
+     light  7.1 / 5.3 / 5.5 / 5.4
+     dark   7.2 / 5.8 / 5.6 / 4.9
+   At 30% the secondary text, links and errors are one step deeper (light)
+   or brighter (dark) here than on other pages, so they still pass.
    A browser without the frosting gets an 85% box instead, which passes too. */
 .home-page::before {
   content: ""; position: fixed; inset: 0; z-index: -1;
@@ -558,11 +568,11 @@ table.teams .num { padding-right: 1.5rem; }
 /* Its own layer, so the picture paints above the plain page colour on body. */
 .home-page {
   isolation: isolate;
-  --glass: rgb(221 243 251 / 0.5); --frost: blur(12px) contrast(0.35) brightness(1.6);
-  --accent: #004d68; --error: #86170f;
+  --glass: rgb(221 243 251 / 0.3); --frost: blur(12px) contrast(0.35) brightness(1.6);
+  --muted: #1f3b48; --accent: #003a50; --error: #6e120b;
 }
 @media (prefers-color-scheme: dark) {
-  .home-page { --glass: rgb(11 42 52 / 0.5); --frost: blur(12px) contrast(0.45) brightness(0.55); --accent: #6fdbe6; --error: #ffa198; }
+  .home-page { --glass: rgb(11 42 52 / 0.3); --frost: blur(12px) contrast(0.45) brightness(0.55); --muted: #c4e0e6; --accent: #8fe6ee; --error: #ffbab3; }
 }
 .home-page main > h1, .home-page .dashboard .box {
   background: var(--glass); -webkit-backdrop-filter: var(--frost); backdrop-filter: var(--frost);
