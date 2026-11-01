@@ -1,6 +1,7 @@
 #!/bin/bash
 # One pass of the merge lane: carry out Dane's written "merge" on Ready to
-# launch tickets, and requeue Needs your input tickets he has answered.
+# launch tickets, requeue Needs your input tickets he has answered, then take
+# the Evolution screenshot of each change that has none yet.
 #
 #   merge_lane.sh
 #
@@ -30,4 +31,17 @@ cd "$REPO" || exit 1
   npm run --silent clickup -- merge-on-comment 2>&1
   CODE=$?
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /merge-on-comment (exit $CODE) ====="
+
+  # The Evolution picture of every change on main that has none yet, so each
+  # merge above gets its screenshot within one pass. It runs after the merges
+  # and can never undo one: a failed picture is a `failed` row and one comment
+  # on its ticket, never a status change. One capture measured 68 seconds on
+  # the Mac Mini (315f909, 2026-10-31: install, build, rebuild the test
+  # database, photograph, wipe). 360 seconds fits about five, and leaves the
+  # merge step room inside the 10-minute interval; anything cut off at the
+  # limit wrote no row, so the next pass retakes it.
+  echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /evolution-missing ====="
+  "$REPO/scripts/run_with_time_limit.sh" 360 -- npm run --silent evolution -- missing 2>&1
+  CODE=$?
+  echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /evolution-missing (exit $CODE) ====="
 } >> "$LOG" 2>&1

@@ -9,6 +9,8 @@
  *   npm run evolution -- capture <sha> --dry-run <file>   picture it into <file>; store and record nothing
  *   npm run evolution -- backfill                         every first-parent change on main, oldest first,
  *                                                         skipping ones already captured
+ *   npm run evolution -- missing                          every first-parent change on main with no row
+ *                                                         yet, oldest first (the merge lane runs this)
  *   npm run evolution -- list                             one line per recorded change
  *
  * Runs on the Mac Mini only: it needs the test database (Docker), and Doppler
@@ -45,8 +47,18 @@
  * not copied, so a picture of one will not load. Columns that did not exist
  * at a change are dropped and tables that did not exist are skipped.
  *
+ * `missing` is the merge lane's step after each merge (scripts/merge_lane.sh,
+ * under a time limit). Because it fills whatever has no row, a pass that was
+ * skipped, failed to start or was stopped heals itself on the next one. A
+ * picture that fails for a ticket the lane merged gets a `failed` row and one
+ * plain comment on that ticket; the merge and the ticket's status are never
+ * touched. Stopped at the time limit (SIGTERM), a capture records nothing,
+ * wipes the local copy and gives the test database back, so the next pass
+ * retakes it from the start.
+ *
  * Exit 0 = done. Exit 1 = something failed, said in plain words; a picture
  * that was not stored is never recorded as captured (engineering rule 6).
+ * Exit 143 = stopped at the time limit.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -56,7 +68,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, entryRow, fillPage, listLine, parseSubject, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -70,6 +82,16 @@ const LIVE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 class CaptureFailed extends Error {}
 /** Something wrong with the run itself (keys, storage, the live table): stop. */
 class RunFailed extends Error {}
+/** The time limit stopped the run: record nothing, so the next pass retakes it. */
+class Stopped extends Error {}
+
+// scripts/run_with_time_limit.sh sends SIGTERM to this process and every
+// child at once. A killed `npm ci` or `next build` would otherwise look like
+// a change that does not build, so a stop is only noted here, and capture()
+// checks it before recording anything.
+let stopping = false;
+process.on('SIGTERM', () => { stopping = true; });
+const settle = () => new Promise((r) => setTimeout(r, 200));
 
 function sh(cmd, args, { cwd = REPO, env, input, quiet = true } = {}) {
   const r = spawnSync(cmd, args, { cwd, env, input, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: quiet ? 'pipe' : ['ignore', 'inherit', 'inherit'] });
@@ -198,6 +220,17 @@ function resetTestDb(sha) {
     }
   } finally {
     if (sha) rmSync(workdir, { recursive: true, force: true });
+  }
+}
+
+/** Wipe the local copy. A stop signal can cut the wipe itself short, so then it goes once more. */
+function wipe() {
+  try {
+    resetTestDb(null);
+  } catch (err) {
+    if (!stopping) throw err;
+    console.log('  the stop cut the wipe short; wiping again...');
+    resetTestDb(null);
   }
 }
 
@@ -442,18 +475,36 @@ async function capture(rev, { dryRun = null } = {}) {
     await screenshot({ base: app.base, page, cookies, file: png });
     return await finish(entryRow({ ...base, page, screenshotPath: `${info.sha}.png`, state: 'captured' }), png);
   } catch (err) {
-    if (!(err instanceof CaptureFailed)) throw err;
     if (err.dir) dir = err.dir;
+    await settle(); // let a stop signal that arrived with the failure land first
+    if (stopping) throw new Stopped(`stopped part-way through ${info.sha.slice(0, 7)}; nothing was recorded for it`);
+    if (!(err instanceof CaptureFailed)) throw err;
     return await finish(entryRow({ ...base, page, state: 'failed', reason: err.message }));
   } finally {
     if (stopApp) stopApp();
-    if (locked) {
-      console.log('  wiping the local copy...');
-      try { resetTestDb(null); } finally { releaseTestDbLock(); }
+    try {
+      if (locked) {
+        console.log('  wiping the local copy...');
+        try { wipe(); } finally { releaseTestDbLock(); }
+      }
+    } finally {
+      dropWorktree(dir);
+      if (!dryRun) rmSync(png, { force: true });
     }
-    dropWorktree(dir);
-    if (!dryRun) rmSync(png, { force: true });
   }
+}
+
+/** Tell the ticket its picture could not be taken: one plain comment, nothing else. */
+function tellTicket(row) {
+  const parent = sh('git', ['-C', REPO, 'show', `${row.commit_sha}^1:scripts/merge_lane.sh`]);
+  if (!laneCapturedOnMerge(parent.ok ? parent.stdout : '')) return;
+  const task = ticketId(row.ticket_url);
+  if (!task) {
+    console.log('  no ticket link on this change, so no ticket to tell.');
+    return;
+  }
+  const sent = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'], { input: failureComment(row) });
+  console.log(sent.ok ? `  told ticket ${task} the screenshot could not be taken.` : `  could not comment on ticket ${task}: ${tail(sent.out)}`);
 }
 
 async function recorded() {
@@ -486,6 +537,24 @@ try {
     }
     console.log(`backfill: ${shas.length} change(s) on main; ${failed} failed (each with its reason above).`);
     process.exit(0);
+  } else if (command === 'missing') {
+    requireLive();
+    git(['fetch', '--quiet', 'origin', 'main']);
+    const shas = git(['rev-list', '--first-parent', '--reverse', 'origin/main']).split('\n').filter(Boolean);
+    const todo = missingShas(shas, await recorded());
+    let failed = 0;
+    for (const sha of todo) {
+      if (stopping) throw new Stopped(`stopped before ${sha.slice(0, 7)}`);
+      const row = await capture(sha);
+      if (row.capture_state === 'failed') {
+        failed += 1;
+        tellTicket(row);
+      }
+    }
+    console.log(todo.length
+      ? `missing: captured ${todo.length} change(s) that had no row; ${failed} failed (each with its reason above).`
+      : `missing: all ${shas.length} change(s) on main already have a row; nothing to capture.`);
+    process.exit(0);
   } else if (command === 'list') {
     requireLive();
     const rows = await recorded();
@@ -493,10 +562,14 @@ try {
     console.log(rows.length ? `${rows.length} change(s) recorded.` : 'No changes recorded yet: run `npm run evolution -- backfill`.');
     process.exit(0);
   } else {
-    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | list');
+    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | list');
     process.exit(1);
   }
 } catch (err) {
+  if (err instanceof Stopped || stopping) {
+    console.error(`evolution STOPPED at the time limit — ${err instanceof Stopped ? err.message : `part-way through, and then: ${err.message}`}. The next pass picks it up again.`);
+    process.exit(143);
+  }
   if (!(err instanceof RunFailed)) throw err;
   console.error(`evolution FAILED — ${err.message}`);
   process.exit(1);

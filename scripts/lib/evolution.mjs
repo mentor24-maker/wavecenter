@@ -201,3 +201,40 @@ export function listLine(row) {
   const state = row.capture_state === 'failed' ? `failed (${row.failure_reason})` : row.capture_state;
   return [String(row.commit_sha).slice(0, 7), mountain(row.merged_at), state, row.page || '-', row.title].join('\t');
 }
+
+/**
+ * The changes `npm run evolution -- missing` captures: every one in `shas`
+ * (main's first-parent commits, oldest first) that has no row yet, in the
+ * same order. Any row counts, `failed` included, so a failure is recorded
+ * once and never retried on its own; a capture that was stopped part-way
+ * wrote no row, so the next pass picks it up again.
+ */
+export function missingShas(shas, rows) {
+  const have = new Set((rows || []).map((r) => r.commit_sha));
+  return (shas || []).filter((sha) => !have.has(sha));
+}
+
+/** The ClickUp task id in a ticket link, or null. */
+export function ticketId(url) {
+  const m = String(url || '').match(/^https:\/\/app\.clickup\.com\/t\/([A-Za-z0-9]+)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Whether the merge lane that merged a change was already taking its
+ * picture, read from scripts/merge_lane.sh as it stood just before the
+ * change (its first parent). Only those tickets hear about a failed
+ * picture; older changes caught up later keep the reason on their row alone.
+ */
+export function laneCapturedOnMerge(mergeLaneBefore) {
+  return /evolution\s+--\s+missing/.test(String(mergeLaneBefore || ''));
+}
+
+/** The one plain comment a ticket gets when its picture could not be taken. */
+export function failureComment(row) {
+  return [
+    `The Evolution screenshot for this change could not be taken: ${row.failure_reason}`,
+    '',
+    `The merge stands and nothing about this ticket changes. The change is recorded as "failed" in the Evolution history (commit ${String(row.commit_sha).slice(0, 7)}), so it will not be tried again on its own; \`npm run evolution -- capture ${String(row.commit_sha).slice(0, 7)}\` on the Mac Mini retakes it.`,
+  ].join('\n');
+}
