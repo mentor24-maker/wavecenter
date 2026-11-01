@@ -40,4 +40,5 @@ test('the table has a header and one line per expected name', () => {
   assert.equal(lines.length, EXPECTED_SECRETS.length + 1);
   assert.match(lines[0], /^NAME\s+dev\s+prd$/);
   assert.match(text, /CLICKUP_API_TOKEN\s+present\s+not needed/);
+  assert.match(text, /RESEND_API_KEY\s+present\s+present/);
 });
