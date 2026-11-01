@@ -15,6 +15,9 @@ import { emptyScrollerNote } from "./tasks/evolutionView";
 /** How many of the newest members Home shows. */
 const LATEST_MEMBERS = 5;
 
+/** How many of the most recently completed tasks Home shows. */
+const RECENTLY_COMPLETED = 5;
+
 /** Join dates are shown in Mountain time, Dane's own. */
 const DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
 
@@ -33,11 +36,13 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * across the whole screen, the logo top left, an introduction on the left
  * and the log-in form on the right, the same form `/sign-in` shows. On a
  * phone the introduction sits above the form. Signed in: Home, a dashboard
- * of boxes (Dane, 2026-10-29): About
- * WaveCenter and What is a DEO (callouts to their own pages), the tasks
- * being worked on right now, the leaderboard (a placeholder until it works),
- * and the newest members, then Evolution across the full width (moved here
- * from the Tasks page, its pictures 50% taller: Dane, 2026-11-01). Each box that could not be read says so on its
+ * of boxes (Dane, 2026-10-29), laid out by Dane on 2026-11-01: a top row of
+ * four equal boxes, About WaveCenter and What is a DEO (callouts to their own
+ * pages), the newest members and the leaderboard (a placeholder until it
+ * works); then Evolution of WaveCenter across the full width (moved here from
+ * the Tasks page, its pictures 50% taller); then the tasks being worked on
+ * right now beside the most recently completed ones. Its "Home" heading is
+ * for screen readers only. Each box that could not be read says so on its
  * own, and an empty box says why (engineering rule 7). The task list itself
  * is at `/tasks`. Home sits on the same water-drop picture, header
  * included (Dane, 2026-10-31), its boxes frosted glass with an icon each.
@@ -80,9 +85,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
-  const [name, working, role, lists, evolution] = await Promise.all([
+  const [name, working, completed, role, lists, evolution] = await Promise.all([
     headerName(supabase, user),
     supabase.from("tasks").select("id, title").eq("status", "doing").order("position").order("created_at"),
+    supabase.from("tasks").select("id, title, completed_at").eq("status", "done")
+      .order("completed_at", { ascending: false, nullsFirst: false }).limit(RECENTLY_COMPLETED),
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     read(() => loadEvolution(supabase)),
@@ -92,8 +99,8 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
     <div className="home-page">
       <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} onPicture />
       <main>
-        <h1>Home</h1>
-        <div className="dashboard">
+        <h1 className="sr-only">Home</h1>
+        <div className="dashboard four">
           <section className="box level-1 callout">
             <h2><BoxIcon name="about" />About WaveCenter</h2>
             <p>The hub of the DEO movement: what it is for and where it is going.</p>
@@ -106,6 +113,41 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
             <p><Link href="/deo">Read what a DEO is &rarr;</Link></p>
           </section>
 
+          <section className="box level-1">
+            <h2><BoxIcon name="members" />Latest members</h2>
+            <LatestMembers supabase={supabase} role={role} lists={lists} />
+          </section>
+
+          <section className="box level-1">
+            <h2><BoxIcon name="leaderboard" />Leaderboard</h2>
+            <p className="note" role="status">The leaderboard is coming. Until then, your own points are on the <Link href="/game">Game</Link> page.</p>
+          </section>
+        </div>
+
+        <div className="dashboard">
+          <section className="box level-1 wide" id="evolution">
+            <h2><BoxIcon name="evolution" />Evolution of WaveCenter</h2>
+            <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
+            {evolution.error !== null || evolution.value.error ? (
+              <p className="error" role="alert">
+                The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
+              </p>
+            ) : evolution.value.recorded === 0 ? (
+              <p className="note" role="status">No changes have been captured yet: the screenshot taker has not run.</p>
+            ) : evolution.value.cards.length === 0 ? (
+              <p className="note" role="status">{emptyScrollerNote(evolution.value.recorded)}</p>
+            ) : (
+              <>
+                {evolution.value.problems.map((p) => (
+                  <p key={p} className="error" role="alert">{p}</p>
+                ))}
+                <Evolution cards={evolution.value.cards} />
+              </>
+            )}
+          </section>
+        </div>
+
+        <div className="dashboard two">
           <section className="box level-1">
             <h2><BoxIcon name="working" />Currently working tasks</h2>
             {working.error ? (
@@ -126,33 +168,24 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
           </section>
 
           <section className="box level-1">
-            <h2><BoxIcon name="leaderboard" />Leaderboard</h2>
-            <p className="note" role="status">The leaderboard is coming. Until then, your own points are on the <Link href="/game">Game</Link> page.</p>
-          </section>
-
-          <section className="box level-1">
-            <h2><BoxIcon name="members" />Latest members</h2>
-            <LatestMembers supabase={supabase} role={role} lists={lists} />
-          </section>
-
-          <section className="box level-1 wide" id="evolution">
-            <h2><BoxIcon name="evolution" />Evolution</h2>
-            <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
-            {evolution.error !== null || evolution.value.error ? (
+            <h2><BoxIcon name="completed" />Recently completed tasks</h2>
+            {completed.error ? (
               <p className="error" role="alert">
-                The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
+                The recently completed tasks could not be loaded: {completed.error.message}. Try reloading the page.
               </p>
-            ) : evolution.value.recorded === 0 ? (
-              <p className="note" role="status">No changes have been captured yet: the screenshot taker has not run.</p>
-            ) : evolution.value.cards.length === 0 ? (
-              <p className="note" role="status">{emptyScrollerNote(evolution.value.recorded)}</p>
+            ) : !completed.data?.length ? (
+              <p className="note" role="status">
+                No task has been completed yet. Mark a task &ldquo;done&rdquo; on <Link href="/tasks">the task list</Link> and it shows here.
+              </p>
             ) : (
-              <>
-                {evolution.value.problems.map((p) => (
-                  <p key={p} className="error" role="alert">{p}</p>
+              <ul className="plain">
+                {completed.data.map((t) => (
+                  <li key={t.id}>
+                    <Link href={`/tasks/${t.id}`}>{t.title}</Link>
+                    {t.completed_at && <span className="note"> done {DAY.format(new Date(t.completed_at))}</span>}
+                  </li>
                 ))}
-                <Evolution cards={evolution.value.cards} />
-              </>
+              </ul>
             )}
           </section>
         </div>
@@ -253,6 +286,13 @@ const ICONS = {
       <path d="m4 6 1.5 1.5L8 5M4 12l1.5 1.5L8 11" />
       <path d="M11 6.5h9M11 12.5h9M11 18.5h9" />
       <circle cx="6" cy="18.5" r="1.5" />
+    </>
+  ),
+  // A tick in a circle: tasks finished.
+  completed: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12.5 2.8 2.8L16.5 9.5" />
     </>
   ),
   // A trophy.

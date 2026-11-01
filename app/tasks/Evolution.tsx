@@ -9,7 +9,9 @@
  * one link to where he said them (Dane, 2026-10-31: "use my prompt only,
  * with a link to the thread"). A phone swipes the
  * row; a keyboard tabs through the cards or scrolls the focused row with the
- * arrow keys. Clicking a card's picture opens it full size, where the
+ * arrow keys. A round arrow button at each end of the row steps it one card
+ * back or forward, greyed out at that end (Dane, 2026-11-01: "obvious
+ * advance and reverse arrow icons"). Clicking a card's picture opens it full size, where the
  * buttons or the left and right arrow keys step through the changes in merge
  * order. Only reads; nothing here writes.
  */
@@ -21,12 +23,32 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   const strip = useRef<HTMLOListElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [ends, setEnds] = useState({ atStart: true, atEnd: true });
+
+  // Which ends the row is scrolled to, so the arrow at that end greys out.
+  function measure() {
+    const el = strip.current;
+    if (!el) return;
+    setEnds({ atStart: el.scrollLeft <= 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 });
+  }
 
   // Open on the newest change.
   useEffect(() => {
     const el = strip.current;
     if (el) el.scrollLeft = el.scrollWidth;
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, []);
+
+  // One card back or forward: a card's width plus the gap between cards.
+  function slide(by: -1 | 1) {
+    const el = strip.current;
+    const card = el?.firstElementChild as HTMLElement | null;
+    if (!el || !card) return;
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    el.scrollBy({ left: by * (card.offsetWidth + gap), behavior: "smooth" });
+  }
 
   function show(index: number) {
     setOpen(index);
@@ -63,24 +85,32 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   return (
     <>
       <p className="note">
-        {cards.length} change{cards.length === 1 ? "" : "s"}, oldest on the left. Swipe or scroll sideways; click a picture to see it full size.
+        {cards.length} change{cards.length === 1 ? "" : "s"}, oldest on the left. Use the arrows, swipe or scroll sideways; click a picture to see it full size.
       </p>
-      <ol className="evolution" ref={strip} tabIndex={0} aria-label="Changes to WaveCenter, oldest first">
-        {cards.map((c, i) => (
-          <li key={c.sha} className="evolution-card box level-1">
-            {c.imageUrl ? (
-              <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${short(c.words)}” full size`}>
-                {/* A signed link to a private picture: plain <img>, not next/image, which would fetch it through the web server. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.imageUrl} alt="" loading="lazy" />
-              </button>
-            ) : (
-              <p className="evolution-text error">{cardNote(c)}</p>
-            )}
-            <CardFacts card={c} />
-          </li>
-        ))}
-      </ol>
+      <div className="evolution-rail">
+        <button type="button" className="evolution-arrow" onClick={() => slide(-1)} disabled={ends.atStart} aria-label="Older change">
+          <ArrowIcon back />
+        </button>
+        <ol className="evolution" ref={strip} tabIndex={0} aria-label="Changes to WaveCenter, oldest first" onScroll={measure}>
+          {cards.map((c, i) => (
+            <li key={c.sha} className="evolution-card box level-1">
+              {c.imageUrl ? (
+                <button type="button" className="evolution-thumb" onClick={() => show(i)} aria-label={`Open the screenshot of “${short(c.words)}” full size`}>
+                  {/* A signed link to a private picture: plain <img>, not next/image, which would fetch it through the web server. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.imageUrl} alt="" loading="lazy" />
+                </button>
+              ) : (
+                <p className="evolution-text error">{cardNote(c)}</p>
+              )}
+              <CardFacts card={c} />
+            </li>
+          ))}
+        </ol>
+        <button type="button" className="evolution-arrow" onClick={() => slide(1)} disabled={ends.atEnd} aria-label="Newer change">
+          <ArrowIcon />
+        </button>
+      </div>
 
       <dialog ref={dialog} className="evolution-full" aria-label="Screenshot, full size" onClose={onClose}>
         {current && open !== null && (
@@ -102,6 +132,15 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
         )}
       </dialog>
     </>
+  );
+}
+
+/** A bold chevron pointing left (back) or right. */
+function ArrowIcon({ back = false }: { back?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+      <path d={back ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} />
+    </svg>
   );
 }
 
