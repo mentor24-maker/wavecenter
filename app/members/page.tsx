@@ -24,7 +24,7 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * and below it which role may do what (core/members.ts). Any role with
  * "View members" sees the table; the buttons in its Actions column are the
  * ones the viewer's role may use (memberActions), which today means an admin
- * changing roles and messaging members. Each member is shown only as their profile allows other
+ * changing roles and every member messaging members. Each member is shown only as their profile allows other
  * members to see them: their avatar, and their name if their profile is
  * public. A role that may not view members gets a plain message instead of an
  * empty table. Signed-out visitors are sent to sign in.
