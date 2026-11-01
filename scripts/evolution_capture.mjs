@@ -13,12 +13,19 @@
  *                                                         yet, oldest first (the merge lane runs this)
  *   npm run evolution -- words                            fill Dane's words and their thread on every
  *                                                         recorded change that has none yet; no pictures
+ *   npm run evolution -- recapture [--plan]               retake every captured change whose page the
+ *                                                         current rules choose differently, and leave off
+ *                                                         a picture identical to the card before it;
+ *                                                         --plan says what it would do and changes nothing
  *   npm run evolution -- list                             one line per recorded change
  *
  * Runs on the Mac Mini only: it needs the test database (Docker), and Doppler
  * supplies the live keys. `capture` for one change:
  *
- *   1. Works out the change's page (scripts/lib/evolution.mjs, choosePage).
+ *   1. Works out the change's page (scripts/lib/evolution.mjs, choosePage):
+ *      the page it added or its title names, not the shared files. The same
+ *      page as the card before it is fine (Dane: "the image itself should be
+ *      unique, not the page").
  *      No app/ change, or no app yet: a text-only "no screen" row, no picture.
  *   2. Checks the change out in a temporary git worktree, installs its
  *      packages and builds it. A change that will not build or start is a
@@ -34,6 +41,9 @@
  *   5. Signs in as Dane's member account in the local copy, takes a 1280x800
  *      screenshot with a headless browser, uploads it to the private
  *      `evolution` bucket and upserts the `evolution_entries` row on live.
+ *      A picture byte-for-byte the same as the card before it is recorded as
+ *      "no screen" instead (Dane, 2026-11-01: "no single screenshot should
+ *      be repeated"), so the scroller leaves it off.
  *   6. Wipes the local copy (`supabase db reset`), pass or fail, so real
  *      member data does not sit in the shared test database.
  *
@@ -64,6 +74,10 @@
  * A ticket that cannot be read leaves them empty, and `words` fills them
  * on a later run without retaking any picture.
  *
+ * `recapture` retakes a change into a new file and only then points its row
+ * at it, so a retake that fails leaves the old row and picture as they were
+ * and says so (engineering rule 6).
+ *
  * Exit 0 = done. Exit 1 = something failed, said in plain words; a picture
  * that was not stored is never recorded as captured (engineering rule 6).
  * Exit 143 = stopped at the time limit.
@@ -74,9 +88,9 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, previousCard, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -173,7 +187,7 @@ async function liveData() {
  * any failure. Empty words are left out of the write, so retaking a picture
  * while ClickUp cannot be read never wipes words already stored.
  */
-async function record(fullRow, pngFile) {
+async function record(fullRow, pngFile, { keepOld = false } = {}) {
   const row = { ...fullRow };
   if (row.prompt == null) { delete row.prompt; delete row.thread_url; }
   if (row.capture_state === 'captured') {
@@ -181,6 +195,7 @@ async function record(fullRow, pngFile) {
       method: 'POST', raw: readFileSync(pngFile), headers: { 'Content-Type': 'image/png', 'x-upsert': 'true' },
     });
     if (put.status >= 300) {
+      if (keepOld) throw new RunFailed(`uploading the retaken screenshot ${row.screenshot_path} failed (HTTP ${put.status} ${JSON.stringify(put.json)}); the old row and picture are left as they were`);
       const failed = { ...row, screenshot_path: null, capture_state: 'failed', failure_reason: `the screenshot was taken but could not be stored (HTTP ${put.status})` };
       await live('/rest/v1/evolution_entries?on_conflict=commit_sha', { method: 'POST', body: failed, headers: { Prefer: 'resolution=merge-duplicates' } });
       throw new RunFailed(`uploading the screenshot ${row.screenshot_path} failed: HTTP ${put.status} ${JSON.stringify(put.json)}`);
@@ -194,6 +209,19 @@ async function record(fullRow, pngFile) {
     throw new RunFailed(`writing the evolution_entries row for ${row.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
   }
 }
+
+/** The sha256 of a stored screenshot, or null (said in the output) when it could not be read. */
+async function storedHash(path) {
+  if (!path) return null;
+  const res = await fetch(`${LIVE_URL}/storage/v1/object/${BUCKET}/${path}`, { headers: { apikey: LIVE_KEY, Authorization: `Bearer ${LIVE_KEY}` } }).catch(() => null);
+  if (!res?.ok) {
+    console.log(`  could not read the stored picture ${path} (HTTP ${res?.status ?? 'no answer'}) to compare with`);
+    return null;
+  }
+  return sha256(Buffer.from(await res.arrayBuffer()));
+}
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 // ---------------------------------------------------------------- the test database
 
@@ -432,6 +460,7 @@ function commitInfo(rev) {
   const [mergedAt, parents, subject] = git(['show', '-s', '--format=%cI%n%P%n%s', sha]).split('\n');
   const parent = parents.split(' ').filter(Boolean)[0];
   const changed = (parent ? git(['diff', '--name-only', parent, sha]) : git(['show', '--name-only', '--format=', sha])).split('\n').filter(Boolean);
+  const added = (parent ? git(['diff', '--name-only', '--diff-filter=A', parent, sha]).split('\n').filter(Boolean) : changed);
   const files = git(['ls-tree', '-r', '--name-only', sha]).split('\n').filter(Boolean);
   const { title, prNumber } = parseSubject(subject);
   let ticket = ticketUrl(git(['show', '-s', '--format=%b', sha]));
@@ -439,7 +468,7 @@ function commitInfo(rev) {
     const pr = sh('gh', ['pr', 'view', String(prNumber), '--json', 'body', '-q', '.body']);
     if (pr.ok) ticket = ticketUrl(pr.stdout);
   }
-  return { sha, mergedAt, title, prNumber, ticketUrl: ticket, changed, files };
+  return { sha, mergedAt, title, prNumber, ticketUrl: ticket, changed, added, files };
 }
 
 /**
@@ -465,18 +494,25 @@ function ticketWords(url) {
 /**
  * Picture one change. Returns the row it recorded (or would record, with
  * `dryRun`). Throws RunFailed when the run itself broke.
+ *
+ *   previous: the captured card just before it ({ page, screenshot_path }),
+ *             or undefined to read it from the live table
+ *   retake:   the change's own captured row, being retaken: the picture goes
+ *             to a new file, and a failure records nothing, leaving that row
+ *             as it was (the returned row then has `retakeFailed`)
  */
-async function capture(rev, { dryRun = null } = {}) {
+async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const info = commitInfo(rev);
-  const words = ticketWords(info.ticketUrl) ?? { prompt: null, threadUrl: null };
+  const words = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url } : { prompt: null, threadUrl: null });
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
-  const pattern = choosePage(info);
+  const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
+  const pattern = choosePage({ ...info, prompt: words.prompt });
   console.log(`${info.sha.slice(0, 7)} ${info.title}\n  page: ${pattern ?? 'no screen'}`);
   const finish = async (row, png) => {
     if (dryRun) {
       console.log(`  dry run, nothing stored: ${JSON.stringify(row)}`);
     } else {
-      await record(row, png);
+      await record(row, png, { keepOld: Boolean(retake) });
       console.log(`  recorded: ${row.capture_state}${row.failure_reason ? ` — ${row.failure_reason}` : ''}`);
     }
     return row;
@@ -508,12 +544,22 @@ async function capture(rev, { dryRun = null } = {}) {
     const app = await startApp(dir, local);
     stopApp = app.stop;
     await screenshot({ base: app.base, page, cookies, file: png });
-    return await finish(entryRow({ ...base, page, screenshotPath: `${info.sha}.png`, state: 'captured' }), png);
+    const hash = sha256(readFileSync(png));
+    if (before && hash === await storedHash(before.screenshot_path)) {
+      console.log(`  the picture is exactly the same as the card before it (${before.page}), so it is left off the scroller`);
+      return await finish(entryRow({ ...base, page, state: 'no screen' }));
+    }
+    const path = retake ? `${info.sha}-${hash.slice(0, 12)}.png` : `${info.sha}.png`;
+    return await finish(entryRow({ ...base, page, screenshotPath: path, state: 'captured' }), png);
   } catch (err) {
     if (err.dir) dir = err.dir;
     await settle(); // let a stop signal that arrived with the failure land first
     if (stopping) throw new Stopped(`stopped part-way through ${info.sha.slice(0, 7)}; nothing was recorded for it`);
     if (!(err instanceof CaptureFailed)) throw err;
+    if (retake) {
+      console.log(`  retake FAILED — ${err.message}. The old row and picture are left as they were.`);
+      return { ...retake, retakeFailed: err.message };
+    }
     return await finish(entryRow({ ...base, page, state: 'failed', reason: err.message }));
   } finally {
     if (stopApp) stopApp();
@@ -609,6 +655,51 @@ try {
     }
     console.log(`words: ${todo.length} change(s) had none; filled ${filled}, ${none} with none of Dane's words on their ticket, ${unread} whose ticket could not be read.`);
     process.exit(unread ? 1 : 0);
+  } else if (command === 'recapture') {
+    const plan = rest.includes('--plan');
+    requireLive();
+    const hashes = new Map();
+    const hashOf = async (path) => {
+      if (!hashes.has(path)) hashes.set(path, await storedHash(path));
+      return hashes.get(path);
+    };
+    let prev = null;
+    let retaken = 0, leftOff = 0, failed = 0, kept = 0;
+    for (const row of (await recorded()).filter((r) => r.capture_state === 'captured')) {
+      const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt });
+      const label = `${row.commit_sha.slice(0, 7)} ${row.title}`;
+      if (pattern && !samePage(pattern, row.page)) {
+        if (plan) {
+          console.log(`${label}\n  would retake: ${row.page} -> ${pattern}`);
+          retaken += 1;
+          prev = { page: pattern, screenshot_path: null };
+          continue;
+        }
+        const got = await capture(row.commit_sha, { previous: prev, retake: row });
+        if (got.retakeFailed) { failed += 1; prev = row; }
+        else if (got.capture_state === 'captured') { retaken += 1; prev = got; }
+        else leftOff += 1;
+        continue;
+      }
+      const same = prev?.screenshot_path && await hashOf(prev.screenshot_path);
+      if (same && same === await hashOf(row.screenshot_path)) {
+        console.log(`${label}\n  ${plan ? 'would leave off' : 'leaving off'}: its picture is exactly the same as the card before it`);
+        leftOff += 1;
+        if (plan) continue;
+        const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${row.commit_sha}&capture_state=eq.captured`, {
+          method: 'PATCH', body: { capture_state: 'no screen', screenshot_path: null }, headers: { Prefer: 'return=representation' },
+        });
+        if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.capture_state !== 'no screen') {
+          throw new RunFailed(`leaving off ${row.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+        }
+        continue;
+      }
+      kept += 1;
+      prev = row;
+    }
+    const verb = plan ? ['would retake', 'would leave off'] : ['retook', 'left off'];
+    console.log(`recapture${plan ? ' --plan (nothing changed)' : ''}: ${verb[0]} ${retaken}, ${verb[1]} ${leftOff} identical picture(s), kept ${kept}${failed ? `; ${failed} retake(s) FAILED and kept their old row (reasons above)` : ''}.`);
+    process.exit(failed ? 1 : 0);
   } else if (command === 'list') {
     requireLive();
     const rows = await recorded();
@@ -616,7 +707,7 @@ try {
     console.log(rows.length ? `${rows.length} change(s) recorded.` : 'No changes recorded yet: run `npm run evolution -- backfill`.');
     process.exit(0);
   } else {
-    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | list');
+    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | recapture [--plan] | list');
     process.exit(1);
   }
 } catch (err) {

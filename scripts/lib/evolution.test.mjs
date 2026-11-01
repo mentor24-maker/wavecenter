@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -62,10 +62,101 @@ test('a dynamic segment comes back as its pattern, and is filled with a task tha
   assert.equal(fillPage('/game', []), '/game');
 });
 
-test('shared files count for the Home page when several pages are touched (#54)', () => {
+test('#54, which added the Home dashboard and named it, pictures Home over the pages it also added', () => {
   const pr54 = ['app/InfoPage.tsx', 'app/Mission.tsx', 'app/SiteHeader.tsx', 'app/about/page.tsx', 'app/deo/page.tsx', 'app/game/page.tsx',
     'app/globals.css', 'app/page.tsx', 'app/tasks/[id]/page.tsx', 'app/tasks/actions.ts', 'app/tasks/page.tsx'];
-  assert.equal(choosePage({ changed: pr54, files: [...WITH_HOME, 'app/about/page.tsx', 'app/deo/page.tsx'] }), '/');
+  const added = ['app/InfoPage.tsx', 'app/Mission.tsx', 'app/about/page.tsx', 'app/deo/page.tsx', 'app/tasks/page.tsx'];
+  const title = 'Dane lands on the task list with no overview: add a Home dashboard page and a Home menu item';
+  assert.equal(choosePage({ changed: pr54, added, title, files: [...WITH_HOME, 'app/about/page.tsx', 'app/deo/page.tsx'] }), '/');
+});
+
+test('shared files no longer outvote the page the change was about (#29, the game page)', () => {
+  assert.equal(choosePage({
+    changed: ['app/game/page.tsx', 'app/lib/taskStore.ts'],
+    files: WITH_HOME,
+    title: 'Members cannot see the points they have earned: add a game page with their score',
+  }), '/game');
+  // Even with no words at all, the page folder beats the shared files.
+  assert.equal(choosePage({ changed: ['app/game/page.tsx', 'app/lib/taskStore.ts', 'app/globals.css'], files: WITH_HOME }), '/game');
+});
+
+test('a page the change added wins (#30, the profile page)', () => {
+  const files = [...WITH_HOME, 'app/profile/page.tsx', 'app/profile/ProfileForm.tsx', 'app/profile/actions.ts', 'app/lib/memberProfileStore.ts'];
+  const changed = ['app/SiteHeader.tsx', 'app/globals.css', 'app/lib/memberProfileStore.ts', 'app/profile/ProfileForm.tsx', 'app/profile/actions.ts', 'app/profile/page.tsx'];
+  const added = ['app/lib/memberProfileStore.ts', 'app/profile/ProfileForm.tsx', 'app/profile/actions.ts', 'app/profile/page.tsx'];
+  const title = 'Members have no profile page: add one where they set their name, avatar and privacy, anonymous by default';
+  assert.equal(choosePage({ changed, added, files, title }), '/profile');
+  // An added page beats a page with more changed files.
+  assert.equal(choosePage({ changed: ['app/tasks/page.tsx', 'app/tasks/TaskList.tsx', 'app/profile/page.tsx'], added: ['app/profile/page.tsx'], files }), '/profile');
+});
+
+test('a change to Home\'s background pictures Home', () => {
+  // #83: the page itself plus the header and the stylesheet.
+  assert.equal(choosePage({
+    changed: ['app/SiteHeader.tsx', 'app/globals.css', 'app/page.tsx'], files: WITH_HOME,
+    title: 'Dane wants Home to sit on his water-drop picture: put the drop background behind the whole Home page with see-through, shadowed boxes',
+  }), '/');
+  // #86: only shared files, and the title names Home.
+  assert.equal(choosePage({
+    changed: ['app/SiteHeader.tsx', 'app/globals.css'], files: WITH_HOME,
+    title: 'Home shows the header as a separate picture from the page: blend the header into the one background and make the boxes 30% see-through',
+  }), '/');
+});
+
+test('the title names the screen among the pages a change touched', () => {
+  // #88 touched Home and the Evolution scroller under app/tasks/, and names both: the shorter address wins.
+  assert.equal(choosePage({
+    changed: ['app/globals.css', 'app/page.tsx', 'app/tasks/Evolution.tsx'], files: WITH_HOME,
+    title: 'Dane wants a tidier Home: four equal pods in the top row, Evolution of WaveCenter with arrow buttons, and working and recently completed tasks side by side below it',
+  }), '/');
+  // A named page beats one with more changed files.
+  assert.equal(choosePage({
+    changed: ['app/tasks/page.tsx', 'app/tasks/TaskList.tsx', 'app/members/page.tsx'], files: WITH_HOME,
+    title: 'Dane cannot find a member: add a search box to the members list',
+  }), '/members');
+  // Words only name pages that exist at that change, and only whole words.
+  assert.equal(choosePage({ changed: ['app/tasks/TaskList.tsx'], files: TODO_LIST, title: 'Dane wants his tasks sorted: sort them' }), '/');
+  assert.equal(choosePage({ changed: ['app/tasks/page.tsx', 'app/game/page.tsx', 'app/game/GameMenu.tsx'], files: WITH_HOME, title: 'Endgame: tidy the menus' }), '/game');
+});
+
+test('a change of only shared files pictures the page its fix names, else Home', () => {
+  assert.equal(choosePage({ changed: ['app/lib/taskStore.ts'], files: WITH_HOME, title: 'Points vanish: show them on the game page' }), '/game');
+  // Who feels it ("Members cannot...") does not name the screen; the fix does.
+  assert.equal(choosePage({ changed: ['app/lib/taskStore.ts'], files: WITH_HOME, title: 'Members cannot save: retry the write' }), '/');
+  // Dane's words decide when the title names nothing.
+  assert.equal(choosePage({ changed: ['app/globals.css'], files: WITH_HOME, title: 'Fix the colours', prompt: 'The members page is too dark' }), '/members');
+});
+
+test('the same page is pictured again when it is the change\'s focus', () => {
+  // Dane, 2026-11-01: "the image itself should be unique, not the page".
+  // A Home change after a Home card is still Home, even when it also
+  // touched another page (#88 after #86).
+  const changed = ['app/page.tsx', 'app/tasks/Evolution.tsx'];
+  assert.equal(choosePage({ changed, files: WITH_HOME, title: 'Dane wants a tidier Home: four equal pods' }), '/');
+  assert.equal(choosePage({ changed: ['app/page.tsx'], files: WITH_HOME }), '/');
+  assert.equal(choosePage({ changed: ['app/SiteHeader.tsx'], files: WITH_HOME }), '/');
+  // The page the change touched most wins, whatever the card before showed.
+  assert.equal(choosePage({ changed: ['app/tasks/[id]/TaskDiscussion.tsx', 'app/tasks/[id]/page.tsx', 'app/members/page.tsx'], files: WITH_HOME }), '/tasks/[id]');
+});
+
+test('samePage matches a stored page against its pattern', () => {
+  assert.equal(samePage('/tasks/[id]', '/tasks/3f2a'), true);
+  assert.equal(samePage('/tasks/[id]', '/tasks'), false);
+  assert.equal(samePage('/', '/'), true);
+  assert.equal(samePage('/game', '/game/leaderboard'), false);
+  assert.equal(samePage(null, null), true);
+});
+
+test('previousCard is the newest captured card merged before the change', () => {
+  const rows = [
+    { commit_sha: 'a', merged_at: '2026-10-01T00:00:00Z', capture_state: 'captured', page: '/' },
+    { commit_sha: 'b', merged_at: '2026-10-02T00:00:00Z', capture_state: 'captured', page: '/game' },
+    { commit_sha: 'c', merged_at: '2026-10-03T00:00:00Z', capture_state: 'no screen', page: null },
+    { commit_sha: 'd', merged_at: '2026-10-05T00:00:00Z', capture_state: 'captured', page: '/members' },
+  ];
+  assert.equal(previousCard(rows, '2026-10-04T00:00:00Z').commit_sha, 'b');
+  assert.equal(previousCard(rows, '2026-10-02T00:00:00Z').commit_sha, 'a');
+  assert.equal(previousCard(rows, '2026-10-01T00:00:00Z'), null);
 });
 
 test('the most-touched page wins', () => {
