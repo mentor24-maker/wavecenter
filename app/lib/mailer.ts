@@ -10,12 +10,13 @@
  *
  * Gmail does not let another service send as a gmail.com address, so the
  * email comes from a WaveCenter address (`MESSAGE_FROM`) and replies go to
- * Dane's Gmail (`MESSAGE_REPLY_TO`).
+ * Dane's Gmail (`MESSAGE_REPLY_TO`). Dane chose `noreply@wavecenter.com` on
+ * 2026-11-01. The domain is verified in Resend by docs/EMAIL_SETUP.md.
  */
 import type { Mailer } from "../../core/messages.ts";
 
-const DEFAULT_FROM = "WaveCenter <messages@wavecenter.com>";
-const DEFAULT_REPLY_TO = "daneofearth@gmail.com";
+export const DEFAULT_FROM = "WaveCenter <noreply@wavecenter.com>";
+export const DEFAULT_REPLY_TO = "daneofearth@gmail.com";
 const FOOTER = "\n\n--\nSent to you through WaveCenter, https://app.wavecenter.com. Reply to this email to answer.";
 
 /** The Resend mailer, or null when this copy of WaveCenter has no key for it. */
