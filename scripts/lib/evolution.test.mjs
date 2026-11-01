@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, fillPage, asOf, entryRow, mountain, listLine } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment } from './evolution.mjs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -167,4 +167,51 @@ test('listLine prints sha, date, state, page and title', () => {
   const row = entryRow({ ...BASE, page: '/game', screenshotPath: 'x.png', state: 'captured' });
   assert.equal(listLine(row), `cb2c1f1\t2026-10-28 06:00 MDT\tcaptured\t/game\tGame menu`);
   assert.match(listLine(entryRow({ ...BASE, state: 'failed', reason: 'no build' })), /failed \(no build\)\t-\t/);
+});
+
+const C = (n) => String(n).repeat(40).slice(0, 40);
+
+test('missingShas picks exactly the changes with no row, oldest first', () => {
+  const main = [C(1), C(2), C(3), C(4), C(5)];
+  const rows = [
+    { commit_sha: C(4), capture_state: 'captured' },
+    { commit_sha: C(2), capture_state: 'failed' },
+    { commit_sha: C(9), capture_state: 'captured' }, // a row for a change no longer on main
+  ];
+  assert.deepEqual(missingShas(main, rows), [C(1), C(3), C(5)]);
+  assert.deepEqual(missingShas(main, []), main);
+  assert.deepEqual(missingShas([], rows), []);
+});
+
+test('missingShas run again after a pass that recorded every change captures nothing', () => {
+  const main = [C(1), C(2), C(3)];
+  const first = missingShas(main, []);
+  const rowsAfter = first.map((sha, i) => ({ commit_sha: sha, capture_state: i === 1 ? 'failed' : 'no screen' }));
+  assert.deepEqual(missingShas(main, rowsAfter), []);
+});
+
+test('missingShas picks a stopped capture up again, since it wrote no row', () => {
+  const main = [C(1), C(2), C(3)];
+  // Pass one recorded C(1), then was stopped at the time limit part-way through C(2).
+  assert.deepEqual(missingShas(main, [{ commit_sha: C(1), capture_state: 'captured' }]), [C(2), C(3)]);
+});
+
+test('ticketId reads the task id from a ticket link only', () => {
+  assert.equal(ticketId('https://app.clickup.com/t/86bcvtyhk'), '86bcvtyhk');
+  assert.equal(ticketId(null), null);
+  assert.equal(ticketId('https://example.com/t/86bcvtyhk'), null);
+});
+
+test('laneCapturedOnMerge is true only once the merge lane runs missing', () => {
+  assert.equal(laneCapturedOnMerge('npm run --silent clickup -- merge-on-comment'), false);
+  assert.equal(laneCapturedOnMerge(''), false);
+  assert.equal(laneCapturedOnMerge('"$REPO/scripts/run_with_time_limit.sh" 360 -- npm run --silent evolution -- missing 2>&1'), true);
+});
+
+test('failureComment says why, that the merge stands, and how to retake it', () => {
+  const text = failureComment({ commit_sha: C(7), failure_reason: 'the app at this change did not build: boom' });
+  assert.match(text, /could not be taken: the app at this change did not build: boom/);
+  assert.match(text, /The merge stands/);
+  assert.match(text, /capture 7777777/);
+  assert.doesNotMatch(text, /^> /m);
 });

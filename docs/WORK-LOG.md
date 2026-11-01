@@ -18,6 +18,19 @@ Log out never gets pushed off a phone screen.
 
 ---
 
+## 2026-10-31 — Every merge now gets its picture in WaveCenter's history (#79)
+
+The camera from #74 used to run only when someone started it by hand. Now
+the merge lane on the Mac Mini runs it after every pass: it looks for any
+change on `main` that has no picture yet and takes one, oldest first. If a
+pass is skipped or cut off, the next one catches up, so the history has no
+gaps. It is capped at six minutes a pass (one picture takes about a minute),
+so it never holds up Dane's next `merge`. A picture that cannot be taken
+never undoes a merge or moves a ticket: the history records it as failed
+with the reason, and the ticket gets one plain comment saying why.
+
+---
+
 ## 2026-10-31 — Scroll through how WaveCenter grew: the Evolution view (#80)
 
 The Tasks page now has two views, picked with a small **List | Evolution**
