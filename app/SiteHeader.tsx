@@ -17,8 +17,8 @@ import { signOut } from "./auth/actions";
  * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
  * runs along the bottom of the bar, under the name and Log out.
  * The bar's content is as wide as every page's main body, so the two line up.
- * `onPicture` (Home only) keeps the bar's darkening but drops its own picture,
- * so the page's picture behind it shows through unbroken.
+ * `onPicture` (Home only) drops the bar's own picture and fades its darkening
+ * out toward the bottom, so the page's picture behind it shows through unbroken.
  */
 export default function SiteHeader({
   name,
