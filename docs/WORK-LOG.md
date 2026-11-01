@@ -18,6 +18,26 @@ so it never holds up Dane's next `merge`. A picture that cannot be taken
 never undoes a merge or moves a ticket: the history records it as failed
 with the reason, and the ticket gets one plain comment saying why.
 
+---
+
+## 2026-10-31 — Scroll through how WaveCenter grew: the Evolution view (#80)
+
+The Tasks page now has two views, picked with a small **List | Evolution**
+switch beside its heading. The list is unchanged and still comes up first.
+**Evolution** is the photo album the camera from #74 fills: a sideways row
+of cards, one per change, oldest on the left, opening on the newest. Each
+card shows what WaveCenter looked like right after that change, its name,
+when it went live (Mountain time), and links to its pull request, its
+ClickUp ticket and the WaveCenter task it came from. Click a picture to see
+it full size and step backwards or forwards with the arrows, on screen or
+on the keyboard (the keyboard arrows keep working even after you have
+stepped to the first or last change). The pictures
+stay private: each one is handed out through a link that only works for a
+signed-in member and expires after an hour. Until the camera has run on the
+live site, the view says so instead of showing an empty strip.
+
+---
+
 ## 2026-10-31 — A camera for WaveCenter's history: a picture after every change (#74)
 
 WaveCenter now has the camera and the photo album for its own history.

@@ -3,9 +3,13 @@ import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/su
 import { DEFAULT_MEMBER_SETTINGS } from "../../core/agents.ts";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin, myRole } from "../lib/memberRoleStore";
+import { loadEvolution } from "../lib/evolutionReads";
 import { loadComments, loadFiles } from "../lib/taskReads";
 import SiteHeader from "../SiteHeader";
+import Evolution from "./Evolution";
+import { viewFrom, type TasksView } from "./evolutionView";
 import TaskList, { type ListVote } from "./TaskList";
+import ViewSwitch from "./ViewSwitch";
 
 /**
  * Tasks: the to-do list with every member's tasks, open and done, and every
@@ -13,15 +17,22 @@ import TaskList, { type ListVote } from "./TaskList";
  * session. A member changes only their own tasks and votes on any. A visitor
  * who is not signed in is sent to sign in. Every empty or failed state says
  * why (engineering rule 7).
+ *
+ * Two views, switched at the top: the List (the default) and Evolution
+ * (`/tasks?view=evolution`), a scroller of how WaveCenter looked after each
+ * change merged into main (Dane, 2026-10-30).
  */
-export default async function Tasks() {
+export default async function Tasks({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const view = viewFrom((await searchParams).view);
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
 
   // Signed out, with nothing gone wrong: go and sign in. A missing database
   // or a failed sign-in check is said on this page instead, not hidden by a bounce.
   if (supabase && !user && !checkFailed) redirect("/sign-in");
-  if (supabase && user) return <YourTasks supabase={supabase} user={user} />;
+  if (supabase && user) {
+    return view === "evolution" ? <EvolutionView supabase={supabase} user={user} /> : <YourTasks supabase={supabase} user={user} />;
+  }
 
   return (
     <>
@@ -37,6 +48,47 @@ export default async function Tasks() {
 }
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
+
+/** The page heading with the List | Evolution switch beside it. */
+function Heading({ view }: { view: TasksView }) {
+  return (
+    <div className="tasks-heading">
+      <h1>Tasks</h1>
+      <ViewSwitch current={view} />
+    </div>
+  );
+}
+
+async function EvolutionView({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
+  const [{ cards, error, problems }, name, isAdmin] = await Promise.all([
+    loadEvolution(supabase),
+    headerName(supabase, user),
+    headerIsAdmin(supabase, user.id),
+  ]);
+  return (
+    <>
+      <SiteHeader name={name} isAdmin={isAdmin} />
+      <main>
+        <Heading view="evolution" />
+        <p className="note">How WaveCenter looked right after each change was merged, from the first commit to today.</p>
+        {error ? (
+          <p className="error" role="alert">
+            The changes could not be loaded: {error}. Nothing has been lost; try reloading the page.
+          </p>
+        ) : cards.length === 0 ? (
+          <p className="note">No changes have been captured yet: the screenshot taker has not run.</p>
+        ) : (
+          <>
+            {problems.map((p) => (
+              <p key={p} className="error" role="alert">{p}</p>
+            ))}
+            <Evolution cards={cards} />
+          </>
+        )}
+      </main>
+    </>
+  );
+}
 
 async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
   const userId = user.id;
@@ -66,7 +118,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
 
   // The list puts the "Launch AI Agents" switch on the heading's line, so it
   // draws the heading itself; without a list, the page does.
-  const heading = <h1>Tasks</h1>;
+  const heading = <Heading view="list" />;
   const intro = (
     <p className="note">
       Every member&rsquo;s tasks. You can change your own, and vote on what any task is worth and how urgent it is.
