@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arrowStep, cardNote, prUrl, step, tasksByTicket, ticketId, viewFrom } from './evolutionView.ts';
+import { arrowStep, cardNote, cardWords, changeStatement, emptyScrollerNote, prUrl, showsOnScroller, step, viewFrom } from './evolutionView.ts';
 
 test('only ?view=evolution opens the Evolution view; anything else is the list', () => {
   assert.equal(viewFrom('evolution'), 'evolution');
@@ -15,17 +15,41 @@ test('a PR number links to GitHub; none (the first commit) links nowhere', () =>
   assert.equal(prUrl(null), null);
 });
 
-test('a change finds the task whose agent ticket is its ticket', () => {
-  assert.equal(ticketId('https://app.clickup.com/t/86bcvtyhn'), '86bcvtyhn');
-  assert.equal(ticketId(null), null);
-  assert.equal(ticketId('https://example.com/t/x'), null);
-  const map = tasksByTicket([
-    { id: 'a', agentTicketUrl: null },
-    { id: 'b', agentTicketUrl: 'https://app.clickup.com/t/86abc' },
-    { id: 'c', agentTicketUrl: 'https://app.clickup.com/t/86abc' },
-  ]);
-  assert.equal(map.get('86abc'), 'b');
-  assert.equal(map.size, 1);
+test('only changes that altered a screen are cards', () => {
+  assert.equal(showsOnScroller('captured'), true);
+  assert.equal(showsOnScroller('no screen'), false);
+  assert.equal(showsOnScroller('failed'), false);
+});
+
+const ROW = {
+  title: 'The header picture looks muddy to every member: lighten the dark overlay so its colors show',
+  prompt: null as string | null,
+  thread_url: null as string | null,
+  ticket_url: 'https://app.clickup.com/t/86bcw3my3' as string | null,
+  pr_number: 82 as number | null,
+};
+
+test('a card shows Dane\'s own words, verbatim, and links to where he said them', () => {
+  const card = cardWords({ ...ROW, prompt: '  The header background overlay is too dark\n', thread_url: '/tasks/a1611610-e4d7-4b13-ac2f-bf909f57db1d' });
+  assert.deepEqual(card, { words: 'The header background overlay is too dark', fromDane: true, threadUrl: '/tasks/a1611610-e4d7-4b13-ac2f-bf909f57db1d' });
+});
+
+test('with none of his words on record, a card says briefly what changed and links to its ticket or PR', () => {
+  assert.deepEqual(cardWords(ROW), { words: 'Lighten the dark overlay so its colors show', fromDane: false, threadUrl: 'https://app.clickup.com/t/86bcw3my3' });
+  assert.equal(cardWords({ ...ROW, ticket_url: null }).threadUrl, 'https://github.com/mentor24-maker/wavecenter/pull/82');
+  assert.equal(cardWords({ ...ROW, prompt: '   ' }).fromDane, false);
+  assert.equal(cardWords({ ...ROW, ticket_url: null, pr_number: null }).threadUrl, null);
+});
+
+test('the short statement is the fix half of a ticket name, or the whole name', () => {
+  assert.equal(changeStatement('Dane cannot reach the task list from the menu: add Tasks as the first menu item'), 'Add Tasks as the first menu item');
+  assert.equal(changeStatement('Make the site presentable and give it a domain'), 'Make the site presentable and give it a domain');
+  assert.equal(changeStatement('WaveCenter: first commit — README and .gitignore'), 'First commit — README and .gitignore');
+});
+
+test('an empty scroller says why', () => {
+  assert.match(emptyScrollerNote(3), /None of the 3 recorded changes altered a screen/);
+  assert.match(emptyScrollerNote(1), /None of the 1 recorded change altered/);
 });
 
 test('the full-size view steps in merge order and stops at both ends', () => {

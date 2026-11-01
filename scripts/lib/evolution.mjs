@@ -168,7 +168,7 @@ export function asOf(live, { mergedAt, columns }) {
  * no stored screenshot and a `failed` row with no reason (rule 6: never say
  * a picture is there when it is not).
  */
-export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, page, screenshotPath, state, reason }) {
+export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, page, screenshotPath, state, reason, prompt, threadUrl }) {
   if (!/^[0-9a-f]{40}$/.test(String(sha))) throw new Error(`entryRow: not a full commit id: ${sha}`);
   if (!CAPTURE_STATES.includes(state)) throw new Error(`entryRow: unknown capture state "${state}"`);
   if (state === 'captured' && (!page || !screenshotPath)) throw new Error('entryRow: a captured row needs its page and its stored screenshot');
@@ -183,7 +183,69 @@ export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, pa
     screenshot_path: state === 'captured' ? screenshotPath : null,
     capture_state: state,
     failure_reason: state === 'failed' ? String(reason).trim().slice(0, 500) : null,
+    prompt: prompt ?? null,
+    thread_url: prompt ? (threadUrl ?? null) : null,
   };
+}
+
+/** The tag loop-handoff puts on a ticket it filed from a WaveCenter task. */
+const FROM_WAVECENTER_TAG = 'from-wavecenter';
+/** The heading every operator card opens with (scripts/lib/operatorCard.mjs, cardBlocks). */
+const CARD_HEADING = "DANE'S WORDS — the instruction behind this ticket";
+const CARD_NEXT_HEADING = "WHAT'S GOING ON";
+
+/** The fenced title and notes under a ticket's "## From WaveCenter" heading, and the task it names. */
+function fromWaveCenter(description) {
+  const text = String(description || '');
+  const m = text.match(/^##\s*From WaveCenter\s*\n+\s*```[^\n]*\n([\s\S]*?)\n\s*```/m);
+  if (!m) return null;
+  const task = text.match(/^WaveCenter task:\s*([0-9a-f-]{36})\s*$/m);
+  return { words: m[1].trim(), taskId: task ? task[1] : null };
+}
+
+/**
+ * The @@ASKED words of the first operator card in `comments` (oldest first,
+ * each { text }), as ClickUp stores the card: the heading, his words, an
+ * optional "(when)" line, then "WHAT'S GOING ON".
+ */
+function firstCardWords(comments) {
+  for (const c of comments || []) {
+    const text = String(c?.text || '').replace(/\r\n/g, '\n');
+    const at = text.indexOf(CARD_HEADING);
+    if (at < 0) continue;
+    let words = text.slice(at + CARD_HEADING.length);
+    const end = words.indexOf(`\n${CARD_NEXT_HEADING}`);
+    if (end < 0) continue;
+    const paragraphs = words.slice(0, end).trim().split(/\n\s*\n/);
+    if (paragraphs.length > 1 && /^\([^\n]*\)$/.test(paragraphs.at(-1).trim())) paragraphs.pop();
+    words = paragraphs.join('\n\n').trim();
+    if (words) return words;
+  }
+  return null;
+}
+
+/**
+ * Dane's own words behind a change, and the link to where they were said,
+ * read from its ClickUp ticket (`npm run clickup -- ticket-json`):
+ *
+ * - a ticket tagged from-wavecenter: the WaveCenter task's title and notes
+ *   from its "## From WaveCenter" block, linking to that task (/tasks/<id>,
+ *   an address on WaveCenter itself, whatever its host);
+ * - any other ticket: the @@ASKED words of its first operator card,
+ *   linking to the ticket.
+ *
+ * Verbatim, whitespace trimmed. { prompt: null, threadUrl: null } when the
+ * ticket holds none of his words.
+ */
+export function danesWords(ticket) {
+  const none = { prompt: null, threadUrl: null };
+  if (!ticket) return none;
+  if ((ticket.tags || []).includes(FROM_WAVECENTER_TAG)) {
+    const from = fromWaveCenter(ticket.description);
+    if (from?.words) return { prompt: from.words, threadUrl: from.taskId ? `/tasks/${from.taskId}` : (ticket.url ?? null) };
+  }
+  const asked = firstCardWords(ticket.comments);
+  return asked ? { prompt: asked, threadUrl: ticket.url ?? null } : none;
 }
 
 /** A time as a Mountain-time date and clock, e.g. "2026-10-30 14:05 MDT". */
