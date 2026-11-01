@@ -220,6 +220,7 @@ to pass again on the combined code; when the PR is open, conflict-free and
 `verify` is green, squash-merges it and deletes the branch; reads GitHub back
 until it says MERGED; only then comments the merge commit on the ticket and
 sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
+After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket.
 
 **Database changes go live here, and only here.** When the PR adds a file to
 `supabase/migrations/`, the lane applies it to the live database from the
