@@ -16,7 +16,9 @@ of cards, one per change, oldest on the left, opening on the newest. Each
 card shows what WaveCenter looked like right after that change, its name,
 when it went live (Mountain time), and links to its pull request, its
 ClickUp ticket and the WaveCenter task it came from. Click a picture to see
-it full size and step backwards or forwards with the arrows. The pictures
+it full size and step backwards or forwards with the arrows, on screen or
+on the keyboard (the keyboard arrows keep working even after you have
+stepped to the first or last change). The pictures
 stay private: each one is handed out through a link that only works for a
 signed-in member and expires after an hour. Until the camera has run on the
 live site, the view says so instead of showing an empty strip.
