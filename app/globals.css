@@ -154,23 +154,25 @@ html, body {
 }
 .brand b { color: #fff; font-weight: 700; }
 .mark { width: 5.625rem; height: 5.625rem; flex: none; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5)); }
-/* Signed in, the right side fills the bar's height: the name and Sign out at
+/* Signed in, the right side fills the bar's height: the name and Log out at
    the top in small text, the menu along the bottom. */
 .who { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between;
   align-items: flex-end; gap: 0.35rem; min-width: 0; }
 .who .menu { display: flex; align-items: center; gap: 0.85rem; }
-.who .account { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; max-width: 100%; line-height: 1.25; }
-/* The member's name sits directly above Sign out. */
-.who .name { color: #fff; font-size: 0.8rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who .account button.quiet { font-size: 0.8rem; }
+.who .account { display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; max-width: 100%; line-height: 1.25; font-size: 0.8rem; }
+/* The member's name (a link to their Profile) and Log out share one line,
+   as "Name | Log out"; a long name is cut short with "…" so Log out stays on screen. */
+.who .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .sep, .who .account form { flex: none; }
+.who .account a.quiet, .who .account button.quiet { font-size: 0.8rem; }
 /* Signed out, the two ways in sit side by side. */
 .way-in { display: flex; align-items: center; gap: 0.85rem; }
-/* Header links and Sign out: white bold, underlined on hover, a white focus ring that shows on the picture. */
+/* Header links and Log out: white bold, underlined on hover, a white focus ring that shows on the picture. */
 .site a.quiet, .site button.quiet { color: #fff; font-weight: 700; }
-/* A browser drops the bar's shadow on buttons; Sign out needs it on the picture too. */
+/* A browser drops the bar's shadow on buttons; Log out needs it on the picture too. */
 .site button.quiet { text-shadow: inherit; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
-/* Bold is wider: on a phone, tighter gaps keep Sign out on screen. */
+/* Bold is wider: on a phone, tighter gaps keep Log out on screen. */
 @media (max-width: 30rem) { .site-inner, .who .menu { gap: 0.5rem; } }
 
 /* Every page has the same 1440px main body, and the header bar above lines up with it. */
@@ -229,7 +231,7 @@ button, .button {
   border: 0; background: var(--accent); color: var(--on-accent);
   font-weight: 600; text-decoration: none; cursor: pointer;
 }
-/* Small text-only actions: sign out, edit, attach, delete. */
+/* Small text-only actions: log out, edit, attach, delete. */
 button.link, label.link, button.quiet, a.quiet {
   background: none; padding: 0; font-weight: 400; color: var(--accent);
   text-decoration: underline; text-underline-offset: 0.15em;
@@ -401,7 +403,8 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   .brand span { display: none; }
   /* The 90px rings would run into the menu; the bar stays 150px tall. */
   .mark { width: 4rem; height: 4rem; }
-  .who .account { max-width: 9rem; }
+  /* Profile left the menu, so the name and Log out get a little more room. */
+  .who .account { max-width: 12rem; }
 }
 
 /* Handing tasks to AI agents: the switch on the heading's line, the tick-box columns. */

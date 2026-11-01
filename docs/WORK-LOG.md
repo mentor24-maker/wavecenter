@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-10-31 — Your name is now the way to your Profile, and "Sign out" is "Log out" (#81)
+
+The top of every signed-in page is tidier. "Profile" no longer takes up a
+spot in the main menu; instead, your name in the top right corner is the
+link to your Profile page. Next to it, on the same line, is "Log out"
+(it used to say "Sign out" and sat underneath your name), so the corner
+reads "Your name | Log out". A very long name is cut short with "…" so
+Log out never gets pushed off a phone screen.
+
+---
+
 ## 2026-10-31 — Every merge now gets its picture in WaveCenter's history (#79)
 
 The camera from #74 used to run only when someone started it by hand. Now
