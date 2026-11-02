@@ -37,13 +37,19 @@ test('every kind has a starting rule, and only finishing a task is worth more th
 });
 
 test('the migrations seed exactly the starting rules core knows', () => {
-  const sql = ['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql']
-    .map((file) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'))
-    .join('\n');
-  const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
+  const read = (file: string) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
+  const row = /^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm;
+  const rowsOf = (sql: string) => [...sql.matchAll(row)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"),
+    points: Number(m[5]), position: Number(m[6]),
   }));
-  assert.deepEqual(seeded, STARTING_SCORING_RULES);
+  const seeded = rowsOf(['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql'].map(read).join('\n'));
+  // The sweep places its rows after whatever is there; on a fresh database that is the rules above.
+  const after = Math.max(...seeded.map((r) => r.position));
+  const swept = rowsOf(read('20261102120000_scoring_actions_sweep.sql'))
+    .filter((r) => isWired(r.kind))
+    .map((r) => ({ ...r, position: after + r.position }));
+  assert.deepEqual([...seeded, ...swept], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -235,6 +241,38 @@ test('an admin changes what an action is worth: the next engagement earns it, ea
   assert.deepEqual(ledger.rows.map((e) => [e.kind, e.points]), [['made_task', 1], ['made_task', 3]]);
 });
 
+test('changing a scoring rule records one engagement, credited to the admin who changed it', async () => {
+  const ledger = new MemoryEngagementStore();
+  ledger.signedIn = 'dane';
+  const made = await rule(ledger, 'made_task');
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.' }, 'rule-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['dane', 'changed_a_scoring_rule', 1, 'rule-tool', null]]);
+
+  // Each field counts; a save that changes nothing does not.
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.', points: 2 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.', points: 2 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+
+  // Refused or failed: nothing is recorded, and the failure says so.
+  ledger.signedIn = 'vee';
+  await assert.rejects(changeScoringRule(ledger, { role: 'contributor' }, { ...made, points: 9 }, 'wavecenter'), /Only an admin/);
+  ledger.signedIn = 'dane';
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: -1 }, 'wavecenter'), /negative/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: 9 }, 'wavecenter'), /did not save/);
+  assert.equal(ledger.rows.length, 2);
+
+  // Adding a new action is not this action.
+  await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 1 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+
+  // If the engagement cannot be written, the rule does not change either.
+  ledger.failInsert = true;
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: 9 }, 'wavecenter'), /ledger is down/);
+  assert.equal((await rule(ledger, 'made_task')).points, 2);
+});
+
 test('only a role with "Manage game scoring" may change or add an action, and nothing is saved otherwise', async () => {
   const ledger = new MemoryEngagementStore();
   const fields = { kind: 'made_task', name: 'Made a task', points: 100 };
@@ -282,7 +320,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 11 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1 });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -293,7 +331,10 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
   assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
 });
 
-test('the sweep lists each new action once, under the kind the Add form would make, inactive and worth 1', () => {
+/** The sweep's actions that have since been wired, each by its own ticket. */
+const WIRED_SINCE_SWEEP: string[] = ['changed_a_scoring_rule'];
+
+test('the sweep lists each new action once, under the kind the Add form would make, worth 1, inactive until wired', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
   const rows = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3], criteria: m[4], points: Number(m[5]),
@@ -302,11 +343,12 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
   for (const r of rows) {
     assert.equal(r.kind, kindFromName(r.name), r.name);
-    assert.equal(isWired(r.kind), false, `${r.kind} is listed only`);
+    assert.equal(isWired(r.kind), WIRED_SINCE_SWEEP.includes(r.kind), `${r.kind} is listed only, unless its own ticket wired it`);
     assert.equal(r.points, 1, r.kind);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
   }
-  assert.equal(rows.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
+  const unwired = rows.filter((r) => !WIRED_SINCE_SWEEP.includes(r.kind));
+  assert.equal(unwired.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
   assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
