@@ -3,6 +3,8 @@
  * checks before a filed ticket is recorded on its task, and the sync back
  * from finished tickets. `scripts/clickup.mjs` (handoff-next, handoff-record,
  * handoff-sync) is the only caller; the skill is .claude/skills/loop-handoff.
+ * Work Dane asks for in a chat comes the same way (chat-task, chat-record,
+ * from .claude/skills/loop-spec): a task of his first, then its ticket.
  *
  * It reads with the Supabase service key, which sees every member's tasks, so
  * it only ever runs on the Mini under Doppler. The key never reaches app/ or
@@ -11,7 +13,8 @@
  *
  * @typedef {import('../../core/tasks.ts').Task} Task
  */
-import { agentOrder, completeHandOff, handOffTask, returnHandOff } from '../../core/agents.ts';
+import { agentOrder, completeHandOff, handOffChatTask, handOffTask, returnHandOff } from '../../core/agents.ts';
+import { createTask } from '../../core/tasks.ts';
 import { fromRow, restTaskStore } from './restTaskStore.mjs';
 
 export const FROM_WAVECENTER_TAG = 'from-wavecenter';
@@ -46,10 +49,11 @@ export function ticketPriority(task) {
 
 /**
  * The database, as the service role. `read` is a plain GET that throws on any
- * failure; `store` is core's TaskStore over the same key.
- * @param {{ url?: string, serviceKey?: string, fetch?: typeof fetch }} options
+ * failure; `store` is core's TaskStore over the same key. `owner` is the
+ * member any task the store makes belongs to (see restTaskStore).
+ * @param {{ url?: string, serviceKey?: string, owner?: string, fetch?: typeof fetch }} options
  */
-export function serviceDb({ url, serviceKey, fetch: fetchFn = fetch }) {
+export function serviceDb({ url, serviceKey, owner, fetch: fetchFn = fetch }) {
   if (!url || !serviceKey) {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must both be set (Doppler wavecenter/dev supplies them).');
   }
@@ -62,7 +66,7 @@ export function serviceDb({ url, serviceKey, fetch: fetchFn = fetch }) {
       if (!res.ok) throw new Error(`reading ${path.split('?')[0]} failed: HTTP ${res.status} ${text}`);
       return text ? JSON.parse(text) : [];
     },
-    store: restTaskStore({ url, apiKey: serviceKey, token: serviceKey, fetch: fetchFn }),
+    store: restTaskStore({ url, apiKey: serviceKey, token: serviceKey, owner, fetch: fetchFn }),
   };
 }
 
@@ -170,6 +174,37 @@ export async function recordHandOff({ db, ticket, taskId, listId, tool }) {
   const problems = ticketProblems(ticket, taskId, listId);
   if (problems.length) throw new Error(`Ticket ${ticket?.id ?? '?'} was not recorded: ${problems.join('; ')}.`);
   return handOffTask(db.store, taskId, ticketUrl(ticket.id), tool);
+}
+
+/**
+ * Dane's member account, the earliest one (20261029120000_member_roles.sql
+ * makes it the first admin). Work he asks for in a chat is his task.
+ */
+export const DANE_MEMBER_ID = '3cb23781-b16b-4fae-93e0-85e51915641c';
+
+/**
+ * Make the WaveCenter task for work Dane asked for in a chat, owned by him,
+ * through core: his words as title and notes, points 0 unless he gave a
+ * number. It starts unticked, so the hand-off lane never files it;
+ * `recordChatTicket` ticks it and records its ticket in one write. Its
+ * status follows his role (an admin's task starts as todo), read from the
+ * database rather than assumed. `db` must be a serviceDb made with
+ * `owner: DANE_MEMBER_ID`.
+ */
+export async function createChatTask({ db, title, notes = null, points = 0, priority = 'normal', tool }) {
+  const [role] = await db.read(`member_roles?member_id=eq.${DANE_MEMBER_ID}&select=role`);
+  return createTask(db.store, { title, notes: notes?.trim() ? notes.trim() : null, points, priority }, tool, role?.role);
+}
+
+/**
+ * Record a ticket filed by loop-spec on the chat task made for it. The same
+ * checks as `recordHandOff` (in the Loop Queue, tagged from-wavecenter,
+ * carrying the task line); refuses, changing nothing, if any fails.
+ */
+export async function recordChatTicket({ db, ticket, taskId, listId, tool }) {
+  const problems = ticketProblems(ticket, taskId, listId);
+  if (problems.length) throw new Error(`Ticket ${ticket?.id ?? '?'} was not recorded: ${problems.join('; ')}.`);
+  return handOffChatTask(db.store, taskId, ticketUrl(ticket.id), tool);
 }
 
 function mountainDate(now) {

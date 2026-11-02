@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
 import { nameProblem } from './ticketName.mjs';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
 import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
@@ -226,6 +226,12 @@ test('asOf drops columns and skips tables the old database did not have', () => 
   const { tables } = asOf(LIVE, { mergedAt: T, columns: { tasks: ['id', 'status', 'owner_id'] } });
   assert.deepEqual(Object.keys(tables), ['tasks']);
   assert.deepEqual(tables.tasks[0], { id: 't1', status: 'done', owner_id: 'dane' });
+});
+
+test('asOf leaves out a task the Evolution backfill made afterwards, though it is dated earlier', () => {
+  const live = { ...LIVE, tables: { ...LIVE.tables, tasks: [...LIVE.tables.tasks, { id: 't5', owner_id: 'dane', status: 'done', completed_at: before, created_at: before, updated_at: after, parent_task_id: null, priority: 'normal', tool: BACKFILL_TOOL }] } };
+  const { tables } = asOf(live, { mergedAt: T, columns: ALL_COLUMNS });
+  assert.deepEqual(tables.tasks.map((r) => r.id), ['t1', 't2']);
 });
 
 test('asOf refuses a time it cannot read', () => {
@@ -575,4 +581,16 @@ test('the retake notes say what happened and that the old cards stand', () => {
   assert.match(failed, /left exactly as they were/);
   assert.match(failed, /will not repeat this one/);
   assert.match(recaptureDoneNote('retook 4, left off 0 identical picture(s), kept 12'), /\(retook 4, .*kept 12\)/);
+});
+
+test('a card whose ticket names no WaveCenter task is named in the run output, and one that does is not', () => {
+  const TASK = '0f5c2b7e-1a2b-4c3d-8e9f-0123456789ab';
+  assert.equal(noTaskLine({ url: 'https://app.clickup.com/t/abc', description: `## From WaveCenter\n\n\`\`\`\nHi\n\`\`\`\n\nWaveCenter task: ${TASK}\n` }), null);
+  const missing = noTaskLine({ url: 'https://app.clickup.com/t/abc', description: 'A spec with no task line.' });
+  assert.match(missing, /NO WAVECENTER TASK/);
+  assert.match(missing, /https:\/\/app\.clickup\.com\/t\/abc/);
+  assert.match(noTaskLine({ id: 'abc', description: '' }, 'https://app.clickup.com/t/abc'), /ticket https:\/\/app\.clickup\.com\/t\/abc names no WaveCenter task/);
+  assert.match(noTaskLine(null), /names no ticket/);
+  // A task line in passing, not on its own line, does not count.
+  assert.match(noTaskLine({ url: 'u', description: `see WaveCenter task: ${TASK} elsewhere` }), /NO WAVECENTER TASK/);
 });
