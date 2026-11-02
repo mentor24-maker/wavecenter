@@ -7,6 +7,24 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Old Evolution cards are retaken by themselves when the picture rules change (#98)
+
+Earlier today a fix to how each Evolution card picks its picture went live,
+but every card on Home still showed the old picture, because the step that
+retakes old cards only ran when an agent session remembered to run it. Now
+the merge lane does it on its own: after each merge it checks whether the
+picture rules changed, and if they did it retakes the cards those rules now
+picture differently. If the rules did not change it retakes nothing. If a
+retake fails, the old cards stay as they were, the lane tries again on the
+next pass, and the ticket behind the rules change gets one note when it
+fails and one when it works. The check stays quick as the cards pile up,
+because it only compares pictures where a retake made two cards neighbours.
+If it keeps running out of time without retaking anything, the ticket is
+told, the same as a failure; another lane briefly using the test database
+just means it waits for the next pass.
+
+---
+
 ## 2026-11-01 — A written plan for the scoring guess game (#96)
 
 Dane asked for a plan for scoring every task and game action from a human

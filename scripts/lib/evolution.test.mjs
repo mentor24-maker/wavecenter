@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT } from './evolution.mjs';
+import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -356,4 +357,120 @@ test('failureComment says why, that the merge stands, and how to retake it', () 
   assert.match(text, /The merge stands/);
   assert.match(text, /capture 7777777/);
   assert.doesNotMatch(text, /^> /m);
+});
+
+// ------------------------------------------- retaking after a rules change
+
+test('RULES_FILE is the file that holds choosePage', () => {
+  assert.match(readFileSync(RULES_FILE, 'utf8'), /export function choosePage\(/);
+});
+
+test('the merge lane retakes after a clean missing, only when the rules changed', () => {
+  const lane = readFileSync('scripts/merge_lane.sh', 'utf8');
+  const missing = lane.indexOf('evolution -- missing');
+  const retake = lane.indexOf('evolution -- recapture --if-rules-changed');
+  assert.ok(missing > 0 && retake > missing, 'recapture --if-rules-changed runs after missing');
+  assert.match(lane.slice(missing, retake), /if \[ "\$CODE" -eq 0 \]/);
+  assert.match(lane, /run_with_time_limit\.sh" \d+ -- npm run --silent evolution -- recapture --if-rules-changed/);
+});
+
+test('recaptureDue: a merge that changed the rules owes a retake; one that did not owes nothing', () => {
+  assert.equal(recaptureDue({ done: 'aaa' }, 'bbb'), true);
+  assert.equal(recaptureDue({ done: 'aaa' }, 'aaa'), false);
+  // A new machine has no record, so it checks once; matching rules then retake nothing.
+  assert.equal(recaptureDue(null, 'aaa'), true);
+  // A failed retake keeps the old fingerprint, so the next pass tries again.
+  assert.equal(recaptureDue({ done: 'aaa', failing: 'bbb', told: 'T1' }, 'bbb'), true);
+});
+
+test('a successful retake records the rules it used, and no longer owes one', () => {
+  const { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { ok: true });
+  assert.deepEqual(state, { done: 'bbb' });
+  assert.equal(action, null);
+  assert.equal(recaptureDue(state, 'bbb'), false);
+});
+
+test('a failed retake tells the ticket once, then once more when it works', () => {
+  let { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { reason: 'boom' });
+  assert.equal(action, 'tell');
+  assert.equal(state.done, 'aaa');
+  state.told = 'T1';
+  ({ state, action } = nextRecaptureState(state, 'bbb', { reason: 'boom again' }));
+  assert.equal(action, null);
+  assert.equal(state.told, 'T1');
+  assert.equal(recaptureDue(state, 'bbb'), true);
+  const before = state;
+  ({ state, action } = nextRecaptureState(before, 'bbb', { ok: true }));
+  assert.equal(action, 'recovered');
+  assert.equal(before.told, 'T1');
+  assert.deepEqual(state, { done: 'bbb' });
+});
+
+test('a note that could not be posted is tried again; a new rules change is told afresh', () => {
+  let { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { reason: 'boom' });
+  assert.equal(action, 'tell');
+  // told left unset: the comment failed.
+  ({ action } = nextRecaptureState(state, 'bbb', { reason: 'boom' }));
+  assert.equal(action, 'tell');
+  ({ state, action } = nextRecaptureState({ ...state, told: 'T1' }, 'ccc', { reason: 'boom' }));
+  assert.equal(action, 'tell');
+  assert.equal(state.told, null);
+});
+
+test('a retake cut off at the time limit keeps trying while it retakes cards, and tells once when stuck', () => {
+  // Cut off after retaking a card: progress, say nothing, still owed.
+  let { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { stopped: true, progressed: true });
+  assert.equal(action, null);
+  assert.equal(state.done, 'aaa');
+  assert.equal(state.cutoffs, 0);
+  assert.equal(recaptureDue(state, 'bbb'), true);
+  // Cut off with nothing retaken: counted, quiet until the limit.
+  for (let i = 1; i < RECAPTURE_CUTOFF_LIMIT; i++) {
+    ({ state, action } = nextRecaptureState(state, 'bbb', { stopped: true, progressed: false }));
+    assert.equal(action, null);
+    assert.equal(state.cutoffs, i);
+  }
+  ({ state, action } = nextRecaptureState(state, 'bbb', { stopped: true, progressed: false }));
+  assert.equal(action, 'tell');
+  assert.match(state.reason, new RegExp(`cut off at the time limit ${RECAPTURE_CUTOFF_LIMIT} passes running`));
+  state.told = 'T1';
+  // Told once: further cut-offs say nothing, and the first success says done.
+  ({ state, action } = nextRecaptureState(state, 'bbb', { stopped: true, progressed: false }));
+  assert.equal(action, null);
+  assert.equal(state.told, 'T1');
+  ({ state, action } = nextRecaptureState(state, 'bbb', { ok: true }));
+  assert.equal(action, 'recovered');
+  assert.deepEqual(state, { done: 'bbb' });
+});
+
+test('a cut-off under new rules starts its count afresh', () => {
+  const { state } = nextRecaptureState({ done: 'aaa', failing: 'bbb', cutoffs: 2, told: null }, 'ccc', { stopped: true, progressed: false });
+  assert.equal(state.cutoffs, 1);
+  assert.equal(state.failing, 'ccc');
+});
+
+test('another run holding the test database is not a failure: nothing changes, nobody is told', () => {
+  const before = { done: 'aaa', failing: 'bbb', cutoffs: 1, told: null };
+  const { state, action } = nextRecaptureState(before, 'bbb', { busy: true });
+  assert.equal(action, null);
+  assert.deepEqual(state, before);
+  assert.equal(recaptureDue(state, 'bbb'), true);
+  assert.equal(nextRecaptureState(null, 'bbb', { busy: true }).action, null);
+});
+
+test('the lane step records a cut-off before exiting, and skips the GitHub lookup while scanning', () => {
+  const src = readFileSync('scripts/evolution_capture.mjs', 'utf8');
+  assert.match(src, /outcome = \{ stopped: true, progressed: got\.retaken > 0 \}/);
+  assert.match(src, /class Busy extends RunFailed/);
+  assert.match(src, /throw new Busy\(`another run is using the test database/);
+  assert.match(src, /recapture\(\{ newNeighboursOnly: true, out: got \}\)/);
+  assert.match(src, /commitInfo\(row\.commit_sha, \{ ticket: false \}\)/);
+});
+
+test('the retake notes say what happened and that the old cards stand', () => {
+  const failed = recaptureFailedComment('the app at this change did not build: boom');
+  assert.match(failed, /it failed: the app at this change did not build: boom/);
+  assert.match(failed, /left exactly as they were/);
+  assert.match(failed, /will not repeat this one/);
+  assert.match(recaptureDoneNote('retook 4, left off 0 identical picture(s), kept 12'), /\(retook 4, .*kept 12\)/);
 });

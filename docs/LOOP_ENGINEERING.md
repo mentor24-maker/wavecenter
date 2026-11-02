@@ -222,7 +222,7 @@ to pass again on the combined code; when the PR is open, conflict-free and
 `verify` is green, squash-merges it and deletes the branch; reads GitHub back
 until it says MERGED; only then comments the merge commit on the ticket and
 sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
-After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket.
+After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket. Then, when a merge changed the picture rules (`scripts/lib/evolution.mjs`, which chooses each card's page), it runs `npm run evolution -- recapture --if-rules-changed` (at most 3 minutes), which retakes the old cards those rules now picture differently; nobody has to remember to. Unchanged rules retake nothing. The fingerprint of the rules last retaken lives on the Mini in `~/loop-logs/wavecenter-evolution-recapture.json`; a failed retake keeps the old cards, is tried again every pass, and the rules change's ticket hears once when it fails and once when it works.
 
 **Database changes go live here, and only here.** When the PR adds a file to
 `supabase/migrations/`, the lane applies it to the live database from the
