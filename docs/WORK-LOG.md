@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Sending a message to another member earns its points (#111)
+
+"Send a message to another member" was already on the Game Manager's list
+of actions, but nothing recorded it, so sending a message earned nothing.
+Now, every time a message is saved for another member, the database credits
+the sender with the points the Game Manager says it is worth (20 on the live
+site today), in the same step as saving the message. A message that is
+refused saves nothing and earns nothing, and a note to yourself earns
+nothing, so nobody can collect points by writing to themselves. The Game
+Manager now shows the action as Active, and names the code and the test that
+prove it works.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
