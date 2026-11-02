@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Evolution cards show who made each change and its points (#104)
+
+Each card in the Evolution row on Home now credits the member behind the
+change: their avatar, their name if their profile is set to Public, and
+the points on the WaveCenter task the change came from. This is the first
+place the game layer shows up on a merged change. A member who keeps their
+profile Anonymous or Private is shown by their avatar alone, and nobody's
+bio is ever shown. What a card may show of its creator is decided in one
+spot, so the permissions settings Dane plans can plug in there later. Cards
+with no WaveCenter task linked yet show no credit until the backfill ticket
+gives each one a task.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
