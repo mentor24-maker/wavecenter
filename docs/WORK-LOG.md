@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Adding a member to a team earns its point (#116)
+
+"Added a member to a team" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time a member is put on a
+team, the member who did the adding earns the point (1 to start), never
+the member who was added. The database writes the point in the same save
+as the team change, so a team change cannot happen without its point, or
+the point without the change. Game > Manage now shows the action as
+Active, naming the function, the database step and the test that prove it.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
