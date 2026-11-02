@@ -271,9 +271,13 @@ const FROM_WAVECENTER_TAG = 'from-wavecenter';
 const CARD_HEADING = "DANE'S WORDS — the instruction behind this ticket";
 const CARD_NEXT_HEADING = "WHAT'S GOING ON";
 
-/** The WaveCenter task a ticket names on its "WaveCenter task: <id>" line, or null. */
+/**
+ * The WaveCenter task a ticket names on its "WaveCenter task: <id>" line, or
+ * null. Only a well-formed id counts: a malformed one would make the capture's
+ * existence check fail with HTTP 400 and stop the whole run.
+ */
 function waveCenterTaskId(description) {
-  const task = String(description || '').match(/^WaveCenter task:\s*([0-9a-f-]{36})\s*$/m);
+  const task = String(description || '').match(/^WaveCenter task:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*$/m);
   return task ? task[1] : null;
 }
 

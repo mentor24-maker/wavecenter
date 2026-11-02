@@ -295,6 +295,8 @@ test('the WaveCenter task a ticket names is its card\'s task link, whatever the 
   assert.deepEqual(danesWords({ url: 'u', tags: [], description: `WaveCenter task: ${TASK}`, comments: [] }), { prompt: null, threadUrl: null, taskId: TASK });
   assert.equal(entryRow({ ...BASE, state: 'no screen', taskId: TASK }).task_id, TASK);
   assert.equal(entryRow({ ...BASE, state: 'no screen' }).task_id, null);
+  // A malformed id (right length, wrong shape) is no link, not a failed run.
+  assert.equal(danesWords({ url: 'u', tags: [], description: `WaveCenter task: ${'-'.repeat(36)}`, comments: [] }).taskId, null);
 });
 
 test('any other ticket gives the first card\'s asked words, without its when line, linking to the ticket', () => {

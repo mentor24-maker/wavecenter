@@ -157,6 +157,10 @@ export interface CreditShown {
  * bio. An avatar this code does not know shows as the neutral 👤. `profileLink` stays false while no screen shows one member's profile
  * to another; it becomes true here once that screen exists and the rule
  * allows it.
+ *
+ * On Evolution cards this runs on a visibility the app infers from which
+ * fields `evolution_credits()` left empty; that SQL function is the real
+ * gate. When the permissions settings plug in here, change it to match.
  */
 export function cardCredit(
   creator: Pick<MemberProfile, 'displayName' | 'avatar' | 'visibility'>,
