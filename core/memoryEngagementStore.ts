@@ -5,10 +5,11 @@
  * saved either (what the database's trigger does, in one transaction).
  * It also holds the rules for `changeScoringRule` and `addScoringRule`; like
  * the database's functions it writes what it is given, and the rules about
- * who may are core's.
+ * who may are core's. Like the rules table's score trigger, adding a rule is
+ * scored for `signedIn`, the member the database would see as signed in.
  */
 import {
-  STARTING_SCORING_RULES, totalPoints, type Engagement, type EngagementLedger, type EngagementStore, type NewEngagementRow,
+  STARTING_SCORING_RULES, recordEngagement, totalPoints, type Engagement, type EngagementLedger, type EngagementStore, type NewEngagementRow,
   type RuleFields, type ScoringRule, type ScoringRuleStore,
 } from './game.ts';
 
@@ -19,6 +20,8 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore 
   failInsert = false;
   /** Set to make the next rule save write nothing, the way a refused write does. */
   failNextRuleSave = false;
+  /** Who the database would see as signed in: the admin credited for adding a rule. */
+  signedIn: string | null = null;
   /** The tool that last changed each rule. */
   readonly ruleTools = new Map<string, string>();
   private next = 1;
@@ -45,6 +48,8 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore 
       return null;
     }
     const rule = { kind, ...fields, position: Math.max(0, ...this.ruleList.map((r) => r.position)) + 1 };
+    // Score first: if that fails, the rule is not added either, as in one transaction.
+    if (this.signedIn) await recordEngagement(this, { memberId: this.signedIn, kind: 'added_a_scoring_action', tool });
     this.ruleList.push(rule);
     this.ruleTools.set(kind, tool);
     return { ...rule };
