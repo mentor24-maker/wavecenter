@@ -487,8 +487,8 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   each kind's value is worked out: `docs/GRANULAR_SCORING_ALGORITHM.md`.
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
-  worth. A task's `points` is one, and its owner's, human, AI and final
-  scores are planned in `docs/SCORING_GAME_PLAN.md`.
+  worth. A task's `points` is one; the owner, human, AI and final scores
+  for a task are planned in `docs/SCORING_GAME_PLAN.md`.
 
 ### Who may change the scoring rules
 

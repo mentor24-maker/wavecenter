@@ -1,8 +1,11 @@
 # How a granular action is valued: an algorithm for Dane to approve
 
 **Status: a proposal. Nothing here is live.** No point value in WaveCenter
-changes until Dane approves it and the values are typed in on Game → Manage
-(`/game/manage`), by him or by a later ticket. Written 2026-11-01 for the
+changes until Dane approves it. This document is the **first slice**: the
+written algorithm and the values it proposes. The **next slice** is a batch
+job Dane starts from the Admin page, which applies this same formula to
+every action and puts the results live once he accepts them (see "How a
+value goes live"). Written 2026-11-01 for the
 ticket "Create algorithm to assess value of granular tasks" (WaveCenter task
 `bbaf3bba-b65b-4813-b35d-62ba2df9eab8`).
 
@@ -25,9 +28,27 @@ globular scores"). This document is only about **granular** scores: the
 rows of `game_scoring_rules`, one value per *kind* of action ("voted on a
 task" is worth N), not per individual action.
 
-"AI-generated" is read here as: an AI agent (Claude) drafted the algorithm
-and applied it, and Dane approves it. Nothing calls an AI while WaveCenter
-runs. In the scoring plan's words (`docs/SCORING_GAME_PLAN.md`, "The same
+## Dane's answer: a batch job on the Admin page
+
+Asked whether he wanted a written algorithm, the values put live, or an AI
+on the server, Dane first chose the server AI (2026-11-01, 9:43 PM MT):
+
+> C. This will need to run each time a new score is created.
+
+and then changed his mind (2026-11-01, 11:40 PM MT):
+
+> I take it back. Let's run this as a batch job that I can kick off from
+> the Admin page. If we do that can we avoid the need for API?
+
+So the algorithm here is the rule that batch job runs. Yes, it can avoid an
+AI service: the formula below is plain arithmetic, so the job needs no API
+key once each action has its four factor scores. The one step that needs
+judgment is scoring the factors of a **new** action; the next slice asks
+the admin who adds it to pick them from the four tables below.
+
+For now, an AI agent (Claude) drafted the algorithm and scored every
+action's factors, and Dane approves them. Nothing calls an AI while
+WaveCenter runs. In the scoring plan's words (`docs/SCORING_GAME_PLAN.md`, "The same
 scoring for game behaviors"), the numbers below are the **AI score** for
 each kind of action; the admin's value on Game → Manage is the owner's
 score, and members' votes on actions come later.
@@ -200,24 +221,23 @@ Defenses" and "Operations and Infrastructure").
 
 ## How a value goes live once Dane approves
 
-1. Dane reads the table and changes any number he disagrees with (a reply
-   on the ticket is enough).
-2. On Game → Manage (`/game/manage`), an admin clicks each action's points,
-   types the approved number and saves. Or Dane asks for a ticket that sets
-   them all in one migration.
+1. Dane reads the table and changes any number or factor he disagrees with
+   (a reply on the ticket is enough).
+2. The next slice, the batch job, stores each action's four factor scores
+   and adds a button to the Admin page (`/admin`) that works out every
+   action's points with the formula, shows them beside today's values, and
+   puts them live when Dane accepts. Until it ships, an admin can still type
+   a single value by hand on Game → Manage (`/game/manage`).
 3. The new value counts from the very next time the action happens. Points
    already earned keep what they were given (`docs/DATA_MODEL.md`, "Who may
    change the scoring rules").
 
 ## Questions for Dane
 
-1. **Is this the reading you meant?** A written algorithm for you to approve
-   (this document), rather than an AI that scores actions on the server, or
-   these values going live straight away.
-2. **Are the weights right?** Value counts twice; effort, rarity and farm
+1. **Are the weights right?** Value counts twice; effort, rarity and farm
    risk once each. Changing a weight changes every row, so it is the one
    decision that matters most.
-3. **Are zeros acceptable?** Six actions (five undo halves of loops, and the
+2. **Are zeros acceptable?** Six actions (five undo halves of loops, and the
    AI agents switch) come out at 0. They are still recorded in the ledger;
    they just add nothing. The alternative is a floor of 1, which keeps
    today's "a point a second" loop open.

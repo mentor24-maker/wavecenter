@@ -23,8 +23,10 @@ could be repeated just to collect points. A short formula turns those
 scores into points. The document applies the formula to all 24 actions on
 the list and gives a reason for each. For example, finishing a task would
 go from 5 to 7 points, making a task from 1 to 3, and flipping the switch
-from 1 to 0. Nothing changes until Dane approves the numbers and they are
-entered on Game → Manage.
+from 1 to 0. Nothing changes until Dane approves the numbers. This is the
+first slice: next comes a batch job Dane starts from the Admin page, which
+works the formula out for every action and puts the values live when he
+accepts them, with no AI service needed.
 
 ---
 
