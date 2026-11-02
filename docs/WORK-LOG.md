@@ -47,6 +47,16 @@ exist back then. The script runs on the live data once this change merges.
 
 ---
 
+## 2026-11-01 — The Evolution row opens on the oldest change (#102)
+
+The Evolution of WaveCenter row on Home used to open at its right end, on
+the newest change, so reading the story from the start meant scrolling all
+the way back. Now it opens at the left end, on the very first change (the
+placeholder page from October 11), and the right arrow walks forward
+through WaveCenter's history. Nothing else about the row changed.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
