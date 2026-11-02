@@ -10,9 +10,12 @@
 -- edit and the screen says so. Kept in step with SCORING_TRIGGERS in
 -- core/game.ts (a test checks this function exists).
 --
+-- Its own function and trigger, apart from task_comments_score (which
+-- scores a new comment, 20261102141000), so each scores only its own action.
+--
 -- No new table. Safe to re-run.
 
-create or replace function public.task_comments_score()
+create or replace function public.task_comments_score_edit()
 returns trigger
 language plpgsql
 security definer
@@ -26,11 +29,11 @@ begin
 end;
 $$;
 
-drop trigger if exists task_comments_score on public.task_comments;
-create trigger task_comments_score
+drop trigger if exists task_comments_score_edit on public.task_comments;
+create trigger task_comments_score_edit
   after update of body on public.task_comments
-  for each row execute function public.task_comments_score();
+  for each row execute function public.task_comments_score_edit();
 
-revoke execute on function public.task_comments_score() from public, anon, authenticated;
+revoke execute on function public.task_comments_score_edit() from public, anon, authenticated;
 
 notify pgrst, 'reload schema';

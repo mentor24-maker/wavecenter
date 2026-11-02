@@ -26,7 +26,9 @@
  * functions, with the change counting from the next engagement
  * (`public.game_scoring_rules`); and that every member reads the Evolution
  * rows and screenshots but only the service key writes them
- * (`public.evolution_entries` and the private `evolution` bucket).
+ * (`public.evolution_entries` and the private `evolution` bucket); and that
+ * every member reads the words in Home's boxes but only an admin changes
+ * them (`public.home_boxes`), which are put back as they were afterwards.
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -47,6 +49,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
+import { saveHomeBox } from '../core/homeBoxes.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -270,6 +273,23 @@ function roleStore(member) {
       const got = await call('/rest/v1/rpc/set_member_role', { method: 'POST', token: member.token, body: { member: memberId, new_role: role, tool } });
       if (got.status >= 300) throw new Error(`set_member_role failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return got.json;
+    },
+  };
+}
+
+/** A HomeBoxStore (core/homeBoxes.ts) over REST, acting as one member. */
+function homeBoxStore(member) {
+  const fromRow = (r) => r && { box: r.box, body: r.body, tool: r.tool, updatedAt: r.updated_at, updatedBy: r.updated_by };
+  return {
+    async list() {
+      return ((await call('/rest/v1/home_boxes?select=*', { token: member.token })).json ?? []).map(fromRow);
+    },
+    async save(box, body, tool) {
+      const got = await call('/rest/v1/home_boxes?on_conflict=box', {
+        method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation', body: { box, body, tool },
+      });
+      if (got.status >= 300) throw new Error(`home_boxes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json?.[0]) ?? null;
     },
   };
 }
@@ -639,6 +659,43 @@ try {
   check('deleting a team removes its member links and no member account', goneTeam.json?.length === 0 && goneLinks.json?.length === 0 && stillA2.status === 200, `team ${JSON.stringify(goneTeam.json)}, links ${JSON.stringify(goneLinks.json)}, A HTTP ${stillA2.status}`);
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
 
+  // Home's boxes (20261102130000_home_boxes.sql): every member reads their
+  // words; only a role with home.edit (admin; A is one, B a viewer) changes
+  // them, through core or straight at the table. This may run against the
+  // live database, so the words Home had are put back afterwards.
+  const homeBefore = (await admin('/rest/v1/home_boxes?select=box,body,tool')).json;
+  if (!Array.isArray(homeBefore)) throw new Error(`could not read Home's boxes before checking them: ${JSON.stringify(homeBefore)}`);
+  try {
+    const boxDeps = (member) => ({ boxes: homeBoxStore(member), roles: roleStore(member) });
+    const words = `Written by **check_tasks_rls** ${randomUUID().slice(0, 8)}.`;
+    const savedA = await saveHomeBox(boxDeps(a), { actorId: a.id, box: 'about', body: words }, TOOL);
+    check('an admin changes a Home box through core, and the database stamps who and the tool', savedA.body === words && savedA.tool === TOOL && savedA.updatedBy === a.id, JSON.stringify(savedA));
+    const readB = await call('/rest/v1/home_boxes?box=eq.about&select=body', { token: b.token });
+    check('a viewer reads the words in Home’s boxes', readB.status === 200 && readB.json?.[0]?.body === words, `HTTP ${readB.status} ${JSON.stringify(readB.json)}`);
+    const viaCore = await saveHomeBox(boxDeps(b), { actorId: b.id, box: 'about', body: 'Hijacked' }, TOOL).then(() => '', (e) => e.message);
+    check('a viewer cannot change a Home box through core', /may not change the words on Home/.test(viaCore), viaCore || 'the words were changed');
+    const patchB = await call('/rest/v1/home_boxes?box=eq.about', { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { body: 'Hijacked' } });
+    const upsertB = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: b.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: 'Hijacked', tool: TOOL } });
+    const insertB = await call('/rest/v1/home_boxes', { method: 'POST', token: b.token, body: { box: 'deo', body: 'Hijacked', tool: TOOL } });
+    const afterB = await admin('/rest/v1/home_boxes?select=box,body');
+    const hijacked = (afterB.json ?? []).some?.((r) => r.body === 'Hijacked');
+    check('a viewer cannot change or add a Home box straight at the table', (patchB.status >= 400 || patchB.json?.length === 0) && upsertB.status >= 400 && insertB.status >= 400 && !hijacked,
+      `patch HTTP ${patchB.status} ${JSON.stringify(patchB.json)}, upsert HTTP ${upsertB.status}, insert HTTP ${insertB.status}, rows ${JSON.stringify(afterB.json)}`);
+    const forgedBy = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: a.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: words, tool: TOOL, updated_by: b.id } });
+    check('nobody can record someone else as the one who changed a box', forgedBy.status >= 400, `HTTP ${forgedBy.status} ${forgedBy.json?.message ?? ''}`);
+    const otherBox = await call('/rest/v1/home_boxes', { method: 'POST', token: a.token, body: { box: 'leaderboard', body: 'x', tool: TOOL } });
+    const emptyBox = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: a.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: ' \n ', tool: TOOL } });
+    check('the database refuses a box that is not editable and words that are only spaces', otherBox.status >= 400 && emptyBox.status >= 400, `other HTTP ${otherBox.status}, empty HTTP ${emptyBox.status}`);
+    const anonBoxes = await call('/rest/v1/home_boxes?select=box');
+    check('a signed-out visitor sees no Home box words', anonBoxes.status >= 400 || anonBoxes.json?.length === 0, `HTTP ${anonBoxes.status} ${JSON.stringify(anonBoxes.json)}`);
+  } finally {
+    await admin('/rest/v1/home_boxes?box=in.(about,deo)', { method: 'DELETE' });
+    if (homeBefore.length) await admin('/rest/v1/home_boxes', { method: 'POST', body: homeBefore });
+    const restored = (await admin('/rest/v1/home_boxes?select=box,body,tool&order=box')).json;
+    const want = [...homeBefore].sort((x, y) => x.box.localeCompare(y.box));
+    check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -746,6 +803,13 @@ try {
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
   check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
 
+  // Posting a comment is scored by the table's trigger: once, for the writer.
+  const postedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.posted_a_comment&select=points,tool,task_id`);
+  check('posting a comment records one engagement, credited to the writer, naming the tool and the task, and editing or removing it records none',
+    JSON.stringify(postedA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: insA.id }]), JSON.stringify(postedA.json));
+  const postedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.posted_a_comment&select=id`);
+  check('a comment that was refused records no engagement', postedB.json?.length === 0, JSON.stringify(postedB.json));
+
   // A comment's files: as private as the comment, and gone with it.
   const noteA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment with a file', TOOL);
   const notePath = commentFilePath(a.id, insA.id, randomUUID(), 'a-mock.txt');
@@ -843,8 +907,8 @@ try {
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
     'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
-    'edited_a_comment', 'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
-    'made_task', 'made_task', 'deleted_task',
+    'posted_a_comment', 'edited_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
+    'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
   check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
@@ -855,7 +919,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 20, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 24, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
