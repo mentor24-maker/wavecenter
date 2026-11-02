@@ -114,7 +114,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -505,18 +505,22 @@ function commitInfo(rev, { ticket: lookUp = true } = {}) {
 /**
  * Dane's words behind a change, from its ticket: { prompt, threadUrl }, both
  * null when the ticket holds none, or null when the ticket could not be read
- * (said in the output, never recorded as "none").
+ * (said in the output, never recorded as "none"). `noTask` is the line that
+ * names a ticket with no WaveCenter task behind it (noTaskLine), else null.
  */
 function ticketWords(url) {
   const task = ticketId(url);
-  if (!task) return { prompt: null, threadUrl: null };
+  if (!task) return { prompt: null, threadUrl: null, noTask: noTaskLine(null) };
   const got = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'ticket-json', '--task', task]);
   const json = got.ok ? got.stdout.trim().split('\n').filter((l) => l.startsWith('{')).at(-1) : null;
   if (!json) {
     console.log(`  could not read ticket ${task} for Dane's words: ${tail(got.out)}`);
     return null;
   }
-  try { return danesWords(JSON.parse(json)); } catch (err) {
+  try {
+    const ticket = JSON.parse(json);
+    return { ...danesWords(ticket), noTask: noTaskLine(ticket, url) };
+  } catch (err) {
     console.log(`  could not read ticket ${task} for Dane's words: ${err.message}`);
     return null;
   }
@@ -534,11 +538,12 @@ function ticketWords(url) {
  */
 async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const info = commitInfo(rev);
-  const words = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url } : { prompt: null, threadUrl: null });
+  const { noTask, ...words } = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url } : { prompt: null, threadUrl: null });
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
   const pattern = choosePage({ ...info, prompt: words.prompt });
   console.log(`${info.sha.slice(0, 7)} ${info.title}\n  page: ${pattern ?? 'no screen'}`);
+  if (noTask) console.log(noTask);
   const finish = async (row, png) => {
     if (dryRun) {
       console.log(`  dry run, nothing stored: ${JSON.stringify(row)}`);
