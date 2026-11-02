@@ -302,7 +302,10 @@ email names its sender (their display name only when their profile is
 public) and has no reply-to address: the recipient answers in WaveCenter
 (Dane's "A", 2026-11-01).
 The email result is recorded only through `record_message_email`, by the
-sender, once. There is no screen for reading messages yet (a later ticket).
+sender, once. Every message saved for another member is also an engagement
+for its sender (`send_a_message_to_another_member`, worth what Game > Manage
+says), recorded by the `messages_score` trigger in the same save; a note to
+oneself earns nothing. There is no screen for reading messages yet (a later ticket).
 
 ### Teams: `teams` and `team_members`
 
@@ -486,7 +489,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   someone already earned. A row about a deleted task stays.
 
 **The database writes the ledger itself.** Every time a task, an attached
-file, the AI agents switch or a profile is saved, the database records the engagement
+file, the AI agents switch, a profile or a message is saved, the database records the engagement
 in the same step as the save. The two go through together or not at all: if
 the engagement cannot be written, the save fails and the screen says so. No
 tool, and no page, can choose how many points something is worth, and a

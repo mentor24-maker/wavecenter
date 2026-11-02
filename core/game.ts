@@ -44,6 +44,7 @@ export const ENGAGEMENT_KINDS = [
   'posted_a_comment',
   'edited_a_comment',
   'deleted_a_comment',
+  'send_a_message_to_another_member',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -128,6 +129,9 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'edited_a_comment', name: 'Edited a comment', description: 'Changed the words of a comment you wrote.', criteria: 'A saved change to a comment.', points: 1, position: 12 },
   // Listed by the sweep migration too (third of its rows).
   { kind: 'deleted_a_comment', name: 'Deleted a comment', description: 'Removed a comment you wrote.', criteria: 'A comment is deleted on its own, not by deleting its task.', points: 1, position: 13 },
+  // Listed by 20261102120000_scoring_actions_sweep.sql, fourth of its rows,
+  // so a fresh database puts it at 14.
+  { kind: 'send_a_message_to_another_member', name: 'Send a message to another member', description: 'Sent a message to a member from Members or Your profile.', criteria: 'A message is saved for its recipient.', points: 1, position: 14 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -248,6 +252,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
     fn: 'removeComment', file: 'core/comments.ts', database: 'task_comments_score_delete',
     test: 'deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it',
     testFile: 'core/comments.test.ts',
+  },
+  send_a_message_to_another_member: {
+    fn: 'sendMessage', file: 'core/messages.ts', database: 'messages_score',
+    test: 'each message sent to another member records one engagement for the sender, naming its tool', testFile: 'core/messages.test.ts',
   },
 };
 

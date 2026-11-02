@@ -318,6 +318,7 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(isWired('posted_a_comment'), true);
   assert.equal(isWired('edited_a_comment'), true);
   assert.equal(isWired('deleted_a_comment'), true);
+  assert.equal(isWired('send_a_message_to_another_member'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
