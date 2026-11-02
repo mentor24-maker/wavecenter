@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Game → Manage lists every action a member can take (#101)
+
+Game → Manage listed only the ten actions that already earn points.
+WaveCenter has grown since then: comments, messages, teams, roles and
+approving tasks were not on the list. We went through every screen and
+added the 14 missing actions, each worth 1 point. Each one is marked "Not
+active yet", so it earns nothing until it is connected to the scoring.
+Connecting each action is now its own task in the queue. One action,
+"Send a message to another member", had already been added by hand on the
+live site. It keeps its 20 points and is not listed twice. Signing in and
+out are left off, because they are not contributions.
+
+---
+
 ## 2026-11-01 — The Game Manager is one table you edit in place (#100)
 
 Game → Manage used to show each way of earning points as its own form,

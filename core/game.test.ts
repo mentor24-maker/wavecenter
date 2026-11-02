@@ -293,6 +293,24 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
   assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
 });
 
+test('the sweep lists each new action once, under the kind the Add form would make, inactive and worth 1', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
+  const rows = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3], criteria: m[4], points: Number(m[5]),
+  }));
+  assert.equal(rows.length, 14);
+  assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
+  for (const r of rows) {
+    assert.equal(r.kind, kindFromName(r.name), r.name);
+    assert.equal(isWired(r.kind), false, `${r.kind} is listed only`);
+    assert.equal(r.points, 1, r.kind);
+    assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
+  }
+  assert.equal(rows.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
+  assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
+});
+
 test('the migration checks the same lengths core does and grants Manage game scoring to admins only', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261031140000_game_scoring_admin.sql', import.meta.url), 'utf8');
   assert.match(sql, new RegExp(`length\\(name\\) <= ${RULE_NAME_MAX} and length\\(description\\) <= ${RULE_TEXT_MAX} and length\\(criteria\\) <= ${RULE_TEXT_MAX}`));
