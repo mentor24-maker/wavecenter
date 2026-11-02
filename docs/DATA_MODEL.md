@@ -569,6 +569,11 @@ at `tasks`**, so none of them needs this table rebuilt.
   records naming who did what for whom, each able to point at the task it
   was about.
 
+- **Human, AI and final scores, and the guess game.** The plan for scoring
+  every task and game action from the owner's score, members' votes and an
+  AI score, and for members guessing those scores (deviance and DQ), is in
+  [SCORING_GAME_PLAN.md](SCORING_GAME_PLAN.md).
+
 Votes are a plain average "for now". Weighting a vote by tokens and
 reputation (above) is a later change to how the average is worked out, not
 to the votes table.
