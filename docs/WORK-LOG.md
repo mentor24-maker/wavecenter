@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Deleting your comment on a task earns its point (#110)
+
+"Deleted a comment" was on the Game Manager's list of actions but marked
+"Not active yet", so deleting a comment earned nothing. Now it is wired: each
+time a member deletes one of their own comments, the database gives them the
+point the rule says (1 for now), in the same step as the delete, so one can
+never happen without the other. A comment that disappears only because its
+whole task was deleted earns nothing extra, because deleting the task was
+the action and it is already scored. Tests prove both, in memory and on the
+private test database, and Game > Manage now shows the action as Active.
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
