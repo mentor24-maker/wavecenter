@@ -11,7 +11,8 @@
  * makes them count. The member permissions do count: `member.read` decides
  * who may see the member list (the database's `list_members` asks it too),
  * `member.edit` who gets the role picker in each row, and `member.message`
- * who gets the Message button (the database's `send_message` asks it too).
+ * who gets the Message button (the database's `send_message` asks it too),
+ * and `home.edit` who gets the pencil on Home's boxes (core/homeBoxes.ts).
  *
  * Like the profile (core/profiles.ts), roles are reached through a store a
  * client supplies, and every change names its tool.
@@ -40,6 +41,7 @@ export const PERMISSIONS = [
   { key: 'team.edit', label: 'Manage teams' },
   { key: 'game.edit', label: 'Manage game scoring' },
   { key: 'member.message', label: 'Message members' },
+  { key: 'home.edit', label: 'Edit Home boxes' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
@@ -51,10 +53,11 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * views the teams; admins and editors manage them (Dane, 2026-10-30, "B").
  * Only an admin manages the game's scoring rules (core/game.ts,
  * `changeScoringRule`). Every member messages members (Dane, 2026-11-01,
- * "B", on the Messaging section of Your profile; core/messages.ts).
+ * "B", on the Messaging section of Your profile; core/messages.ts). Only
+ * an admin changes the words in Home's boxes (core/homeBoxes.ts).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit'],
   editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message'],
   contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message'],
   reviewer: ['task.read', 'member.read', 'team.read', 'member.message'],
