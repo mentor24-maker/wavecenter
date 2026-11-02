@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Adding a new scoring action on Game Manage earns its point (#122)
+
+"Added a scoring action" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin adds a new action
+in the last row on Game > Manage, that admin earns the point (1 to start).
+Actions a database update adds behind the scenes earn nobody anything. The
+database writes the point in the same save as the new action, so an action
+cannot be added without its point, or the point land without the action.
+Game > Manage now shows it as Active, naming the function, the database step
+and the test that prove it.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
