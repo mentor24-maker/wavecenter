@@ -219,8 +219,8 @@ function commentStore(member) {
       if (got.status >= 300) throw new Error(`task_comments update failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return fromRow(got.json?.[0]) ?? null;
     },
-    async remove(id) {
-      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+    async remove(id, tool) {
+      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool });
       return Array.isArray(got.json) && got.json.length > 0;
     },
   };
@@ -836,7 +836,7 @@ try {
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
     'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
-    'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
+    'deleted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment', 'made_task', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
@@ -847,8 +847,12 @@ try {
   const deleted = Array.isArray(ledgerA.json) ? ledgerA.json.findLast((e) => e.kind === 'deleted_task') : null;
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
+  const commentDeletes = Array.isArray(ledgerA.json) ? ledgerA.json.filter((e) => e.kind === 'deleted_a_comment') : [];
+  check('deleting a comment on its own earns its writer one engagement, naming the task and the tool; a comment that goes with its task earns none',
+    commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
+
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 21, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

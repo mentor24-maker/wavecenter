@@ -402,7 +402,11 @@ That rule lives in one place, `commentAuthorKind` in `core/comments.ts`, so
 the screen and any future agent path agree. Comments only change through
 `core/comments.ts`: `addComment`, `editComment` and `removeComment`. An edit
 can change only the words (and the tool that changed them): a comment never
-moves to another task or another author. Comments earn no points yet.
+moves to another task or another author. Deleting a comment on its own earns
+its writer "Deleted a comment" (`deleted_a_comment`, 1 point), recorded by the
+database inside the same delete (`task_comments_score`); a comment that goes
+because its task was deleted earns nothing, since deleting the task was the
+engagement. Posting and editing a comment earn nothing yet.
 
 Row-level security was on from the moment `task_comments` was made: a member
 reads, adds, edits and deletes only their own comments, and adds them only to

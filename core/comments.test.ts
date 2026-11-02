@@ -13,6 +13,7 @@ import {
 import { createTask, deleteTask } from './tasks.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 import { MemoryTaskCommentStore } from './memoryTaskCommentStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 async function setup() {
   const tasks = new MemoryTaskStore('dane');
@@ -135,4 +136,45 @@ test('filterComments matches the words of a formatted comment, not its marks', (
   assert.equal(filterComments(thread, { text: 'contrast', kind: 'both' }).length, 1);
   assert.equal(filterComments(thread, { text: '**dark**', kind: 'both' }).length, 0);
   assert.equal(filterComments([{ body: 'see [the brief](https://docs.example.com/brief)', tool: 'wavecenter', createdAt: '2026-10-28' }], { text: 'docs.example.com', kind: 'both' }).length, 1);
+});
+
+test('deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it', async () => {
+  const ledger = new MemoryEngagementStore();
+  const tasks = new MemoryTaskStore('dane', ledger);
+  const comments = new MemoryTaskCommentStore('dane', ledger);
+  const remove = tasks.remove.bind(tasks);
+  tasks.remove = async (id, tool) => {
+    const gone = await remove(id, tool);
+    if (gone) comments.dropRowsFor(id);
+    return gone;
+  };
+  const task = await createTask(tasks, { title: 'Plan the launch' }, 'wavecenter');
+  const first = await addComment(tasks, comments, task.id, 'First thought', 'wavecenter');
+  await addComment(tasks, comments, task.id, 'Second thought', 'wavecenter');
+  ledger.rows.length = 0;
+
+  await removeComment(comments, first.id, 'some-agent');
+  assert.equal(ledger.rows.length, 1);
+  assert.deepEqual(
+    { memberId: ledger.rows[0].memberId, kind: ledger.rows[0].kind, points: ledger.rows[0].points, tool: ledger.rows[0].tool, taskId: ledger.rows[0].taskId },
+    { memberId: 'dane', kind: 'deleted_a_comment', points: 1, tool: 'some-agent', taskId: task.id },
+  );
+
+  // A refused remove records nothing.
+  await assert.rejects(removeComment(comments, first.id, 'wavecenter'), /No comment .* remove/);
+  const other = new MemoryTaskCommentStore('someone-else', ledger);
+  for (const [id, c] of comments.rows) other.rows.set(id, c);
+  await assert.rejects(removeComment(other, [...comments.rows.keys()][0], 'wavecenter'), /No comment .* remove/);
+  assert.equal(ledger.rows.length, 1);
+
+  // If the engagement cannot be written, the comment stays and the failure says so.
+  ledger.failInsert = true;
+  const [secondId] = comments.rows.keys();
+  await assert.rejects(removeComment(comments, secondId, 'wavecenter'));
+  assert.ok(comments.rows.has(secondId), 'the comment was not deleted');
+  ledger.failInsert = false;
+
+  await deleteTask(tasks, task.id, 'wavecenter');
+  assert.deepEqual(ledger.rows.map((e) => e.kind), ['deleted_a_comment', 'deleted_task']);
+  assert.equal(comments.rows.size, 0);
 });

@@ -41,6 +41,7 @@ export const ENGAGEMENT_KINDS = [
   'switched_agents',
   'changed_profile',
   'voted_on_task',
+  'deleted_a_comment',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -119,6 +120,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
   { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
+  // Listed by the sweep migration (third of its rows, after the ten above), then wired.
+  { kind: 'deleted_a_comment', name: 'Deleted a comment', description: 'Removed a comment you wrote.', criteria: 'A comment is deleted on its own, not by deleting its task.', points: 1, position: 13 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -226,6 +229,11 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   voted_on_task: {
     fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',
     test: 'every vote cast, changed or withdrawn is scored for the voter', testFile: 'core/votes.test.ts',
+  },
+  deleted_a_comment: {
+    fn: 'removeComment', file: 'core/comments.ts', database: 'task_comments_score',
+    test: 'deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it',
+    testFile: 'core/comments.test.ts',
   },
 };
 

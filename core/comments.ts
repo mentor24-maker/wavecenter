@@ -49,8 +49,12 @@ export interface TaskCommentStore {
   get(id: string): Promise<TaskComment | null>;
   /** Change a comment's words on behalf of `tool`. Returns null if there is no such comment the caller may change. */
   update(id: string, body: string, tool: string): Promise<TaskComment | null>;
-  /** Delete one comment. Returns false if there is no such comment the caller may delete. */
-  remove(id: string): Promise<boolean>;
+  /**
+   * Delete one comment on behalf of `tool`, which the database's game-layer
+   * trigger names when it scores the delete. Returns false if there is no
+   * such comment the caller may delete.
+   */
+  remove(id: string, tool: string): Promise<boolean>;
 }
 
 /** Who wrote a comment: a person, through WaveCenter's own app, or an AI agent, through any other tool. */
@@ -106,10 +110,14 @@ export async function editComment(comments: TaskCommentStore, id: string, body: 
   return saved;
 }
 
-/** Remove one comment on behalf of `tool`. */
+/**
+ * Remove one comment on behalf of `tool`. The delete earns its writer
+ * "Deleted a comment" (core/game.ts), recorded by the database inside the
+ * same delete; a comment that goes with its deleted task earns nothing.
+ */
 export async function removeComment(comments: TaskCommentStore, id: string, tool: string): Promise<void> {
-  requireTool(tool);
-  if (!(await comments.remove(id))) throw new CoreError(`No comment ${id} was found that you may remove.`);
+  const named = requireTool(tool);
+  if (!(await comments.remove(id, named))) throw new CoreError(`No comment ${id} was found that you may remove.`);
 }
 
 /** The thread's filter bar: words to look for, and whose comments to show. */
