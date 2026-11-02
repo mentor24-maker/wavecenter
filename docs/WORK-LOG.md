@@ -7,6 +7,46 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — A written way to value each game action, for Dane to approve (#103)
+
+Almost every action in the game layer was worth 1 point, so flipping the AI
+agents switch on and off earned as much as attaching a file, and saving the
+same thing over and over earned a point every time. Dane split the game's
+scores into two types. **Granular** scores are for small automatic actions.
+**Globular** scores are for things that need thought to value, such as what
+a task is worth. That split is now written where every session reads it.
+
+A new document gives a simple, checkable way to value each granular action.
+Each action is scored on four things: how much effort it takes, how much it
+helps the project (this counts double), how rare it is, and how easily it
+could be repeated just to collect points. A short formula turns those
+scores into points. The document applies the formula to all 24 actions on
+the list and gives a reason for each. For example, finishing a task would
+go from 5 to 7 points, making a task from 1 to 3, and flipping the switch
+from 1 to 0. Nothing changes until Dane approves the numbers. This is the
+first slice: next comes a batch job Dane starts from the Admin page, which
+works the formula out for every action and puts the values live when he
+accepts them, with no AI service needed.
+
+---
+
+## 2026-11-02 — Every old Evolution card gets a WaveCenter task, owned by Dane (#106)
+
+Each Evolution card is meant to have a WaveCenter task behind it, so it can
+show who it credits and what it is worth. About 45 of the old cards came
+from chat requests or the founding commits and had none. The database now
+records which task each card belongs to, and a one-off script fills it in:
+a card that came from a WaveCenter task is linked to that task, and every
+other card is given a finished task owned by Dane, worth 0 points for now,
+dated when its change merged, with his words in its notes where the card
+has them. Making those tasks hands out no points, because nobody did new
+work today. The script can be run again safely (it skips cards that already
+have a task), and a practice mode shows what it would do without writing
+anything. Old Evolution pictures leave these tasks out, since they did not
+exist back then. The script runs on the live data once this change merges.
+
+---
+
 ## 2026-11-01 — The Evolution row opens on the oldest change (#102)
 
 The Evolution of WaveCenter row on Home used to open at its right end, on
@@ -14,6 +54,8 @@ the newest change, so reading the story from the start meant scrolling all
 the way back. Now it opens at the left end, on the very first change (the
 placeholder page from October 11), and the right arrow walks forward
 through WaveCenter's history. Nothing else about the row changed.
+
+---
 
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
