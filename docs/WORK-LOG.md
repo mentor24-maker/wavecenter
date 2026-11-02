@@ -27,6 +27,11 @@ longer looks like it came from Dane, replies no longer land in his Gmail,
 and nobody's address is shown. A sender who keeps their profile private is
 named "An anonymous WaveCenter member". Each member can have at most 20
 messages emailed an hour, so nobody can use WaveCenter to flood inboxes.
+After a second review, that limit counts every message the member sent in
+the hour, not only the ones already emailed, so firing many messages at
+the same moment cannot slip past it (a test proves it with 30 at once).
+The Members page now says a message is emailed only when email is
+actually set up on that copy of WaveCenter.
 
 ---
 

@@ -561,7 +561,8 @@ try {
   const afterSent = await lookup({ key: SERVICE }, toBRow?.id, a.id);
   check('once a message is emailed, its address is no longer looked up', afterSent.status === 200 && afterSent.json === null, `HTTP ${afterSent.status} ${JSON.stringify(afterSent.json)?.replace(/[^@\s"]+@/g, '…@')}`);
   check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
-  // One member may have 20 messages emailed an hour; past that the lookup
+  // One member may have 20 messages emailed an hour, counting every message
+  // they saved in that hour; past that the lookup
   // refuses with WC429 and the message stays saved. B (a viewer) sends 20 to
   // A, each recorded as emailed, then a 21st.
   for (let i = 0; i < 20; i += 1) {
@@ -572,7 +573,18 @@ try {
   const overLimitRow = Array.isArray(overLimit.json) ? overLimit.json[0] : null;
   const limited = await lookup({ key: SERVICE }, overLimitRow?.id, b.id);
   const otherSender = await lookup({ key: SERVICE }, toSelfRow?.id, a.id);
-  check('past 20 emailed messages in an hour, the lookup refuses with WC429 and hands back no address; the message is still saved, and another sender is unaffected', !!overLimitRow?.id && limited.status >= 400 && limited.json?.code === 'WC429' && !JSON.stringify(limited.json ?? '').includes('@') && otherSender.status === 200 && otherSender.json === a.email, `HTTP ${limited.status} ${limited.json?.code ?? ''} ${limited.json?.message ?? ''}; other sender HTTP ${otherSender.status}`);
+  check('past 20 messages sent in an hour, the lookup refuses with WC429 and hands back no address; the message is still saved, and another sender is unaffected', !!overLimitRow?.id && limited.status >= 400 && limited.json?.code === 'WC429' && !JSON.stringify(limited.json ?? '').includes('@') && otherSender.status === 200 && otherSender.json === a.email, `HTTP ${limited.status} ${limited.json?.code ?? ''} ${limited.json?.message ?? ''}; other sender HTTP ${otherSender.status}`);
+  // The limit holds when the sends come all at once. A (an admin, with only
+  // a few messages so far) fires 30 sends at the same moment, each looked up
+  // straight after its own save, as the server does, and none recorded as
+  // emailed. At most 20 may get an address back; every other is WC429.
+  const burst = await Promise.all(Array.from({ length: 30 }, async (_, i) => {
+    const sent = await sendRpc(a, { recipient: b.id, subject: `Burst ${i}`, body: 'Hello', tool: TOOL });
+    return lookup({ key: SERVICE }, Array.isArray(sent.json) ? sent.json[0]?.id : null, a.id);
+  }));
+  const burstEmailed = burst.filter((r) => r.status === 200 && r.json === b.email).length;
+  const burstRefused = burst.filter((r) => r.status >= 400 && r.json?.code === 'WC429').length;
+  check('30 sends fired at once get at most 20 addresses; every other is refused with WC429', burstEmailed <= 20 && burstEmailed + burstRefused === 30, `${burstEmailed} looked up, ${burstRefused} refused, ${30 - burstEmailed - burstRefused} other`);
 
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through

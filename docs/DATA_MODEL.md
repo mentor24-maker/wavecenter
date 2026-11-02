@@ -293,7 +293,9 @@ which only the server-only service key may call (`app/lib/messageAddressBook.ts`
 and which answers only for a still-pending message the named sender sent.
 Every member's message is emailed this way (since 2026-11-01).
 One member may have at most 20 messages emailed an hour; past that the
-lookup refuses (code `WC429`) and the message stays saved, unemailed. The
+lookup refuses (code `WC429`) and the message stays saved, unemailed. It
+counts every message the sender saved in the hour, whatever its email
+status, so a burst of sends fired at once cannot slip past it. The
 email names its sender (their display name only when their profile is
 public) and has no reply-to address: the recipient answers in WaveCenter
 (Dane's "A", 2026-11-01).

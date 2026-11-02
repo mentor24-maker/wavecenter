@@ -26,13 +26,19 @@ export function serviceAddressBook(): MessageAddressBook | null {
   if (!url || !key) return null;
   return {
     async recipientEmail(messageId, senderId) {
-      const res = await fetch(`${url}/rest/v1/rpc/message_recipient_email`, {
-        method: "POST",
-        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageId, sender: senderId }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(10000),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${url}/rest/v1/rpc/message_recipient_email`, {
+          method: "POST",
+          headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: messageId, sender: senderId }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch (err) {
+        console.error("messages: the address lookup could not reach the database:", err);
+        throw new Error("The address lookup could not reach the database.");
+      }
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
         const refusal = (() => {

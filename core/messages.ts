@@ -26,10 +26,15 @@ import { CoreError, requireTool } from './tool.ts';
 /**
  * What the Members page tells a member its envelope does. Every member's
  * message is emailed as well as saved (the server looks the address up
- * itself, never through the member's session).
+ * itself, never through the member's session), but only when this copy of
+ * WaveCenter has both the email service key and the service key; without
+ * them the page must not promise an email that will not go out.
  */
-export const MESSAGE_ENVELOPE_NOTE =
-  'The envelope writes to a member: the message is saved in WaveCenter and emailed to them.';
+export function messageEnvelopeNote(emailing: boolean): string {
+  return emailing
+    ? 'The envelope writes to a member: the message is saved in WaveCenter and emailed to them.'
+    : 'The envelope writes to a member: the message is saved in WaveCenter. Email is not set up here yet, so it is not emailed.';
+}
 
 /** The longest subject and message the database takes. */
 export const SUBJECT_MAX = 200;

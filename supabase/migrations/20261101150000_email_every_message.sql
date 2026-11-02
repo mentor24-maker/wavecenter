@@ -65,6 +65,12 @@ grant execute on function public.send_message(uuid, text, text, text) to authent
 -- One member may have at most 20 messages emailed an hour, so nobody can use
 -- WaveCenter to flood inboxes or spend its email allowance. Past that it
 -- refuses with the code WC429; the message stays saved in WaveCenter.
+-- It counts every message the sender saved in the last hour, whatever its
+-- email status, not only the ones already emailed: a row turns 'sent' only
+-- after the email goes, so 50 sends fired at once would each count 0 and
+-- all go out, and a sender could mark its own rows 'failed' to hide them.
+-- Every message is saved before its lookup runs, so of any burst at most
+-- 20 lookups ever see fewer than 20 others.
 create or replace function public.message_recipient_email(message uuid, sender uuid)
 returns text
 language plpgsql
@@ -83,8 +89,8 @@ begin
     return null;
   end if;
   if (select count(*) from public.messages m
-       where m.sender_id = sender and m.email_status = 'sent' and m.emailed_at > now() - interval '1 hour') >= 20 then
-    raise exception 'You have emailed 20 messages in the last hour, so this one was not emailed. It is saved in WaveCenter; try again later.'
+       where m.sender_id = sender and m.id <> message and m.created_at > now() - interval '1 hour') >= 20 then
+    raise exception 'You have sent 20 messages in the last hour, so this one was not emailed. It is saved in WaveCenter; try again later.'
       using errcode = 'WC429';
   end if;
   return address;

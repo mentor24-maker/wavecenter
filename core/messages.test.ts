@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { ANONYMOUS_SENDER, BODY_MAX, MESSAGE_ENVELOPE_NOTE, REPLY_URL, SUBJECT_MAX, listMessages, messageEmail, messageProblem, senderName, sendMessage, type Mailer } from './messages.ts';
+import { ANONYMOUS_SENDER, BODY_MAX, messageEnvelopeNote, REPLY_URL, SUBJECT_MAX, listMessages, messageEmail, messageProblem, senderName, sendMessage, type Mailer } from './messages.ts';
 import { CoreError } from './tool.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
@@ -114,10 +114,12 @@ test('across every migration, the only function still reading an email address i
   assert.deepEqual(reading, ['public.message_recipient_email']);
 });
 
-test('the Members page promises an email, as every member\'s message is emailed', () => {
-  assert.match(MESSAGE_ENVELOPE_NOTE, /emailed to them/);
+test('the Members page promises an email only when email is set up', () => {
+  assert.match(messageEnvelopeNote(true), /emailed to them/);
+  assert.doesNotMatch(messageEnvelopeNote(false), /emailed to them/);
+  assert.match(messageEnvelopeNote(false), /not emailed/);
   const page = readFileSync(new URL('../app/members/page.tsx', import.meta.url), 'utf8');
-  assert.match(page, /MESSAGE_ENVELOPE_NOTE/);
+  assert.match(page, /messageEnvelopeNote\(/);
   assert.doesNotMatch(page, /only an admin/);
 });
 
@@ -210,16 +212,19 @@ test('a recipient with no email address is saved and not emailed, without guessi
 
 test('a lookup refused in plain words, like the hourly email limit, gives the sender those words', async () => {
   const { stores, messages, mailer, sent } = setup();
-  const limited = { recipientEmail: async () => { throw new CoreError('You have emailed 20 messages in the last hour, so this one was not emailed.'); } };
+  const limited = { recipientEmail: async () => { throw new CoreError('You have sent 20 messages in the last hour, so this one was not emailed.'); } };
   const outcome = await sendMessage({ ...stores, addresses: limited }, mailer, hello, TOOL);
-  assert.deepEqual(outcome, { id: 'message-1', emailed: false, reason: 'You have emailed 20 messages in the last hour, so this one was not emailed.', recorded: true });
+  assert.deepEqual(outcome, { id: 'message-1', emailed: false, reason: 'You have sent 20 messages in the last hour, so this one was not emailed.', recorded: true });
   assert.equal(messages.rows[0].emailStatus, 'failed');
   assert.equal(sent.length, 0);
 });
 
-test('the database caps each member at 20 emailed messages an hour, with a code the server reads', () => {
+test('the database caps each member at 20 emailed messages an hour, counting every message saved, with a code the server reads', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261101150000_email_every_message.sql', import.meta.url), 'utf8');
-  assert.match(sql, /email_status = 'sent' and m\.emailed_at > now\(\) - interval '1 hour'\) >= 20/);
+  // Every message saved in the hour counts, whatever its email status: a
+  // count of 'sent' rows alone lets a burst of sends all slip past.
+  assert.match(sql, /m\.sender_id = sender and m\.id <> message and m\.created_at > now\(\) - interval '1 hour'\) >= 20/);
+  assert.doesNotMatch(sql, /email_status = 'sent' and m\.emailed_at/);
   assert.match(sql, /errcode = 'WC429'/);
   const book = readFileSync(new URL('../app/lib/messageAddressBook.ts', import.meta.url), 'utf8');
   assert.match(book, /^import "server-only";$/m);
