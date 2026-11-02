@@ -1,7 +1,8 @@
 #!/bin/bash
 # One pass of the merge lane: carry out Dane's written "merge" on Ready to
 # launch tickets, requeue Needs your input tickets he has answered, then take
-# the Evolution screenshot of each change that has none yet.
+# the Evolution screenshot of each change that has none yet, and retake the
+# old ones when a merge changed the rules that choose them.
 #
 #   merge_lane.sh
 #
@@ -44,4 +45,19 @@ cd "$REPO" || exit 1
   "$REPO/scripts/run_with_time_limit.sh" 360 -- npm run --silent evolution -- missing 2>&1
   CODE=$?
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /evolution-missing (exit $CODE) ====="
+
+  # When a merge changed the picture rules (scripts/lib/evolution.mjs), retake
+  # the old cards those rules now picture differently, so Dane sees the fix on
+  # Home without a session remembering to run it (2026-11-01: a rules fix went
+  # Live with every card unchanged). Unchanged rules retake nothing and cost
+  # one file read. Only after a clean `missing`: a broken run would break this
+  # the same way, and new changes get their first picture before old ones are
+  # redone. 180 seconds fits two retakes; one cut off at the limit leaves its
+  # old card, and the next pass carries on from there.
+  if [ "$CODE" -eq 0 ]; then
+    echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /evolution-recapture ====="
+    "$REPO/scripts/run_with_time_limit.sh" 180 -- npm run --silent evolution -- recapture --if-rules-changed 2>&1
+    CODE=$?
+    echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /evolution-recapture (exit $CODE) ====="
+  fi
 } >> "$LOG" 2>&1

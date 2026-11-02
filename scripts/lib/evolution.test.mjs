@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote } from './evolution.mjs';
+import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -356,4 +357,70 @@ test('failureComment says why, that the merge stands, and how to retake it', () 
   assert.match(text, /The merge stands/);
   assert.match(text, /capture 7777777/);
   assert.doesNotMatch(text, /^> /m);
+});
+
+// ------------------------------------------- retaking after a rules change
+
+test('RULES_FILE is the file that holds choosePage', () => {
+  assert.match(readFileSync(RULES_FILE, 'utf8'), /export function choosePage\(/);
+});
+
+test('the merge lane retakes after a clean missing, only when the rules changed', () => {
+  const lane = readFileSync('scripts/merge_lane.sh', 'utf8');
+  const missing = lane.indexOf('evolution -- missing');
+  const retake = lane.indexOf('evolution -- recapture --if-rules-changed');
+  assert.ok(missing > 0 && retake > missing, 'recapture --if-rules-changed runs after missing');
+  assert.match(lane.slice(missing, retake), /if \[ "\$CODE" -eq 0 \]/);
+  assert.match(lane, /run_with_time_limit\.sh" \d+ -- npm run --silent evolution -- recapture --if-rules-changed/);
+});
+
+test('recaptureDue: a merge that changed the rules owes a retake; one that did not owes nothing', () => {
+  assert.equal(recaptureDue({ done: 'aaa' }, 'bbb'), true);
+  assert.equal(recaptureDue({ done: 'aaa' }, 'aaa'), false);
+  // A new machine has no record, so it checks once; matching rules then retake nothing.
+  assert.equal(recaptureDue(null, 'aaa'), true);
+  // A failed retake keeps the old fingerprint, so the next pass tries again.
+  assert.equal(recaptureDue({ done: 'aaa', failing: 'bbb', told: 'T1' }, 'bbb'), true);
+});
+
+test('a successful retake records the rules it used, and no longer owes one', () => {
+  const { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { ok: true });
+  assert.deepEqual(state, { done: 'bbb' });
+  assert.equal(action, null);
+  assert.equal(recaptureDue(state, 'bbb'), false);
+});
+
+test('a failed retake tells the ticket once, then once more when it works', () => {
+  let { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { reason: 'boom' });
+  assert.equal(action, 'tell');
+  assert.equal(state.done, 'aaa');
+  state.told = 'T1';
+  ({ state, action } = nextRecaptureState(state, 'bbb', { reason: 'boom again' }));
+  assert.equal(action, null);
+  assert.equal(state.told, 'T1');
+  assert.equal(recaptureDue(state, 'bbb'), true);
+  const before = state;
+  ({ state, action } = nextRecaptureState(before, 'bbb', { ok: true }));
+  assert.equal(action, 'recovered');
+  assert.equal(before.told, 'T1');
+  assert.deepEqual(state, { done: 'bbb' });
+});
+
+test('a note that could not be posted is tried again; a new rules change is told afresh', () => {
+  let { state, action } = nextRecaptureState({ done: 'aaa' }, 'bbb', { reason: 'boom' });
+  assert.equal(action, 'tell');
+  // told left unset: the comment failed.
+  ({ action } = nextRecaptureState(state, 'bbb', { reason: 'boom' }));
+  assert.equal(action, 'tell');
+  ({ state, action } = nextRecaptureState({ ...state, told: 'T1' }, 'ccc', { reason: 'boom' }));
+  assert.equal(action, 'tell');
+  assert.equal(state.told, null);
+});
+
+test('the retake notes say what happened and that the old cards stand', () => {
+  const failed = recaptureFailedComment('the app at this change did not build: boom');
+  assert.match(failed, /it failed: the app at this change did not build: boom/);
+  assert.match(failed, /left exactly as they were/);
+  assert.match(failed, /will not repeat this one/);
+  assert.match(recaptureDoneNote('retook 4, left off 0 identical picture(s), kept 12'), /\(retook 4, .*kept 12\)/);
 });

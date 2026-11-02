@@ -17,6 +17,8 @@
  *                                                         current rules choose differently, and leave off
  *                                                         a picture identical to the card before it;
  *                                                         --plan says what it would do and changes nothing
+ *   npm run evolution -- recapture --if-rules-changed     the same, but only when the picture rules differ
+ *                                                         from the last retake's (the merge lane runs this)
  *   npm run evolution -- list                             one line per recorded change
  *
  * Runs on the Mac Mini only: it needs the test database (Docker), and Doppler
@@ -78,19 +80,28 @@
  * at it, so a retake that fails leaves the old row and picture as they were
  * and says so (engineering rule 6).
  *
+ * `recapture --if-rules-changed` is the merge lane's step after `missing`.
+ * A merged change to the picture rules (RULES_FILE) once reached no old card
+ * until a session remembered to run the retake (2026-11-01: a rules fix went
+ * Live with every card unchanged). Now the lane keeps a fingerprint of the
+ * rules the last successful retake used, on the Mini and never in the repo,
+ * and retakes only when the rules it runs differ. A failed retake keeps the
+ * old fingerprint, so the next pass tries again; the ticket of the rules
+ * change gets one note when it fails and one when it works again.
+ *
  * Exit 0 = done. Exit 1 = something failed, said in plain words; a picture
  * that was not stored is never recorded as captured (engineering rule 6).
  * Exit 143 = stopped at the time limit.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, previousCard, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, RULES_FILE, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -588,6 +599,126 @@ function tellTicket(row) {
   console.log(sent.ok ? `  told ticket ${task} the screenshot could not be taken.` : `  could not comment on ticket ${task}: ${tail(sent.out)}`);
 }
 
+/**
+ * Retake every captured change whose page the current rules choose
+ * differently, and leave off a picture identical to the card before it.
+ * Returns the counts and each failed retake's reason.
+ */
+async function recapture({ plan = false } = {}) {
+  const hashes = new Map();
+  const hashOf = async (path) => {
+    if (!hashes.has(path)) hashes.set(path, await storedHash(path));
+    return hashes.get(path);
+  };
+  let prev = null;
+  const out = { retaken: 0, leftOff: 0, kept: 0, failed: 0, reasons: [] };
+  for (const row of (await recorded()).filter((r) => r.capture_state === 'captured')) {
+    if (stopping) throw new Stopped(`stopped before retaking ${row.commit_sha.slice(0, 7)}`);
+    const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt });
+    const label = `${row.commit_sha.slice(0, 7)} ${row.title}`;
+    if (pattern && !samePage(pattern, row.page)) {
+      if (plan) {
+        console.log(`${label}\n  would retake: ${row.page} -> ${pattern}`);
+        out.retaken += 1;
+        prev = { page: pattern, screenshot_path: null };
+        continue;
+      }
+      const got = await capture(row.commit_sha, { previous: prev, retake: row });
+      if (got.retakeFailed) { out.failed += 1; out.reasons.push(`${row.commit_sha.slice(0, 7)}: ${got.retakeFailed}`); prev = row; }
+      else if (got.capture_state === 'captured') { out.retaken += 1; prev = got; }
+      else out.leftOff += 1;
+      continue;
+    }
+    const same = prev?.screenshot_path && await hashOf(prev.screenshot_path);
+    if (same && same === await hashOf(row.screenshot_path)) {
+      console.log(`${label}\n  ${plan ? 'would leave off' : 'leaving off'}: its picture is exactly the same as the card before it`);
+      out.leftOff += 1;
+      if (plan) continue;
+      const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${row.commit_sha}&capture_state=eq.captured`, {
+        method: 'PATCH', body: { capture_state: 'no screen', screenshot_path: null }, headers: { Prefer: 'return=representation' },
+      });
+      if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.capture_state !== 'no screen') {
+        throw new RunFailed(`leaving off ${row.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+      }
+      continue;
+    }
+    out.kept += 1;
+    prev = row;
+  }
+  return out;
+}
+
+function recaptureSummary({ retaken, leftOff, kept, failed }, plan = false) {
+  const verb = plan ? ['would retake', 'would leave off'] : ['retook', 'left off'];
+  return `recapture${plan ? ' --plan (nothing changed)' : ''}: ${verb[0]} ${retaken}, ${verb[1]} ${leftOff} identical picture(s), kept ${kept}${failed ? `; ${failed} retake(s) FAILED and kept their old row (reasons above)` : ''}.`;
+}
+
+// ------------------------------------- retaking after the rules change (lane)
+
+const RECAPTURE_STATE = join(homedir(), 'loop-logs', 'wavecenter-evolution-recapture.json');
+
+function readRecaptureState() {
+  try { return JSON.parse(readFileSync(RECAPTURE_STATE, 'utf8')); } catch { return null; }
+}
+
+function writeRecaptureState(state) {
+  mkdirSync(dirname(RECAPTURE_STATE), { recursive: true });
+  writeFileSync(RECAPTURE_STATE, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+/** The ticket of the latest change to the picture rules this checkout runs, or null. */
+function rulesTicket() {
+  const sha = git(['log', '-1', '--format=%H', 'HEAD', '--', RULES_FILE]);
+  return sha ? ticketId(commitInfo(sha).ticketUrl) : null;
+}
+
+function noteOn(task, body) {
+  if (!task) return false;
+  const sent = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'], { input: body });
+  console.log(sent.ok ? `  noted it on ticket ${task}.` : `  could NOT note it on ticket ${task}: ${tail(sent.out)}.`);
+  return sent.ok;
+}
+
+/**
+ * The merge lane's step after `missing`: when the picture rules (RULES_FILE)
+ * differ from the ones the last successful retake used, run `recapture`, so
+ * a merged rules fix reaches the old cards without a session remembering to.
+ * Unchanged rules retake nothing. The fingerprint lives on the Mini in
+ * RECAPTURE_STATE, never in the repo; a failed retake keeps the old one, so
+ * the next pass tries again, and the rules change's ticket hears once.
+ */
+async function recaptureIfRulesChanged() {
+  const rules = sha256(readFileSync(join(REPO, RULES_FILE))).slice(0, 12);
+  const before = readRecaptureState();
+  if (!recaptureDue(before, rules)) {
+    console.log(`recapture: the picture rules (${rules}) are the ones the last retake used; nothing to retake.`);
+    process.exit(0);
+  }
+  console.log(`recapture: the picture rules changed (${before?.done ?? 'no retake recorded on this machine'} -> ${rules}); retaking the cards they choose differently...`);
+  let outcome;
+  let summary = '';
+  try {
+    const got = await recapture();
+    summary = recaptureSummary(got);
+    console.log(summary);
+    outcome = got.failed ? { reason: got.reasons.join('; ') } : { ok: true };
+  } catch (err) {
+    if (!(err instanceof RunFailed) || stopping) throw err;
+    console.error(`recapture FAILED — ${err.message}`);
+    outcome = { reason: err.message };
+  }
+  const { state, action } = nextRecaptureState(before, rules, outcome);
+  if (action === 'tell') {
+    const task = rulesTicket();
+    if (!task) console.log('  the latest change to the picture rules has no ticket link, so no ticket to tell.');
+    if (!task || noteOn(task, recaptureFailedComment(outcome.reason))) state.told = task ?? 'none';
+  } else if (action === 'recovered' && before.told !== 'none') {
+    noteOn(before.told, recaptureDoneNote(summary.replace(/^recapture: /, '').replace(/\.$/, '')));
+  }
+  writeRecaptureState(state);
+  process.exit(outcome.ok ? 0 : 1);
+}
+
 async function recorded() {
   const got = await live('/rest/v1/evolution_entries?select=*&order=merged_at');
   if (got.status >= 300) throw new RunFailed(`could not read evolution_entries: HTTP ${got.status} ${JSON.stringify(got.json)}`);
@@ -655,51 +786,15 @@ try {
     }
     console.log(`words: ${todo.length} change(s) had none; filled ${filled}, ${none} with none of Dane's words on their ticket, ${unread} whose ticket could not be read.`);
     process.exit(unread ? 1 : 0);
+  } else if (command === 'recapture' && rest.includes('--if-rules-changed')) {
+    requireLive();
+    await recaptureIfRulesChanged();
   } else if (command === 'recapture') {
     const plan = rest.includes('--plan');
     requireLive();
-    const hashes = new Map();
-    const hashOf = async (path) => {
-      if (!hashes.has(path)) hashes.set(path, await storedHash(path));
-      return hashes.get(path);
-    };
-    let prev = null;
-    let retaken = 0, leftOff = 0, failed = 0, kept = 0;
-    for (const row of (await recorded()).filter((r) => r.capture_state === 'captured')) {
-      const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt });
-      const label = `${row.commit_sha.slice(0, 7)} ${row.title}`;
-      if (pattern && !samePage(pattern, row.page)) {
-        if (plan) {
-          console.log(`${label}\n  would retake: ${row.page} -> ${pattern}`);
-          retaken += 1;
-          prev = { page: pattern, screenshot_path: null };
-          continue;
-        }
-        const got = await capture(row.commit_sha, { previous: prev, retake: row });
-        if (got.retakeFailed) { failed += 1; prev = row; }
-        else if (got.capture_state === 'captured') { retaken += 1; prev = got; }
-        else leftOff += 1;
-        continue;
-      }
-      const same = prev?.screenshot_path && await hashOf(prev.screenshot_path);
-      if (same && same === await hashOf(row.screenshot_path)) {
-        console.log(`${label}\n  ${plan ? 'would leave off' : 'leaving off'}: its picture is exactly the same as the card before it`);
-        leftOff += 1;
-        if (plan) continue;
-        const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${row.commit_sha}&capture_state=eq.captured`, {
-          method: 'PATCH', body: { capture_state: 'no screen', screenshot_path: null }, headers: { Prefer: 'return=representation' },
-        });
-        if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.capture_state !== 'no screen') {
-          throw new RunFailed(`leaving off ${row.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
-        }
-        continue;
-      }
-      kept += 1;
-      prev = row;
-    }
-    const verb = plan ? ['would retake', 'would leave off'] : ['retook', 'left off'];
-    console.log(`recapture${plan ? ' --plan (nothing changed)' : ''}: ${verb[0]} ${retaken}, ${verb[1]} ${leftOff} identical picture(s), kept ${kept}${failed ? `; ${failed} retake(s) FAILED and kept their old row (reasons above)` : ''}.`);
-    process.exit(failed ? 1 : 0);
+    const got = await recapture({ plan });
+    console.log(recaptureSummary(got, plan));
+    process.exit(got.failed ? 1 : 0);
   } else if (command === 'list') {
     requireLive();
     const rows = await recorded();
@@ -707,7 +802,7 @@ try {
     console.log(rows.length ? `${rows.length} change(s) recorded.` : 'No changes recorded yet: run `npm run evolution -- backfill`.');
     process.exit(0);
   } else {
-    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | recapture [--plan] | list');
+    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | recapture [--plan | --if-rules-changed] | list');
     process.exit(1);
   }
 } catch (err) {

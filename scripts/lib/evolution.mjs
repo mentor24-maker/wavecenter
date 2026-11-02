@@ -370,3 +370,50 @@ export function failureComment(row) {
     `The merge stands and nothing about this ticket changes. The change is recorded as "failed" in the Evolution history (commit ${String(row.commit_sha).slice(0, 7)}), so it will not be tried again on its own; \`npm run evolution -- capture ${String(row.commit_sha).slice(0, 7)}\` on the Mac Mini retakes it.`,
   ].join('\n');
 }
+
+// ------------------------------------------- retaking after a rules change
+
+/** The file whose rules (choosePage) pick each card's page. */
+export const RULES_FILE = 'scripts/lib/evolution.mjs';
+
+/**
+ * Whether the merge lane owes a `recapture`: the picture rules it is running
+ * (`rules`, a fingerprint of RULES_FILE) differ from the ones the last
+ * successful retake used (`state.done`). A failed retake leaves `done` as it
+ * was, so the next pass tries again. No state at all (a new machine) counts
+ * as owed: a retake whose rules match every card retakes nothing.
+ */
+export function recaptureDue(state, rules) {
+  return !state || state.done !== rules;
+}
+
+/**
+ * The next retake state after one `recapture` the lane ran, and what to say.
+ * `outcome` is { ok: true } or { reason }. Like the run-failure rule, Dane's
+ * side hears about one rules change once: the first failure posts a note
+ * (action 'tell', then the caller sets `told` to the ticket it reached), later
+ * failures of the same rules say nothing, and the first success after a note
+ * posts one "done" note (action 'recovered').
+ */
+export function nextRecaptureState(state, rules, outcome) {
+  if (outcome?.ok) {
+    return { state: { done: rules }, action: state?.told ? 'recovered' : null };
+  }
+  const same = state?.failing === rules;
+  const next = { done: state?.done ?? null, failing: rules, reason: outcome?.reason ?? '', told: same ? state.told ?? null : null };
+  return { state: next, action: next.told ? null : 'tell' };
+}
+
+/** The one note the rules change's ticket gets when its retake fails. */
+export function recaptureFailedComment(reason) {
+  return [
+    `The merge lane tried to retake the old Evolution pictures under this change's new picture rules, and it failed: ${reason}`,
+    '',
+    'The old cards and their pictures are left exactly as they were. The lane tries again on every pass (every 10 minutes) and posts one more note here once the retake works; it will not repeat this one.',
+  ].join('\n');
+}
+
+/** The one note that ticket gets when the retake works again. */
+export function recaptureDoneNote(summary) {
+  return `The old Evolution pictures have now been retaken under this change's picture rules (${summary}). Nothing more is needed.`;
+}
