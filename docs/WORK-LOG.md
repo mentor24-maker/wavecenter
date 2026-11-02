@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Making a team on the Teams page earns its point (#112)
+
+"Made a team" was already on the Game Manager's list, but marked "Not
+active yet": nothing noticed when a member made a team, so it earned
+nothing. Now the database notices every new team and gives the member who
+made it the point the rule says (1 to start), in the same save, so a team
+and its point always land together or not at all. Changing or deleting a
+team, or changing who is on it, still earns nothing (each has its own
+ticket), and teams made before this went live are not scored backwards.
+Game > Manage now shows the action as Active, with the function, database
+trigger and test that record it.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
