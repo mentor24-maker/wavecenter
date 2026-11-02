@@ -651,7 +651,7 @@ dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
    clicked, then a box in place; text cells have an expand button for the
    large pop-up. The table scrolls sideways on a narrow screen. */
 .rule-table-wrap { overflow-x: auto; margin: 0 0 var(--space); }
-table.rule-table { min-width: 56rem; margin: 0; }
+table.rule-table { min-width: 67rem; margin: 0; }
 table.rule-table .col-name { width: 14rem; }
 table.rule-table .col-kind { width: 9rem; overflow-wrap: anywhere; font-size: 0.85rem; }
 table.rule-table .col-points { width: 5.5rem; }
@@ -786,3 +786,11 @@ dialog.evolution-full::backdrop { background: rgb(0 0 0 / 0.6); }
 dialog.evolution-full img { display: block; max-width: 100%; max-height: calc(100vh - 12rem); width: auto; height: auto; margin: 0.5rem auto; border: 1px solid var(--line); border-radius: 6px; }
 .evolution-full-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
 .evolution-full-bar .link { margin-left: auto; }
+
+/* Admin → Recalculate action points */
+table.recalc-table { min-width: 36rem; margin: 0; }
+table.recalc-table tr.recalc-changes td { background: var(--level-2); }
+table.rule-table .col-factors { width: 11rem; }
+table.rule-table .col-factors .factor { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.2rem; }
+table.rule-table .col-factors .factor span { width: 1rem; font-weight: 600; }
+table.rule-table .col-factors select { width: 9rem; }

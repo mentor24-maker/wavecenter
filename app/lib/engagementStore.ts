@@ -11,9 +11,11 @@
  * `supabaseScoringRuleStore` is the `ScoringRuleStore` the Game management
  * screen changes rules through. It calls the database's `update_scoring_rule`
  * and `add_scoring_rule`, which refuse any role without "Manage game scoring"
- * (supabase/migrations/20261031140000_game_scoring_admin.sql).
+ * (supabase/migrations/20261031140000_game_scoring_admin.sql), and
+ * `set_scoring_factors` for an action's four factor scores
+ * (supabase/migrations/20261102180000_scoring_factors.sql).
  */
-import type { Engagement, EngagementLedger, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
+import type { Engagement, EngagementLedger, ScoringFactors, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -26,6 +28,22 @@ export function ruleFromRow(row: any): ScoringRule {
     criteria: row.criteria,
     points: row.points,
     position: row.position,
+    factors: factorsFromRow(row),
+  };
+}
+
+/** A row's four factors, or null when it is not scored yet. */
+function factorsFromRow(row: any): ScoringFactors | null {
+  if ([row.effort, row.value, row.rarity, row.farm_risk].some((v) => v == null)) return null;
+  return { effort: row.effort, value: row.value, rarity: row.rarity, farmRisk: row.farm_risk };
+}
+
+function factorParams(factors: ScoringFactors | null | undefined) {
+  return {
+    new_effort: factors?.effort ?? null,
+    new_value: factors?.value ?? null,
+    new_rarity: factors?.rarity ?? null,
+    new_farm_risk: factors?.farmRisk ?? null,
   };
 }
 
@@ -72,25 +90,26 @@ export function supabaseEngagementLedger(supabase: Client, memberId: string): En
 }
 
 export function supabaseScoringRuleStore(supabase: Client): ScoringRuleStore {
-  const save = async (fn: string, kind: string, fields: Parameters<ScoringRuleStore["update"]>[1], tool: string) => {
-    const { data, error } = await supabase.rpc(fn, {
-      [fn === "add_scoring_rule" ? "new_kind" : "rule_kind"]: kind,
-      new_name: fields.name,
-      new_description: fields.description,
-      new_criteria: fields.criteria,
-      new_points: fields.points,
-      tool,
-    });
+  const call = async (fn: string, params: Record<string, unknown>) => {
+    const { data, error } = await supabase.rpc(fn, params);
     if (error) throw new Error(`The database refused to save the scoring rule: ${error.message}`);
     return data && typeof data === "object" && "kind" in data ? ruleFromRow(data) : null;
   };
+  const wording = (fields: Parameters<ScoringRuleStore["update"]>[1], tool: string) => ({
+    new_name: fields.name,
+    new_description: fields.description,
+    new_criteria: fields.criteria,
+    new_points: fields.points,
+    tool,
+  });
   return {
     async rules() {
       const { data, error } = await supabase.from("game_scoring_rules").select().order("position");
       if (error) failed("the scoring rules", error);
       return (data ?? []).map(ruleFromRow);
     },
-    update: (kind, fields, tool) => save("update_scoring_rule", kind, fields, tool),
-    add: (kind, fields, tool) => save("add_scoring_rule", kind, fields, tool),
+    update: (kind, fields, tool) => call("update_scoring_rule", { rule_kind: kind, ...wording(fields, tool) }),
+    add: (kind, fields, tool, factors) => call("add_scoring_rule", { new_kind: kind, ...wording(fields, tool), ...factorParams(factors) }),
+    setFactors: (kind, factors, tool) => call("set_scoring_factors", { rule_kind: kind, ...factorParams(factors), tool }),
   };
 }

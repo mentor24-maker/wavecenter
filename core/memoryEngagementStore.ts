@@ -9,7 +9,7 @@
  */
 import {
   STARTING_SCORING_RULES, totalPoints, type Engagement, type EngagementLedger, type EngagementStore, type NewEngagementRow,
-  type RuleFields, type ScoringRule, type ScoringRuleStore,
+  type RuleFields, type ScoringFactors, type ScoringRule, type ScoringRuleStore,
 } from './game.ts';
 
 export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore {
@@ -39,15 +39,27 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore 
     return { ...this.ruleList[at] };
   }
 
-  async add(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null> {
+  async add(kind: string, fields: RuleFields, tool: string, factors?: ScoringFactors | null): Promise<ScoringRule | null> {
     if (this.failNextRuleSave) {
       this.failNextRuleSave = false;
       return null;
     }
-    const rule = { kind, ...fields, position: Math.max(0, ...this.ruleList.map((r) => r.position)) + 1 };
+    const rule = { kind, ...fields, position: Math.max(0, ...this.ruleList.map((r) => r.position)) + 1, factors: factors ?? null };
     this.ruleList.push(rule);
     this.ruleTools.set(kind, tool);
     return { ...rule };
+  }
+
+  async setFactors(kind: string, factors: ScoringFactors | null, tool: string): Promise<ScoringRule | null> {
+    if (this.failNextRuleSave) {
+      this.failNextRuleSave = false;
+      return null;
+    }
+    const at = this.ruleList.findIndex((r) => r.kind === kind);
+    if (at < 0) return null;
+    this.ruleList[at] = { ...this.ruleList[at], factors };
+    this.ruleTools.set(kind, tool);
+    return { ...this.ruleList[at] };
   }
 
   async insert(row: NewEngagementRow): Promise<Engagement> {

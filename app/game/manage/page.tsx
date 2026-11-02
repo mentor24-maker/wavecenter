@@ -110,7 +110,9 @@ export default async function ManageGame() {
           <h2>Actions that earn points</h2>
           <p className="note">
             Click a name, points, description or what counts to change it; Enter or clicking away saves it, Escape puts it
-            back. The expand button opens the text in a large box. The last row adds a new action: it is listed straight
+            back. Factors are the four scores the formula on the <Link href="/admin">Admin page</Link> works points out from
+            (Effort, Value, Rarity, Farm risk); choosing the fourth saves them, and they change no points until an admin
+            puts the recalculation live there. The expand button opens the text in a large box. The last row adds a new action: it is listed straight
             away but is not active, because nothing in WaveCenter records it yet, so it earns nothing. An agent wires it
             to a function, a database trigger and a test; ask for that as a task.
           </p>
@@ -130,6 +132,7 @@ function RuleTable({ rules }: { rules: Read<ScoringRule[]> }) {
             <th scope="col">Name</th>
             <th scope="col">Kind</th>
             <th scope="col">Points</th>
+            <th scope="col" title="Effort, Value, Rarity, Farm risk: the formula's four factors">Factors</th>
             <th scope="col">Description</th>
             <th scope="col">What counts</th>
             <th scope="col">Status</th>
@@ -138,13 +141,13 @@ function RuleTable({ rules }: { rules: Read<ScoringRule[]> }) {
         <tbody>
           {rules.error !== null ? (
             <tr>
-              <td colSpan={6}>
+              <td colSpan={7}>
                 <p className="error" role="alert">The scoring rules could not be loaded: {rules.error}. Try reloading the page.</p>
               </td>
             </tr>
           ) : !rules.value.length ? (
             <tr>
-              <td colSpan={6}>
+              <td colSpan={7}>
                 <p className="error" role="alert">
                   No scoring rules are set up in the database yet, so there is nothing to manage. The game-layer migration
                   has not been applied.

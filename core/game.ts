@@ -59,6 +59,8 @@ export interface ScoringRule {
   points: number;
   /** Where the rule sits in the list on the Game page. */
   position: number;
+  /** Its four factor scores for the formula (`granularPoints`); null or absent = not scored yet. */
+  factors?: ScoringFactors | null;
 }
 
 /** One row of `engagements`: one thing one member did, and what it earned. */
@@ -257,8 +259,10 @@ export interface ScoringRuleStore {
   rules(): Promise<ScoringRule[]>;
   /** Write a rule's wording and points. Returns the rule as stored, or null if nothing was written. */
   update(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null>;
-  /** Add a new rule at the end of the list. Returns it as stored, or null if nothing was written. */
-  add(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null>;
+  /** Add a new rule at the end of the list, with its factors or none. Returns it as stored, or null if nothing was written. */
+  add(kind: string, fields: RuleFields, tool: string, factors?: ScoringFactors | null): Promise<ScoringRule | null>;
+  /** Write a rule's four factors (null clears them). Returns the rule as stored, or null if nothing was written. */
+  setFactors(kind: string, factors: ScoringFactors | null, tool: string): Promise<ScoringRule | null>;
 }
 
 /** May this member change the scoring rules? Only a role with "Manage game scoring" may (admin, to start). */
@@ -342,22 +346,228 @@ export async function changeScoringRule(
  * Add a new action to the scoring rules. Its kind comes from its name
  * (`kindFromName`); neither the kind nor the name may be taken. It is inactive until an agent wires
  * it into WaveCenter (`isWired`): until then nothing records it, so it earns
- * nothing.
+ * nothing. Its four factors may be given now (`checkFactors`), so the
+ * Admin page's batch can work out its points; without them it is "not scored yet".
  */
 export async function addScoringRule(
   store: ScoringRuleStore,
   actor: GameActor,
-  input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown },
+  input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown; factors?: unknown },
   tool: string,
 ): Promise<ScoringRule> {
   const named = requireTool(tool);
   requireManager(actor);
   const fields = checkRuleFields(input);
+  const factors = checkFactors(input.factors);
   const kind = kindFromName(fields.name);
   const sameName = (r: ScoringRule) => r.name.trim().toLowerCase() === fields.name.toLowerCase();
   const taken = (await store.rules()).find((r) => r.kind === kind || sameName(r));
   if (taken) throw new CoreError(`There is already an action "${taken.name}" (${taken.kind}). Change that one, or pick another name. Nothing was saved.`);
-  const added = await store.add(kind, fields, named);
-  if (!added || added.kind !== kind || !sameFields(added, fields)) throw new CoreError('The new action did not save. Nothing changed; try again.');
+  const added = await store.add(kind, fields, named, factors);
+  if (!added || added.kind !== kind || !sameFields(added, fields) || !sameFactors(added.factors, factors)) throw new CoreError('The new action did not save. Nothing changed; try again.');
   return added;
+}
+
+/**
+ * Granular scoring by formula (docs/GRANULAR_SCORING_ALGORITHM.md). Each
+ * action is scored on four factors; the formula turns them into points. The
+ * Admin page's batch job runs it over every action and puts the results live
+ * only when an admin accepts them (Dane, 2026-11-01: "a batch job that I can
+ * kick off from the Admin page"). No AI service is called: it is arithmetic.
+ */
+export interface ScoringFactors {
+  /** E, how much of the member's time and attention it takes. */
+  effort: number;
+  /** V, what it does for the project and other members. Counted twice. */
+  value: number;
+  /** R, how often a member genuinely does it. Counts only when it cannot loop. */
+  rarity: number;
+  /** F, how easily it can be repeated just to collect points. Subtracted. */
+  farmRisk: number;
+}
+export type FactorKey = keyof ScoringFactors;
+
+export const FACTOR_KEYS: readonly FactorKey[] = ['effort', 'value', 'rarity', 'farmRisk'];
+
+/** The highest score each factor may have; the lowest is 0. The migration checks the same. */
+export const FACTOR_MAX: Record<FactorKey, number> = { effort: 3, value: 3, rarity: 2, farmRisk: 3 };
+
+/** Each factor's name, letter and the plain test for each level, word for word from the document. */
+export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; levels: readonly string[] }> = {
+  effort: {
+    name: 'Effort', letter: 'E',
+    levels: [
+      'One click or one tick.',
+      'A short form or a few words: under a minute.',
+      'Writing or choosing that takes several minutes of thought.',
+      'The click records hours of work done outside it (finishing a task).',
+    ],
+  },
+  value: {
+    name: 'Value', letter: 'V',
+    levels: [
+      'Nothing for anyone else: a personal setting.',
+      'Tidies up, or helps one other member.',
+      'Adds something the other members read, use or rely on.',
+      'Delivers finished work the project planned.',
+    ],
+  },
+  rarity: {
+    name: 'Rarity', letter: 'R',
+    levels: ['Many times a day.', 'A few times a week.', 'A handful of times ever, or once (joining).'],
+  },
+  farmRisk: {
+    name: 'Farm risk', letter: 'F',
+    levels: [
+      'Cannot be repeated (once per member), or costs real work every time.',
+      'Repeatable, but each time needs something real from someone else.',
+      'Repeatable in seconds with no real input, but it cannot undo itself.',
+      'Repeatable in seconds and it loops: a switch flipped back, a save of the same thing, or an action paired with its own undo (make / delete).',
+    ],
+  },
+};
+
+function factor(value: unknown, key: FactorKey): number {
+  const n = typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > FACTOR_MAX[key]) {
+    throw new CoreError(`${FACTOR_TESTS[key].name} must be a whole number from 0 to ${FACTOR_MAX[key]}. Nothing was saved.`);
+  }
+  return n;
+}
+
+/**
+ * Four factors, checked, or null when none is given ("not scored yet"). Some
+ * but not all of them is refused: half-scored would be read as a score.
+ */
+export function checkFactors(input: unknown): ScoringFactors | null {
+  if (input == null) return null;
+  if (typeof input !== 'object') throw new CoreError('The factors must be effort, value, rarity and farm risk. Nothing was saved.');
+  const given = input as Record<string, unknown>;
+  const blank = (v: unknown) => v == null || (typeof v === 'string' && !v.trim());
+  const missing = FACTOR_KEYS.filter((k) => blank(given[k]));
+  if (missing.length === FACTOR_KEYS.length) return null;
+  if (missing.length) {
+    throw new CoreError(`Score all four factors or none; ${missing.map((k) => FACTOR_TESTS[k].name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'is' : 'are'} missing. Nothing was saved.`);
+  }
+  return { effort: factor(given.effort, 'effort'), value: factor(given.value, 'value'), rarity: factor(given.rarity, 'rarity'), farmRisk: factor(given.farmRisk, 'farmRisk') };
+}
+
+function sameFactors(a: ScoringFactors | null | undefined, b: ScoringFactors | null): boolean {
+  if (!a || !b) return !a && !b;
+  return FACTOR_KEYS.every((k) => a[k] === b[k]);
+}
+
+/**
+ * The formula: Points = 1 + E + 2 × V + R − F, never below 0, and R counts
+ * as 0 when F is 3 (an action that loops is not rare, however seldom an
+ * honest member does it).
+ */
+export function granularPoints(factors: ScoringFactors): number {
+  const f = checkFactors(factors);
+  if (!f) throw new CoreError('An action needs all four factors before the formula can score it.');
+  const rarity = f.farmRisk === 3 ? 0 : f.rarity;
+  return Math.max(0, 1 + f.effort + 2 * f.value + rarity - f.farmRisk);
+}
+
+/** One row of the batch's results: what an action is worth now and what the formula says. */
+export interface GranularProposal {
+  kind: string;
+  name: string;
+  factors: ScoringFactors | null;
+  now: number;
+  /** What the formula gives, or null when the action is not scored yet (it is left alone). */
+  proposed: number | null;
+  /** True only when it is scored and the formula gives a different value. */
+  changes: boolean;
+}
+
+/** The batch: for every rule, today's points and the formula's. Saves nothing. */
+export function proposeGranularPoints(rules: readonly ScoringRule[]): GranularProposal[] {
+  return rules.map((r) => {
+    const factors = r.factors ?? null;
+    const proposed = factors ? granularPoints(factors) : null;
+    return { kind: r.kind, name: r.name, factors, now: r.points, proposed, changes: proposed !== null && proposed !== r.points };
+  });
+}
+
+/** Run the batch for an admin. Refused for anyone else, though it saves nothing. */
+export async function recalculateGranularPoints(store: Pick<ScoringRuleStore, 'rules'>, actor: GameActor): Promise<GranularProposal[]> {
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can recalculate the action points.');
+  return proposeGranularPoints(await store.rules());
+}
+
+/**
+ * Change one rule's four factors (Game → Manage). Only an admin may; the new
+ * factors change no points until the batch's results are put live.
+ */
+export async function changeScoringFactors(
+  store: ScoringRuleStore,
+  actor: GameActor,
+  change: { kind: string; factors?: unknown },
+  tool: string,
+): Promise<ScoringRule> {
+  const named = requireTool(tool);
+  requireManager(actor);
+  const factors = checkFactors(change.factors);
+  const before = (await store.rules()).find((r) => r.kind === change.kind);
+  if (!before) throw new CoreError(`There is no action "${String(change.kind)}" to change. Reload the page.`);
+  const after = await store.setFactors(before.kind, factors, named);
+  if (!after || !sameFactors(after.factors, factors)) throw new CoreError('The factors did not save. Nothing changed; try again.');
+  return after;
+}
+
+/** One row the admin accepted: the action, and the points the batch showed now and proposed. */
+export interface AcceptedProposal {
+  kind: string;
+  now: number;
+  proposed: number;
+}
+
+/** What putting the batch live did, row by row. */
+export interface GranularApplyResult {
+  saved: { kind: string; name: string; from: number; to: number }[];
+  failed: { kind: string; name: string; reason: string }[];
+}
+
+/**
+ * Put the batch's results live: save each accepted row whose points change,
+ * through the same path as a change on Game → Manage (`changeScoringRule`).
+ * A row is saved only if it still reads what the admin was shown, so a
+ * value someone changed meanwhile is never overwritten unseen. Each row
+ * stands alone: a failed row is listed with its reason and the rest still
+ * save (engineering rule 6). Points already earned are never touched.
+ */
+export async function applyGranularPoints(
+  store: ScoringRuleStore,
+  actor: GameActor,
+  accepted: readonly AcceptedProposal[],
+  tool: string,
+): Promise<GranularApplyResult> {
+  const named = requireTool(tool);
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can put new action points live. Nothing was saved.');
+  const rules = await store.rules();
+  const current = proposeGranularPoints(rules);
+  const result: GranularApplyResult = { saved: [], failed: [] };
+  for (const a of accepted) {
+    const rule = rules.find((r) => r.kind === a.kind);
+    const now = current.find((p) => p.kind === a.kind);
+    const name = rule?.name ?? String(a.kind);
+    if (!rule || !now) {
+      result.failed.push({ kind: a.kind, name, reason: 'There is no such action any more.' });
+    } else if (now.proposed === null) {
+      result.failed.push({ kind: a.kind, name, reason: 'It is not scored yet, so it was left alone.' });
+    } else if (now.now !== a.now || now.proposed !== a.proposed) {
+      result.failed.push({ kind: a.kind, name, reason: `It changed since you recalculated (now ${now.now}, formula ${now.proposed}). Recalculate and look again.` });
+    } else if (!now.changes) {
+      continue;
+    } else {
+      try {
+        const { after } = await changeScoringRule(store, actor, { ...rule, points: now.proposed }, named);
+        result.saved.push({ kind: a.kind, name: after.name, from: now.now, to: after.points });
+      } catch (err) {
+        result.failed.push({ kind: a.kind, name, reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+  return result;
 }
