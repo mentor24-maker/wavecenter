@@ -30,6 +30,7 @@ function setup(member = 'dane') {
 }
 
 const kinds = (ledger: MemoryEngagementStore) => ledger.rows.map((e) => e.kind);
+const SWEEP_SQL = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
 
 test('every kind has a starting rule, and only finishing a task is worth more than 1', () => {
   assert.deepEqual(STARTING_SCORING_RULES.map((r) => r.kind), [...ENGAGEMENT_KINDS]);
@@ -43,15 +44,9 @@ test('the migrations seed exactly the starting rules core knows', () => {
   const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
   }));
-  // The sweep's rows go after the ten above (its last number is its place
-  // among them); only the ones wired since are starting rules core knows.
-  const sweep = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
-  const swept = [...sweep.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)]
-    .map((m) => ({
-      kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"),
-      points: Number(m[5]), position: seeded.length + Number(m[6]),
-    }))
-    .filter((r) => isWired(r.kind));
+  // The sweep's rows go after those, in its own order; the ones wired since are starting rules too.
+  const last = Math.max(...seeded.map((r) => r.position));
+  const swept = sweepRows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: last + ord }));
   assert.deepEqual([...seeded, ...swept], STARTING_SCORING_RULES);
 });
 
@@ -302,23 +297,29 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
   assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
 });
 
-test('the sweep lists each new action once, under the kind the Add form would make, worth 1, inactive until wired', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
-  const rows = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3], criteria: m[4], points: Number(m[5]),
+function sweepRows() {
+  return [...SWEEP_SQL.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"), points: Number(m[5]), ord: Number(m[6]),
   }));
+}
+
+test('the sweep lists each new action once, under the kind the Add form would make, worth 1, and only the wired ones are starting rules', () => {
+  const rows = sweepRows();
   assert.equal(rows.length, 14);
   assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
   for (const r of rows) {
     assert.equal(r.kind, kindFromName(r.name), r.name);
-    // Each action is wired by its own ticket; these are wired so far.
-    assert.equal(isWired(r.kind), ['deleted_a_comment'].includes(r.kind), `${r.kind}: wired or listed only`);
     assert.equal(r.points, 1, r.kind);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
+    // Wired since the sweep: each has its own ticket (Dane chose B).
+    const starting = STARTING_SCORING_RULES.find((s) => s.kind === r.kind || s.name === r.name);
+    assert.equal(Boolean(starting), isWired(r.kind), `${r.kind} is a starting rule exactly when it is wired`);
   }
-  assert.equal(rows.filter((r) => !isWired(r.kind)).some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
-  assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
-  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
+  assert.equal(isWired('posted_a_comment'), true);
+  assert.equal(isWired('edited_a_comment'), true);
+  assert.equal(isWired('deleted_a_comment'), true);
+  assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
+  assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
 
 test('the migration checks the same lengths core does and grants Manage game scoring to admins only', () => {

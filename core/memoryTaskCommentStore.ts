@@ -2,8 +2,8 @@
  * A `TaskCommentStore` that keeps comments in memory, for core's tests. Like
  * the real table, it fills in the owner and the times, and it can be told to
  * fail so the tests can check what a failure leaves behind. Given an
- * engagement store, it scores deleting a comment the way the table's
- * game-layer trigger does, all-or-nothing.
+ * engagement store, it scores posting and deleting a comment the way the
+ * table's game-layer triggers do, all-or-nothing.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewTaskCommentRow, TaskComment, TaskCommentStore } from './comments.ts';
@@ -25,6 +25,9 @@ export class MemoryTaskCommentStore implements TaskCommentStore {
     if (this.failInsert) throw new Error('the database is down');
     const now = new Date(Date.UTC(2026, 9, 27, 0, 0, this.next)).toISOString();
     const comment: TaskComment = { ...row, id: `comment-${this.next++}`, ownerId: this.ownerId, createdAt: now, updatedAt: now };
+    if (this.engagements) {
+      await recordEngagement(this.engagements, { memberId: comment.ownerId, kind: 'posted_a_comment', tool: row.tool, taskId: comment.taskId });
+    }
     this.rows.set(comment.id, comment);
     return { ...comment };
   }
