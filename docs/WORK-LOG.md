@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
+
+Until now only an admin's message went to the recipient's inbox. A member's
+message was saved and shown in WaveCenter, but not emailed, because the old
+way of emailing handed the recipient's address back to whoever sent it, and
+any member could have used that to collect everyone's addresses. Now the
+WaveCenter server looks the address up itself, with its own private key
+that never leaves the server, and sends the email. No member, an admin
+included, is ever handed an address. A test proves that only the server's
+key can look an address up, and only for a message the sender just sent.
+Emails still go out only once the email service key is added (see the
+email setup guide).
+
+---
+
 ## 2026-11-01 — Dane hears about it when the Mac Mini stops taking Evolution pictures (#97)
 
 For most of a day the Mac Mini could not take Evolution pictures: a piece
