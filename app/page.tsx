@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { HOME_BOXES, homeBoxWords, mayEditHomeBoxes, type HomeBox, type HomeBoxKey } from "../core/homeBoxes.ts";
 import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
+import HomeBoxWords from "./HomeBoxWords";
 import { loadEvolution } from "./lib/evolutionReads";
+import { listHomeBoxes } from "./lib/homeBoxStore";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "./lib/supabase";
@@ -46,6 +49,9 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * own, and an empty box says why (engineering rule 7). The task list itself
  * is at `/tasks`. Home sits on the same water-drop picture, header
  * included (Dane, 2026-10-31), its boxes frosted glass with an icon each.
+ * The words in About WaveCenter and What is a DEO are saved in the database
+ * and a role with "Edit Home boxes" changes them from a pencil in each box
+ * (Dane, 2026-11-01; core/homeBoxes.ts).
  */
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const supabase = await supabaseForRequest();
@@ -85,7 +91,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
-  const [name, working, completed, role, lists, evolution] = await Promise.all([
+  const [name, working, completed, role, lists, evolution, boxes] = await Promise.all([
     headerName(supabase, user),
     supabase.from("tasks").select("id, title").eq("status", "doing").order("position").order("created_at"),
     supabase.from("tasks").select("id, title, completed_at").eq("status", "done")
@@ -93,7 +99,11 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     read(() => loadEvolution(supabase)),
+    read(() => listHomeBoxes(supabase)),
   ]);
+  // The database's grants when they could be read; the starting ones
+  // otherwise, which the database's own check repeats, so nobody saves more.
+  const mayEditBoxes = role.error === null && mayEditHomeBoxes(role.value, lists.value?.grants);
 
   return (
     <div className="home-page">
@@ -103,13 +113,13 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
         <div className="dashboard four">
           <section className="box level-1 callout">
             <h2><BoxIcon name="about" />About WaveCenter</h2>
-            <p>The hub of the DEO movement: what it is for and where it is going.</p>
+            <EditableWords box="about" boxes={boxes} editable={mayEditBoxes} />
             <p><Link href="/about">Read about WaveCenter &rarr;</Link></p>
           </section>
 
           <section className="box level-1 callout">
             <h2><BoxIcon name="deo" />What is a DEO</h2>
-            <p>What a Decentralized Engagement Organization is.</p>
+            <EditableWords box="deo" boxes={boxes} editable={mayEditBoxes} />
             <p><Link href="/deo">Read what a DEO is &rarr;</Link></p>
           </section>
 
@@ -192,6 +202,20 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
       </main>
     </div>
   );
+}
+
+/**
+ * The words in one of Home's editable boxes: the saved ones, or the ones it
+ * was built with when none are saved. If the saved words could not be read,
+ * the box says so instead, and offers no pencil: saving over words nobody can
+ * see would lose them.
+ */
+function EditableWords({ box, boxes, editable }: { box: HomeBoxKey; boxes: Read<HomeBox[]>; editable: boolean }) {
+  const name = HOME_BOXES.find((b) => b.key === box)!.name;
+  if (boxes.error !== null) {
+    return <p className="error" role="alert">The words in {name} could not be loaded: {boxes.error}. Nothing has been lost; try reloading the page.</p>;
+  }
+  return <HomeBoxWords box={box} name={name} words={homeBoxWords(box, boxes.value)} editable={editable} />;
 }
 
 /**
