@@ -632,6 +632,10 @@ try {
   check('the database refuses a malformed slug', badSlug.status >= 400, `HTTP ${badSlug.status} ${badSlug.json?.message ?? ''}`);
   const forgedMaker = await call('/rest/v1/teams', { method: 'POST', token: a.token, body: { name: 'Forged', slug: `${slug}-x`, created_by: b.id } });
   check('nobody can record someone else as a team’s maker', forgedMaker.status >= 400, `HTTP ${forgedMaker.status} ${forgedMaker.json?.message ?? ''}`);
+  // Making a team is scored by the table's trigger: once, for its maker.
+  const madeTeamA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_a_team&select=points,tool,task_id`);
+  check('making a team records one engagement, credited to its maker, naming the tool, and a refused team records none',
+    JSON.stringify(madeTeamA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]), JSON.stringify(madeTeamA.json));
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: a.id }, TOOL);
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: b.id }, TOOL);
 
@@ -648,6 +652,8 @@ try {
   check('a viewer cannot make a team through core', /Only an admin or an editor/.test(refusedTeam), refusedTeam || 'the team was made');
   const forgedTeam = await call('/rest/v1/teams', { method: 'POST', token: b.token, body: { name: 'Viewer team', slug: `${slug}-v` } });
   check('a viewer cannot make a team straight at the table', forgedTeam.status >= 400, `HTTP ${forgedTeam.status} ${forgedTeam.json?.message ?? ''}`);
+  const madeTeamB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.made_a_team&select=id`);
+  check('a team that was refused records no engagement', madeTeamB.json?.length === 0, JSON.stringify(madeTeamB.json));
   const renameB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'Hijacked' } });
   check('a viewer cannot change a team', renameB.status >= 400 || (Array.isArray(renameB.json) && renameB.json.length === 0), `HTTP ${renameB.status} ${JSON.stringify(renameB.json)}`);
   const dropB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
@@ -920,7 +926,7 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'made_a_team', 'attached_file', 'removed_file',
     'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
     'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
@@ -938,7 +944,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 26 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 27 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

@@ -45,6 +45,7 @@ export const ENGAGEMENT_KINDS = [
   'edited_a_comment',
   'deleted_a_comment',
   'send_a_message_to_another_member',
+  'made_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -132,6 +133,7 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Listed by 20261102120000_scoring_actions_sweep.sql, fourth of its rows,
   // so a fresh database puts it at 14.
   { kind: 'send_a_message_to_another_member', name: 'Send a message to another member', description: 'Sent a message to a member from Members or Your profile.', criteria: 'A message is saved for its recipient.', points: 1, position: 14 },
+  { kind: 'made_a_team', name: 'Made a team', description: 'Started a new team on the Teams page.', criteria: 'A new team is saved.', points: 1, position: 15 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -256,6 +258,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   send_a_message_to_another_member: {
     fn: 'sendMessage', file: 'core/messages.ts', database: 'messages_score',
     test: 'each message sent to another member records one engagement for the sender, naming its tool', testFile: 'core/messages.test.ts',
+  },
+  made_a_team: {
+    fn: 'createTeam', file: 'core/teams.ts', database: 'teams_score',
+    test: 'making a team records one engagement, credited to the member who made it, naming the tool', testFile: 'core/teams.test.ts',
   },
 };
 
