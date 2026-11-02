@@ -13,6 +13,7 @@ import {
 import { createTask, deleteTask } from './tasks.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 import { MemoryTaskCommentStore } from './memoryTaskCommentStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 async function setup() {
   const tasks = new MemoryTaskStore('dane');
@@ -51,6 +52,44 @@ test('a failed save is reported, not swallowed', async () => {
   const { tasks, comments, task } = await setup();
   comments.failInsert = true;
   await assert.rejects(addComment(tasks, comments, task.id, 'hello', 'wavecenter'), /database is down/);
+  assert.equal(comments.rows.size, 0);
+});
+
+test('posting a comment records one engagement, credited to the member who wrote it, naming the tool', async () => {
+  const ledger = new MemoryEngagementStore();
+  const tasks = new MemoryTaskStore('dane');
+  const comments = new MemoryTaskCommentStore('dane', ledger);
+  const task = await createTask(tasks, { title: 'Plan the launch' }, 'wavecenter');
+  const c = await addComment(tasks, comments, task.id, 'First thoughts', 'wavecenter');
+  assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
+    { memberId: 'dane', kind: 'posted_a_comment', points: 1, tool: 'wavecenter', taskId: task.id },
+  ]);
+  await addComment(tasks, comments, task.id, 'From an agent', 'loop-build');
+  assert.deepEqual(ledger.rows.map((e) => [e.kind, e.tool]), [['posted_a_comment', 'wavecenter'], ['posted_a_comment', 'loop-build']]);
+
+  // Editing or removing a comment is not posting one.
+  await editComment(comments, c.id, 'Second thoughts', 'wavecenter');
+  await removeComment(comments, c.id, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+
+  // The rule decides the worth, at the moment it happens.
+  ledger.ruleList.find((r) => r.kind === 'posted_a_comment')!.points = 3;
+  await addComment(tasks, comments, task.id, 'Worth more now', 'wavecenter');
+  assert.deepEqual(ledger.rows.map((e) => e.points), [1, 1, 3]);
+});
+
+test('a comment that fails to save records no engagement, and one whose engagement fails is not saved', async () => {
+  const ledger = new MemoryEngagementStore();
+  const tasks = new MemoryTaskStore('dane');
+  const comments = new MemoryTaskCommentStore('dane', ledger);
+  const task = await createTask(tasks, { title: 'Plan the launch' }, 'wavecenter');
+  comments.failInsert = true;
+  await assert.rejects(addComment(tasks, comments, task.id, 'hello', 'wavecenter'), /database is down/);
+  await assert.rejects(addComment(tasks, comments, task.id, '   ', 'wavecenter'), /cannot be blank/);
+  comments.failInsert = false;
+  ledger.failInsert = true;
+  await assert.rejects(addComment(tasks, comments, task.id, 'hello', 'wavecenter'), /ledger is down/);
+  assert.equal(ledger.rows.length, 0);
   assert.equal(comments.rows.size, 0);
 });
 

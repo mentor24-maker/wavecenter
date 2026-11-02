@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Posting a comment on a task earns its point (#108)
+
+"Posted a comment" was already on the Game Manager's list, but marked "Not
+active yet": nothing noticed when a member posted a comment, so it earned
+nothing. Now the database notices every new comment and gives its writer
+the point the rule says (1 to start), in the same save, so a comment and
+its point always land together or not at all. Editing or deleting a comment
+still earns nothing (each has its own ticket), and comments posted before
+this went live are not scored backwards. Game > Manage now shows the action
+as Active, with the function, database trigger and test that record it.
+
+---
+
 ## 2026-11-02 — Every change Dane asks for in a chat starts as his WaveCenter task (#107)
 
 Until now, when Dane asked for a change in a Claude Code chat, it went

@@ -427,7 +427,10 @@ That rule lives in one place, `commentAuthorKind` in `core/comments.ts`, so
 the screen and any future agent path agree. Comments only change through
 `core/comments.ts`: `addComment`, `editComment` and `removeComment`. An edit
 can change only the words (and the tool that changed them): a comment never
-moves to another task or another author. Comments earn no points yet.
+moves to another task or another author. Posting a comment is an engagement
+for the member who wrote it (`posted_a_comment`, 1 point to start), recorded
+by the table's trigger `task_comments_score` in the same save; editing or
+deleting one earns nothing yet.
 
 Row-level security was on from the moment `task_comments` was made: a member
 reads, adds, edits and deletes only their own comments, and adds them only to
@@ -465,7 +468,8 @@ scored." This is the first piece of that, modelled on Normie's game layer.
 - **`game_scoring_rules`** is the list of kinds of engagement and what each
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
-  agents on or off, changed your profile, voted on a task. Each has a name, a
+  agents on or off, changed your profile, voted on a task, posted a comment.
+  Each has a name, a
   description, exactly what counts, and its points. Every kind is worth 1 point except finishing a task, worth 5.
   An admin changes them on the Game management screen (below); a members'
   vote comes later. Each rule also records which tool and which member last
