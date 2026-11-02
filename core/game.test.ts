@@ -326,6 +326,7 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(isWired('added_a_member_to_a_team'), true);
   assert.equal(isWired('removed_a_member_from_a_team'), true);
   assert.equal(isWired('changed_a_member_s_role'), true);
+  assert.equal(isWired('approved_a_proposed_task'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

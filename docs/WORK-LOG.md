@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Approving a proposed task earns the approving admin a point (#119)
+
+"Approved a proposed task" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin approves a task a
+member proposed, the admin who approved it earns the point (1 to start). The
+database writes the point in the same save as the approval, so a task cannot
+be approved without its point, or the point given without the approval. The
+member who proposed the task still gets their usual point for the task
+changing, as before. Game > Manage now shows the action as Active, naming
+the function, the database step and the test that prove it.
+
+---
+
 ## 2026-11-02 — Changing a member's role earns its point (#118)
 
 "Changed a member's role" was on the list of scoring actions, but nothing

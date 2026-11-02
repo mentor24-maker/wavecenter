@@ -506,6 +506,10 @@ try {
   check('an admin approves another member’s proposed task through core, and it becomes todo', approvedB.status === 'todo' && approvedB.ownerId === b.id && approvedB.tool === TOOL, JSON.stringify(approvedB));
   const again = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: a.token, body: { task: skipped.id, tool: TOOL } });
   check('approving a task that is no longer proposed changes nothing', again.status === 200 && Array.isArray(again.json) && again.json.length === 0, `HTTP ${again.status} ${JSON.stringify(again.json)}`);
+  const approvals = await admin(`/rest/v1/engagements?kind=eq.approved_a_proposed_task&task_id=in.(${insA.id},${skipped.id})&select=member_id,points,tool,task_id`);
+  check('approving a proposed task scores 1 for the admin who approved it, once, naming the tool; the service key’s approval scores nobody',
+    approvals.json?.length === 1 && approvals.json[0].member_id === a.id && approvals.json[0].points === 1 && approvals.json[0].tool === TOOL && approvals.json[0].task_id === skipped.id,
+    JSON.stringify(approvals.json));
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);
@@ -957,7 +961,7 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'changed_a_member_s_role', 'made_a_team',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'approved_a_proposed_task', 'changed_a_member_s_role', 'made_a_team',
     'added_a_member_to_a_team', 'added_a_member_to_a_team', 'changed_a_member_s_role', 'changed_a_member_s_role', 'attached_file', 'removed_file',
     'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
     'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
@@ -976,7 +980,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 32 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 33 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
