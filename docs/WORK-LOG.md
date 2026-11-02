@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — The Game Manager is one table you edit in place (#100)
+
+Game → Manage used to show each way of earning points as its own form,
+stacked down the page, which was long and hard to scan. Now it is one
+table with a row per action. Click a name, a points value, a description
+or "what counts" and that cell turns into a box right there. Press Enter
+or click away to save, or Escape to undo. Each text cell also has a small
+expand button that opens the text in a big pop-up box. The last row of the
+table adds a new action. Every save still goes through the same checks as
+before, and the screen only says "Saved" once the database has confirmed
+it. If a save is refused, what you typed stays put and the screen says why.
+As Dane chose, the length limits stay as they are and there is no remove
+button.
+
+---
+
 ## 2026-11-01 — Dane hears about it when the Mac Mini stops taking Evolution pictures (#97)
 
 For most of a day the Mac Mini could not take Evolution pictures: a piece
