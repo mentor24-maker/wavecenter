@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arrowStep, cardNote, cardWords, changeStatement, emptyScrollerNote, prUrl, showsOnScroller, step, viewFrom } from './evolutionView.ts';
+import { arrowStep, cardNote, cardWords, changeStatement, creditsByCommit, emptyScrollerNote, pointsLabel, prUrl, showsOnScroller, step, viewFrom } from './evolutionView.ts';
 
 test('only ?view=evolution opens the Evolution view; anything else is the list', () => {
   assert.equal(viewFrom('evolution'), 'evolution');
@@ -80,4 +80,23 @@ test('the arrow keys still step back after Next is clicked to the last change', 
   assert.equal(step(0, arrowStep('ArrowRight')!, 3), 1);
   assert.equal(arrowStep('Escape'), null);
   assert.equal(arrowStep('a'), null);
+});
+
+test('creditsByCommit credits each change to its task owner, with the name only for a Public profile', () => {
+  const credits = creditsByCommit([
+    { commit_sha: 'a', points: 5, avatar: 'sun', display_name: 'Dane', visibility: 'public' },
+    { commit_sha: 'b', points: 0, avatar: 'moon', display_name: null, visibility: 'anonymous' },
+    // Should the database ever send a name it should not, core still hides it.
+    { commit_sha: 'c', points: 2, avatar: 'leaf', display_name: 'Hidden', visibility: 'private' },
+  ]);
+  assert.deepEqual(credits.get('a'), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: false, points: 5 });
+  assert.deepEqual(credits.get('b'), { avatar: '🌙', avatarLabel: 'Moon', name: null, profileLink: false, points: 0 });
+  assert.equal(credits.get('c')?.name, null);
+  assert.equal(credits.get('none'), undefined);
+});
+
+test('pointsLabel says point or points', () => {
+  assert.equal(pointsLabel(1), '1 point');
+  assert.equal(pointsLabel(0), '0 points');
+  assert.equal(pointsLabel(12), '12 points');
 });

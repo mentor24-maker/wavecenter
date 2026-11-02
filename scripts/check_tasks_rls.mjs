@@ -810,6 +810,26 @@ try {
   const evoWipe = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
   check('a member cannot add, change or delete an Evolution row', evoForge.status >= 400 && (evoEdit.status >= 400 || evoEdit.json?.length === 0) && (evoWipe.status >= 400 || evoWipe.json?.length === 0),
     `add HTTP ${evoForge.status}, change HTTP ${evoEdit.status} ${JSON.stringify(evoEdit.json)}, delete HTTP ${evoWipe.status} ${JSON.stringify(evoWipe.json)}`);
+  // evolution_credits(): a card credits the owner of its WaveCenter task,
+  // with the task's points, the avatar, and the name only from a Public
+  // profile (A is Public, B is Private). Never the bio; never signed out.
+  const pointsA = (await admin(`/rest/v1/tasks?id=eq.${insA.id}&select=points`)).json?.[0]?.points;
+  const credit = async () => {
+    const got = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', token: b.token, body: {} });
+    return { status: got.status, row: Array.isArray(got.json) ? got.json.find((r) => r.commit_sha === evoSha) : got.json };
+  };
+  await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', body: { task_id: insA.id } });
+  const creditA = await credit();
+  check('a card credits its task’s owner and points, with the name of a Public profile and never the bio',
+    creditA.status === 200 && typeof pointsA === 'number' && creditA.row?.points === pointsA && creditA.row?.avatar === 'sun' && creditA.row?.display_name === 'A' && !('bio' in (creditA.row ?? {})),
+    `task points ${pointsA}, HTTP ${creditA.status} ${JSON.stringify(creditA.row)}`);
+  await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', body: { task_id: taskB } });
+  const creditB = await credit();
+  check('a card shows a Private owner by their avatar alone, never their name', creditB.status === 200 && creditB.row?.avatar === 'moon' && creditB.row?.display_name === null,
+    `HTTP ${creditB.status} ${JSON.stringify(creditB.row)}`);
+  const creditAnon = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', body: {} });
+  check('a signed-out visitor cannot read who made each change', creditAnon.status >= 400, `HTTP ${creditAnon.status} ${JSON.stringify(creditAnon.json)}`);
+
   const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });
   check('a member can read a stored screenshot', evoObj.status === 200, `HTTP ${evoObj.status}`);
   const evoPublic = await call(`/storage/v1/object/public/${EVO_BUCKET}/${evoPath}`);

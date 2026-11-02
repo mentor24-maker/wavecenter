@@ -131,3 +131,37 @@ export async function saveProfile(store: MemberProfileStore, input: ProfileInput
   }
   return saved;
 }
+
+/** What a card crediting a member (an Evolution card on Home) may show of them. */
+export interface CreditShown {
+  /** The avatar's symbol, e.g. "🌊". Always shown. */
+  avatar: string;
+  /** The avatar's name, for a screen reader, e.g. "Wave". */
+  avatarLabel: string;
+  /** The display name, or null when it may not be shown or there is none. */
+  name: string | null;
+  /** Whether the credit links to the member's profile. */
+  profileLink: boolean;
+}
+
+/**
+ * What another member may see of `creator` where their work is credited.
+ *
+ * PLACEHOLDER for the permissions settings that are not built yet (Dane,
+ * 2026-11-01: "put a placeholder in this setup to adjust visibility for those
+ * TBD permissions settings"). When they come, they plug in here, using
+ * `_viewer` (who is looking), and every card follows. Until then it follows
+ * the visibility the creator chose on their profile: `public` shows the
+ * avatar and name; `anonymous` and `private` show the avatar alone. Never the
+ * bio. `profileLink` stays false while no screen shows one member's profile
+ * to another; it becomes true here once that screen exists and the rule
+ * allows it.
+ */
+export function cardCredit(
+  creator: Pick<MemberProfile, 'displayName' | 'avatar' | 'visibility'>,
+  _viewer: { memberId: string } | null = null,
+): CreditShown {
+  const avatar = AVATARS.find((a) => a.id === creator.avatar) ?? AVATARS[0];
+  const name = creator.visibility === 'public' ? creator.displayName?.trim() || null : null;
+  return { avatar: avatar.symbol, avatarLabel: avatar.label, name, profileLink: false };
+}

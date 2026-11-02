@@ -5,6 +5,8 @@
  * Merge dates use listView's fullDate, so they read like the task list's.
  * No database, no React; tested in evolutionView.test.ts.
  */
+import { cardCredit, type CreditShown, type MemberProfile } from "../../core/profiles.ts";
+
 export type TasksView = "list" | "evolution";
 
 /** `/tasks?view=evolution`, an old link to the Evolution view, now sent to Home; anything else is the list. */
@@ -30,7 +32,39 @@ export type EvolutionCard = {
   /** A short-lived signed link to the screenshot; null when there is none or it could not be made. */
   imageUrl: string | null;
   failureReason: string | null;
+  /** Who made the change and its points, from the WaveCenter task behind it; null when it has none or it could not be read. */
+  credit: CardCredit | null;
 };
+
+/** The creator a card credits (as their profile lets others see them) and the points of the task behind it. */
+export type CardCredit = CreditShown & { points: number };
+
+/** One row of the evolution_credits() read. */
+export type CreditRow = {
+  commit_sha: string;
+  points: number;
+  avatar: string;
+  display_name: string | null;
+  visibility: string;
+};
+
+/**
+ * The credit for each change that has a WaveCenter task, by commit. What the
+ * creator's name and avatar may show is core's cardCredit, the placeholder
+ * for the future permissions settings; the database has already left out a
+ * name that is not Public.
+ */
+export function creditsByCommit(rows: CreditRow[]): Map<string, CardCredit> {
+  return new Map(rows.map((r) => [r.commit_sha, {
+    ...cardCredit({ displayName: r.display_name, avatar: r.avatar as MemberProfile["avatar"], visibility: r.visibility as MemberProfile["visibility"] }),
+    points: r.points,
+  }]));
+}
+
+/** "1 point", "12 points". */
+export function pointsLabel(points: number): string {
+  return `${points} point${points === 1 ? "" : "s"}`;
+}
 
 const REPOSITORY = "https://github.com/mentor24-maker/wavecenter";
 

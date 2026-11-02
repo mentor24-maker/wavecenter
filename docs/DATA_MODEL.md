@@ -528,10 +528,16 @@ rebuilds "the data as it stood" and what it cannot show.
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
 | `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
 | `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |
+| `task_id` | The WaveCenter task behind the change, from its ticket's "WaveCenter task:" line. The card credits that task's owner and shows its points. Empty when there is none; if the task is deleted, it empties. |
 | `captured_at` | When the row was last written. |
 
 The Evolution view shows only `captured` changes, each labeled with
-`prompt`. `npm run evolution -- words` fills `prompt` and `thread_url` on
+`prompt`. A card with a `task_id` also shows who made the change and its
+points (Dane, 2026-11-01), read through `evolution_credits()`: for each such
+card, the task's `points`, its owner's avatar, and their display name only
+when their profile is Public. It never returns the bio, and refuses a
+signed-out visitor. Which of those the card shows is `cardCredit` in
+`core/profiles.ts`, the placeholder for the permissions settings to come. `npm run evolution -- words` fills `prompt` and `thread_url` on
 rows recorded before they existed, without retaking any picture.
 
 The table refuses a `captured` row without its stored picture and a `failed`
