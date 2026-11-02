@@ -189,7 +189,11 @@ export async function deleteTeam(deps: TeamDeps, change: { actorId: string; team
   if (!(await deps.teams.remove(change.teamId, named))) throw new CoreError('The team was not deleted. Try again.');
 }
 
-/** `actorId` puts `memberId` on a team, on behalf of `tool`. */
+/**
+ * `actorId` puts `memberId` on a team, on behalf of `tool`. The database
+ * scores it for whoever is signed in, the member who added them
+ * (`added_a_member_to_a_team`, supabase/migrations/20261102131000_score_added_a_member_to_a_team.sql).
+ */
 export async function addTeamMember(
   deps: TeamDeps,
   change: { actorId: string; teamId: string; memberId: string },

@@ -13,6 +13,10 @@
  * It scores deleting a team for the signed-in member the same way
  * (supabase/migrations/20261102171000_score_deleted_a_team.sql),
  * all-or-nothing; the member links that go with it are not scored.
+ * It scores adding a member to a team the same way
+ * (supabase/migrations/20261102131000_score_added_a_member_to_a_team.sql):
+ * every member added is scored for the signed-in member (who added them,
+ * never who was added), all-or-nothing.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
@@ -83,6 +87,10 @@ export class MemoryTeamStore implements TeamStore {
 
   async addMember(teamId: string, memberId: string, tool: string) {
     if (!this.teams.has(teamId) || this.failed()) return false;
+    // Score first: if that fails, the member is not added either, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'added_a_member_to_a_team', tool });
+    }
     let on = this.members.get(teamId);
     if (!on) this.members.set(teamId, (on = new Map()));
     on.set(memberId, tool);

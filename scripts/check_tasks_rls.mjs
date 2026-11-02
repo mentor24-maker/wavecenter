@@ -638,6 +638,11 @@ try {
     JSON.stringify(madeTeamA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]), JSON.stringify(madeTeamA.json));
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: a.id }, TOOL);
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: b.id }, TOOL);
+  const addedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.added_a_member_to_a_team&select=points,tool,task_id`);
+  const addedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.added_a_member_to_a_team&select=id`);
+  check('adding a member to a team scores 1 for the member who added them, never the member added, naming the tool',
+    addedA.json?.length === 2 && addedA.json.every((e) => e.points === 1 && e.tool === TOOL && e.task_id === null) && addedB.json?.length === 0,
+    `A ${JSON.stringify(addedA.json)}, B ${JSON.stringify(addedB.json)}`);
 
   const teamsB = await call(`/rest/v1/teams?id=eq.${teamA.id}&select=name`, { token: b.token });
   check('a viewer reads the teams', teamsB.status === 200 && teamsB.json?.length === 1, JSON.stringify(teamsB.json));
@@ -940,7 +945,8 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'made_a_team', 'attached_file', 'removed_file',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'made_a_team',
+    'added_a_member_to_a_team', 'added_a_member_to_a_team', 'attached_file', 'removed_file',
     'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
     'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
@@ -958,7 +964,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 27 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 29 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
