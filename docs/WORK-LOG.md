@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Deleting a team earns its point (#115)
+
+"Deleted a team" was on the list of actions on Game > Manage but marked
+"Not active yet", so deleting a team earned nothing. Now, when an admin or
+editor deletes a team, the member who did the deleting gets the points the
+rule says (1 for now, until the points algorithm decides). The database
+records it in the same step as the delete, so the team cannot vanish without
+the point or the other way round. The team's member list goes with it, and
+that is not counted as removing members. Game > Manage now shows the action
+as Active.
+
+---
+
 ## 2026-11-02 — Changing a team's name or details earns its point (#114)
 
 "Changed a team" was on the Game > Manage list but did nothing yet. Now,

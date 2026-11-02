@@ -10,6 +10,9 @@
  * change to a team's name, slug or description records one "changed_a_team"
  * engagement for the signed-in member, a save that changes nothing records
  * none, and if the engagement cannot be written the change is not saved either.
+ * It scores deleting a team for the signed-in member the same way
+ * (supabase/migrations/20261102171000_score_deleted_a_team.sql),
+ * all-or-nothing; the member links that go with it are not scored.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
@@ -65,8 +68,11 @@ export class MemoryTeamStore implements TeamStore {
     return saved;
   }
 
-  async remove(id: string) {
-    if (this.failed()) return false;
+  async remove(id: string, tool: string) {
+    if (this.failed() || !this.teams.has(id)) return false;
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'deleted_a_team', tool });
+    }
     this.members.delete(id);
     return this.teams.delete(id);
   }

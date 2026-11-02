@@ -47,6 +47,7 @@ export const ENGAGEMENT_KINDS = [
   'send_a_message_to_another_member',
   'made_a_team',
   'changed_a_team',
+  'deleted_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -137,6 +138,7 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'made_a_team', name: 'Made a team', description: 'Started a new team on the Teams page.', criteria: 'A new team is saved.', points: 1, position: 15 },
   // Listed by the sweep migration too, sixth of its rows.
   { kind: 'changed_a_team', name: 'Changed a team', description: "Edited a team's name or details.", criteria: 'A saved change to a team.', points: 1, position: 16 },
+  { kind: 'deleted_a_team', name: 'Deleted a team', description: 'Removed a team.', criteria: 'A team is deleted.', points: 1, position: 17 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -270,6 +272,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
     fn: 'updateTeam', file: 'core/teams.ts', database: 'teams_score_change',
     test: 'changing a team records one engagement for the member who changed it; a save that changes nothing records none',
     testFile: 'core/teams.test.ts',
+  },
+  deleted_a_team: {
+    fn: 'deleteTeam', file: 'core/teams.ts', database: 'teams_score_delete',
+    test: 'deleting a team records one engagement, credited to the member who deleted it, naming the tool', testFile: 'core/teams.test.ts',
   },
 };
 

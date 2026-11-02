@@ -331,7 +331,10 @@ names the tool. Making a team is an engagement for the member who made it
 description is an engagement for the member who made the change
 (`changed_a_team`, 1 point), recorded in the same save by its own trigger,
 `teams_score_change`; a save that changes nothing earns nothing. Deleting a
-team, or changing who is on it, earns nothing yet.
+team is an engagement for the member who deleted it (`deleted_a_team`, 1
+point to start), recorded by the trigger `teams_score_delete` in the same
+delete; its member links going with it earn nothing. Changing who is on a
+team earns nothing yet.
 
 The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
 for each one, its members through the function `list_team_members`. Like
@@ -483,7 +486,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
   agents on or off, changed your profile, voted on a task, posted a comment,
-  made a team.
+  made a team, deleted a team.
   Each has a name, a
   description, exactly what counts, and its points. Every kind is worth 1 point except finishing a task, worth 5.
   An admin changes them on the Game management screen (below); a members'
