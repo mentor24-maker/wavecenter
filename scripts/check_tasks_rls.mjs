@@ -739,6 +739,13 @@ try {
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
   check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
 
+  // Posting a comment is scored by the table's trigger: once, for the writer.
+  const postedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.posted_a_comment&select=points,tool,task_id`);
+  check('posting a comment records one engagement, credited to the writer, naming the tool and the task, and editing or removing it records none',
+    JSON.stringify(postedA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: insA.id }]), JSON.stringify(postedA.json));
+  const postedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.posted_a_comment&select=id`);
+  check('a comment that was refused records no engagement', postedB.json?.length === 0, JSON.stringify(postedB.json));
+
   // A comment's files: as private as the comment, and gone with it.
   const noteA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment with a file', TOOL);
   const notePath = commentFilePath(a.id, insA.id, randomUUID(), 'a-mock.txt');
@@ -836,8 +843,8 @@ try {
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
     'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
-    'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
-    'made_task', 'made_task', 'deleted_task',
+    'posted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
+    'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
   check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
@@ -848,7 +855,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 23, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
