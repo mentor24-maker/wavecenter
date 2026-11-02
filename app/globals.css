@@ -629,6 +629,19 @@ dialog.message-form h2 { margin-top: 0; }
 dialog.message-form label { display: block; margin-bottom: 0.75rem; font-weight: 600; }
 dialog.message-form input, dialog.message-form textarea { display: block; width: 100%; margin-top: 0.25rem; font-weight: 400; }
 dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
+/* Your profile's top section: the form on the left, Messaging on the right; stacked on a narrow screen. */
+.profile-top { display: grid; gap: var(--space); align-items: start; margin-bottom: var(--space); }
+@media (min-width: 56rem) { .profile-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.messaging h3 { font-size: 1.05rem; margin: 0.75rem 0 0.4rem; }
+.message-compose { max-width: none; margin-bottom: 0.5rem; }
+.message-compose label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; }
+.message-compose input, .message-compose select, .message-compose textarea { font-weight: 400; width: 100%; }
+.message-compose .buttons { display: flex; gap: 1rem; align-items: center; }
+.message-list li { border-bottom: 1px solid var(--line); padding: 0.4rem 0; }
+.message-list summary { cursor: pointer; }
+.message-list .subject { font-weight: 600; }
+.message-list .message-body { white-space: pre-wrap; margin: 0.4rem 0 0.2rem; overflow-wrap: anywhere; }
+
 /* Game management: one block per action, its trigger, and its form. */
 .rules { list-style: none; padding: 0; margin: 0 0 var(--space); }
 .rule { padding: 0.75rem 0 1rem; border-bottom: 1px solid var(--line); }

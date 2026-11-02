@@ -1,24 +1,34 @@
 /**
  * Messages kept in memory, for core's tests. Like the database's
  * `send_message` and `record_message_email`, it saves the message with its
- * tool and records the email result once; the rules about who may send are
- * core's, so this store does not repeat them.
+ * tool, from the signed-in member, and records the email result once; the
+ * rules about who may send are core's, so this store does not repeat them.
+ * Like the messages table's row-level security, `list` hands back only the
+ * messages the member sent or received.
  */
-import type { EmailStatus, MessageStore } from './messages.ts';
+import type { EmailStatus, MessageStore, SavedMessage } from './messages.ts';
 
 export interface MemoryMessage {
   id: string;
+  senderId: string;
   recipientId: string;
   subject: string;
   body: string;
   tool: string;
   emailStatus: EmailStatus;
+  sentAt: string;
 }
 
 export class MemoryMessageStore implements MessageStore {
   readonly rows: MemoryMessage[] = [];
   /** Each member's email address. */
   readonly emails = new Map<string, string>();
+  /** Who is signed in: the sender of every message saved, as the database's session decides. */
+  signedIn = 'dane';
+  /** Set to make the next read fail the way a refused read does. */
+  failNextList = false;
+  /** Set to hand back every message, whoever it belongs to: a store that reads too much. */
+  leaky = false;
   /** Set to make the next save fail the way a refused write does. */
   failNextSave = false;
   /** Set to make the next email result fail to record. */
@@ -30,7 +40,8 @@ export class MemoryMessageStore implements MessageStore {
       throw new Error('The database refused to save the message.');
     }
     const id = `message-${this.rows.length + 1}`;
-    this.rows.push({ id, ...message, tool, emailStatus: 'pending' });
+    const sentAt = new Date(Date.UTC(2026, 10, 1, 0, this.rows.length)).toISOString();
+    this.rows.push({ id, senderId: this.signedIn, ...message, tool, emailStatus: 'pending', sentAt });
     return { id, recipientEmail: this.emails.get(message.recipientId) ?? null };
   }
 
@@ -43,5 +54,15 @@ export class MemoryMessageStore implements MessageStore {
     if (!row) return null;
     row.emailStatus = status;
     return status;
+  }
+
+  async list(memberId: string): Promise<SavedMessage[]> {
+    if (this.failNextList) {
+      this.failNextList = false;
+      throw new Error('The database refused to read the messages.');
+    }
+    return this.rows
+      .filter((r) => this.leaky || r.senderId === memberId || r.recipientId === memberId)
+      .map(({ id, senderId, recipientId, subject, body, sentAt }) => ({ id, senderId, recipientId, subject, body, sentAt }));
   }
 }

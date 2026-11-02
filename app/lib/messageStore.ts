@@ -4,7 +4,8 @@
  * goes through a database function that repeats core's rules:
  * `send_message` saves a message (and hands back the recipient's email
  * address, for the server to email them), `record_message_email` records how
- * the email went.
+ * the email went. Reading goes straight to the table, and its row-level
+ * security lets only a message's sender and recipient read it.
  *
  * It only translates names and turns a failed database call into a thrown
  * error. Server only: the address it reads never goes to the browser.
@@ -27,6 +28,23 @@ export function supabaseMessageStore(supabase: Client): MessageStore {
       const { data, error } = await supabase.rpc("record_message_email", { message: messageId, status });
       if (error) throw new Error(`The database refused to record the email result: ${error.message}`);
       return typeof data === "string" ? data : null;
+    },
+    async list(memberId) {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id,sender_id,recipient_id,subject,body,created_at")
+        .or(`sender_id.eq.${memberId},recipient_id.eq.${memberId}`)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw new Error(`The database refused to read your messages: ${error.message}`);
+      return (data ?? []).map((r) => ({
+        id: r.id,
+        senderId: r.sender_id,
+        recipientId: r.recipient_id,
+        subject: r.subject,
+        body: r.body,
+        sentAt: r.created_at,
+      }));
     },
   };
 }

@@ -50,7 +50,7 @@ export type MessageSendResult =
   | { ok: false; error: string };
 
 /**
- * An admin's message to a member, run on the server through core
+ * A member's message to another member, run on the server through core
  * (sendMessage) as the tool `wavecenter`: saved, then emailed. The
  * recipient's email address is read and used here on the server; it is never
  * part of what comes back.
