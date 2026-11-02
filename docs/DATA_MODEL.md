@@ -29,7 +29,9 @@ and the team permissions; `20261031130000_evolution.sql` added
 `evolution_entries` and the `evolution` bucket; `20261031150000_messages.sql`
 added `messages` and the Message members permission;
 `20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
-words and the link to where he said them); this page
+words and the link to where he said them;
+`20261102140000_evolution_task_link.sql` linked each Evolution card to its
+task); this page
 explains them.
 
 ## The `tasks` table
@@ -528,11 +530,25 @@ rebuilds "the data as it stood" and what it cannot show.
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
 | `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
 | `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |
+| `task_id` | The WaveCenter task behind the change. Empty until `npm run evolution:tasks` fills it; if that task is deleted, the card keeps going with no task. |
 | `captured_at` | When the row was last written. |
 
 The Evolution view shows only `captured` changes, each labeled with
 `prompt`. `npm run evolution -- words` fills `prompt` and `thread_url` on
 rows recorded before they existed, without retaking any picture.
+
+Every card has a task behind it (Dane, 2026-11-01: "I thought all cards had
+to have a task associated with it"). `npm run evolution:tasks`
+(`scripts/evolution_backfill_tasks.mjs`; `--dry-run` writes nothing) links a
+card that came from a WaveCenter task to that task, and gives every other
+card (a chat request, a founding commit) a new task: done, 0 points, owned
+by Dane, dated at the change's merge, its notes holding his words when the
+card has them, and named with the tool `evolution-backfill`. It makes them
+through `evolution_backfill_task`, a database function only the service key
+may call, which saves the task and the card's link together or not at all
+and records no engagement: nobody made a task that day, so nobody is
+credited for one. Pictures of the past leave those tasks out, since they did
+not exist then. Dane sets real points later from the task page.
 
 The table refuses a `captured` row without its stored picture and a `failed`
 row without a reason (engineering rule 6). Row-level security is on from the

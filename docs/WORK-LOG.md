@@ -7,6 +7,23 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Every old Evolution card gets a WaveCenter task, owned by Dane (#106)
+
+Each Evolution card is meant to have a WaveCenter task behind it, so it can
+show who it credits and what it is worth. About 45 of the old cards came
+from chat requests or the founding commits and had none. The database now
+records which task each card belongs to, and a one-off script fills it in:
+a card that came from a WaveCenter task is linked to that task, and every
+other card is given a finished task owned by Dane, worth 0 points for now,
+dated when its change merged, with his words in its notes where the card
+has them. Making those tasks hands out no points, because nobody did new
+work today. The script can be run again safely (it skips cards that already
+have a task), and a practice mode shows what it would do without writing
+anything. Old Evolution pictures leave these tasks out, since they did not
+exist back then. The script runs on the live data once this change merges.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
