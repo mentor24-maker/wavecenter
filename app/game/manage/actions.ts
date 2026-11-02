@@ -2,7 +2,8 @@
 
 /**
  * Changing the scoring rules, run on the server through core
- * (changeScoringRule, addScoringRule) as the tool `wavecenter`. The database's
+ * (changeScoringRule, addScoringRule, changeScoringFactors) as the tool
+ * `wavecenter`. The database's
  * own functions check the same permission again.
  *
  * Returns `{ ok: true, rule }` only after the database confirmed the save.
@@ -10,7 +11,7 @@
  * screen shows it without calling anything saved (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
-import { addScoringRule, changeScoringRule, type GameActor, type ScoringRule } from "../../../core/game.ts";
+import { addScoringRule, changeScoringFactors, changeScoringRule, type GameActor, type ScoringRule } from "../../../core/game.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
 import { supabaseScoringRuleStore } from "../../lib/engagementStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
@@ -63,6 +64,14 @@ export async function saveScoringRule(kind: string, form: RuleForm): Promise<Rul
   return asManager(async (store, actor) => (await changeScoringRule(store, actor, { kind, ...fields(form) }, WAVECENTER_TOOL)).after);
 }
 
-export async function addScoringAction(form: RuleForm): Promise<RuleSaveResult> {
-  return asManager((store, actor) => addScoringRule(store, actor, fields(form), WAVECENTER_TOOL));
+/** The four factor dropdowns as chosen ('' for not chosen), or null for none. Core checks them. */
+export type FactorsForm = Record<"effort" | "value" | "rarity" | "farmRisk", string> | null;
+
+export async function addScoringAction(form: RuleForm, factors: FactorsForm = null): Promise<RuleSaveResult> {
+  return asManager((store, actor) => addScoringRule(store, actor, { ...fields(form), factors }, WAVECENTER_TOOL));
+}
+
+/** Save an action's four factors. Its points do not change until the Admin page's batch is put live. */
+export async function saveScoringFactors(kind: string, factors: FactorsForm): Promise<RuleSaveResult> {
+  return asManager((store, actor) => changeScoringFactors(store, actor, { kind, factors }, WAVECENTER_TOOL));
 }

@@ -532,6 +532,14 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   no thought from the member: making a task, attaching a file, voting. They
   are the rows of `game_scoring_rules`, one granular value per kind of action. How
   each kind's value is worked out: `docs/GRANULAR_SCORING_ALGORITHM.md`.
+  Each row also stores the four factor scores that formula reads:
+  `effort` (0 to 3), `value` (0 to 3), `rarity` (0 to 2) and `farm_risk`
+  (0 to 3), all four or none; none means "not scored yet". Added by
+  `20261102180000_scoring_factors.sql`, under the table's existing
+  row-level security: every member reads them, and only an admin changes
+  them, through `set_scoring_factors` or `add_scoring_rule`. The Admin page's
+  **Recalculate action points** works out every action's points from them and
+  saves the changed ones only when an admin clicks **Put these live**.
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
   worth. A task's `points` is one; the owner, human, AI and final scores
@@ -557,6 +565,11 @@ from the Game page for admins only.
   until an agent wires it to a function, a database trigger and a test. The
   screen marks it "Not active yet". Its kind comes from its name ("Wrote a
   comment" → `wrote_a_comment`), and neither may already be taken.
+- **Changing an action's factors** goes through `changeScoringFactors` and
+  `set_scoring_factors`, admin only. It changes no points by itself.
+- **Putting the formula's values live** (Admin → Recalculate action points)
+  goes through `applyGranularPoints`, which saves each changed row through
+  `changeScoringRule`, so it has the same rights and the same checks.
 - **Nobody deletes a rule**, and nobody writes the table directly through the
   API, not even an admin.
 

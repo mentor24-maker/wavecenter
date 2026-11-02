@@ -5,9 +5,10 @@ import { ACCOUNT_FALLBACK_TOOL, newAccountData } from './accounts.ts';
 import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore } from './agents.ts';
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
-  ENGAGEMENT_KINDS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule, changeScoringRule,
-  checkRuleFields, engagementKindForTask, isWired, kindFromName, mayManageScoring, recordEngagement, scoreEngagement, totalPoints,
-  type EngagementInput, type GameActor,
+  ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
+  applyGranularPoints, changeScoringFactors, changeScoringRule, checkFactors, checkRuleFields, engagementKindForTask, granularPoints,
+  isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
+  totalPoints, type EngagementInput, type GameActor, type ScoringFactors,
 } from './game.ts';
 import { saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
@@ -343,7 +344,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1, factors: null });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -420,4 +421,130 @@ test('the migration checks the same lengths core does and grants Manage game sco
   const sql = readFileSync(new URL('../supabase/migrations/20261031140000_game_scoring_admin.sql', import.meta.url), 'utf8');
   assert.match(sql, new RegExp(`length\\(name\\) <= ${RULE_NAME_MAX} and length\\(description\\) <= ${RULE_TEXT_MAX} and length\\(criteria\\) <= ${RULE_TEXT_MAX}`));
   assert.doesNotMatch(sql, /grant (insert|update|delete|all)[^;]* on public\.game_scoring_rules/i, 'members never write the table directly');
+});
+
+// Granular scoring by formula (docs/GRANULAR_SCORING_ALGORITHM.md) and the
+// Admin page's batch job that puts it live.
+
+/** Every row of the document's two tables: the action's kind, its factors, today's points and the proposed points. */
+function documentRows() {
+  const doc = readFileSync(new URL('../docs/GRANULAR_SCORING_ALGORITHM.md', import.meta.url), 'utf8');
+  return [...doc.matchAll(/^\| ([^|]+?) \| (\d+) \| (\d) \| (\d) \| (\d)\*? \| (\d) \| \*\*(\d+)\*\* \|/gm)].map((m) => ({
+    name: m[1],
+    kind: STARTING_SCORING_RULES.find((r) => r.name === m[1])?.kind ?? kindFromName(m[1]),
+    now: Number(m[2]),
+    factors: { effort: Number(m[3]), value: Number(m[4]), rarity: Number(m[5]), farmRisk: Number(m[6]) } as ScoringFactors,
+    proposed: Number(m[7]),
+  }));
+}
+
+test('the formula gives the Proposed column of every row in the document', () => {
+  const rows = documentRows();
+  assert.equal(rows.length, 24);
+  for (const r of rows) assert.equal(granularPoints(r.factors), r.proposed, r.name);
+});
+
+test('the formula: 1 + E + 2V + R - F, rarity not counted when F is 3, never below 0', () => {
+  assert.equal(granularPoints({ effort: 1, value: 2, rarity: 0, farmRisk: 3 }), 3);
+  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), 7, 'rarity ignored when it loops');
+  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 1, farmRisk: 2 }), 9, 'rarity counts when it does not');
+  assert.equal(granularPoints({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), 0, 'never below 0');
+  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 2, farmRisk: 0 }), 12, 'the top of the scale');
+  assert.throws(() => granularPoints({ effort: 4, value: 0, rarity: 0, farmRisk: 0 }), /Effort must be a whole number from 0 to 3/);
+  assert.throws(() => granularPoints({ effort: 0, value: 0, rarity: 3, farmRisk: 0 }), /Rarity must be a whole number from 0 to 2/);
+  assert.throws(() => granularPoints({ effort: 0, value: 1.5, rarity: 0, farmRisk: 0 }), /Value must be a whole number/);
+});
+
+test('factors are all four or none; text digits from a form are accepted', () => {
+  assert.equal(checkFactors(null), null);
+  assert.equal(checkFactors({ effort: '', value: '', rarity: '', farmRisk: '' }), null);
+  assert.deepEqual(checkFactors({ effort: '1', value: '2', rarity: '0', farmRisk: '3' }), { effort: 1, value: 2, rarity: 0, farmRisk: 3 });
+  assert.throws(() => checkFactors({ effort: 1, value: 2 }), /all four factors or none; rarity and farm risk are missing/);
+  assert.throws(() => checkFactors({ effort: -1, value: 0, rarity: 0, farmRisk: 0 }), /Effort/);
+});
+
+test('the dropdowns offer one plain test per level, and the migration holds the same ranges', () => {
+  for (const [key, max] of Object.entries(FACTOR_MAX)) assert.equal(FACTOR_TESTS[key as keyof ScoringFactors].levels.length, max + 1, key);
+  const doc = readFileSync(new URL('../docs/GRANULAR_SCORING_ALGORITHM.md', import.meta.url), 'utf8').replaceAll('**', '');
+  for (const t of Object.values(FACTOR_TESTS)) for (const level of t.levels) assert.ok(doc.includes(level), `${t.name}: "${level}" is word for word from the document`);
+  const sql = readFileSync(new URL('../supabase/migrations/20261102180000_scoring_factors.sql', import.meta.url), 'utf8');
+  assert.match(sql, new RegExp(`effort between 0 and ${FACTOR_MAX.effort} and value between 0 and ${FACTOR_MAX.value} and rarity between 0 and ${FACTOR_MAX.rarity} and farm_risk between 0 and ${FACTOR_MAX.farmRisk}`));
+  assert.doesNotMatch(sql, /grant (insert|update|delete|all)[^;]* on public\.game_scoring_rules/i, 'members never write the table directly');
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /set[^;]*\bpoints\s*=/i, 'the migration changes no points');
+});
+
+test('the migration fills every action the document scores, with the same factors', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261102180000_scoring_factors.sql', import.meta.url), 'utf8');
+  const filled = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*(\d), (\d), (\d), (\d)\)/gm)].map((m) => ({
+    kind: m[1], factors: { effort: Number(m[2]), value: Number(m[3]), rarity: Number(m[4]), farmRisk: Number(m[5]) },
+  }));
+  assert.deepEqual(filled, documentRows().map((r) => ({ kind: r.kind, factors: r.factors })));
+});
+
+function scoredLedger() {
+  const ledger = new MemoryEngagementStore();
+  const rows = documentRows();
+  ledger.ruleList = ledger.ruleList.map((r) => ({ ...r, factors: rows.find((d) => d.kind === r.kind)?.factors ?? null }));
+  return ledger;
+}
+
+test('the batch shows now and proposed for every action and saves nothing', async () => {
+  const ledger = scoredLedger();
+  ledger.ruleList.push({ kind: 'shared_a_link', name: 'Shared a link', description: '', criteria: '', points: 1, position: 11, factors: null });
+  const before = await ledger.rules();
+  const proposals = await recalculateGranularPoints(ledger, ADMIN);
+  assert.deepEqual(await ledger.rules(), before, 'nothing saved');
+  assert.deepEqual(proposals.find((p) => p.kind === 'finished_task'), {
+    kind: 'finished_task', name: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, now: 5, proposed: 7, changes: true,
+  });
+  assert.deepEqual(proposals.find((p) => p.kind === 'changed_task')?.changes, false, '1 stays 1');
+  const unscored = proposals.find((p) => p.kind === 'shared_a_link');
+  assert.deepEqual([unscored?.proposed, unscored?.changes], [null, false], 'not scored yet, never 0 by accident');
+  await assert.rejects(recalculateGranularPoints(ledger, { role: 'viewer' }), /Only an admin can recalculate/);
+});
+
+test('putting the batch live saves only the rows that change, and only for an admin', async () => {
+  const ledger = scoredLedger();
+  const accepted = proposeGranularPoints(await ledger.rules()).flatMap((p) => (p.proposed === null ? [] : [{ kind: p.kind, now: p.now, proposed: p.proposed }]));
+  await assert.rejects(applyGranularPoints(ledger, { role: 'viewer' }, accepted, 'wavecenter'), /Only an admin can put new action points live/);
+  assert.equal(ledger.ruleTools.size, 0, 'a refused run saves nothing');
+
+  const result = await applyGranularPoints(ledger, ADMIN, accepted, 'wavecenter');
+  assert.deepEqual(result.failed, []);
+  const changing = documentRows().filter((r) => isWired(r.kind) && r.now !== r.proposed);
+  assert.deepEqual(result.saved.map((s) => s.kind), changing.map((r) => r.kind));
+  assert.deepEqual([...ledger.ruleTools.keys()], changing.map((r) => r.kind), 'unchanged rows are not written');
+  assert.equal((await ledger.rules()).find((r) => r.kind === 'finished_task')?.points, 7);
+});
+
+test('a row that fails or changed meanwhile is named with its reason, and the others still save', async () => {
+  const ledger = scoredLedger();
+  const accepted = [
+    { kind: 'made_task', now: 1, proposed: 3 },
+    { kind: 'finished_task', now: 5, proposed: 7 },
+    { kind: 'deleted_task', now: 1, proposed: 0 },
+  ];
+  ledger.ruleList = ledger.ruleList.map((r) => (r.kind === 'finished_task' ? { ...r, points: 6 } : r));
+  ledger.failNextRuleSave = true;
+  const result = await applyGranularPoints(ledger, ADMIN, accepted, 'wavecenter');
+  assert.deepEqual(result.failed.map((f) => [f.kind, f.reason.split('.')[0]]), [
+    ['made_task', 'The change did not save'],
+    ['finished_task', 'It changed since you recalculated (now 6, formula 7)'],
+  ]);
+  assert.deepEqual(result.saved, [{ kind: 'deleted_task', name: 'Deleted a task', from: 1, to: 0 }]);
+});
+
+test('an admin scores an action by hand on Game > Manage, when adding it or later', async () => {
+  const ledger = new MemoryEngagementStore();
+  const added = await addScoringRule(ledger, ADMIN, { name: 'Shared a link', points: 1, factors: { effort: '1', value: '2', rarity: '0', farmRisk: '2' } }, 'wavecenter');
+  assert.deepEqual(added.factors, { effort: 1, value: 2, rarity: 0, farmRisk: 2 });
+  const plain = await addScoringRule(ledger, ADMIN, { name: 'Read a task', points: 1 }, 'wavecenter');
+  assert.equal(plain.factors, null);
+  const scored = await changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 } }, 'wavecenter');
+  assert.deepEqual(scored.factors, { effort: 0, value: 0, rarity: 0, farmRisk: 3 });
+  assert.equal(scored.points, 1, 'the factors change no points until the batch is put live');
+  await assert.rejects(changeScoringFactors(ledger, { role: 'viewer' }, { kind: 'read_a_task', factors: null }, 'wavecenter'), /Only an admin/);
+  await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: { effort: 9, value: 0, rarity: 0, farmRisk: 0 } }, 'wavecenter'), /Effort/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: null }, 'wavecenter'), /did not save/);
 });

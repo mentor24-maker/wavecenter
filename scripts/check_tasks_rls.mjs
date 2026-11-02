@@ -49,7 +49,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
@@ -113,12 +113,23 @@ function scoringStore(member) {
     if (got.status >= 300) throw new Error(`${fn} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
     return got.json;
   };
+  const withFactors = (row) => row && typeof row === 'object'
+    ? { ...row, factors: row.effort == null ? null : { effort: row.effort, value: row.value, rarity: row.rarity, farmRisk: row.farm_risk } }
+    : row;
   return {
     async rules() {
-      return (await call('/rest/v1/game_scoring_rules?select=*&order=position', { token: member.token })).json ?? [];
+      return ((await call('/rest/v1/game_scoring_rules?select=*&order=position', { token: member.token })).json ?? []).map(withFactors);
     },
-    update: (kind, fields, tool) => save('update_scoring_rule', 'rule_kind', kind, fields, tool),
-    add: (kind, fields, tool) => save('add_scoring_rule', 'new_kind', kind, fields, tool),
+    update: async (kind, fields, tool) => withFactors(await save('update_scoring_rule', 'rule_kind', kind, fields, tool)),
+    add: async (kind, fields, tool) => withFactors(await save('add_scoring_rule', 'new_kind', kind, fields, tool)),
+    async setFactors(kind, factors, tool) {
+      const got = await call('/rest/v1/rpc/set_scoring_factors', {
+        method: 'POST', token: member.token,
+        body: { rule_kind: kind, new_effort: factors?.effort ?? null, new_value: factors?.value ?? null, new_rarity: factors?.rarity ?? null, new_farm_risk: factors?.farmRisk ?? null, tool },
+      });
+      if (got.status >= 300) throw new Error(`set_scoring_factors failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return withFactors(got.json);
+    },
   };
 }
 
@@ -1108,11 +1119,40 @@ try {
     const serviceAdd = await admin('/rest/v1/game_scoring_rules', { method: 'POST', body: { kind: serviceKind, name: `${addedName} service`, points: 1, position: 999, changed_by: a.id } });
     check('a rule written with the service key, as a migration would, is saved and scores nobody',
       serviceAdd.status < 300 && (await ruleAdds(a))?.length === 1, `HTTP ${serviceAdd.status} ${JSON.stringify(await ruleAdds(a))}`);
+
+    // Factor scores and the Admin page's batch (20261102180000_scoring_factors.sql).
+    const factorBody = (extra = {}) => ({ rule_kind: addedKind, new_effort: 1, new_value: 2, new_rarity: 0, new_farm_risk: 2, tool: TOOL, ...extra });
+    const factorsByB = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: b.token, body: factorBody() });
+    const factorsByAnon = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', body: factorBody() });
+    const outOfRange = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: a.token, body: factorBody({ new_rarity: 3 }) });
+    const halfScored = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: a.token, body: factorBody({ new_value: null }) });
+    check('a non-admin cannot set an action\'s factors; out-of-range or half-scored factors are refused even for an admin',
+      [factorsByB, factorsByAnon, outOfRange, halfScored].every((r) => r.status >= 400), `HTTP ${factorsByB.status} / ${factorsByAnon.status} / ${outOfRange.status} / ${halfScored.status}`);
+    const scored = await changeScoringFactors(scoringStore(a), { role: 'admin' }, { kind: addedKind, factors: { effort: 1, value: 2, rarity: 0, farmRisk: 2 } }, TOOL);
+    check('an admin sets an action\'s factors through core, and its points do not change', scored.factors?.value === 2 && scored.points === 2, JSON.stringify(scored));
+    const proposals = await recalculateGranularPoints(scoringStore(a), { role: 'admin' });
+    const madeProposal = proposals.find((p) => p.kind === 'made_task');
+    check('the batch reads the factors the migration filled and proposes by formula', madeProposal?.proposed === 3 && proposals.find((p) => p.kind === addedKind)?.proposed === 4,
+      JSON.stringify(proposals.slice(0, 2)));
+    let refusedBatch = '';
+    try {
+      await applyGranularPoints(scoringStore(b), { role: 'viewer' }, [{ kind: addedKind, now: 2, proposed: 4 }], TOOL);
+    } catch (err) {
+      refusedBatch = err.message;
+    }
+    check('a non-admin cannot put the batch live', /Only an admin/.test(refusedBatch), refusedBatch || 'it went through');
+    const live = await applyGranularPoints(scoringStore(a), { role: 'admin' }, [{ kind: addedKind, now: 2, proposed: 4 }], TOOL);
+    check('an admin puts the batch live, and only the accepted row changes', live.saved.length === 1 && live.failed.length === 0 && (await ruleRow(addedKind))?.points === 4 && (await ruleRow('made_task'))?.points === original.points + 2,
+      JSON.stringify(live));
+    const batchChanges = await ruleChanges(a);
+    check('putting the batch live scores 1 "changed a scoring rule" per saved row, for the admin who put it live',
+      batchChanges?.length === 2 && batchChanges.every((e) => e.points === 1 && e.tool === TOOL), JSON.stringify(batchChanges));
   } finally {
+    const changesBefore = (await ruleChanges(a))?.length;
     const { kind, position, tool, changed_by, ...wording } = original ?? {};
     const restored = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { ...wording, tool, changed_by } });
     const removed = await admin(`/rest/v1/game_scoring_rules?kind=in.(${addedKind},${serviceKind})`, { method: 'DELETE' });
-    check('putting a rule back with the service key scores nobody', (await ruleChanges(a))?.length === 1, JSON.stringify(await ruleChanges(a)));
+    check('putting a rule back with the service key scores nobody', (await ruleChanges(a))?.length === changesBefore, JSON.stringify(await ruleChanges(a)));
     if (restored.status >= 300 || removed.status >= 300) {
       failures += 1;
       console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} and ${serviceKind} by hand`);

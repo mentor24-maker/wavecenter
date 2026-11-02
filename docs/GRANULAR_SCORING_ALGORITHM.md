@@ -1,10 +1,10 @@
 # How a granular action is valued: an algorithm for Dane to approve
 
-**Status: a proposal. Nothing here is live.** No point value in WaveCenter
-changes until Dane approves it. This document is the **first slice**: the
-written algorithm and the values it proposes. The **next slice** is a batch
-job Dane starts from the Admin page, which applies this same formula to
-every action and puts the results live once he accepts them (see "How a
+**Status: a proposal.** No point value in WaveCenter changes until Dane
+approves it. This document is the **first slice**: the written algorithm
+and the values it proposes. The **next slice**, now built, is a batch job
+Dane starts from the Admin page, which applies this same formula to every
+action and puts the results live only once he accepts them (see "How a
 value goes live"). Written 2026-11-01 for the
 ticket "Create algorithm to assess value of granular tasks" (WaveCenter task
 `bbaf3bba-b65b-4813-b35d-62ba2df9eab8`).
@@ -43,7 +43,7 @@ and then changed his mind (2026-11-01, 11:40 PM MT):
 So the algorithm here is the rule that batch job runs. Yes, it can avoid an
 AI service: the formula below is plain arithmetic, so the job needs no API
 key once each action has its four factor scores. The one step that needs
-judgment is scoring the factors of a **new** action; the next slice asks
+judgment is scoring the factors of a **new** action; Game → Manage asks
 the admin who adds it to pick them from the four tables below.
 
 For now, an AI agent (Claude) drafted the algorithm and scored every
@@ -221,16 +221,33 @@ Defenses" and "Operations and Infrastructure").
 
 ## How a value goes live once Dane approves
 
-1. Dane reads the table and changes any number or factor he disagrees with
-   (a reply on the ticket is enough).
-2. The next slice, the batch job, stores each action's four factor scores
-   and adds a button to the Admin page (`/admin`) that works out every
-   action's points with the formula, shows them beside today's values, and
-   puts them live when Dane accepts. Until it ships, an admin can still type
-   a single value by hand on Game → Manage (`/game/manage`).
-3. The new value counts from the very next time the action happens. Points
-   already earned keep what they were given (`docs/DATA_MODEL.md`, "Who may
-   change the scoring rules").
+The batch job has shipped ("Admin page batch job works out every action's
+points by formula"). It needs no AI service and no API key: it is the
+formula above, run by WaveCenter's own server when an admin clicks.
+
+1. **The factors are stored.** Each row of `game_scoring_rules` carries its
+   four factor scores (`effort`, `value`, `rarity`, `farm_risk`), filled for
+   all 24 actions from the tables above by
+   `supabase/migrations/20261102180000_scoring_factors.sql`. A row with none
+   is "not scored yet". An admin changes them on Game → Manage
+   (`/game/manage`), in the Factors column: four dropdowns whose options read
+   the plain tests above. Adding an action asks for them too.
+2. **The batch shows before it saves.** On the Admin page (`/admin`), an
+   admin clicks **Recalculate action points**. WaveCenter works out every
+   action's points with the formula (`granularPoints` in `core/game.ts`) and
+   shows a table: each action, its four factors, its points now, its points
+   proposed, and which would change. Nothing is saved. An action not scored
+   yet reads "not scored yet" and is left alone, never given 0 by accident.
+3. **"Put these live" saves only the changed rows**, each through the same
+   path as a change on Game → Manage (`changeScoringRule`, then the database's
+   `update_scoring_rule`, both admin only). A row someone changed after the
+   recalculation is not overwritten; it is listed as not saved, with the
+   reason, and so is any row the database refused.
+4. **The new value counts from the very next time the action happens.**
+   Points already earned keep what they were given (`docs/DATA_MODEL.md`,
+   "Who may change the scoring rules"). An admin can still type a single
+   value by hand on Game → Manage; the next recalculation would propose the
+   formula's value again.
 
 ## Questions for Dane
 
