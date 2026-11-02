@@ -273,6 +273,9 @@ and keep the side he chose.
   `ask` before building and offer named slices, smallest-and-safest first.
   Then build only the slice he names, narrowing the description with
   `describe` first.
-- **Ticket titles say in plain words what breaks and who feels it.** Fix a
-  cryptic name on the ticket first, then copy it to the PR.
+- **Ticket names:** Dane's own title word for word when the ticket came
+  from him, unless it is over 12 words, then condensed to 12 or fewer; any
+  other name is 6-12 plain words. Never rewrite a name that came from Dane's list (tag `from-wavecenter`);
+  a cryptic name of anyone else's is fixed on the ticket first, within 6-12
+  words, then copied to the PR.
 - Leave the worktree in place until the PR merges; `loop-review` may reuse it.

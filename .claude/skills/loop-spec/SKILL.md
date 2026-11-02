@@ -88,11 +88,12 @@ NOT write any code here. You produce well-formed tasks.
    low | medium | high — and one line on the blast radius.
    ````
 
-   **The task NAME says in plain words what breaks and who feels it**, or what
-   Dane will be able to do once it ships. He scans a list; the clever
-   diagnostic sentence goes in the description. Good: *"Dane cannot sign in
-   yet: add sign-in and per-user data protection"*. Not: *"Auth: wire Supabase
-   session middleware"*.
+   **Ticket names:** Dane's own title word for word when the ticket came
+   from him, unless it is over 12 words, then condensed to 12 or fewer; any
+   other name is 6-12 plain words. He scans a list, so a name is short and
+   relevant; what breaks and who feels it goes in the Goal. Good: *"Dane cannot sign in yet"*. Not: *"Auth: wire Supabase
+   session middleware"*. `task --name` refuses a name over 12 words, or under
+   6 unless `--name-is-danes` says the words are his.
 
    Tag each task with the epic name so the queue stays legible.
 

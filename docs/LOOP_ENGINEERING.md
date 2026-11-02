@@ -147,9 +147,11 @@ setting the status back to `Queued`.
 
 ### Titles
 
-A ticket's name says in plain words **what breaks and who feels it**, or what
-you will be able to do once it ships. The diagnostic sentence goes in the
-description.
+Ticket names: Dane's own title word for word when the ticket came from him,
+unless it is over 12 words, then condensed to 12 or fewer; any other name is
+6-12 plain words. What breaks and who feels it goes in the Goal, not the name.
+The filing script (`task --name`) refuses a name over 12 words, or under 6
+unless `--name-is-danes` says the words are yours.
 
 ## The two traces a ticket must carry
 
@@ -284,8 +286,9 @@ Each pass does two things:
    first ticked task in line (Urgent, High, Normal, Low, then oldest first:
    `agentOrder` in `core/agents.ts`) becomes a Queued ticket here, tagged
    `from-wavecenter`, with a spec in the `loop-spec` shape written from its
-   title and notes and the line `WaveCenter task: <id>`. Its priority is the
-   task's own; Urgent only carries over when you set it yourself. If the
+   title and notes, named with your title word for word (condensed only if
+   it is over 12 words), and the line `WaveCenter task: <id>`. Its priority
+   is the task's own; Urgent only carries over when you set it yourself. If the
    title is too thin to build without guessing, the ticket is still filed and
    you get one question on it in `Needs your input`. The task then shows
    **With AI agents** and a link to its ticket.

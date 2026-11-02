@@ -25,7 +25,7 @@ or handle either.
 ```bash
 npm run clickup -- handoff-sync                                 # finished tickets back to their tasks
 npm run clickup -- handoff-next --take                          # the next task, as JSON (exit 3: none, and why)
-npm run clickup -- task --name "..." --status Queued --priority <p> --tags from-wavecenter --body-file - --id-out <file>
+npm run clickup -- task --name "..." --status Queued --priority <p> --tags from-wavecenter --name-is-danes --body-file - --id-out <file>
 npm run clickup -- ask --task <ticket> --status "Needs your input" --body-file -
 npm run clickup -- handoff-record --task <wavecenter-id> --ticket <ticket-id>
 ```
@@ -63,8 +63,11 @@ only lands if the task still has no ticket.
    How to test, Risk) and follow it. Build it from the task's title and notes,
    and **read the code** so every file path you name is real. Do not invent
    requirements the title and notes do not support.
-   - The **name** says in plain words what Dane will be able to do, or what
-     breaks and who feels it, as loop-spec requires.
+   - The **name** is the task's `title`, word for word. Ticket names:
+     Dane's own title word for word when the ticket came from him, unless it
+     is over 12 words, then condensed to 12 or fewer; any other name is 6-12
+     plain words. Pass `--name-is-danes` so a short title of his is not
+     refused; a title over 12 words is condensed, keeping his words.
    - Start the body with a `## From WaveCenter` section: the task's title and
      notes **verbatim** inside a fenced block (never a `> ` blockquote;
      ClickUp deletes those), then the `taskLine` value from the JSON on a line
@@ -78,7 +81,7 @@ only lands if the task still has no ticket.
 
    ```bash
    npm run clickup -- task --name "<name>" --status Queued --priority <ticketPriority> \
-     --tags from-wavecenter --body-file <body-file> --id-out <id-file>
+     --tags from-wavecenter --name-is-danes --body-file <body-file> --id-out <id-file>
    ```
 
    Use `ticketPriority` from the JSON, never your own judgement. When it is
