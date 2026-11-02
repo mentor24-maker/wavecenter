@@ -139,7 +139,11 @@ async function requireTeam(deps: TeamDeps, teamId: string): Promise<Team> {
   return team;
 }
 
-/** `actorId` makes a team, on behalf of `tool`. */
+/**
+ * `actorId` makes a team, on behalf of `tool`. Making one earns "Made a team"
+ * (core/game.ts) for the member who made it, recorded by the table's trigger
+ * inside the same save.
+ */
 export async function createTeam(
   deps: TeamDeps,
   change: { actorId: string } & TeamInput,

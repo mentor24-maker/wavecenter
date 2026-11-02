@@ -2,7 +2,11 @@
  * Teams kept in memory, for core's tests. Like the database, a slug is
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
+ * Like the table, it stamps the signed-in member as a team's maker; given an
+ * engagement store, it scores making a team the way the table's game-layer
+ * trigger does, all-or-nothing.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
 
 export class MemoryTeamStore implements TeamStore {
@@ -11,7 +15,14 @@ export class MemoryTeamStore implements TeamStore {
   readonly members = new Map<string, Map<string, string>>();
   /** Set to make the next write fail the way a refused write does. */
   failNextSave = false;
+  /** Who is signed in, as `auth.uid()` is for the table. */
+  signedIn: string | null = null;
   private next = 1;
+  private readonly engagements: EngagementStore | null;
+
+  constructor(engagements: EngagementStore | null = null) {
+    this.engagements = engagements;
+  }
 
   private failed() {
     if (!this.failNextSave) return false;
@@ -29,7 +40,10 @@ export class MemoryTeamStore implements TeamStore {
 
   async insert(fields: TeamFields, tool: string) {
     if (this.failed()) return null;
-    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: null };
+    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: this.signedIn };
+    if (this.engagements && team.createdBy) {
+      await recordEngagement(this.engagements, { memberId: team.createdBy, kind: 'made_a_team', tool });
+    }
     this.teams.set(team.id, team);
     return team;
   }
