@@ -46,6 +46,7 @@
  * Exit 0 = every check held. Exit 1 = a check failed or the run broke.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
@@ -89,10 +90,11 @@ function check(label, ok, detail) {
 }
 
 const users = [];
-async function makeUser(tag) {
+/** A test member; `data` is the user metadata the account is made with, as register sends it. */
+async function makeUser(tag, data) {
   const email = `rls-check-${tag}-${randomUUID().slice(0, 8)}@example.com`;
   const password = randomBytes(24).toString('base64url');
-  const made = await admin('/auth/v1/admin/users', { method: 'POST', body: { email, password, email_confirm: true } });
+  const made = await admin('/auth/v1/admin/users', { method: 'POST', body: { email, password, email_confirm: true, user_metadata: data } });
   if (made.status >= 300) throw new Error(`could not create test user ${tag}: HTTP ${made.status} ${JSON.stringify(made.json)}`);
   users.push(made.json.id);
   const signin = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
@@ -345,8 +347,15 @@ const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows)
 
 try {
   const a = await makeUser('a');
-  const b = await makeUser('b');
+  const b = await makeUser('b', newAccountData(TOOL));
   console.log(`two test users made and signed in: A=${a.id}  B=${b.id}\n`);
+
+  const joined = await admin(`/rest/v1/engagements?kind=eq.joined_wavecenter&member_id=in.(${a.id},${b.id})&select=member_id,points,tool,task_id`);
+  const joinedBy = (m) => (joined.json ?? []).filter((e) => e.member_id === m.id);
+  check('a new account scores 1 for joining, credited to the new member, naming the tool it was made with',
+    joinedBy(a).length === 1 && joinedBy(b).length === 1 && joined.json.every((e) => e.points === 1 && e.task_id === null)
+      && joinedBy(a)[0].tool === ACCOUNT_FALLBACK_TOOL && joinedBy(b)[0].tool === TOOL,
+    JSON.stringify(joined.json));
 
   const insA = await createTask(a.store, { title: 'A’s task', points: 3 }, TOOL);
   const insB = await createTask(b.store, { title: 'B’s task', points: 5 }, TOOL);
@@ -961,7 +970,7 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'approved_a_proposed_task', 'changed_a_member_s_role', 'made_a_team',
+    'joined_wavecenter', 'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'approved_a_proposed_task', 'changed_a_member_s_role', 'made_a_team',
     'added_a_member_to_a_team', 'added_a_member_to_a_team', 'changed_a_member_s_role', 'changed_a_member_s_role', 'attached_file', 'removed_file',
     'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
     'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
@@ -980,7 +989,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 33 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

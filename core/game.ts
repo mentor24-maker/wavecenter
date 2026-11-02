@@ -52,6 +52,7 @@ export const ENGAGEMENT_KINDS = [
   'removed_a_member_from_a_team',
   'changed_a_member_s_role',
   'approved_a_proposed_task',
+  'joined_wavecenter',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -151,6 +152,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'changed_a_member_s_role', name: "Changed a member's role", description: 'Gave a member a different role on the Members page.', criteria: "A member's role is saved as a different role.", points: 1, position: 20 },
   // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, eleventh of its rows.
   { kind: 'approved_a_proposed_task', name: 'Approved a proposed task', description: 'Approved a task a member proposed, so it joins the list.', criteria: 'A proposed task becomes a to-do. Credited to the admin who approved it.', points: 1, position: 21 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, twelfth of its rows.
+  { kind: 'joined_wavecenter', name: 'Joined WaveCenter', description: 'Made a WaveCenter account.', criteria: "A new member's account is created.", points: 1, position: 22 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -304,6 +307,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   approved_a_proposed_task: {
     fn: 'approveTask', file: 'core/tasks.ts', database: 'tasks_score_approval',
     test: 'approving a proposed task records one engagement, credited to the admin who approved it', testFile: 'core/tasks.test.ts',
+  },
+  joined_wavecenter: {
+    fn: 'newAccountData', file: 'core/accounts.ts', database: 'auth_users_score',
+    test: 'joining WaveCenter records one engagement, credited to the new member, naming the tool', testFile: 'core/game.test.ts',
   },
 };
 
