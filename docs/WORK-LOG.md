@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Changing a scoring rule on Game Manage earns its point (#121)
+
+"Changed a scoring rule" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin saves a change to
+an action's name, description, criteria or points on Game > Manage, that
+admin earns the point (1 to start). Pressing Enter without changing anything
+earns nothing. The database writes the point in the same save as the change,
+so a rule cannot change without its point, or the point land without the
+change. Game > Manage now shows the action as Active, naming the function,
+the database step and the test that prove it.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
