@@ -222,7 +222,7 @@ to pass again on the combined code; when the PR is open, conflict-free and
 `verify` is green, squash-merges it and deletes the branch; reads GitHub back
 until it says MERGED; only then comments the merge commit on the ticket and
 sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
-After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket.
+After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket. When the run itself breaks (no headless browser, test database down, a missing key) three passes in a row for the same reason, the lane files one ticket, `Evolution pictures have stopped: the Mac Mini cannot take them`, with a card for you, and adds one "works again" note to it on the first clean pass after. The count lives on the Mini in `~/loop-logs/wavecenter-evolution-run-failures.json`.
 
 **Database changes go live here, and only here.** When the PR adds a file to
 `supabase/migrations/`, the lane applies it to the live database from the
@@ -340,7 +340,9 @@ loop makes its own worktree per task):
 `./scripts/install_loop_runner.sh` on the machine that will own the loops,
 from its **main checkout** (never a worktree). It installs all four lanes and
 refuses if `npm`, `node`, `doppler`, `claude`, `git` or `gh` is missing, or if
-`gh` is not signed in to GitHub. `--uninstall` removes all four agents. Before
+`gh` is not signed in to GitHub. It also installs the headless browser the Evolution
+pictures need (`npx playwright install chromium-headless-shell`), and refuses if
+that fails. `--uninstall` removes all four agents. Before
 installing on a second machine, uninstall on the first: two machines claiming
 is the collision the lock exists to prevent.
 

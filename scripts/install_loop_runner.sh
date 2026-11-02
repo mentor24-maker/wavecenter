@@ -122,6 +122,18 @@ install() {
     echo "A person signs in once with: gh auth login" >&2
     exit 1
   fi
+  # The merge lane's Evolution step takes its pictures with a headless
+  # browser, which Playwright keeps in this user's cache, not in the repo.
+  # Without it every pass failed and no change reached the Evolution row
+  # (2026-10-31 to 11-01, 96 passes), so a machine cannot install without it.
+  if [ ! -d "$REPO/node_modules/playwright" ]; then
+    (cd "$REPO" && PATH="$LAUNCHD_PATH" npm ci)
+  fi
+  if ! (cd "$REPO" && PATH="$LAUNCHD_PATH" npx --no-install playwright install chromium-headless-shell); then
+    echo "Could not install the headless browser the Evolution pictures need (npx playwright install chromium-headless-shell)." >&2
+    exit 1
+  fi
+  echo "Headless browser for the Evolution pictures: installed."
 
   for s in "${SKILLS[@]}"; do
     local_label="$(label_of "$s")"; local_plist="$(plist_of "$s")"

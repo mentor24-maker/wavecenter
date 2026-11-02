@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME } from './evolution.mjs';
+import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
+import { nameProblem } from './ticketName.mjs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -356,4 +358,104 @@ test('failureComment says why, that the merge stands, and how to retake it', () 
   assert.match(text, /The merge stands/);
   assert.match(text, /capture 7777777/);
   assert.doesNotMatch(text, /^> /m);
+});
+
+// The real run-failure messages scripts/evolution_capture.mjs throws.
+const NO_BROWSER = 'the headless browser would not start (browserType.launch: Executable doesn\'t exist at /Users/x/Library/Caches/ms-playwright/chromium_headless_shell-1200/chrome). Install it once with `npx playwright install chromium-headless-shell`.';
+const NO_TEST_DB = '`supabase status` did not report the test database. Start it with `npm run db:test` (Docker must be running: `colima status`).';
+const NO_KEYS = 'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set; run it as `npm run evolution -- …` so Doppler supplies them.';
+const BAD_READ = 'could not read evolution_entries: HTTP 503 {"message":"upstream connect error or disconnect/reset before headers. reset reason: connection failure, transport failure reason: delayed connect error: 111 and then a good deal more text after it"}';
+
+/** Run passes through nextRunState the way countRun does, a card always posting. */
+function passes(outcomes) {
+  let state = null;
+  const actions = [];
+  for (const o of outcomes) {
+    const got = nextRunState(state, o, '2026-11-01T02:16:00Z');
+    actions.push(got.action);
+    state = got.state;
+    if (got.action === 'card') state = { ...state, carded: 'T1', tickets: [...state.tickets, 'T1'] };
+    if (got.action === 'recovered') state = null;
+  }
+  return { actions, state };
+}
+
+test('three broken runs in a row with one reason make exactly one card; a fourth adds nothing', () => {
+  const broken = { reason: NO_BROWSER };
+  const { actions, state } = passes([broken, broken, broken, broken]);
+  assert.deepEqual(actions, [null, null, 'card', null]);
+  assert.equal(ALERT_AFTER, 3);
+  assert.equal(state.count, 4);
+  assert.deepEqual(state.tickets, ['T1']);
+});
+
+test('the first clean pass after a card notes recovery once, then nothing', () => {
+  const broken = { reason: NO_BROWSER };
+  const { actions, state } = passes([broken, broken, broken, { ok: true }, { ok: true }]);
+  assert.deepEqual(actions, [null, null, 'card', 'recovered', null]);
+  assert.equal(state, null);
+});
+
+test('a clean pass before any card just clears the count', () => {
+  const broken = { reason: NO_BROWSER };
+  const { actions } = passes([broken, broken, { ok: true }, broken, broken]);
+  assert.deepEqual(actions, [null, null, null, null, null]);
+});
+
+test('a changed reason starts its count again, and later gets its own card', () => {
+  const { actions, state } = passes([{ reason: NO_BROWSER }, { reason: NO_BROWSER }, { reason: NO_TEST_DB }, { reason: NO_TEST_DB }, { reason: NO_TEST_DB }]);
+  assert.deepEqual(actions, [null, null, null, null, 'card']);
+  assert.equal(state.reason, NO_TEST_DB);
+});
+
+test('the same breakage with different details in brackets or numbers counts as one reason', () => {
+  const other = NO_BROWSER.replace('1200', '1217');
+  assert.equal(reasonKey(other), reasonKey(NO_BROWSER));
+  assert.notEqual(reasonKey(NO_TEST_DB), reasonKey(NO_BROWSER));
+  const { actions } = passes([{ reason: NO_BROWSER }, { reason: other }, { reason: NO_BROWSER }]);
+  assert.deepEqual(actions, [null, null, 'card']);
+});
+
+test('a card that could not be posted is tried again on the next pass', () => {
+  const broken = { reason: NO_BROWSER };
+  let { state } = nextRunState(null, broken);
+  ({ state } = nextRunState(state, broken));
+  let got = nextRunState(state, broken);
+  assert.equal(got.action, 'card');
+  got = nextRunState({ ...got.state, pending: 'T9' }, broken);
+  assert.equal(got.action, 'card');
+  assert.equal(got.state.pending, 'T9');
+});
+
+test('a recovery note that could not be posted is kept for the next clean pass', () => {
+  const got = nextRunState({ tickets: ['T1'] }, { ok: true });
+  assert.equal(got.action, 'recovered');
+  assert.deepEqual(got.state.tickets, ['T1']);
+});
+
+test('fixCommand finds the fix the reason names, and only that', () => {
+  assert.equal(fixCommand(NO_BROWSER), 'npx playwright install chromium-headless-shell');
+  assert.equal(fixCommand(NO_TEST_DB), 'npm run db:test');
+  assert.equal(fixCommand(NO_KEYS), null);
+  assert.equal(fixCommand(BAD_READ), null);
+});
+
+test('the card passes the operator-card rules for every real reason, and is not a costly ask', () => {
+  for (const reason of [NO_BROWSER, NO_TEST_DB, NO_KEYS, BAD_READ]) {
+    const state = { reason, count: 3, since: '2026-11-01T02:16:00Z', tickets: [] };
+    const card = parseCard(runAlertCard(state));
+    assert.deepEqual(validateCard(card), [], reason);
+    assert.deepEqual(costlyTriggers(card.needed), [], reason);
+    assert.match(card.when, /2026-10-31 20:16 MDT/);
+    const fix = fixCommand(reason);
+    if (fix) assert.ok(card.needed.includes(fix), reason);
+    const description = runAlertDescription(state);
+    assert.ok(description.includes(reason), 'the whole reason is in the description');
+    assert.ok(!/^\s*>/m.test(description), 'no blockquote lines (ClickUp deletes them)');
+  }
+});
+
+test('the ticket name and recovery note fit the rules', () => {
+  assert.equal(nameProblem(RUN_ALERT_NAME), null);
+  assert.match(recoveredNote(), /works again/);
 });
