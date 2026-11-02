@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Old Evolution cards are retaken by themselves when the picture rules change (#98)
+
+Earlier today a fix to how each Evolution card picks its picture went live,
+but every card on Home still showed the old picture, because the step that
+retakes old cards only ran when an agent session remembered to run it. Now
+the merge lane does it on its own: after each merge it checks whether the
+picture rules changed, and if they did it retakes the cards those rules now
+picture differently. If the rules did not change it retakes nothing. If a
+retake fails, the old cards stay as they were, the lane tries again on the
+next pass, and the ticket behind the rules change gets one note when it
+fails and one when it works.
+
 ## 2026-11-01 — The Home picture is mirrored so the logo sits on the dark side (#95)
 
 Dane's water-drop picture on Home is now flipped left to right. The darker
