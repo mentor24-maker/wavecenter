@@ -41,6 +41,7 @@ export const ENGAGEMENT_KINDS = [
   'switched_agents',
   'changed_profile',
   'voted_on_task',
+  'added_a_member_to_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -119,6 +120,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
   { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, eighth of its rows.
+  { kind: 'added_a_member_to_a_team', name: 'Added a member to a team', description: 'Put a member on a team.', criteria: 'A member joins a team they were not on.', points: 1, position: 18 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -226,6 +229,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   voted_on_task: {
     fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',
     test: 'every vote cast, changed or withdrawn is scored for the voter', testFile: 'core/votes.test.ts',
+  },
+  added_a_member_to_a_team: {
+    fn: 'addTeamMember', file: 'core/teams.ts', database: 'team_members_score',
+    test: 'adding a member to a team records one engagement, credited to the member who added them', testFile: 'core/teams.test.ts',
   },
 };
 

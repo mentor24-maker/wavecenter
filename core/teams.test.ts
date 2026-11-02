@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryTeamStore } from './memoryTeamStore.ts';
 import {
@@ -141,4 +142,31 @@ test('a save that does not land is reported, never called saved', async () => {
   deps.teams.failNextSave = true;
   await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /not deleted/);
   assert.equal(deps.teams.teams.size, 1);
+});
+
+test('adding a member to a team records one engagement, credited to the member who added them', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  deps.teams.signedIn = 'eddie';
+  await addTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, 'team-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['eddie', 'added_a_member_to_a_team', 1, 'team-tool', null]]);
+
+  // Refused, failed or already on the team: nothing is recorded.
+  await assert.rejects(addTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, TOOL), /already on this team/);
+  deps.teams.signedIn = 'vee';
+  await assert.rejects(addTeamMember(deps, { actorId: 'vee', teamId: team.id, memberId: 'dane' }, TOOL), /Only an admin or an editor/);
+  deps.teams.signedIn = 'dane';
+  deps.teams.failNextSave = true;
+  await assert.rejects(addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'dane' }, TOOL), /not added/);
+  assert.equal(ledger.rows.length, 1);
+
+  // Removing a member is not this action.
+  await removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
+  assert.equal(ledger.rows.length, 1);
+
+  // If the engagement cannot be written, the member is not added either.
+  ledger.failInsert = true;
+  await assert.rejects(addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /ledger is down/);
+  assert.equal(await deps.teams.hasMember(team.id, 'vee'), false);
 });
