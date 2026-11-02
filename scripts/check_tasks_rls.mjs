@@ -1023,6 +1023,7 @@ try {
   // changes is put back below, so the rules end as they started.
   const ruleRow = async (kind) => (await admin(`/rest/v1/game_scoring_rules?kind=eq.${kind}&select=kind,name,description,criteria,points,position,tool,changed_by`)).json?.[0];
   const original = await ruleRow('made_task');
+  const ruleChanges = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.changed_a_scoring_rule&select=points,tool,task_id`)).json;
   const addedName = `RLS check ${[...randomBytes(6)].map((n) => String.fromCharCode(97 + (n % 26))).join('')}`;
   const addedKind = addedName.toLowerCase().replace(/[^a-z]+/g, '_');
   try {
@@ -1052,8 +1053,13 @@ try {
     }
     check('a non-admin cannot change a rule through core either', /Only an admin/.test(refusedRule), refusedRule || 'the change went through');
 
+    check('a refused rule change scores nothing', (await ruleChanges(a))?.length === 0 && (await ruleChanges(b))?.length === 0, JSON.stringify(await ruleChanges(a)));
     const madeBefore = (await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_task&select=points`, { token: a.token })).json ?? [];
     const changed = await changeScoringRule(scoringStore(a), { role: 'admin' }, { ...original, points: original.points + 2 }, TOOL);
+    await changeScoringRule(scoringStore(a), { role: 'admin' }, { ...original, points: original.points + 2 }, TOOL);
+    const scoredChange = await ruleChanges(a);
+    check('changing a scoring rule scores 1 for the admin who changed it, naming the tool; saving no change scores nothing',
+      scoredChange?.length === 1 && scoredChange.every((e) => e.points === 1 && e.tool === TOOL && e.task_id === null), JSON.stringify(scoredChange));
     const stored = await ruleRow('made_task');
     check('an admin changes a rule through core, and the database records who and with which tool',
       changed.after.points === original.points + 2 && stored?.points === original.points + 2 && stored?.tool === TOOL && stored?.changed_by === a.id, JSON.stringify(stored));
@@ -1076,6 +1082,7 @@ try {
     const { kind, position, tool, changed_by, ...wording } = original ?? {};
     const restored = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { ...wording, tool, changed_by } });
     const removed = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'DELETE' });
+    check('putting a rule back with the service key scores nobody', (await ruleChanges(a))?.length === 1, JSON.stringify(await ruleChanges(a)));
     if (restored.status >= 300 || removed.status >= 300) {
       failures += 1;
       console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} by hand`);

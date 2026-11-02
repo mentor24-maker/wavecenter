@@ -264,6 +264,38 @@ test('an admin changes what an action is worth: the next engagement earns it, ea
   assert.deepEqual(ledger.rows.map((e) => [e.kind, e.points]), [['made_task', 1], ['made_task', 3]]);
 });
 
+test('changing a scoring rule records one engagement, credited to the admin who changed it', async () => {
+  const ledger = new MemoryEngagementStore();
+  ledger.signedIn = 'dane';
+  const made = await rule(ledger, 'made_task');
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.' }, 'rule-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['dane', 'changed_a_scoring_rule', 1, 'rule-tool', null]]);
+
+  // Each field counts; a save that changes nothing does not.
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.', points: 2 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.', points: 2 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+
+  // Refused or failed: nothing is recorded, and the failure says so.
+  ledger.signedIn = 'vee';
+  await assert.rejects(changeScoringRule(ledger, { role: 'contributor' }, { ...made, points: 9 }, 'wavecenter'), /Only an admin/);
+  ledger.signedIn = 'dane';
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: -1 }, 'wavecenter'), /negative/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: 9 }, 'wavecenter'), /did not save/);
+  assert.equal(ledger.rows.length, 2);
+
+  // Adding a new action is not this action.
+  await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 1 }, 'wavecenter');
+  assert.equal(ledger.rows.length, 2);
+
+  // If the engagement cannot be written, the rule does not change either.
+  ledger.failInsert = true;
+  await assert.rejects(changeScoringRule(ledger, ADMIN, { ...made, points: 9 }, 'wavecenter'), /ledger is down/);
+  assert.equal((await rule(ledger, 'made_task')).points, 2);
+});
+
 test('only a role with "Manage game scoring" may change or add an action, and nothing is saved otherwise', async () => {
   const ledger = new MemoryEngagementStore();
   const fields = { kind: 'made_task', name: 'Made a task', points: 100 };
@@ -352,6 +384,7 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(isWired('changed_a_member_s_role'), true);
   assert.equal(isWired('approved_a_proposed_task'), true);
   assert.equal(isWired('joined_wavecenter'), true);
+  assert.equal(isWired('changed_a_scoring_rule'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

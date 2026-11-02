@@ -53,6 +53,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_member_s_role',
   'approved_a_proposed_task',
   'joined_wavecenter',
+  'changed_a_scoring_rule',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -154,6 +155,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'approved_a_proposed_task', name: 'Approved a proposed task', description: 'Approved a task a member proposed, so it joins the list.', criteria: 'A proposed task becomes a to-do. Credited to the admin who approved it.', points: 1, position: 21 },
   // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, twelfth of its rows.
   { kind: 'joined_wavecenter', name: 'Joined WaveCenter', description: 'Made a WaveCenter account.', criteria: "A new member's account is created.", points: 1, position: 22 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, thirteenth of its rows.
+  { kind: 'changed_a_scoring_rule', name: 'Changed a scoring rule', description: 'Edited an action\'s name, description, criteria or points on Game > Manage.', criteria: 'A saved change to a scoring rule.', points: 1, position: 23 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -312,6 +315,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
     fn: 'newAccountData', file: 'core/accounts.ts', database: 'auth_users_score',
     test: 'joining WaveCenter records one engagement, credited to the new member, naming the tool', testFile: 'core/game.test.ts',
   },
+  changed_a_scoring_rule: {
+    fn: 'changeScoringRule', file: 'core/game.ts', database: 'game_scoring_rules_score',
+    test: 'changing a scoring rule records one engagement, credited to the admin who changed it', testFile: 'core/game.test.ts',
+  },
 };
 
 /**
@@ -406,6 +413,10 @@ export interface ScoringRuleChange {
  * `checkRuleFields`. The change counts from the very next engagement; what
  * was already earned keeps the points it was given. Throws if what comes back
  * is not what was asked for, so a failed save is never reported as saved.
+ * The database scores a change to the wording or points for the admin who
+ * made it (`changed_a_scoring_rule`,
+ * supabase/migrations/20261102185000_score_changed_a_scoring_rule.sql); a save
+ * that changes nothing is not scored.
  */
 export async function changeScoringRule(
   store: ScoringRuleStore,
