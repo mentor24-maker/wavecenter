@@ -326,6 +326,18 @@ npm run clickup -- handoff-next                                     # which task
 bash scripts/loop_runner.sh loop-handoff --once                     # one pass now, its report printed here
 ```
 
+**Work you ask for in a chat comes the same way.** Your words (2026-11-01):
+"Yes, always a task". Before `loop-spec` files a ticket, it makes your
+WaveCenter task for it (`npm run clickup -- chat-task`: owned by you, your
+words as its notes, 0 points unless you gave a number, as the tool
+`loop-spec`), files the ticket in the same shape as a hand-off (tagged
+`from-wavecenter`, the `## From WaveCenter` block, the `WaveCenter task:`
+line), then records it (`chat-record`). The task is unticked until that
+last step, which ticks it and records the ticket in one write, so this lane
+never files it a second time. When the ticket goes `Live`, the sync marks the
+task done like any other. The Evolution capture names, in its run output,
+any change whose ticket has no WaveCenter task behind it.
+
 ### Starting one by hand — only when the Mini's agents are unloaded
 
 Two commands, each in **its own session**, from any folder in the repo (the

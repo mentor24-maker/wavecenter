@@ -6,6 +6,8 @@
  */
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { newAccountData } from "../../core/accounts.ts";
+import { WAVECENTER_TOOL } from "../../core/tool.ts";
 import { supabaseForRequest } from "../lib/supabase";
 import {
   looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resetFailure, signInFailure,
@@ -31,6 +33,9 @@ function logFailure(what: string, e: AuthFailure) {
 /**
  * A new visitor registers with an email and a password. Supabase emails them
  * a link to confirm the address; until they open it they cannot log in.
+ * Making the account earns the new member their first point
+ * (`joined_wavecenter`): the database records it in the same save, naming
+ * the tool in the account's metadata.
  */
 export async function register(formData: FormData) {
   const email = field(formData, "email").trim();
@@ -45,7 +50,7 @@ export async function register(formData: FormData) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: `${await origin()}/auth/confirm` },
+    options: { emailRedirectTo: `${await origin()}/auth/confirm`, data: newAccountData(WAVECENTER_TOOL) },
   });
   if (error) {
     logFailure("register", error);
