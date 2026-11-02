@@ -22,6 +22,18 @@ Nothing on any screen changed.
 
 ---
 
+## 2026-11-01 — The Home picture is mirrored so the logo sits on the dark side (#95)
+
+Dane's water-drop picture on Home is now flipped left to right. The darker
+blue water sits on the left, behind the WaveCenter logo and name, where it
+makes them stand out, and the bright gold sunlight is on the right. The
+signed-out welcome page and the set-a-new-password page use the same
+picture, so they are flipped the same way. Only the picture turns round; no
+writing, logo or form is mirrored, and every other page's banner is
+unchanged. Dane asked for this so the logo contrasts better.
+
+---
+
 ## 2026-11-01 — Your profile shows your messages and lets every member send one (#93)
 
 Messages members sent each other were saved in WaveCenter, but there was no
