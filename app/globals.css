@@ -571,10 +571,15 @@ table.teams .num { padding-right: 1.5rem; }
      dark   7.2 / 5.8 / 5.6 / 4.9
    At 30% the secondary text, links and errors are one step deeper (light)
    or brighter (dark) here than on other pages, so they still pass.
-   A browser without the frosting gets an 85% box instead, which passes too. */
+   A browser without the frosting gets an 85% box instead, which passes too.
+   The picture is mirrored left to right (Dane, 2026-11-01): its darker blue
+   sits on the left behind the logo and name, its bright gold on the right.
+   Only this layer is flipped, never the text, and the header shows the same
+   flipped layer through it, so header and page still meet with no seam. */
 .home-page::before {
   content: ""; position: fixed; inset: 0; z-index: -1;
   background: #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
+  transform: scaleX(-1);
 }
 /* Its own layer, so the picture paints above the plain page colour on body. */
 .home-page {
@@ -657,24 +662,25 @@ dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
 
 /* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
    the whole screen, the logo top left, the introduction left-middle and the
-   log-in form on the right. The picture is darkened behind the white
-   introduction: at 0.6 the brightest gold in it falls to about 15% luminance,
-   which keeps white text above 4.5:1 (plus a shadow). On a wide screen the
-   form's side needs less, because the form sits on its own solid panel. On a
-   phone the two stack, introduction first, and the darkening is even. */
+   log-in form on the right. The picture is mirrored left to right, as on
+   Home (Dane, 2026-11-01): its darker blue sits on the left behind the logo
+   and introduction, its bright gold on the right behind the form. Only the
+   picture layer (::before) is flipped; the darkening over it (::after) is
+   not, so it still runs 0.7 on the left to 0.3 on the right. At 0.6 even the
+   brightest gold falls to about 15% luminance, which keeps white text above
+   4.5:1 (plus a shadow). On a wide screen the form's side needs less,
+   because the form sits on its own solid panel. On a phone the two stack,
+   introduction first, and the darkening is even. */
 .landing {
+  position: relative; isolation: isolate;
   min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column;
   color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
-  background:
-    linear-gradient(rgb(8 28 44 / 0.6), rgb(8 28 44 / 0.6)),
-    #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
 }
+.landing::before, .landing::after { content: ""; position: absolute; inset: 0; z-index: -1; }
+.landing::before { background: #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat; transform: scaleX(-1); }
+.landing::after { background: linear-gradient(rgb(8 28 44 / 0.6), rgb(8 28 44 / 0.6)); }
 @media (min-width: 56rem) {
-  .landing {
-    background:
-      linear-gradient(90deg, rgb(8 28 44 / 0.7), rgb(8 28 44 / 0.6) 55%, rgb(8 28 44 / 0.3)),
-      #2c4a63 url("/brand/home-background.jpg") center / cover no-repeat;
-  }
+  .landing::after { background: linear-gradient(90deg, rgb(8 28 44 / 0.7), rgb(8 28 44 / 0.6) 55%, rgb(8 28 44 / 0.3)); }
 }
 .landing-top { width: 100%; max-width: 90rem; margin: 0 auto; padding: 1rem var(--space); }
 .landing .brand:focus-visible { outline-color: #fff; }
