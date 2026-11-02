@@ -8,7 +8,7 @@ import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
 import SiteHeader from "../../SiteHeader";
 import GameMenu from "../GameMenu";
-import RuleEditor from "./RuleEditor";
+import { NewRuleRow, RuleRow } from "./RuleTable";
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
@@ -21,14 +21,15 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * Game management: every action that earns points, each with its name,
- * description, criteria and points to change, and the function, database
- * trigger and test that make it fire (core/game.ts SCORING_TRIGGERS). A
- * change counts from the very next engagement. Below the list, a form adds a
- * new action, which stays inactive until an agent wires it in.
+ * Game management: one table, a row per action that earns points. Its name,
+ * points, description and criteria are edited in place (RuleTable), and each
+ * row folds out the function, database trigger and test that make it fire
+ * (core/game.ts SCORING_TRIGGERS). A change counts from the very next
+ * engagement. The table's last row adds a new action, which stays inactive
+ * until an agent wires it in.
  *
  * It sits under the Game menu (Manage). Only a role with "Manage game
- * scoring" (admin) sees the forms, and only they see Manage in the menu;
+ * scoring" (admin) sees the table, and only they see Manage in the menu;
  * anyone else who opens the address gets a plain message. The database
  * refuses them too.
  */
@@ -107,45 +108,56 @@ export default async function ManageGame() {
 
         <div className="panel">
           <h2>Actions that earn points</h2>
-          <RuleList rules={rules} />
-
-          <h2>Add a new action</h2>
           <p className="note">
-            A new action is listed straight away but is not active: nothing in WaveCenter records it yet, so it earns
-            nothing. An agent wires it to a function, a database trigger and a test; ask for that as a task.
+            Click a name, points, description or what counts to change it; Enter or clicking away saves it, Escape puts it
+            back. The expand button opens the text in a large box. The last row adds a new action: it is listed straight
+            away but is not active, because nothing in WaveCenter records it yet, so it earns nothing. An agent wires it
+            to a function, a database trigger and a test; ask for that as a task.
           </p>
-          <RuleEditor />
+          <RuleTable rules={rules} />
         </div>
       </main>
     </>
   );
 }
 
-function RuleList({ rules }: { rules: Read<ScoringRule[]> }) {
-  if (rules.error !== null) {
-    return <p className="error" role="alert">The scoring rules could not be loaded: {rules.error}. Try reloading the page.</p>;
-  }
-  if (!rules.value.length) {
-    return (
-      <p className="error" role="alert">
-        No scoring rules are set up in the database yet, so there is nothing to manage. The game-layer migration has not
-        been applied.
-      </p>
-    );
-  }
+function RuleTable({ rules }: { rules: Read<ScoringRule[]> }) {
   return (
-    <ul className="rules">
-      {rules.value.map((r) => (
-        <li key={r.kind} className="rule">
-          <h3>
-            {r.name} <span className="note">({r.kind})</span>
-            {!isWired(r.kind) && <span className="badge"> Not active yet</span>}
-          </h3>
-          <Trigger kind={r.kind} />
-          <RuleEditor rule={r} />
-        </li>
-      ))}
-    </ul>
+    <div className="rule-table-wrap">
+      <table className="game rule-table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Kind</th>
+            <th scope="col">Points</th>
+            <th scope="col">Description</th>
+            <th scope="col">What counts</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rules.error !== null ? (
+            <tr>
+              <td colSpan={6}>
+                <p className="error" role="alert">The scoring rules could not be loaded: {rules.error}. Try reloading the page.</p>
+              </td>
+            </tr>
+          ) : !rules.value.length ? (
+            <tr>
+              <td colSpan={6}>
+                <p className="error" role="alert">
+                  No scoring rules are set up in the database yet, so there is nothing to manage. The game-layer migration
+                  has not been applied.
+                </p>
+              </td>
+            </tr>
+          ) : (
+            rules.value.map((r) => <RuleRow key={r.kind} rule={r} active={isWired(r.kind)} detail={<Trigger kind={r.kind} />} />)
+          )}
+          <NewRuleRow />
+        </tbody>
+      </table>
+    </div>
   );
 }
 
