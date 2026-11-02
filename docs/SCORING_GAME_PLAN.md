@@ -125,7 +125,10 @@ kind, set by an admin. The same four parts can apply:
   worth. This is the canon's "continuously voted valuation repository"
   (*White Paper*, "Engagement and Intelligence"), and `docs/DATA_MODEL.md`
   already lists it under "How this grows".
-- **AI score** and **final score** work as for tasks.
+- **AI score** and **final score** work as for tasks. For these granular
+  kinds of action (`docs/DATA_MODEL.md`, "Granular and globular scores"),
+  the AI score is the algorithm in `docs/GRANULAR_SCORING_ALGORITHM.md`,
+  drafted by Claude for Dane to approve.
 
 Whether this is scored per *kind* of action ("voted on a task" is worth N)
 or per *individual* action ("this particular vote" is worth N) is question 7.

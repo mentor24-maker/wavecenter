@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
 import { nameProblem } from './ticketName.mjs';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
 import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
@@ -226,6 +226,12 @@ test('asOf drops columns and skips tables the old database did not have', () => 
   const { tables } = asOf(LIVE, { mergedAt: T, columns: { tasks: ['id', 'status', 'owner_id'] } });
   assert.deepEqual(Object.keys(tables), ['tasks']);
   assert.deepEqual(tables.tasks[0], { id: 't1', status: 'done', owner_id: 'dane' });
+});
+
+test('asOf leaves out a task the Evolution backfill made afterwards, though it is dated earlier', () => {
+  const live = { ...LIVE, tables: { ...LIVE.tables, tasks: [...LIVE.tables.tasks, { id: 't5', owner_id: 'dane', status: 'done', completed_at: before, created_at: before, updated_at: after, parent_task_id: null, priority: 'normal', tool: BACKFILL_TOOL }] } };
+  const { tables } = asOf(live, { mergedAt: T, columns: ALL_COLUMNS });
+  assert.deepEqual(tables.tasks.map((r) => r.id), ['t1', 't2']);
 });
 
 test('asOf refuses a time it cannot read', () => {

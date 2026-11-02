@@ -26,6 +26,11 @@ The path, in order:
 5. The plan is broken into tasks with defined points, and other people are
    invited in through the platform. That is how the project bootstraps itself.
 
+The game layer has two types of score: **granular** (tiny automatic
+actions, valued per kind) and **globular** (values that need thought, such
+as what a task is worth). See `docs/DATA_MODEL.md`, "Granular and globular
+scores".
+
 The to-do list is a seed, not a throwaway prototype. Every design choice must
 leave room for steps 2–5. In particular, a task record carries an owner, a
 status, a parent task and a points value from the very first version.
