@@ -5,6 +5,7 @@ import { ANONYMOUS_SENDER, BODY_MAX, messageEnvelopeNote, REPLY_URL, SUBJECT_MAX
 import { CoreError } from './tool.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 const TOOL = 'wavecenter';
 
@@ -166,6 +167,72 @@ test('a failed save throws, so nothing is reported sent and no email goes', asyn
   messages.failNextSave = true;
   await assert.rejects(sendMessage(stores, mailer, hello, TOOL), /refused to save/);
   assert.equal(sent.length, 0);
+});
+
+function scoredSetup() {
+  const ledger = new MemoryEngagementStore();
+  const base = setup();
+  const messages = new MemoryMessageStore(ledger);
+  messages.emails.set('kim', 'kim@example.com');
+  return { ...base, ledger, messages, stores: { ...base.stores, messages, addresses: messages.addresses } };
+}
+
+test('each message sent to another member records one engagement for the sender, naming its tool', async () => {
+  const { stores, ledger, mailer } = scoredSetup();
+  await sendMessage(stores, mailer, hello, TOOL);
+  await sendMessage(stores, mailer, { ...hello, subject: 'Again' }, 'another-tool');
+  stores.roles.rows.set('kim', { role: 'viewer', tool: 'migration' });
+  stores.messages.signedIn = 'kim';
+  await sendMessage(stores, mailer, { ...hello, senderId: 'kim', recipientId: 'dane' }, TOOL);
+  const points = (await ledger.rules()).find((r) => r.kind === 'send_a_message_to_another_member')!.points;
+  assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
+    { memberId: 'dane', kind: 'send_a_message_to_another_member', points, tool: TOOL, taskId: null },
+    { memberId: 'dane', kind: 'send_a_message_to_another_member', points, tool: 'another-tool', taskId: null },
+    { memberId: 'kim', kind: 'send_a_message_to_another_member', points, tool: TOOL, taskId: null },
+  ]);
+});
+
+test('a message earns what its rule says at the moment it is sent', async () => {
+  const { stores, ledger, mailer } = scoredSetup();
+  ledger.ruleList = ledger.ruleList.map((r) => (r.kind === 'send_a_message_to_another_member' ? { ...r, points: 20 } : r));
+  await sendMessage(stores, mailer, hello, TOOL);
+  assert.deepEqual(ledger.rows.map((e) => e.points), [20]);
+});
+
+test('a refused or failed send scores nothing; a note to oneself is not a message to another member', async () => {
+  const { stores, ledger, messages, mailer } = scoredSetup();
+  await assert.rejects(sendMessage(stores, mailer, { ...hello, subject: ' ' }, TOOL), /needs a subject/);
+  stores.roles.rows.set('sam', { role: 'viewer', tool: 'migration' });
+  await assert.rejects(sendMessage(stores, mailer, { ...hello, senderId: 'sam', grants: { viewer: [] } }, TOOL), /may not message/);
+  messages.failNextSave = true;
+  await assert.rejects(sendMessage(stores, mailer, hello, TOOL), /refused to save/);
+  await sendMessage(stores, mailer, { ...hello, recipientId: 'dane' }, TOOL);
+  assert.equal(messages.rows.length, 1, 'the note to oneself is saved');
+  assert.equal(ledger.rows.length, 0);
+});
+
+test('a message whose engagement cannot be written is not saved, and the send says so', async () => {
+  const { stores, ledger, messages, mailer, sent } = scoredSetup();
+  ledger.failInsert = true;
+  await assert.rejects(sendMessage(stores, mailer, hello, TOOL), /ledger is down/);
+  assert.equal(messages.rows.length, 0);
+  assert.equal(sent.length, 0);
+});
+
+test('a saved message whose email fails still earns its points: the message was sent in WaveCenter', async () => {
+  const { stores, ledger } = scoredSetup();
+  const broken: Mailer = { send: async () => { throw new Error('The email service refused the email.'); } };
+  const outcome = await sendMessage(stores, broken, hello, TOOL);
+  assert.equal(outcome.emailed, false);
+  assert.equal(ledger.rows.length, 1);
+});
+
+test('the database scores every saved message to another member for its sender, inside the same save', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261102130000_score_send_a_message_to_another_member.sql', import.meta.url), 'utf8');
+  assert.match(sql, /create trigger messages_score\s+after insert on public\.messages\s+for each row execute function public\.messages_score\(\);/);
+  assert.match(sql, /if new\.sender_id <> new\.recipient_id then\s+perform public\.record_engagement\(new\.sender_id, 'send_a_message_to_another_member', new\.tool, null\);/);
+  assert.match(sql, /revoke execute on function public\.messages_score\(\) from public, anon, authenticated;/);
+  assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /create table|game_scoring_rules/i, 'no new table, and no rule or points changed');
 });
 
 test('a failed email is reported as not emailed, with the reason, and marked failed', async () => {

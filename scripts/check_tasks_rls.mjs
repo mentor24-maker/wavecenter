@@ -586,6 +586,19 @@ try {
   const burstRefused = burst.filter((r) => r.status >= 400 && r.json?.code === 'WC429').length;
   check('30 sends fired at once get at most 20 addresses; every other is refused with WC429', burstEmailed <= 20 && burstEmailed + burstRefused === 30, `${burstEmailed} looked up, ${burstRefused} refused, ${30 - burstEmailed - burstRefused} other`);
 
+  // Every message saved for another member was scored for its sender, inside
+  // the same save (messages_score); refused sends and a note to oneself
+  // scored nothing. A sent B one, then 30 at once; B sent A 22.
+  const MESSAGE_KIND = 'send_a_message_to_another_member';
+  const messagePoints = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${MESSAGE_KIND}&select=points`)).json?.[0]?.points;
+  const sentTo = async (from, to) => (await admin(`/rest/v1/messages?sender_id=eq.${from.id}&recipient_id=eq.${to.id}&select=id`)).json?.length;
+  const scoredFor = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${MESSAGE_KIND}&select=points,tool,task_id`)).json ?? [];
+  const [aToB, bToA, aScored, bScored] = [await sentTo(a, b), await sentTo(b, a), await scoredFor(a), await scoredFor(b)];
+  check('each message sent to another member records one engagement for its sender, worth what the rule says and naming its tool; a refused send or a note to oneself records none',
+    aToB === 31 && bToA === 22 && aScored.length === aToB && bScored.length === bToA && Number.isInteger(messagePoints)
+      && [...aScored, ...bScored].every((e) => e.points === messagePoints && e.tool === TOOL && e.task_id === null),
+    `A sent B ${aToB}, scored ${aScored.length}; B sent A ${bToA}, scored ${bScored.length}; rule worth ${messagePoints}`);
+
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through
   // core or straight at the tables. A is an admin and B a viewer by now.
@@ -831,7 +844,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
+  // Messages were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=neq.${MESSAGE_KIND}&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -848,7 +862,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

@@ -41,6 +41,7 @@ export const ENGAGEMENT_KINDS = [
   'switched_agents',
   'changed_profile',
   'voted_on_task',
+  'send_a_message_to_another_member',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -119,6 +120,9 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
   { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
+  // Listed by 20261102120000_scoring_actions_sweep.sql, fourth of its rows,
+  // so a fresh database puts it at 14.
+  { kind: 'send_a_message_to_another_member', name: 'Send a message to another member', description: 'Sent a message to a member from Members or Your profile.', criteria: 'A message is saved for its recipient.', points: 1, position: 14 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -226,6 +230,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   voted_on_task: {
     fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',
     test: 'every vote cast, changed or withdrawn is scored for the voter', testFile: 'core/votes.test.ts',
+  },
+  send_a_message_to_another_member: {
+    fn: 'sendMessage', file: 'core/messages.ts', database: 'messages_score',
+    test: 'each message sent to another member records one engagement for the sender, naming its tool', testFile: 'core/messages.test.ts',
   },
 };
 
