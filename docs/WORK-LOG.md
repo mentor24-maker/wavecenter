@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Changing a member's role earns its point (#118)
+
+"Changed a member's role" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin gives a member a
+different role on the Members page, the admin earns the point (1 to start),
+never the member whose role changed. Saving the role a member already has
+is not a change and earns nothing. The database writes the point in the
+same save as the role, so one cannot happen without the other. Game >
+Manage now shows the action as Active, naming the function, the database
+step and the test that prove it.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
