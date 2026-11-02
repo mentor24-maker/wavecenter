@@ -68,15 +68,16 @@ test('posting a comment records one engagement, credited to the member who wrote
   await addComment(tasks, comments, task.id, 'From an agent', 'loop-build');
   assert.deepEqual(ledger.rows.map((e) => [e.kind, e.tool]), [['posted_a_comment', 'wavecenter'], ['posted_a_comment', 'loop-build']]);
 
-  // Editing or removing a comment is not posting one.
+  // Editing or removing a comment is not posting one (removing is its own action).
   await editComment(comments, c.id, 'Second thoughts', 'wavecenter');
   await removeComment(comments, c.id, 'wavecenter');
-  assert.equal(ledger.rows.length, 2);
+  const posted = () => ledger.rows.filter((e) => e.kind === 'posted_a_comment');
+  assert.equal(posted().length, 2);
 
   // The rule decides the worth, at the moment it happens.
   ledger.ruleList.find((r) => r.kind === 'posted_a_comment')!.points = 3;
   await addComment(tasks, comments, task.id, 'Worth more now', 'wavecenter');
-  assert.deepEqual(ledger.rows.map((e) => e.points), [1, 1, 3]);
+  assert.deepEqual(posted().map((e) => e.points), [1, 1, 3]);
 });
 
 test('a comment that fails to save records no engagement, and one whose engagement fails is not saved', async () => {
@@ -209,4 +210,45 @@ test('every edit that changes the words of a comment is scored once, for the mem
   await assert.rejects(editComment(comments, c.id, 'never saved', 'wavecenter'));
   assert.equal(comments.rows.get(c.id)?.body, 'final', 'if the engagement cannot be written, the edit is not saved either, and says so');
   assert.equal(ledger.rows.length, 2);
+});
+
+test('deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it', async () => {
+  const ledger = new MemoryEngagementStore();
+  const tasks = new MemoryTaskStore('dane', ledger);
+  const comments = new MemoryTaskCommentStore('dane', ledger);
+  const remove = tasks.remove.bind(tasks);
+  tasks.remove = async (id, tool) => {
+    const gone = await remove(id, tool);
+    if (gone) comments.dropRowsFor(id);
+    return gone;
+  };
+  const task = await createTask(tasks, { title: 'Plan the launch' }, 'wavecenter');
+  const first = await addComment(tasks, comments, task.id, 'First thought', 'wavecenter');
+  await addComment(tasks, comments, task.id, 'Second thought', 'wavecenter');
+  ledger.rows.length = 0;
+
+  await removeComment(comments, first.id, 'some-agent');
+  assert.equal(ledger.rows.length, 1);
+  assert.deepEqual(
+    { memberId: ledger.rows[0].memberId, kind: ledger.rows[0].kind, points: ledger.rows[0].points, tool: ledger.rows[0].tool, taskId: ledger.rows[0].taskId },
+    { memberId: 'dane', kind: 'deleted_a_comment', points: 1, tool: 'some-agent', taskId: task.id },
+  );
+
+  // A refused remove records nothing.
+  await assert.rejects(removeComment(comments, first.id, 'wavecenter'), /No comment .* remove/);
+  const other = new MemoryTaskCommentStore('someone-else', ledger);
+  for (const [id, c] of comments.rows) other.rows.set(id, c);
+  await assert.rejects(removeComment(other, [...comments.rows.keys()][0], 'wavecenter'), /No comment .* remove/);
+  assert.equal(ledger.rows.length, 1);
+
+  // If the engagement cannot be written, the comment stays and the failure says so.
+  ledger.failInsert = true;
+  const [secondId] = comments.rows.keys();
+  await assert.rejects(removeComment(comments, secondId, 'wavecenter'));
+  assert.ok(comments.rows.has(secondId), 'the comment was not deleted');
+  ledger.failInsert = false;
+
+  await deleteTask(tasks, task.id, 'wavecenter');
+  assert.deepEqual(ledger.rows.map((e) => e.kind), ['deleted_a_comment', 'deleted_task']);
+  assert.equal(comments.rows.size, 0);
 });

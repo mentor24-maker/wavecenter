@@ -43,6 +43,7 @@ export const ENGAGEMENT_KINDS = [
   'voted_on_task',
   'posted_a_comment',
   'edited_a_comment',
+  'deleted_a_comment',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -125,6 +126,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Listed by the sweep migration (20261102120000), so on a fresh database it
   // sits after the ten above and "Posted a comment".
   { kind: 'edited_a_comment', name: 'Edited a comment', description: 'Changed the words of a comment you wrote.', criteria: 'A saved change to a comment.', points: 1, position: 12 },
+  // Listed by the sweep migration too (third of its rows).
+  { kind: 'deleted_a_comment', name: 'Deleted a comment', description: 'Removed a comment you wrote.', criteria: 'A comment is deleted on its own, not by deleting its task.', points: 1, position: 13 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -240,6 +243,11 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   edited_a_comment: {
     fn: 'editComment', file: 'core/comments.ts', database: 'task_comments_score_edit',
     test: 'every edit that changes the words of a comment is scored once, for the member who wrote it', testFile: 'core/comments.test.ts',
+  },
+  deleted_a_comment: {
+    fn: 'removeComment', file: 'core/comments.ts', database: 'task_comments_score_delete',
+    test: 'deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it',
+    testFile: 'core/comments.test.ts',
   },
 };
 

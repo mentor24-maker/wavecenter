@@ -429,8 +429,13 @@ the screen and any future agent path agree. Comments only change through
 can change only the words (and the tool that changed them): a comment never
 moves to another task or another author. Posting a comment is an engagement
 for the member who wrote it (`posted_a_comment`, 1 point to start), recorded
-by the table's trigger `task_comments_score` in the same save; editing or
-deleting one earns nothing yet.
+by the table's trigger `task_comments_score` in the same save. Editing its
+words earns its writer "Edited a comment" (`edited_a_comment`), recorded by
+`task_comments_score_edit`. Deleting a comment on its own earns its writer
+"Deleted a comment" (`deleted_a_comment`, 1 point), recorded by the database
+inside the same delete (`task_comments_score_delete`); a comment that goes
+because its task was deleted earns nothing, since deleting the task was the
+engagement.
 
 Row-level security was on from the moment `task_comments` was made: a member
 reads, adds, edits and deletes only their own comments, and adds them only to
