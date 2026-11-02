@@ -327,8 +327,11 @@ deletes a row. The check asks a helper, `private.may`, which, like
 `removeTeamMember`), which applies the same rules first, checks the slug, and
 names the tool. Making a team is an engagement for the member who made it
 (`made_a_team`, 1 point to start), recorded by the table's trigger
-`teams_score` in the same save; changing or deleting a team, or changing who
-is on it, earns nothing yet.
+`teams_score` in the same save. Each saved change to a team's name, slug or
+description is an engagement for the member who made the change
+(`changed_a_team`, 1 point), recorded in the same save by its own trigger,
+`teams_score_change`; a save that changes nothing earns nothing. Deleting a
+team, or changing who is on it, earns nothing yet.
 
 The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
 for each one, its members through the function `list_team_members`. Like

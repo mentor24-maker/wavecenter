@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryTeamStore } from './memoryTeamStore.ts';
-import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import {
   addTeamMember, checkTeam, createTeam, deleteTeam, mayManageTeams, mayViewTeams, removeTeamMember, slugFromName,
   updateTeam, type TeamDeps,
@@ -75,16 +75,17 @@ test('making a team records one engagement, credited to the member who made it, 
   assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.tool]), [['dane', 'made_a_team', TOOL], ['eddie', 'made_a_team', 'loop-build']]);
 
   // Changing a team, its members or deleting it is not making one.
+  const made = () => ledger.rows.filter((e) => e.kind === 'made_a_team');
   await updateTeam(deps, { actorId: 'dane', teamId: team.id, ...TEST_TEAM, name: 'Renamed' }, TOOL);
   await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
   await removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
   await deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL);
-  assert.equal(ledger.rows.length, 2);
+  assert.equal(made().length, 2);
 
   // The rule decides the worth, at the moment it happens.
   ledger.ruleList.find((r) => r.kind === 'made_a_team')!.points = 3;
   await createTeam(deps, { actorId: 'eddie', name: 'Worth more', slug: '', description: null }, TOOL);
-  assert.deepEqual(ledger.rows.map((e) => e.points), [1, 1, 3]);
+  assert.deepEqual(made().map((e) => e.points), [1, 1, 3]);
 });
 
 test('a team that is refused or fails to save records no engagement, and one whose engagement fails is not saved', async () => {
@@ -183,4 +184,33 @@ test('a save that does not land is reported, never called saved', async () => {
   deps.teams.failNextSave = true;
   await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /not deleted/);
   assert.equal(deps.teams.teams.size, 1);
+});
+
+test('changing a team records one engagement for the member who changed it; a save that changes nothing records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  // Made with no one signed in (as a script on the service key would), so its
+  // own "made_a_team" point does not muddle this ledger.
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  assert.equal(ledger.rows.length, 0, 'making a team is its own action, not this one');
+
+  deps.teams.signedIn = 'eddie';
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed' }, 'team-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['eddie', 'changed_a_team', 1, 'team-tool', null]]);
+
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed' }, TOOL);
+  assert.equal(ledger.rows.length, 1, 'a save that changes nothing is not scored');
+
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed', description: '' }, TOOL);
+  assert.equal(ledger.rows.length, 2, 'clearing the description is a change');
+
+  ledger.failInsert = true;
+  await assert.rejects(updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, slug: 'other' }, TOOL));
+  assert.equal(deps.teams.teams.get(team.id)?.slug, 'test-team', 'a change whose engagement cannot be written is not saved');
+  ledger.failInsert = false;
+
+  await assert.rejects(updateTeam(deps, { actorId: 'vee', teamId: team.id, ...TEST_TEAM, name: 'No' }, TOOL), /Only an admin/);
+  deps.teams.failNextSave = true;
+  await assert.rejects(updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'No' }, TOOL), /did not save/);
+  assert.equal(ledger.rows.length, 2, 'a refused or failed change records nothing');
 });

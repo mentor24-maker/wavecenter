@@ -46,6 +46,7 @@ export const ENGAGEMENT_KINDS = [
   'deleted_a_comment',
   'send_a_message_to_another_member',
   'made_a_team',
+  'changed_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -69,7 +70,7 @@ export interface ScoringRule {
 /** One row of `engagements`: one thing one member did, and what it earned. */
 export interface Engagement {
   id: string;
-  /** Who is credited: the member whose task, file or setting it was, or who voted. */
+  /** Who is credited: the member whose task, file or setting it was, or who voted or changed a team. */
   memberId: string;
   kind: EngagementKind;
   /** Copied from the scoring rule at the moment it happened. */
@@ -134,6 +135,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // so a fresh database puts it at 14.
   { kind: 'send_a_message_to_another_member', name: 'Send a message to another member', description: 'Sent a message to a member from Members or Your profile.', criteria: 'A message is saved for its recipient.', points: 1, position: 14 },
   { kind: 'made_a_team', name: 'Made a team', description: 'Started a new team on the Teams page.', criteria: 'A new team is saved.', points: 1, position: 15 },
+  // Listed by the sweep migration too, sixth of its rows.
+  { kind: 'changed_a_team', name: 'Changed a team', description: "Edited a team's name or details.", criteria: 'A saved change to a team.', points: 1, position: 16 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -262,6 +265,11 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   made_a_team: {
     fn: 'createTeam', file: 'core/teams.ts', database: 'teams_score',
     test: 'making a team records one engagement, credited to the member who made it, naming the tool', testFile: 'core/teams.test.ts',
+  },
+  changed_a_team: {
+    fn: 'updateTeam', file: 'core/teams.ts', database: 'teams_score_change',
+    test: 'changing a team records one engagement for the member who changed it; a save that changes nothing records none',
+    testFile: 'core/teams.test.ts',
   },
 };
 

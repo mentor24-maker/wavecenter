@@ -2,9 +2,14 @@
  * Teams kept in memory, for core's tests. Like the database, a slug is
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
+ *
  * Like the table, it stamps the signed-in member as a team's maker; given an
  * engagement store, it scores making a team the way the table's game-layer
- * trigger does, all-or-nothing.
+ * trigger does, all-or-nothing. It scores changing one the same way
+ * (supabase/migrations/20261102170000_score_changed_a_team.sql): a saved
+ * change to a team's name, slug or description records one "changed_a_team"
+ * engagement for the signed-in member, a save that changes nothing records
+ * none, and if the engagement cannot be written the change is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
@@ -52,6 +57,10 @@ export class MemoryTeamStore implements TeamStore {
     const team = this.teams.get(id);
     if (!team || this.failed()) return null;
     const saved = { ...team, ...fields, tool };
+    const changed = saved.name !== team.name || saved.slug !== team.slug || saved.description !== team.description;
+    if (this.engagements && this.signedIn && changed) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'changed_a_team', tool });
+    }
     this.teams.set(id, saved);
     return saved;
   }

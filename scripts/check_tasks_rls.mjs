@@ -669,6 +669,14 @@ try {
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'editor' }, TOOL);
   const edited = await updateTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id, name: 'RLS check team', slug, description: 'Changed by an editor.' }, TOOL);
   check('an editor changes a team through core', edited.description === 'Changed by an editor.', JSON.stringify(edited));
+  // Changing a team earns the member who changed it one point (teams_score_change);
+  // a save that changes nothing earns none.
+  await updateTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id, name: 'RLS check team', slug, description: 'Changed by an editor.' }, TOOL);
+  const teamScoreB = await call(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.changed_a_team&select=member_id,points,tool,task_id`, { token: b.token });
+  const teamScoreA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.changed_a_team&select=id`);
+  check('changing a team records one engagement for the member who changed it, from the rules, naming its tool; an unchanged save records none',
+    teamScoreB.json?.length === 1 && teamScoreB.json[0].points === 1 && teamScoreB.json[0].tool === TOOL && teamScoreB.json[0].task_id === null && teamScoreA.json?.length === 0,
+    `B ${JSON.stringify(teamScoreB.json)}, A ${JSON.stringify(teamScoreA.json)}`);
   await removeTeamMember(teamDeps(b), { actorId: b.id, teamId: teamA.id, memberId: b.id }, TOOL);
   check('an editor removes a member from a team', !(await teamStore(a).hasMember(teamA.id, b.id)), 'B is still on the team');
   await deleteTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id }, TOOL);
