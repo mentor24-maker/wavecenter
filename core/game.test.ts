@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { ACCOUNT_FALLBACK_TOOL, newAccountData } from './accounts.ts';
 import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore } from './agents.ts';
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
@@ -11,6 +12,7 @@ import {
 import { saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
 import { createTask, deleteTask, updateTask } from './tasks.ts';
+import { MemoryAccountStore } from './memoryAccountStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryTaskFileStore } from './memoryTaskFileStore.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
@@ -37,13 +39,19 @@ test('every kind has a starting rule, and only finishing a task is worth more th
 });
 
 test('the migrations seed exactly the starting rules core knows', () => {
-  const sql = ['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql']
-    .map((file) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'))
-    .join('\n');
-  const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
+  const read = (file: string) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
+  const row = /^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm;
+  const rowsOf = (sql: string) => [...sql.matchAll(row)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"),
+    points: Number(m[5]), position: Number(m[6]),
   }));
-  assert.deepEqual(seeded, STARTING_SCORING_RULES);
+  const seeded = rowsOf(['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql'].map(read).join('\n'));
+  // The sweep places its rows after whatever is there; on a fresh database that is the rules above.
+  const after = Math.max(...seeded.map((r) => r.position));
+  const swept = rowsOf(read('20261102120000_scoring_actions_sweep.sql'))
+    .filter((r) => isWired(r.kind))
+    .map((r) => ({ ...r, position: after + r.position }));
+  assert.deepEqual([...seeded, ...swept], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -203,6 +211,28 @@ test('saving a profile records one engagement each time', async () => {
   assert.deepEqual(kinds(ledger), ['changed_profile', 'changed_profile']);
 });
 
+test('joining WaveCenter records one engagement, credited to the new member, naming the tool', async () => {
+  const ledger = new MemoryEngagementStore();
+  const accounts = new MemoryAccountStore(ledger);
+  const vee = await accounts.create('vee@example.com', newAccountData(' wavecenter '));
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [[vee, 'joined_wavecenter', 1, 'wavecenter', null]]);
+
+  // An email already registered makes no account and records nothing.
+  assert.equal(await accounts.create('vee@example.com', newAccountData('wavecenter')), null);
+  assert.equal(ledger.rows.length, 1);
+
+  // An account made without a tool (the service key) still counts, naming Supabase Auth.
+  const eddie = await accounts.create('eddie@example.com');
+  assert.deepEqual(ledger.rows.slice(1).map((e) => [e.memberId, e.tool]), [[eddie, ACCOUNT_FALLBACK_TOOL]]);
+  assert.throws(() => newAccountData(' '), /must name the tool/);
+
+  // If the engagement cannot be written, the account is not made either.
+  ledger.failInsert = true;
+  await assert.rejects(accounts.create('kai@example.com', newAccountData('wavecenter')), /ledger is down/);
+  assert.equal(accounts.accounts.has('kai@example.com'), false);
+  assert.equal(ledger.rows.length, 2);
+});
+
 test('every kind names the core function that triggers it, its database trigger, and a test that exists', async () => {
   assert.deepEqual(Object.keys(SCORING_TRIGGERS).sort(), [...ENGAGEMENT_KINDS].sort());
   const migrations = readdirSync(new URL('../supabase/migrations/', import.meta.url))
@@ -282,7 +312,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 11 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1 });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -293,7 +323,10 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
   assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
 });
 
-test('the sweep lists each new action once, under the kind the Add form would make, inactive and worth 1', () => {
+/** The sweep's actions that have since been wired, each by its own ticket. */
+const WIRED_SINCE_SWEEP: string[] = ['joined_wavecenter'];
+
+test('the sweep lists each new action once, under the kind the Add form would make, worth 1, inactive until wired', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
   const rows = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3], criteria: m[4], points: Number(m[5]),
@@ -302,11 +335,12 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
   for (const r of rows) {
     assert.equal(r.kind, kindFromName(r.name), r.name);
-    assert.equal(isWired(r.kind), false, `${r.kind} is listed only`);
+    assert.equal(isWired(r.kind), WIRED_SINCE_SWEEP.includes(r.kind), `${r.kind} is listed only, unless its own ticket wired it`);
     assert.equal(r.points, 1, r.kind);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
   }
-  assert.equal(rows.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
+  const unwired = rows.filter((r) => !WIRED_SINCE_SWEEP.includes(r.kind));
+  assert.equal(unwired.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
   assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
