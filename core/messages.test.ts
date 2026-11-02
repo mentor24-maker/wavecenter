@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BODY_MAX, NOT_EMAILED_YET, SUBJECT_MAX, listMessages, mayEmailMessage, messageProblem, sendMessage, type Mailer } from './messages.ts';
+import { BODY_MAX, NOT_EMAILED_YET, SUBJECT_MAX, listMessages, mayEmailMessage, messageEnvelopeNote, messageProblem, sendMessage, type Mailer } from './messages.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
 
@@ -35,7 +35,7 @@ test('the email address goes to the mailer, never back to the caller', async () 
   assert.equal(JSON.stringify(outcome).includes('@'), false);
 });
 
-test('every role may send (Dane, 2026-11-01, "B"): saved, and emailed only when an admin sends, saying why', async () => {
+test('every role may send (Dane, 2026-11-01, "B"): saved, left pending for a later email, and emailed only when an admin sends, saying why', async () => {
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) {
     const { stores, messages, mailer, sent } = setup();
     stores.roles.rows.set('sam', { role, tool: 'migration' });
@@ -43,7 +43,7 @@ test('every role may send (Dane, 2026-11-01, "B"): saved, and emailed only when 
     const outcome = await sendMessage(stores, mailer, { ...hello, senderId: 'sam' }, TOOL);
     assert.deepEqual(outcome, { id: 'message-1', emailed: false, reason: NOT_EMAILED_YET, recorded: true }, role);
     assert.equal(messages.rows[0].senderId, 'sam');
-    assert.equal(messages.rows[0].emailStatus, 'failed');
+    assert.equal(messages.rows[0].emailStatus, 'pending', role);
     assert.equal(sent.length, 0);
   }
   const { stores, messages, mailer } = setup();
@@ -57,6 +57,17 @@ test('only an admin\'s message is emailed, matching the database, which hands an
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) assert.equal(mayEmailMessage(role), false, String(role));
   const sql = readFileSync(new URL('../supabase/migrations/20261101130000_message_every_member.sql', import.meta.url), 'utf8');
   assert.match(sql, /case when private\.member_role\(caller\) = 'admin' then u\.email::text else null end/);
+});
+
+test('the Members page promises an email only to the roles whose message is emailed', () => {
+  assert.match(messageEnvelopeNote('admin'), /emailed to them/);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) {
+    assert.doesNotMatch(messageEnvelopeNote(role), /emailed to them/, String(role));
+    assert.match(messageEnvelopeNote(role), /only an admin’s message is emailed/, String(role));
+  }
+  const page = readFileSync(new URL('../app/members/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /messageEnvelopeNote\(role\.value\)/);
+  assert.doesNotMatch(page, /emailed to them/);
 });
 
 test('a role without Message members may not send; nothing is saved or emailed', async () => {

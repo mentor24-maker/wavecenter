@@ -17,6 +17,10 @@ member picked from a list. As Dane chose, every member may now send, not only
 admins. To protect privacy, a member's message is saved and shown but not
 emailed yet: emailing it the old way would have let any member find out other
 members' email addresses. An admin's messages are still emailed as before.
+The Members page now says the same: only an admin is told their message is
+emailed; everyone else is told it is saved for the recipient to read on Your
+profile. A member's unemailed message is kept marked "waiting to be emailed"
+rather than "email failed", so the follow-up ticket can still email it later.
 
 ---
 

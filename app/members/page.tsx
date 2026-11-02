@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { STARTING_ROLE_PERMISSIONS, mayDo, mayOpenAdmin, memberActions, ROLES } from "../../core/members.ts";
+import { messageEnvelopeNote } from "../../core/messages.ts";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -88,7 +89,7 @@ export default async function Members() {
         <p className="lede">
           Everyone in WaveCenter and their role.{" "}
           {actions.includes("change-role") ? "A role change saves as soon as you pick it." : "Only an admin can change a role."}
-          {actions.includes("message") && " The envelope writes to a member: the message is saved in WaveCenter and emailed to them."}
+          {actions.includes("message") && ` ${messageEnvelopeNote(role.value)}`}
         </p>
         <p className="note">
           Task permissions are recorded but do not change what anyone may do on tasks yet: every member still reads

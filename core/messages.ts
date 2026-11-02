@@ -33,6 +33,17 @@ export function mayEmailMessage(role: RoleKey | null | undefined): boolean {
 export const NOT_EMAILED_YET =
   'Messages from members are saved in WaveCenter, where the recipient reads them on Your profile, but only an admin’s message is emailed for now.';
 
+/**
+ * What the Members page tells `role` its envelope does, from the same rule
+ * that decides whether the message is emailed, so the words never promise an
+ * email that does not go.
+ */
+export function messageEnvelopeNote(role: RoleKey | null | undefined): string {
+  return mayEmailMessage(role)
+    ? 'The envelope writes to a member: the message is saved in WaveCenter and emailed to them.'
+    : 'The envelope writes to a member: the message is saved in WaveCenter, where they read it on Your profile; only an admin’s message is emailed for now.';
+}
+
 /** The longest subject and message the database takes. */
 export const SUBJECT_MAX = 200;
 export const BODY_MAX = 10000;
@@ -78,7 +89,13 @@ export interface Mailer {
   send(email: { to: string; subject: string; text: string }): Promise<void>;
 }
 
-/** What happened. The message is saved in every case; `emailed` says whether the email went too. */
+/**
+ * What happened. The message is saved in every case; `emailed` says whether
+ * the email went too. `recorded` says whether the saved message's email
+ * status is what it should be: a message never offered to the mailer (a
+ * member's, not an admin's) stays `pending`, so a later sender can still
+ * email it, and needs no record.
+ */
 export type MessageOutcome =
   | { id: string; emailed: true; recorded: boolean }
   | { id: string; emailed: false; reason: string; recorded: boolean };
@@ -139,6 +156,10 @@ export async function sendMessage(
       outcome = { emailed: false, reason: err instanceof Error ? err.message : String(err) };
     }
   }
+
+  // Not offered to the mailer at all: leave it pending for the later sender,
+  // never locked as a failed delivery.
+  if (!mayEmailMessage(role)) return { id: saved.id, ...outcome, recorded: true };
 
   const status = outcome.emailed ? 'sent' : 'failed';
   let recorded = false;
