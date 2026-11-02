@@ -43,7 +43,12 @@ test('the migrations seed exactly the starting rules core knows', () => {
   const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
   }));
-  assert.deepEqual(seeded, STARTING_SCORING_RULES);
+  // The sweep lists actions after the ten above, in order; the wired ones are starting rules too.
+  const sweep = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
+  const listed = [...sweep.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)]
+    .filter((m) => isWired(m[1]))
+    .map((m) => ({ kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: seeded.length + Number(m[6]) }));
+  assert.deepEqual([...seeded, ...listed], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -282,7 +287,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 11 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1 });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -302,11 +307,12 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
   for (const r of rows) {
     assert.equal(r.kind, kindFromName(r.name), r.name);
-    assert.equal(isWired(r.kind), false, `${r.kind} is listed only`);
+    // Wired one ticket at a time; until then each is listed only.
+    if (isWired(r.kind)) assert.equal(STARTING_SCORING_RULES.find((s) => s.kind === r.kind)?.name, r.name, `${r.kind} is wired under its listed name`);
     assert.equal(r.points, 1, r.kind);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
   }
-  assert.equal(rows.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
+  assert.equal(rows.filter((r) => !isWired(r.kind)).some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
   assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

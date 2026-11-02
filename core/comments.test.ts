@@ -13,6 +13,8 @@ import {
 import { createTask, deleteTask } from './tasks.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 import { MemoryTaskCommentStore } from './memoryTaskCommentStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
+import { recordEngagement } from './game.ts';
 
 async function setup() {
   const tasks = new MemoryTaskStore('dane');
@@ -135,4 +137,38 @@ test('filterComments matches the words of a formatted comment, not its marks', (
   assert.equal(filterComments(thread, { text: 'contrast', kind: 'both' }).length, 1);
   assert.equal(filterComments(thread, { text: '**dark**', kind: 'both' }).length, 0);
   assert.equal(filterComments([{ body: 'see [the brief](https://docs.example.com/brief)', tool: 'wavecenter', createdAt: '2026-10-28' }], { text: 'docs.example.com', kind: 'both' }).length, 1);
+});
+
+test('every edit that changes the words of a comment is scored once, for the member who wrote it', async () => {
+  const { tasks, comments, task } = await setup();
+  const ledger = new MemoryEngagementStore();
+  // What the task_comments_score trigger does: score the edit inside the
+  // save, credited to the comment's writer, only when the words change.
+  const update = comments.update.bind(comments);
+  comments.update = async (id, body, tool) => {
+    const before = comments.rows.get(id);
+    if (before && before.ownerId === 'dane' && before.body !== body) {
+      await recordEngagement(ledger, { memberId: before.ownerId, kind: 'edited_a_comment', tool, taskId: before.taskId });
+    }
+    return update(id, body, tool);
+  };
+  const c = await addComment(tasks, comments, task.id, 'draft', 'wavecenter');
+  const fromAi = await addComment(tasks, comments, task.id, 'agent note', 'loop-build');
+  assert.equal(ledger.rows.length, 0, 'posting a comment is not an edit');
+  await editComment(comments, c.id, 'final', 'wavecenter');
+  await editComment(comments, c.id, '  final  ', 'wavecenter');
+  await editComment(comments, fromAi.id, 'agent note, updated', 'loop-build');
+  assert.deepEqual(ledger.rows.map((e) => [e.kind, e.memberId, e.tool, e.taskId, e.points]), [
+    ['edited_a_comment', 'dane', 'wavecenter', task.id, 1],
+    ['edited_a_comment', 'dane', 'loop-build', task.id, 1],
+  ], 'one each, and the save that changed nothing is not scored');
+
+  await assert.rejects(editComment(comments, c.id, '   ', 'wavecenter'), /cannot be blank/);
+  await assert.rejects(editComment(comments, fromAi.id, 'rewritten', 'wavecenter'), /written by AI/);
+  assert.equal(ledger.rows.length, 2, 'a refused edit records nothing');
+
+  ledger.failInsert = true;
+  await assert.rejects(editComment(comments, c.id, 'never saved', 'wavecenter'));
+  assert.equal(comments.rows.get(c.id)?.body, 'final', 'if the engagement cannot be written, the edit is not saved either, and says so');
+  assert.equal(ledger.rows.length, 2);
 });
