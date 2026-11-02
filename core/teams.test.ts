@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryTeamStore } from './memoryTeamStore.ts';
 import {
@@ -141,4 +142,32 @@ test('a save that does not land is reported, never called saved', async () => {
   deps.teams.failNextSave = true;
   await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /not deleted/);
   assert.equal(deps.teams.teams.size, 1);
+});
+
+test('changing a team records one engagement for the member who changed it; a save that changes nothing records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  deps.teams.signedIn = 'dane';
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  assert.equal(ledger.rows.length, 0, 'making a team is its own action, not this one');
+
+  deps.teams.signedIn = 'eddie';
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed' }, 'team-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['eddie', 'changed_a_team', 1, 'team-tool', null]]);
+
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed' }, TOOL);
+  assert.equal(ledger.rows.length, 1, 'a save that changes nothing is not scored');
+
+  await updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'Test Team, renamed', description: '' }, TOOL);
+  assert.equal(ledger.rows.length, 2, 'clearing the description is a change');
+
+  ledger.failInsert = true;
+  await assert.rejects(updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, slug: 'other' }, TOOL));
+  assert.equal(deps.teams.teams.get(team.id)?.slug, 'test-team', 'a change whose engagement cannot be written is not saved');
+  ledger.failInsert = false;
+
+  await assert.rejects(updateTeam(deps, { actorId: 'vee', teamId: team.id, ...TEST_TEAM, name: 'No' }, TOOL), /Only an admin/);
+  deps.teams.failNextSave = true;
+  await assert.rejects(updateTeam(deps, { actorId: 'eddie', teamId: team.id, ...TEST_TEAM, name: 'No' }, TOOL), /did not save/);
+  assert.equal(ledger.rows.length, 2, 'a refused or failed change records nothing');
 });

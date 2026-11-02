@@ -43,7 +43,11 @@ test('the migrations seed exactly the starting rules core knows', () => {
   const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
     kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
   }));
-  assert.deepEqual(seeded, STARTING_SCORING_RULES);
+  // The sweep's wired actions too. It seeds each after whatever is there, so
+  // on a fresh database its last column is a place after the rules above.
+  const after = Math.max(...seeded.map((r) => r.position));
+  const swept = sweepRows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: after + ord }));
+  assert.deepEqual([...seeded, ...swept], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -282,7 +286,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 11 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: 17 });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -293,20 +297,33 @@ test('an admin adds a new action: it is listed, inactive, and earns nothing unti
   assert.equal(kindFromName('  Shared a link (to X) '), 'shared_a_link_to_x');
 });
 
-test('the sweep lists each new action once, under the kind the Add form would make, inactive and worth 1', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
-  const rows = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3], criteria: m[4], points: Number(m[5]),
+const SWEEP = new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url);
+
+/** The sweep's rows, with its quoted apostrophes undone. `ord` is each one's place in the sweep. */
+function sweepRows() {
+  const sql = readFileSync(SWEEP, 'utf8');
+  return [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"),
+    points: Number(m[5]), ord: Number(m[6]),
   }));
+}
+
+/** The sweep's actions wired so far: each has its own ticket. */
+const SWEEP_WIRED = ['changed_a_team'];
+
+test('the sweep lists each new action once, under the kind the Add form would make, worth 1, and only the wired ones active', () => {
+  const sql = readFileSync(SWEEP, 'utf8');
+  const rows = sweepRows();
   assert.equal(rows.length, 14);
   assert.equal(new Set(rows.map((r) => r.kind)).size, rows.length, 'no action twice');
   for (const r of rows) {
     assert.equal(r.kind, kindFromName(r.name), r.name);
-    assert.equal(isWired(r.kind), false, `${r.kind} is listed only`);
+    assert.equal(isWired(r.kind), SWEEP_WIRED.includes(r.kind), `${r.kind} is ${SWEEP_WIRED.includes(r.kind) ? 'wired' : 'listed only'}`);
     assert.equal(r.points, 1, r.kind);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
   }
-  assert.equal(rows.some((r) => STARTING_SCORING_RULES.some((s) => s.kind === r.kind || s.name === r.name)), false);
+  const listedBefore = STARTING_SCORING_RULES.filter((s) => !SWEEP_WIRED.includes(s.kind));
+  assert.equal(rows.some((r) => listedBefore.some((s) => s.kind === r.kind || s.name === r.name)), false);
   assert.match(sql, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

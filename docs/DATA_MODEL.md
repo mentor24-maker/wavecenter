@@ -322,6 +322,10 @@ deletes a row. The check asks a helper, `private.may`, which, like
 `removeTeamMember`), which applies the same rules first, checks the slug, and
 names the tool.
 
+Each saved change to a team's name, slug or description is an engagement for
+the member who made it (`changed_a_team`, 1 point), recorded in the same save
+by the trigger `teams_score`. A save that changes nothing earns nothing.
+
 The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
 for each one, its members through the function `list_team_members`. Like
 `list_members`, it shows each member only as their profile allows: their

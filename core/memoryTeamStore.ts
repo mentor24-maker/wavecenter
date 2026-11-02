@@ -2,10 +2,25 @@
  * Teams kept in memory, for core's tests. Like the database, a slug is
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
+ *
+ * Given an engagement store, it also does what the table's game-layer trigger
+ * does (supabase/migrations/20261102130000_score_changed_a_team.sql): a saved
+ * change to a team's name, slug or description records one "changed_a_team"
+ * engagement for the signed-in member, a save that changes nothing records
+ * none, and if the engagement cannot be written the change is not saved either.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
 
 export class MemoryTeamStore implements TeamStore {
+  /** Who is signed in, as the database's auth.uid() is: the member a change is credited to. */
+  signedIn: string | null = null;
+  private readonly engagements: EngagementStore | null;
+
+  constructor(engagements: EngagementStore | null = null) {
+    this.engagements = engagements;
+  }
+
   readonly teams = new Map<string, Team>();
   /** team id → member ids, with the tool that added each. */
   readonly members = new Map<string, Map<string, string>>();
@@ -38,6 +53,10 @@ export class MemoryTeamStore implements TeamStore {
     const team = this.teams.get(id);
     if (!team || this.failed()) return null;
     const saved = { ...team, ...fields, tool };
+    const changed = saved.name !== team.name || saved.slug !== team.slug || saved.description !== team.description;
+    if (this.engagements && this.signedIn && changed) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'changed_a_team', tool });
+    }
     this.teams.set(id, saved);
     return saved;
   }
