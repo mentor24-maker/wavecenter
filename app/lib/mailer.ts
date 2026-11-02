@@ -8,23 +8,22 @@
  * never goes to the browser (engineering rule 3). Without it, there is no
  * mailer, and the Message form says the message was saved but not emailed.
  *
- * Gmail does not let another service send as a gmail.com address, so the
- * email comes from a WaveCenter address (`MESSAGE_FROM`) and replies go to
- * Dane's Gmail (`MESSAGE_REPLY_TO`). Dane chose `noreply@wavecenter.com` on
- * 2026-11-01. The domain is verified in Resend by docs/EMAIL_SETUP.md.
+ * The email comes from a WaveCenter address (`MESSAGE_FROM`; Dane chose
+ * `noreply@wavecenter.com` on 2026-11-01) and has no reply-to address: any
+ * member may send, so a reply must not land in Dane's inbox or show anyone's
+ * address. The text core writes names the sender and says to answer in
+ * WaveCenter (Dane's "A", 2026-11-01). The domain is verified in Resend by
+ * docs/EMAIL_SETUP.md.
  */
 import type { Mailer } from "../../core/messages.ts";
 
 export const DEFAULT_FROM = "WaveCenter <noreply@wavecenter.com>";
-export const DEFAULT_REPLY_TO = "daneofearth@gmail.com";
-const FOOTER = "\n\n--\nSent to you through WaveCenter, https://app.wavecenter.com. Reply to this email to answer.";
 
 /** The Resend mailer, or null when this copy of WaveCenter has no key for it. */
 export function resendMailer(): Mailer | null {
   const key = process.env.RESEND_API_KEY;
   if (!key) return null;
   const from = process.env.MESSAGE_FROM || DEFAULT_FROM;
-  const replyTo = process.env.MESSAGE_REPLY_TO || DEFAULT_REPLY_TO;
   return {
     async send({ to, subject, text }) {
       let res: Response;
@@ -32,7 +31,7 @@ export function resendMailer(): Mailer | null {
         res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from, to: [to], reply_to: replyTo, subject, text: text + FOOTER }),
+          body: JSON.stringify({ from, to: [to], subject, text }),
           signal: AbortSignal.timeout(15000),
         });
       } catch {

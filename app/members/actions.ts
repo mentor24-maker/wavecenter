@@ -11,9 +11,10 @@
  */
 import { revalidatePath } from "next/cache";
 import { setMemberRole, type RoleKey } from "../../core/members.ts";
-import { sendMessage } from "../../core/messages.ts";
+import { sendMessage, senderName } from "../../core/messages.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { resendMailer } from "../lib/mailer";
+import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../lib/memberRoleStore";
 import { serviceAddressBook } from "../lib/messageAddressBook";
 import { supabaseMessageStore } from "../lib/messageStore";
@@ -54,7 +55,8 @@ export type MessageSendResult =
  * A member's message to another member, run on the server through core
  * (sendMessage) as the tool `wavecenter`: saved, then emailed. The
  * recipient's email address is read and used here on the server; it is never
- * part of what comes back.
+ * part of what comes back. The email names the sender and has no reply-to
+ * address (Dane's "A", 2026-11-01).
  *
  * `{ ok: true, emailed: true }` only when the message saved and the email
  * service took the email. A saved message whose email failed says so, with
@@ -76,10 +78,14 @@ export async function sendMemberMessage(recipientId: string, subject: string, bo
     // The database's grants when they can be read; the starting ones
     // otherwise. send_message checks the database's own either way.
     const grants = await readRolesAndPermissions(supabase).then((l) => l.grants, () => undefined);
+    // The email names the sender as other members see them: their display
+    // name only when their profile is public. A failed read keeps them
+    // anonymous, so a hidden name never leaves in an email.
+    const from = senderName(await supabaseMemberProfileStore(supabase, user.id).get().catch(() => null));
     const outcome = await sendMessage(
       { roles: supabaseMemberRoleStore(supabase), messages: supabaseMessageStore(supabase), addresses: serviceAddressBook() },
       resendMailer(),
-      { senderId: user.id, recipientId, subject, body, grants },
+      { senderId: user.id, recipientId, subject, body, senderName: from, grants },
       WAVECENTER_TOOL,
     );
     if (!outcome.recorded) console.error(`members: message ${outcome.id} was saved but its email result was not recorded.`);

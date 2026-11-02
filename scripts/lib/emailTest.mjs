@@ -20,7 +20,7 @@ export function parseTo(argv) {
  * Send one test email. Returns { ok: true, id } when Resend accepted it, or
  * { ok: false, reason } with a plain sentence when it did not.
  */
-export async function sendTestEmail({ key, to, from, replyTo, fetchImpl = fetch }) {
+export async function sendTestEmail({ key, to, from, fetchImpl = fetch }) {
   if (!key) {
     return { ok: false, reason: 'RESEND_API_KEY is missing from Doppler (wavecenter, dev), so no email can be sent. Add it as docs/EMAIL_SETUP.md step 3 says.' };
   }
@@ -32,7 +32,6 @@ export async function sendTestEmail({ key, to, from, replyTo, fetchImpl = fetch 
       body: JSON.stringify({
         from,
         to: [to],
-        reply_to: replyTo,
         subject: 'WaveCenter test email',
         text: 'This is a test email from WaveCenter (npm run email:test). If you can read it, email is working.',
       }),

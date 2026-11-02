@@ -9,7 +9,9 @@ A click-by-click guide for Dane. When it is done:
   an hour.
 
 Email comes from **`WaveCenter <noreply@wavecenter.com>`** (Dane's choice,
-2026-11-01). Replies go to `daneofearth@gmail.com`.
+2026-11-01). A member's message has no reply-to address: it names its
+sender and says to answer on Your profile in WaveCenter, so a reply reaches
+nobody's inbox and shows nobody's address (Dane's "A", 2026-11-01).
 
 Four steps, in order. Allow about 30 minutes, most of it waiting for DNS.
 Only Dane does these steps: three of them involve the secret key, and the key

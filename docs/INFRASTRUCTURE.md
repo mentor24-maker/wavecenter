@@ -289,7 +289,6 @@ dashboard.
 | `CLICKUP_API_TOKEN` | the ClickUp token, a reference to StarCaster's `dev` config | scripts only |
 | `RESEND_API_KEY` | the Resend key (sending access only) that sends members' messages, and, as the SMTP password in Supabase, sign-in links. In `dev` and `prd`; setup in [EMAIL_SETUP.md](EMAIL_SETUP.md) | **server only** |
 | `MESSAGE_FROM` | optional; the address messages come from. Default `WaveCenter <noreply@wavecenter.com>` | server |
-| `MESSAGE_REPLY_TO` | optional; where replies go. Default `daneofearth@gmail.com` | server |
 
 `stg` and `prd` hold the three Supabase names as **references** to `dev`
 (`${wavecenter.dev.<NAME>}`), because there is one Supabase project for now.

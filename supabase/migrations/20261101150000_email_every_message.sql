@@ -61,17 +61,34 @@ grant execute on function public.send_message(uuid, text, text, text) to authent
 -- for a message `sender` sent whose email is still pending, so even the
 -- server cannot use it as a general address lookup. Null when there is no
 -- such message or the recipient has no address.
+--
+-- One member may have at most 20 messages emailed an hour, so nobody can use
+-- WaveCenter to flood inboxes or spend its email allowance. Past that it
+-- refuses with the code WC429; the message stays saved in WaveCenter.
 create or replace function public.message_recipient_email(message uuid, sender uuid)
 returns text
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select u.email::text
+declare
+  address text;
+begin
+  select u.email::text into address
     from public.messages m
     join auth.users u on u.id = m.recipient_id
    where m.id = message and m.sender_id = sender and m.email_status = 'pending';
+  if address is null then
+    return null;
+  end if;
+  if (select count(*) from public.messages m
+       where m.sender_id = sender and m.email_status = 'sent' and m.emailed_at > now() - interval '1 hour') >= 20 then
+    raise exception 'You have emailed 20 messages in the last hour, so this one was not emailed. It is saved in WaveCenter; try again later.'
+      using errcode = 'WC429';
+  end if;
+  return address;
+end;
 $$;
 
 revoke execute on function public.message_recipient_email(uuid, uuid) from public, anon, authenticated;

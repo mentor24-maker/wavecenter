@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { BODY_MAX, MESSAGE_ENVELOPE_NOTE, SUBJECT_MAX, listMessages, messageProblem, sendMessage, type Mailer } from './messages.ts';
+import { ANONYMOUS_SENDER, BODY_MAX, MESSAGE_ENVELOPE_NOTE, REPLY_URL, SUBJECT_MAX, listMessages, messageEmail, messageProblem, senderName, sendMessage, type Mailer } from './messages.ts';
+import { CoreError } from './tool.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
 
@@ -21,12 +22,12 @@ const hello = { senderId: 'dane', recipientId: 'kim', subject: ' Test ', body: '
 
 test('an admin sends a message: it is saved with its tool, emailed, and marked sent', async () => {
   const { stores, messages, mailer, sent } = setup();
-  const outcome = await sendMessage(stores, mailer, hello, TOOL);
+  const outcome = await sendMessage(stores, mailer, { ...hello, senderName: 'Dane' }, TOOL);
   assert.deepEqual(outcome, { id: 'message-1', emailed: true, recorded: true });
   assert.deepEqual(messages.rows, [
     { id: 'message-1', senderId: 'dane', recipientId: 'kim', subject: 'Test', body: 'Hello', tool: TOOL, emailStatus: 'sent', sentAt: messages.rows[0].sentAt },
   ]);
-  assert.deepEqual(sent, [{ to: 'kim@example.com', subject: 'Test', text: 'Hello' }]);
+  assert.deepEqual(sent, [{ to: 'kim@example.com', ...messageEmail('Dane', 'Test', 'Hello') }]);
 });
 
 test('the email address goes to the mailer, never back to the caller', async () => {
@@ -44,8 +45,37 @@ test('every role\'s message is saved, emailed and marked sent, not only an admin
     assert.deepEqual(outcome, { id: 'message-1', emailed: true, recorded: true }, role);
     assert.equal(messages.rows[0].senderId, 'sam');
     assert.equal(messages.rows[0].emailStatus, 'sent', role);
-    assert.deepEqual(sent, [{ to: 'kim@example.com', subject: 'Test', text: 'Hello' }], role);
+    assert.deepEqual(sent, [{ to: 'kim@example.com', ...messageEmail(ANONYMOUS_SENDER, 'Test', 'Hello') }], role);
   }
+});
+
+test('the email names its sender, and says replies are not read and where to answer instead', () => {
+  const email = messageEmail('Kim Lee', 'Plans', 'See you Tuesday.');
+  assert.equal(email.subject, 'Message from Kim Lee: Plans');
+  assert.match(email.text, /^Kim Lee sent you this message through WaveCenter:\n\nSee you Tuesday\.\n\n--\n/);
+  assert.match(email.text, /Replies to this email are not read, and Kim Lee does not see your email address\./);
+  assert.ok(email.text.endsWith(`To answer, open Your profile in WaveCenter and use Send Message: ${REPLY_URL}`));
+  assert.equal(email.text.includes('@'), false);
+});
+
+test('the email shows a sender\'s name only when their profile shows it to other members', () => {
+  assert.equal(senderName({ displayName: ' Kim Lee ', visibility: 'public' }), 'Kim Lee');
+  assert.equal(senderName({ displayName: 'Kim Lee', visibility: 'private' }), ANONYMOUS_SENDER);
+  assert.equal(senderName({ displayName: 'Kim Lee', visibility: 'anonymous' }), ANONYMOUS_SENDER);
+  assert.equal(senderName({ displayName: null, visibility: 'public' }), ANONYMOUS_SENDER);
+  assert.equal(senderName({ displayName: '  ', visibility: 'public' }), ANONYMOUS_SENDER);
+  assert.equal(senderName(null), ANONYMOUS_SENDER);
+});
+
+test('a message sent with no sender name is emailed as from an anonymous member', async () => {
+  const { stores, mailer, sent } = setup();
+  await sendMessage(stores, mailer, { ...hello, senderName: '  ' }, TOOL);
+  assert.equal(sent[0].subject, `Message from ${ANONYMOUS_SENDER}: Test`);
+});
+
+test('the mailer sends no reply-to address, so a reply reaches nobody\'s inbox', () => {
+  const mailer = readFileSync(new URL('../app/lib/mailer.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(mailer, /reply_to|replyTo|gmail/i);
 });
 
 test('the store that saves a message never hands back an address; only the server\'s address book does', async () => {
@@ -170,12 +200,30 @@ test('a failed address lookup is reported as not emailed, never as sent', async 
   assert.equal(sent.length, 0);
 });
 
-test('a recipient with no email address is saved and not emailed', async () => {
+test('a recipient with no email address is saved and not emailed, without guessing why', async () => {
   const { stores, mailer, sent } = setup();
   const outcome = await sendMessage(stores, mailer, { ...hello, recipientId: 'no-address' }, TOOL);
   assert.equal(outcome.emailed, false);
-  assert.match(outcome.emailed ? '' : outcome.reason, /no email address/);
+  assert.equal(outcome.emailed ? '' : outcome.reason, 'WaveCenter found no email address to send this message to.');
   assert.equal(sent.length, 0);
+});
+
+test('a lookup refused in plain words, like the hourly email limit, gives the sender those words', async () => {
+  const { stores, messages, mailer, sent } = setup();
+  const limited = { recipientEmail: async () => { throw new CoreError('You have emailed 20 messages in the last hour, so this one was not emailed.'); } };
+  const outcome = await sendMessage({ ...stores, addresses: limited }, mailer, hello, TOOL);
+  assert.deepEqual(outcome, { id: 'message-1', emailed: false, reason: 'You have emailed 20 messages in the last hour, so this one was not emailed.', recorded: true });
+  assert.equal(messages.rows[0].emailStatus, 'failed');
+  assert.equal(sent.length, 0);
+});
+
+test('the database caps each member at 20 emailed messages an hour, with a code the server reads', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261101150000_email_every_message.sql', import.meta.url), 'utf8');
+  assert.match(sql, /email_status = 'sent' and m\.emailed_at > now\(\) - interval '1 hour'\) >= 20/);
+  assert.match(sql, /errcode = 'WC429'/);
+  const book = readFileSync(new URL('../app/lib/messageAddressBook.ts', import.meta.url), 'utf8');
+  assert.match(book, /^import "server-only";$/m);
+  assert.match(book, /refusal\?\.code === "WC429"/);
 });
 
 test('an email result that does not record still reports the email truthfully', async () => {

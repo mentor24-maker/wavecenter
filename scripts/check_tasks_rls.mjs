@@ -561,6 +561,18 @@ try {
   const afterSent = await lookup({ key: SERVICE }, toBRow?.id, a.id);
   check('once a message is emailed, its address is no longer looked up', afterSent.status === 200 && afterSent.json === null, `HTTP ${afterSent.status} ${JSON.stringify(afterSent.json)?.replace(/[^@\s"]+@/g, '…@')}`);
   check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
+  // One member may have 20 messages emailed an hour; past that the lookup
+  // refuses with WC429 and the message stays saved. B (a viewer) sends 20 to
+  // A, each recorded as emailed, then a 21st.
+  for (let i = 0; i < 20; i += 1) {
+    const sent = await sendRpc(b, { recipient: a.id, subject: `Limit ${i}`, body: 'Hello', tool: TOOL });
+    await recordRpc(b, Array.isArray(sent.json) ? sent.json[0]?.id : null, 'sent');
+  }
+  const overLimit = await sendRpc(b, { recipient: a.id, subject: 'One too many', body: 'Hello', tool: TOOL });
+  const overLimitRow = Array.isArray(overLimit.json) ? overLimit.json[0] : null;
+  const limited = await lookup({ key: SERVICE }, overLimitRow?.id, b.id);
+  const otherSender = await lookup({ key: SERVICE }, toSelfRow?.id, a.id);
+  check('past 20 emailed messages in an hour, the lookup refuses with WC429 and hands back no address; the message is still saved, and another sender is unaffected', !!overLimitRow?.id && limited.status >= 400 && limited.json?.code === 'WC429' && !JSON.stringify(limited.json ?? '').includes('@') && otherSender.status === 200 && otherSender.json === a.email, `HTTP ${limited.status} ${limited.json?.code ?? ''} ${limited.json?.message ?? ''}; other sender HTTP ${otherSender.status}`);
 
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through

@@ -292,6 +292,11 @@ looks the recipient's address up itself through `message_recipient_email`,
 which only the server-only service key may call (`app/lib/messageAddressBook.ts`),
 and which answers only for a still-pending message the named sender sent.
 Every member's message is emailed this way (since 2026-11-01).
+One member may have at most 20 messages emailed an hour; past that the
+lookup refuses (code `WC429`) and the message stays saved, unemailed. The
+email names its sender (their display name only when their profile is
+public) and has no reply-to address: the recipient answers in WaveCenter
+(Dane's "A", 2026-11-01).
 The email result is recorded only through `record_message_email`, by the
 sender, once. There is no screen for reading messages yet (a later ticket).
 

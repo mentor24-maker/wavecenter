@@ -16,6 +16,9 @@
  * names its tool. The recipient's email address comes from an address book
  * the client supplies (the server's, outside the member's session) and goes
  * straight to the mailer: core never hands it to the caller.
+ *
+ * The email names its sender and cannot be replied to: the answer goes back
+ * through WaveCenter, so nobody's address is shown (Dane's "A", 2026-11-01).
  */
 import { mayDo, roleOf, STARTING_ROLE_PERMISSIONS, type MemberRoleStore } from './members.ts';
 import { CoreError, requireTool } from './tool.ts';
@@ -31,6 +34,38 @@ export const MESSAGE_ENVELOPE_NOTE =
 /** The longest subject and message the database takes. */
 export const SUBJECT_MAX = 200;
 export const BODY_MAX = 10000;
+
+/** Where a member answers a message: Messaging on Your profile. */
+export const REPLY_URL = 'https://app.wavecenter.com/profile';
+
+/** What the email calls a sender whose profile does not show their name to other members. */
+export const ANONYMOUS_SENDER = 'An anonymous WaveCenter member';
+
+/**
+ * The name a message's email gives its sender: the same name other members
+ * see on the Members page, so only a public profile's display name. Anything
+ * else, or no profile, is anonymous, and a hidden name never leaves through
+ * an email.
+ */
+export function senderName(profile: { displayName: string | null; visibility: string } | null): string {
+  const name = profile?.visibility === 'public' ? profile.displayName?.trim() : '';
+  return name || ANONYMOUS_SENDER;
+}
+
+/**
+ * The email for a message: the sender is named in the subject and the first
+ * line, and the footer says replies to the email go nowhere and where to
+ * answer instead.
+ */
+export function messageEmail(sender: string, subject: string, body: string): { subject: string; text: string } {
+  return {
+    subject: `Message from ${sender}: ${subject}`,
+    text:
+      `${sender} sent you this message through WaveCenter:\n\n${body}\n\n--\n` +
+      `Replies to this email are not read, and ${sender} does not see your email address. ` +
+      `To answer, open Your profile in WaveCenter and use Send Message: ${REPLY_URL}`,
+  };
+}
 
 export type EmailStatus = 'pending' | 'sent' | 'failed';
 
@@ -71,8 +106,9 @@ export async function listMessages(store: MessageStore, memberId: string): Promi
 /**
  * Where the recipient's email address comes from: never the member's own
  * session, so no member can collect another's address. It answers only for a
- * saved message `senderId` sent that is not yet emailed. Null when the
- * recipient has no address; throws if the lookup fails.
+ * saved message `senderId` sent that is not yet emailed. Null when there is
+ * no address to use; throws if the lookup fails. A CoreError's words reach
+ * the sender as the reason (the hourly email limit is one).
  */
 export interface MessageAddressBook {
   recipientEmail(messageId: string, senderId: string): Promise<string | null>;
@@ -117,6 +153,8 @@ export async function sendMessage(
     recipientId: string;
     subject: string;
     body: string;
+    /** What the email calls the sender (senderName); anonymous when not given. */
+    senderName?: string;
     grants?: Readonly<Record<string, readonly string[]>>;
   },
   tool: string,
@@ -142,18 +180,20 @@ export async function sendMessage(
   } else {
     let to: string | null = null;
     let lookedUp = true;
+    let refusal: string | null = null;
     try {
       to = await stores.addresses.recipientEmail(saved.id, message.senderId);
-    } catch {
+    } catch (err) {
       lookedUp = false;
+      refusal = err instanceof CoreError ? err.message : null;
     }
     if (!lookedUp) {
-      outcome = { emailed: false, reason: 'WaveCenter could not look up the recipient’s email address.' };
+      outcome = { emailed: false, reason: refusal ?? 'WaveCenter could not look up the recipient’s email address.' };
     } else if (!to) {
-      outcome = { emailed: false, reason: 'This member has no email address on file.' };
+      outcome = { emailed: false, reason: 'WaveCenter found no email address to send this message to.' };
     } else {
       try {
-        await mailer.send({ to, subject, text: body });
+        await mailer.send({ to, ...messageEmail(message.senderName?.trim() || ANONYMOUS_SENDER, subject, body) });
         outcome = { emailed: true };
       } catch (err) {
         outcome = { emailed: false, reason: err instanceof Error ? err.message : String(err) };

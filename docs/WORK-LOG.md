@@ -20,6 +20,14 @@ key can look an address up, and only for a message the sender just sent.
 Emails still go out only once the email service key is added (see the
 email setup guide).
 
+After review, Dane chose (his "A") how the email reads: it names who wrote
+it ("Message from Kim Lee"), and clicking Reply goes nowhere; it says to
+answer on Your profile in WaveCenter instead. So a member's message no
+longer looks like it came from Dane, replies no longer land in his Gmail,
+and nobody's address is shown. A sender who keeps their profile private is
+named "An anonymous WaveCenter member". Each member can have at most 20
+messages emailed an hour, so nobody can use WaveCenter to flood inboxes.
+
 ---
 
 ## 2026-11-01 — Dane hears about it when the Mac Mini stops taking Evolution pictures (#97)
