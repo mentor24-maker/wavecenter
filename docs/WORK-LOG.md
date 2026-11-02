@@ -7,6 +7,27 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — A written way to value each game action, for Dane to approve (#103)
+
+Almost every action in the game layer was worth 1 point, so flipping the AI
+agents switch on and off earned as much as attaching a file, and saving the
+same thing over and over earned a point every time. Dane split the game's
+scores into two types. **Granular** scores are for small automatic actions.
+**Globular** scores are for things that need thought to value, such as what
+a task is worth. That split is now written where every session reads it.
+
+A new document gives a simple, checkable way to value each granular action.
+Each action is scored on four things: how much effort it takes, how much it
+helps the project (this counts double), how rare it is, and how easily it
+could be repeated just to collect points. A short formula turns those
+scores into points. The document applies the formula to all 24 actions on
+the list and gives a reason for each. For example, finishing a task would
+go from 5 to 7 points, making a task from 1 to 3, and flipping the switch
+from 1 to 0. Nothing changes until Dane approves the numbers and they are
+entered on Game → Manage.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
