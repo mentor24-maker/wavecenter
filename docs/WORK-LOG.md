@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Ticket names keep Dane's own title (#94)
+
+A ticket made from one of Dane's WaveCenter tasks now keeps his title word
+for word, instead of an agent rewriting it into a long sentence. Only a title
+over 12 words gets shortened, to 12 or fewer. Any other ticket name is 6-12
+plain words. PR titles and Evolution cards copy the ticket name, so they get
+shorter too. The ticket-filing script now turns away a name over 12 words
+before anything is created, so the rule holds even if an agent forgets it.
+
+---
+
 ## 2026-11-01 — Home's boxes sit twice as far apart (#92)
 
 The space between the boxes on the signed-in Home page is doubled, both
