@@ -825,7 +825,7 @@ try {
     `task points ${pointsA}, HTTP ${creditA.status} ${JSON.stringify(creditA.row)}`);
   await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', body: { task_id: taskB } });
   const creditB = await credit();
-  check('a card shows a Private owner by their avatar alone, never their name', creditB.status === 200 && creditB.row?.avatar === 'moon' && creditB.row?.display_name === null,
+  check('a card shows a Private owner\'s points alone, never their avatar, name or privacy setting', creditB.status === 200 && creditB.row?.avatar === null && creditB.row?.display_name === null && !('visibility' in (creditB.row ?? {})),
     `HTTP ${creditB.status} ${JSON.stringify(creditB.row)}`);
   const creditAnon = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', body: {} });
   check('a signed-out visitor cannot read who made each change', creditAnon.status >= 400, `HTTP ${creditAnon.status} ${JSON.stringify(creditAnon.json)}`);

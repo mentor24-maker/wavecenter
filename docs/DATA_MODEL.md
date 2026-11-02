@@ -534,8 +534,9 @@ rebuilds "the data as it stood" and what it cannot show.
 The Evolution view shows only `captured` changes, each labeled with
 `prompt`. A card with a `task_id` also shows who made the change and its
 points (Dane, 2026-11-01), read through `evolution_credits()`: for each such
-card, the task's `points`, its owner's avatar, and their display name only
-when their profile is Public. It never returns the bio, and refuses a
+card, the task's `points`, its owner's avatar unless their profile is
+Private (as on the Members page), and their display name only when their
+profile is Public. It never returns the bio or the privacy setting, and refuses a
 signed-out visitor. Which of those the card shows is `cardCredit` in
 `core/profiles.ts`, the placeholder for the permissions settings to come. `npm run evolution -- words` fills `prompt` and `thread_url` on
 rows recorded before they existed, without retaking any picture.

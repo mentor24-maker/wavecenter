@@ -39,26 +39,30 @@ export type EvolutionCard = {
 /** The creator a card credits (as their profile lets others see them) and the points of the task behind it. */
 export type CardCredit = CreditShown & { points: number };
 
-/** One row of the evolution_credits() read. */
+/** One row of the evolution_credits() read: the avatar is null for a Private profile, the name null unless Public. */
 export type CreditRow = {
   commit_sha: string;
   points: number;
-  avatar: string;
+  avatar: string | null;
   display_name: string | null;
-  visibility: string;
 };
 
 /**
  * The credit for each change that has a WaveCenter task, by commit. What the
  * creator's name and avatar may show is core's cardCredit, the placeholder
- * for the future permissions settings; the database has already left out a
- * name that is not Public.
+ * for the future permissions settings. The database has already left out
+ * what may not be shown and never sends the privacy setting itself, so the
+ * profile is read back from what came through: no avatar is Private, a name
+ * is Public, an avatar alone is Anonymous.
  */
 export function creditsByCommit(rows: CreditRow[]): Map<string, CardCredit> {
-  return new Map(rows.map((r) => [r.commit_sha, {
-    ...cardCredit({ displayName: r.display_name, avatar: r.avatar as MemberProfile["avatar"], visibility: r.visibility as MemberProfile["visibility"] }),
-    points: r.points,
-  }]));
+  return new Map(rows.map((r) => {
+    const visibility: MemberProfile["visibility"] = r.avatar == null ? "private" : r.display_name ? "public" : "anonymous";
+    return [r.commit_sha, {
+      ...cardCredit({ displayName: r.display_name, avatar: r.avatar as MemberProfile["avatar"], visibility }),
+      points: r.points,
+    }];
+  }));
 }
 
 /** "1 point", "12 points". */

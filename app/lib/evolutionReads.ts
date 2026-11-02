@@ -37,14 +37,16 @@ export async function loadEvolution(supabase: Client): Promise<{ cards: Evolutio
   const shown = rows.filter((r) => showsOnScroller(r.capture_state));
   const problems: string[] = [];
   const paths = shown.filter((r) => r.screenshot_path).map((r) => r.screenshot_path as string);
-  const links = paths.length
-    ? await supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
-    : { data: [], error: null };
+  // The picture links, and who made each change and its points (from the
+  // WaveCenter task behind it), read side by side.
+  const [links, got] = await Promise.all([
+    paths.length
+      ? supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc("evolution_credits"),
+  ]);
   if (links.error) problems.push(`The screenshots could not be loaded: ${links.error.message}. Try reloading the page.`);
   const pictures = new Map((links.data ?? []).filter((l) => l.signedUrl).map((l) => [l.path, l.signedUrl]));
-
-  // Who made each change and its points, from the WaveCenter task behind it.
-  const got = await supabase.rpc("evolution_credits");
   if (got.error) problems.push(`Who made each change, and its points, could not be loaded: ${got.error.message}. Try reloading the page.`);
   const credits = creditsByCommit((got.data ?? []) as CreditRow[]);
 

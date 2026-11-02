@@ -82,16 +82,16 @@ test('the arrow keys still step back after Next is clicked to the last change', 
   assert.equal(arrowStep('a'), null);
 });
 
-test('creditsByCommit credits each change to its task owner, with the name only for a Public profile', () => {
+test('creditsByCommit credits each change to its task owner: name only if Public, nothing but points if Private', () => {
   const credits = creditsByCommit([
-    { commit_sha: 'a', points: 5, avatar: 'sun', display_name: 'Dane', visibility: 'public' },
-    { commit_sha: 'b', points: 0, avatar: 'moon', display_name: null, visibility: 'anonymous' },
-    // Should the database ever send a name it should not, core still hides it.
-    { commit_sha: 'c', points: 2, avatar: 'leaf', display_name: 'Hidden', visibility: 'private' },
+    { commit_sha: 'a', points: 5, avatar: 'sun', display_name: 'Dane' },
+    { commit_sha: 'b', points: 0, avatar: 'moon', display_name: null },
+    // A Private owner: the database sends no avatar; should it ever send a name, core still hides it.
+    { commit_sha: 'c', points: 2, avatar: null, display_name: 'Hidden' },
   ]);
   assert.deepEqual(credits.get('a'), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: false, points: 5 });
   assert.deepEqual(credits.get('b'), { avatar: '🌙', avatarLabel: 'Moon', name: null, profileLink: false, points: 0 });
-  assert.equal(credits.get('c')?.name, null);
+  assert.deepEqual(credits.get('c'), { avatar: null, avatarLabel: null, name: null, profileLink: false, points: 2 });
   assert.equal(credits.get('none'), undefined);
 });
 

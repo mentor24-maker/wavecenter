@@ -13,8 +13,9 @@ Each card in the Evolution row on Home now credits the member behind the
 change: their avatar, their name if their profile is set to Public, and
 the points on the WaveCenter task the change came from. This is the first
 place the game layer shows up on a merged change. A member who keeps their
-profile Anonymous or Private is shown by their avatar alone, and nobody's
-bio is ever shown. What a card may show of its creator is decided in one
+profile Anonymous is shown by their avatar alone; one who chose Private is
+not shown at all, just the points, the same as on the Members page (Dane's
+choice). Nobody's bio is ever shown. What a card may show of its creator is decided in one
 spot, so the permissions settings Dane plans can plug in there later. Cards
 with no WaveCenter task linked yet show no credit until the backfill ticket
 gives each one a task.

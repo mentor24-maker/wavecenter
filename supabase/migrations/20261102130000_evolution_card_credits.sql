@@ -27,10 +27,12 @@ update public.evolution_entries e
 -- The credit on every card that has a task: the task's points and what its
 -- owner's profile lets other members see. Visibility is applied here as well
 -- as in core (cardCredit in core/profiles.ts): the name leaves the database
--- only for a Public profile, and the bio never does. A member who never saved
--- a profile is anonymous with the built-in avatar.
+-- only for a Public profile, the avatar never for a Private one (the same as
+-- the Members page; Dane, 2026-11-02), and the bio and the privacy setting
+-- itself never do. A member who never saved a profile is anonymous with the
+-- built-in avatar.
 create or replace function public.evolution_credits()
-returns table (commit_sha text, points integer, avatar text, display_name text, visibility text)
+returns table (commit_sha text, points integer, avatar text, display_name text)
 language plpgsql
 stable
 security definer
@@ -43,9 +45,8 @@ begin
   return query
     select e.commit_sha,
            t.points,
-           coalesce(p.avatar, 'wave'),
-           case when p.visibility = 'public' then p.display_name else null end,
-           coalesce(p.visibility, 'anonymous')
+           case when coalesce(p.visibility, 'anonymous') = 'private' then null else coalesce(p.avatar, 'wave') end,
+           case when p.visibility = 'public' then p.display_name else null end
       from public.evolution_entries e
       join public.tasks t on t.id = e.task_id
       left join public.member_profiles p on p.owner_id = t.owner_id;

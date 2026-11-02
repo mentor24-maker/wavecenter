@@ -218,6 +218,17 @@ async function record(fullRow, pngFile, { keepOld = false } = {}) {
   const row = { ...fullRow };
   if (row.prompt == null) { delete row.prompt; delete row.thread_url; }
   if (row.task_id == null) delete row.task_id;
+  else {
+    // task_id links to tasks, so a ticket naming a task that is gone would
+    // make the whole row's write fail. Leave the link out instead, as the
+    // migration's backfill does.
+    const task = await live(`/rest/v1/tasks?id=eq.${encodeURIComponent(row.task_id)}&select=id`);
+    if (task.status >= 300) throw new RunFailed(`could not check WaveCenter task ${row.task_id} exists: HTTP ${task.status} ${JSON.stringify(task.json)}`);
+    if (!task.json?.length) {
+      console.log(`  WaveCenter task ${row.task_id} no longer exists; the card is recorded with no creator or points`);
+      delete row.task_id;
+    }
+  }
   if (row.capture_state === 'captured') {
     const put = await live(`/storage/v1/object/${BUCKET}/${row.screenshot_path}`, {
       method: 'POST', raw: readFileSync(pngFile), headers: { 'Content-Type': 'image/png', 'x-upsert': 'true' },

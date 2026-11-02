@@ -152,7 +152,8 @@ function short(words: string): string {
 
 /**
  * Who made the change and its points, from the WaveCenter task behind it.
- * The avatar always shows; the name only where core's cardCredit allows it.
+ * The avatar and name show only where core's cardCredit allows them (a
+ * Private creator's card shows the points alone).
  * No profile page exists yet, so `profileLink` is false and the name is
  * plain text; once one does, the name links to it here.
  */
@@ -160,9 +161,11 @@ function Credit({ credit }: { credit: NonNullable<EvolutionCard["credit"]> }) {
   const name = credit.name ? <span className="evolution-creator-name">{credit.name}</span> : null;
   return (
     <p className="evolution-credit">
-      <span className="evolution-avatar" role="img" aria-label={credit.name ? `${credit.avatarLabel} avatar` : `Made by a member shown by the ${credit.avatarLabel} avatar`}>
-        {credit.avatar}
-      </span>
+      {credit.avatar && (
+        <span className="evolution-avatar" role="img" aria-label={credit.name ? `${credit.avatarLabel} avatar` : `Made by a member shown by the ${credit.avatarLabel} avatar`}>
+          {credit.avatar}
+        </span>
+      )}
       {name}
       <span className="evolution-points">{pointsLabel(credit.points)}</span>
     </p>
