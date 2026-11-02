@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { approveTask, createTask, deleteTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
 test('createTask fills in the defaults and records the tool', async () => {
@@ -166,4 +167,32 @@ test('an approval that does not land says so', async () => {
   const task = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
   store.approve = async () => ({ ...(await store.get(task.id))! });
   await assert.rejects(approveTask(store, task.id, 'admin', 'wavecenter'), /did not save/);
+});
+
+test('approving a proposed task records one engagement, credited to the admin who approved it', async () => {
+  const ledger = new MemoryEngagementStore();
+  const store = new MemoryTaskStore('vee', ledger);
+  const approvals = () => ledger.rows.filter((e) => e.kind === 'approved_a_proposed_task').map((e) => [e.memberId, e.points, e.tool, e.taskId]);
+  const task = await createTask(store, { title: 'Idea' }, 'wavecenter', 'contributor');
+  store.signedIn = 'dane';
+  await approveTask(store, task.id, 'admin', 'approve-tool');
+  assert.deepEqual(approvals(), [['dane', 1, 'approve-tool', task.id]]);
+  // The owner's own record of the change stays as it was: one "Changed a task".
+  assert.deepEqual(ledger.rows.filter((e) => e.memberId === 'vee').map((e) => e.kind), ['made_task', 'changed_task']);
+
+  // Refused, already approved, or not a proposed task at all: nothing is recorded.
+  const other = await createTask(store, { title: 'Another idea' }, 'wavecenter', 'contributor');
+  store.signedIn = 'eddie';
+  await assert.rejects(approveTask(store, other.id, 'editor', 'wavecenter'), /Only an admin/);
+  store.signedIn = 'dane';
+  await assert.rejects(approveTask(store, task.id, 'admin', 'wavecenter'), /no longer proposed/);
+  await assert.rejects(approveTask(store, 'task-404', 'admin', 'wavecenter'), /no longer proposed/);
+  const added = await createTask(store, { title: 'An admin task' }, 'wavecenter', 'admin');
+  await updateTask(store, added.id, { status: 'doing' }, 'wavecenter');
+  assert.equal(approvals().length, 1);
+
+  // If the engagement cannot be written, the task is not approved either.
+  ledger.failInsert = true;
+  await assert.rejects(approveTask(store, other.id, 'admin', 'wavecenter'), /ledger is down/);
+  assert.equal((await store.get(other.id))?.status, 'proposed');
 });

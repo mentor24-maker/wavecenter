@@ -486,6 +486,10 @@ try {
   check('an admin approves another member’s proposed task through core, and it becomes todo', approvedB.status === 'todo' && approvedB.ownerId === b.id && approvedB.tool === TOOL, JSON.stringify(approvedB));
   const again = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: a.token, body: { task: skipped.id, tool: TOOL } });
   check('approving a task that is no longer proposed changes nothing', again.status === 200 && Array.isArray(again.json) && again.json.length === 0, `HTTP ${again.status} ${JSON.stringify(again.json)}`);
+  const approvals = await admin(`/rest/v1/engagements?kind=eq.approved_a_proposed_task&task_id=in.(${insA.id},${skipped.id})&select=member_id,points,tool,task_id`);
+  check('approving a proposed task scores 1 for the admin who approved it, once, naming the tool; the service key’s approval scores nobody',
+    approvals.json?.length === 1 && approvals.json[0].member_id === a.id && approvals.json[0].points === 1 && approvals.json[0].tool === TOOL && approvals.json[0].task_id === skipped.id,
+    JSON.stringify(approvals.json));
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);
@@ -835,8 +839,8 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
-    'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'approved_a_proposed_task',
+    'attached_file', 'removed_file', 'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
@@ -848,7 +852,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 20, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

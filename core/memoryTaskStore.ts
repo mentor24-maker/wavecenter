@@ -6,7 +6,9 @@
  *
  * Given an engagement store, it also does what the table's game-layer trigger
  * does: every insert, update and delete records one engagement for the owner,
- * and if that cannot be written the change is not saved either.
+ * and if that cannot be written the change is not saved either. Approving a
+ * proposed task is also scored for `signedIn`, the admin the database would
+ * see as signed in, as `tasks_score_approval` does.
  */
 import { engagementKindForTask, recordEngagement, type EngagementStore } from './game.ts';
 import type { NewTaskRow, Task, TaskRowChanges, TaskStore, UpdateGuard } from './tasks.ts';
@@ -15,6 +17,8 @@ export class MemoryTaskStore implements TaskStore {
   readonly rows = new Map<string, Task>();
   private next = 1;
   private readonly ownerId: string;
+  /** Who the database would see as signed in: the admin credited for an approval. */
+  signedIn: string | null = null;
 
   private readonly engagements: EngagementStore | null;
 
@@ -71,6 +75,11 @@ export class MemoryTaskStore implements TaskStore {
   }
 
   async approve(id: string, tool: string): Promise<Task | null> {
+    if (this.rows.get(id)?.status !== 'proposed') return null;
+    // Score first: if that fails, the task is not approved either, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'approved_a_proposed_task', tool, taskId: id });
+    }
     return this.update(id, { status: 'todo', tool }, { status: 'proposed' });
   }
 
