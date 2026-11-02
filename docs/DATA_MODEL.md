@@ -232,8 +232,8 @@ count** (2026-10-29): `member.read` decides who may list the members, and
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) and **message members** (`member.message`, added by `20261031150000_messages.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and messages members. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) **message members** (`member.message`, added by `20261031150000_messages.sql`) and **edit Home boxes** (`home.edit`, added by `20261102130000_home_boxes.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and edits Home's boxes; every role messages members. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -328,6 +328,29 @@ for each one, its members through the function `list_team_members`. Like
 avatar unless their profile is private, and their name only if it is public.
 No email address leaves the database. `npm run check:tasks-rls` proves all of
 this, on the test database for an unmerged change (`npm run db:test`).
+
+### Home's box words: `home_boxes`
+
+The words in two of Home's boxes, About WaveCenter and What is a DEO, are
+edited from Home itself (Dane, 2026-11-01; he chose "B": only those two for
+now, since the other boxes show lists WaveCenter fills in by itself). A role
+with `home.edit` (**Edit Home boxes**, admins only to start) sees a small
+pencil in each box's lower right; it opens the same rich-text editor as a
+task's Discussion.
+
+| Column | What it holds |
+|---|---|
+| `box` | Which box: `about` or `deo`. One row per box, at most. |
+| `body` | The words, in the comment rich-text format (`core/richText.ts`): plain words with marks for bold, italic, lists and links, never HTML. Up to 2,000 characters, and never only spaces. |
+| `tool` | The tool that last changed them (`wavecenter` for Home). |
+| `updated_by`, `updated_at` | Who changed them last and when, stamped by the database. |
+
+A box with no row shows the words it was built with, which live in
+`core/homeBoxes.ts`. Row-level security was on from the moment the table was
+made: every signed-in member reads it; only a role with `home.edit` adds or
+changes a row, checked by `private.may`. Nobody deletes a row from the
+browser. `saveHomeBox` in `core/homeBoxes.ts` applies the same rules first and
+names the tool.
 
 ### Files attached to a task
 
