@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Changing a team's name or details earns its point (#114)
+
+"Changed a team" was on the Game > Manage list but did nothing yet. Now,
+when a member saves a change to a team's name, short web name or
+description, they earn the point the rule sets (1 for now). The database
+records that point in the same save as the change, so you can't get one
+without the other. Saving a team without changing anything earns nothing,
+and a change that fails earns nothing and still says it failed. The Manage
+screen now shows the action as Active and names the code and the test
+behind it.
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's
