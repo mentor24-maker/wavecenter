@@ -20,6 +20,219 @@ the function, the database step and the test that prove it.
 
 ---
 
+## 2026-11-02 — Changing a member's role earns its point (#118)
+
+"Changed a member's role" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin gives a member a
+different role on the Members page, the admin earns the point (1 to start),
+never the member whose role changed. Saving the role a member already has
+is not a change and earns nothing. The database writes the point in the
+same save as the role, so one cannot happen without the other. Game >
+Manage now shows the action as Active, naming the function, the database
+step and the test that prove it.
+
+---
+
+## 2026-11-02 — Removing a member from a team earns its point (#117)
+
+"Removed a member from a team" was on the Game > Manage list but marked
+"Not active yet", so doing it earned nothing. Now, each time an admin or
+editor takes someone off a team, the person who removed them gets the
+action's point (1 for now). The member who was removed gets nothing. When a
+whole team is deleted, its members go with it, but that does not count as
+removing each of them. The point is saved together with the removal, so if
+the point cannot be written the member stays on the team and the screen
+says it did not work. The test database caught one trap along the way: the
+rule other scoring actions use to spot a team being deleted does not work
+here, so this one checks whether the team still exists instead.
+
+---
+
+## 2026-11-02 — Adding a member to a team earns its point (#116)
+
+"Added a member to a team" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time a member is put on a
+team, the member who did the adding earns the point (1 to start), never
+the member who was added. The database writes the point in the same save
+as the team change, so a team change cannot happen without its point, or
+the point without the change. Game > Manage now shows the action as
+Active, naming the function, the database step and the test that prove it.
+
+---
+
+## 2026-11-02 — Deleting a team earns its point (#115)
+
+"Deleted a team" was on the list of actions on Game > Manage but marked
+"Not active yet", so deleting a team earned nothing. Now, when an admin or
+editor deletes a team, the member who did the deleting gets the points the
+rule says (1 for now, until the points algorithm decides). The database
+records it in the same step as the delete, so the team cannot vanish without
+the point or the other way round. The team's member list goes with it, and
+that is not counted as removing members. Game > Manage now shows the action
+as Active.
+
+---
+
+## 2026-11-02 — Changing a team's name or details earns its point (#114)
+
+"Changed a team" was on the Game > Manage list but did nothing yet. Now,
+when a member saves a change to a team's name, short web name or
+description, they earn the point the rule sets (1 for now). The database
+records that point in the same save as the change, so you can't get one
+without the other. Saving a team without changing anything earns nothing,
+and a change that fails earns nothing and still says it failed. The Manage
+screen now shows the action as Active and names the code and the test
+behind it.
+
+---
+
+## 2026-11-02 — Making a team on the Teams page earns its point (#112)
+
+"Made a team" was already on the Game Manager's list, but marked "Not
+active yet": nothing noticed when a member made a team, so it earned
+nothing. Now the database notices every new team and gives the member who
+made it the point the rule says (1 to start), in the same save, so a team
+and its point always land together or not at all. Changing or deleting a
+team, or changing who is on it, still earns nothing (each has its own
+ticket), and teams made before this went live are not scored backwards.
+Game > Manage now shows the action as Active, with the function, database
+trigger and test that record it.
+
+---
+
+## 2026-11-02 — Sending a message to another member earns its points (#111)
+
+"Send a message to another member" was already on the Game Manager's list
+of actions, but nothing recorded it, so sending a message earned nothing.
+Now, every time a message is saved for another member, the database credits
+the sender with the points the Game Manager says it is worth (20 on the live
+site today), in the same step as saving the message. A message that is
+refused saves nothing and earns nothing, and a note to yourself earns
+nothing, so nobody can collect points by writing to themselves. The Game
+Manager now shows the action as Active, and names the code and the test that
+prove it works.
+
+---
+
+## 2026-11-02 — Deleting your comment on a task earns its point (#110)
+
+"Deleted a comment" was on the Game Manager's list of actions but marked
+"Not active yet", so deleting a comment earned nothing. Now it is wired: each
+time a member deletes one of their own comments, the database gives them the
+point the rule says (1 for now), in the same step as the delete, so one can
+never happen without the other. A comment that disappears only because its
+whole task was deleted earns nothing extra, because deleting the task was
+the action and it is already scored. Tests prove both, in memory and on the
+private test database, and Game > Manage now shows the action as Active.
+
+---
+
+## 2026-11-02 — Editing your comment on a task earns its point (#109)
+
+"Edited a comment" was on the Game → Manage list but marked "Not active
+yet", so editing a comment earned nothing. Now, each time a member saves a
+change to the words of one of their comments, they earn the points the
+rule says (1 for now; an admin can change it on Game → Manage). Saving a
+comment without changing its words earns nothing. The point is recorded
+inside the same save as the edit, so if it cannot be recorded, the edit is
+not saved either, and the screen says so. Tests prove one point per edit,
+for the right member, both in the core and on the test database.
+
+---
+
+## 2026-11-02 — Posting a comment on a task earns its point (#108)
+
+"Posted a comment" was already on the Game Manager's list, but marked "Not
+active yet": nothing noticed when a member posted a comment, so it earned
+nothing. Now the database notices every new comment and gives its writer
+the point the rule says (1 to start), in the same save, so a comment and
+its point always land together or not at all. Editing or deleting a comment
+still earns nothing (each has its own ticket), and comments posted before
+this went live are not scored backwards. Game > Manage now shows the action
+as Active, with the function, database trigger and test that record it.
+
+---
+
+## 2026-11-02 — Every change Dane asks for in a chat starts as his WaveCenter task (#107)
+
+Until now, when Dane asked for a change in a Claude Code chat, it went
+straight to a ClickUp ticket, with nothing on his WaveCenter list behind it,
+so its Evolution card could not say who asked or what it was worth. 43 of
+the first 95 cards came that way. Now the agent makes the WaveCenter task
+first, owned by Dane, with his own words in it, then files the ticket from
+it and links the two. The task is only marked as "with the AI agents" once
+the ticket is safely linked, in a single step, so the lane that turns his
+ticked tasks into tickets can never file the same work twice. When the
+change goes live, the task is marked done on its own. The picture-taking
+run on the Mac Mini now also calls out, by name, any change that still has
+no WaveCenter task behind it, so a gap is seen instead of silent.
+
+---
+
+## 2026-11-02 — An admin edits the words in two Home boxes from Home itself (#105)
+
+The words in Home's About WaveCenter and What is a DEO boxes used to be
+written into the code, so changing them took a programmer. Now an admin
+sees a small pencil in the lower right of each of those two boxes; it opens
+the same editor used for task comments, already holding the words, and
+saving shows the new words to every member. Dane chose to start with just
+those two boxes, since the others show lists WaveCenter fills in itself. A
+new permission, Edit Home boxes, decides who gets the pencil: admins only to
+start, and it can be given to other roles later. The database itself refuses
+anyone without it, and a test proves that.
+
+---
+
+## 2026-11-02 — A written way to value each game action, for Dane to approve (#103)
+
+Almost every action in the game layer was worth 1 point, so flipping the AI
+agents switch on and off earned as much as attaching a file, and saving the
+same thing over and over earned a point every time. Dane split the game's
+scores into two types. **Granular** scores are for small automatic actions.
+**Globular** scores are for things that need thought to value, such as what
+a task is worth. That split is now written where every session reads it.
+
+A new document gives a simple, checkable way to value each granular action.
+Each action is scored on four things: how much effort it takes, how much it
+helps the project (this counts double), how rare it is, and how easily it
+could be repeated just to collect points. A short formula turns those
+scores into points. The document applies the formula to all 24 actions on
+the list and gives a reason for each. For example, finishing a task would
+go from 5 to 7 points, making a task from 1 to 3, and flipping the switch
+from 1 to 0. Nothing changes until Dane approves the numbers. This is the
+first slice: next comes a batch job Dane starts from the Admin page, which
+works the formula out for every action and puts the values live when he
+accepts them, with no AI service needed.
+
+---
+
+## 2026-11-02 — Every old Evolution card gets a WaveCenter task, owned by Dane (#106)
+
+Each Evolution card is meant to have a WaveCenter task behind it, so it can
+show who it credits and what it is worth. About 45 of the old cards came
+from chat requests or the founding commits and had none. The database now
+records which task each card belongs to, and a one-off script fills it in:
+a card that came from a WaveCenter task is linked to that task, and every
+other card is given a finished task owned by Dane, worth 0 points for now,
+dated when its change merged, with his words in its notes where the card
+has them. Making those tasks hands out no points, because nobody did new
+work today. The script can be run again safely (it skips cards that already
+have a task), and a practice mode shows what it would do without writing
+anything. Old Evolution pictures leave these tasks out, since they did not
+exist back then. The script runs on the live data once this change merges.
+
+---
+
+## 2026-11-01 — The Evolution row opens on the oldest change (#102)
+
+The Evolution of WaveCenter row on Home used to open at its right end, on
+the newest change, so reading the story from the start meant scrolling all
+the way back. Now it opens at the left end, on the very first change (the
+placeholder page from October 11), and the right arrow walks forward
+through WaveCenter's history. Nothing else about the row changed.
+
+---
+
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
 Until now only an admin's message went to the recipient's inbox. A member's

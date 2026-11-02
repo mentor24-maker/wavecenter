@@ -139,7 +139,11 @@ async function requireTeam(deps: TeamDeps, teamId: string): Promise<Team> {
   return team;
 }
 
-/** `actorId` makes a team, on behalf of `tool`. */
+/**
+ * `actorId` makes a team, on behalf of `tool`. Making one earns "Made a team"
+ * (core/game.ts) for the member who made it, recorded by the table's trigger
+ * inside the same save.
+ */
 export async function createTeam(
   deps: TeamDeps,
   change: { actorId: string } & TeamInput,
@@ -172,7 +176,12 @@ export async function updateTeam(
   return saved;
 }
 
-/** `actorId` deletes a team and its member links, never a member account, on behalf of `tool`. */
+/**
+ * `actorId` deletes a team and its member links, never a member account, on
+ * behalf of `tool`. Deleting one earns "Deleted a team" (core/game.ts) for the
+ * member who deleted it, recorded by the table's trigger inside the same
+ * delete; its members leaving with it earn nothing.
+ */
 export async function deleteTeam(deps: TeamDeps, change: { actorId: string; teamId: string }, tool: string): Promise<void> {
   const named = requireTool(tool);
   await requireManager(deps, change.actorId, 'delete a team');
@@ -180,7 +189,11 @@ export async function deleteTeam(deps: TeamDeps, change: { actorId: string; team
   if (!(await deps.teams.remove(change.teamId, named))) throw new CoreError('The team was not deleted. Try again.');
 }
 
-/** `actorId` puts `memberId` on a team, on behalf of `tool`. */
+/**
+ * `actorId` puts `memberId` on a team, on behalf of `tool`. The database
+ * scores it for whoever is signed in, the member who added them
+ * (`added_a_member_to_a_team`, supabase/migrations/20261102131000_score_added_a_member_to_a_team.sql).
+ */
 export async function addTeamMember(
   deps: TeamDeps,
   change: { actorId: string; teamId: string; memberId: string },
@@ -196,7 +209,12 @@ export async function addTeamMember(
   }
 }
 
-/** `actorId` takes `memberId` off a team, on behalf of `tool`. Their account is untouched. */
+/**
+ * `actorId` takes `memberId` off a team, on behalf of `tool`. Their account
+ * is untouched. The database scores it for whoever is signed in, the member
+ * who removed them (`removed_a_member_from_a_team`,
+ * supabase/migrations/20261102132000_score_removed_a_member_from_a_team.sql).
+ */
 export async function removeTeamMember(
   deps: TeamDeps,
   change: { actorId: string; teamId: string; memberId: string },
