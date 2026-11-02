@@ -315,6 +315,10 @@ test('the sweep lists each new action once, under the kind the Add form would ma
     const starting = STARTING_SCORING_RULES.find((s) => s.kind === r.kind || s.name === r.name);
     assert.equal(Boolean(starting), isWired(r.kind), `${r.kind} is a starting rule exactly when it is wired`);
   }
+  assert.equal(isWired('posted_a_comment'), true);
+  assert.equal(isWired('edited_a_comment'), true);
+  assert.equal(isWired('deleted_a_comment'), true);
+  assert.equal(isWired('send_a_message_to_another_member'), true);
   assert.equal(isWired('made_a_team'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');

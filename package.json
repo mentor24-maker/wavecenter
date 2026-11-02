@@ -23,7 +23,8 @@
     "check:browser-secrets": "node scripts/check_browser_secrets.mjs",
     "db:test": "node scripts/db_test.mjs",
     "email:test": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/email_test.mjs",
-    "evolution": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_capture.mjs"
+    "evolution": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_capture.mjs",
+    "evolution:tasks": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_backfill_tasks.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

@@ -75,17 +75,19 @@ export function guardQuery(guard = {}) {
 }
 
 /**
- * @param {{ url: string, apiKey: string, token: string, ownerId?: string, fetch?: typeof fetch }} options
+ * @param {{ url: string, apiKey: string, token: string, ownerId?: string, owner?: string, fetch?: typeof fetch }} options
  *   `token` is normally the signed-in member's access token, so row-level
  *   security applies exactly as it does in the browser; then pass that
  *   member's `ownerId` too. Every member may read every task, but core's
  *   `get` means "a task the caller may change", so it asks only for theirs.
  *   The loop-handoff lane on the Mini passes the service key instead, which
  *   sees and changes every member's tasks, and no `ownerId`; that key never
- *   leaves the server (engineering rule 3).
+ *   leaves the server (engineering rule 3). With the service key there is no
+ *   signed-in member to own a new task, so `owner` names the member new tasks
+ *   are made for (loop-spec makes Dane's); it is never a column core writes.
  * @returns {TaskStore}
  */
-export function restTaskStore({ url, apiKey, token, ownerId, fetch: fetchFn = fetch }) {
+export function restTaskStore({ url, apiKey, token, ownerId, owner, fetch: fetchFn = fetch }) {
   async function call(path, method, body, extraHeaders = {}) {
     const res = await fetchFn(`${url}/rest/v1/${path}`, {
       method,
@@ -105,7 +107,7 @@ export function restTaskStore({ url, apiKey, token, ownerId, fetch: fetchFn = fe
 
   return {
     async insert(row) {
-      const [made] = await call('tasks', 'POST', toRow(row));
+      const [made] = await call('tasks', 'POST', owner ? { ...toRow(row), owner_id: owner } : toRow(row));
       if (!made) throw new Error('tasks POST returned no row; the task may not have been saved');
       return fromRow(made);
     },

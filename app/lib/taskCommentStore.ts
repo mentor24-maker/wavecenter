@@ -7,6 +7,7 @@
  */
 import type { NewTaskCommentRow, TaskComment, TaskCommentStore } from "../../core/comments.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -47,8 +48,8 @@ export function supabaseTaskCommentStore(supabase: Client): TaskCommentStore {
       if (error) failed("save the comment", error);
       return data ? commentFromRow(data) : null;
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("task_comments").delete().eq("id", id).select("id");
+    async remove(id, tool) {
+      const { data, error } = await supabase.from("task_comments").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("remove the comment", error);
       return (data?.length ?? 0) > 0;
     },
