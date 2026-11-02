@@ -40,10 +40,10 @@ import {
 import { buildCard, cardSurvived, findBlockquoteLines, CONTEXT_MIN_WORDS, CONTEXT_MAX_WORDS } from './lib/operatorCard.mjs';
 import { stampCommentBody, isCommentPostPath, isMachineComment, stripMachineMarker } from './lib/machineComment.mjs';
 import {
-  nextHandOff, recordHandOff, serviceDb, syncBack, taskLine, ticketPriority as ticketPriorityOf, ticketUrl, FROM_WAVECENTER_TAG,
+  nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, serviceDb, syncBack, taskLine, ticketPriority as ticketPriorityOf, ticketUrl, FROM_WAVECENTER_TAG,
   emptyTakes, withTake, skipLine, SKIP_AFTER_TAKES,
 } from './lib/handoff.mjs';
-import { CoreError, LOOP_HANDOFF_TOOL } from '../core/tool.ts';
+import { CoreError, LOOP_HANDOFF_TOOL, LOOP_SPEC_TOOL } from '../core/tool.ts';
 import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
   conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
@@ -186,6 +186,13 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
                                                   already had one — close the duplicate ticket)
   handoff-sync                                    finished tickets back to their tasks: Live -> done; Live with
                                                   wont-do or deferred -> todo, unticked, with a note
+  chat-task --title "..." [--notes-file <f|->] [--points n] [--priority p]
+                                                  loop-spec: make the WaveCenter task, owned by Dane, for work he
+                                                  asked for in a chat, as JSON (id, taskLine, tag). Unticked, so
+                                                  the hand-off lane never files it
+  chat-record --task <wavecenter-id> --ticket <clickup-id>
+                                                  loop-spec: record the ticket filed for that task, through core
+                                                  (exit 3: it already had one — close the duplicate ticket)
 
 Statuses (matched case-insensitively): ${STAGE_ORDER.join(' / ')}.
 Two are Dane's and only \`ask\` may set them: ${OPERATOR_STATUSES.map((s) => DISPLAY[s]).join(', ')}.
@@ -933,6 +940,48 @@ if (cmd === 'whoami') {
 
   log(`merge lane done: ${merged} merged and set Live, ${requeued} answered ticket(s) requeued${dry ? ' (dry run: counts are what WOULD happen)' : ''}`);
   reportLimits();
+
+} else if (cmd === 'chat-task' || cmd === 'chat-record') {
+  // Every change Dane asks for starts as a WaveCenter task (Dane, 2026-11-01:
+  // "Yes, always a task"), chat requests included, so each Evolution card can
+  // credit him. loop-spec makes his task, files the ticket, then records it.
+  let db;
+  try {
+    db = serviceDb({ url: process.env.SUPABASE_URL, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, owner: DANE_MEMBER_ID });
+  } catch (err) { console.error(err.message); process.exit(1); }
+
+  if (cmd === 'chat-task') {
+    const title = arg('title');
+    if (!title) usage();
+    const notesFile = arg('notes-file');
+    const points = arg('points') === null ? 0 : Number(arg('points'));
+    let t;
+    try {
+      t = await createChatTask({
+        db, title, notes: notesFile ? readBody(notesFile) : null, points, priority: arg('priority', 'normal'), tool: LOOP_SPEC_TOOL,
+      });
+    } catch (err) { console.error(`NOT made, nothing was saved: ${err.message}`); process.exit(1); }
+    console.log(JSON.stringify({ id: t.id, title: t.title, notes: t.notes, points: t.points, status: t.status, taskLine: taskLine(t.id), tag: FROM_WAVECENTER_TAG }, null, 2));
+    console.error(`Made task ${t.id} "${t.title}" for Dane (${t.status}, ${t.points} point(s)). File its ticket, then: npm run clickup -- chat-record --task ${t.id} --ticket <ticket-id>`);
+  } else {
+    const task = arg('task'), ticket = arg('ticket');
+    if (!task || !ticket) usage();
+    const out = await call('GET', `/api/v2/task/${encodeURIComponent(ticket)}?include_markdown_description=true`);
+    if (!out.res.ok) die(`read ticket ${ticket} back (the task was NOT changed)`, out);
+    try {
+      const saved = await recordChatTicket({ db, ticket: out.json, taskId: task, listId: LOOP_QUEUE_LIST, tool: LOOP_SPEC_TOOL });
+      console.log(`Task ${task} "${saved.title}": now with AI agents, status ${saved.status}, ticket ${saved.agentTicketUrl}.`);
+    } catch (err) {
+      if (err instanceof CoreError && /already handed|another pass first/.test(err.message)) {
+        console.error(`NOT recorded: ${err.message}`);
+        console.error(`Ticket ${ticketUrl(ticket)} is a duplicate. Close it: tag wont-do, comment why, status Live.`);
+        process.exit(3);
+      }
+      console.error(`NOT recorded, and task ${task} was left as it was: ${err.message}`);
+      process.exit(1);
+    }
+    reportLimits();
+  }
 
 } else if (cmd === 'handoff-next' || cmd === 'handoff-record' || cmd === 'handoff-sync') {
   // THE HAND-OFF LANE's database side (.claude/skills/loop-handoff). The

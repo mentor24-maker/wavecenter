@@ -139,7 +139,11 @@ async function requireTeam(deps: TeamDeps, teamId: string): Promise<Team> {
   return team;
 }
 
-/** `actorId` makes a team, on behalf of `tool`. */
+/**
+ * `actorId` makes a team, on behalf of `tool`. Making one earns "Made a team"
+ * (core/game.ts) for the member who made it, recorded by the table's trigger
+ * inside the same save.
+ */
 export async function createTeam(
   deps: TeamDeps,
   change: { actorId: string } & TeamInput,
@@ -172,7 +176,12 @@ export async function updateTeam(
   return saved;
 }
 
-/** `actorId` deletes a team and its member links, never a member account, on behalf of `tool`. */
+/**
+ * `actorId` deletes a team and its member links, never a member account, on
+ * behalf of `tool`. Deleting one earns "Deleted a team" (core/game.ts) for the
+ * member who deleted it, recorded by the table's trigger inside the same
+ * delete; its members leaving with it earn nothing.
+ */
 export async function deleteTeam(deps: TeamDeps, change: { actorId: string; teamId: string }, tool: string): Promise<void> {
   const named = requireTool(tool);
   await requireManager(deps, change.actorId, 'delete a team');

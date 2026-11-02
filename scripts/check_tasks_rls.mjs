@@ -26,7 +26,9 @@
  * functions, with the change counting from the next engagement
  * (`public.game_scoring_rules`); and that every member reads the Evolution
  * rows and screenshots but only the service key writes them
- * (`public.evolution_entries` and the private `evolution` bucket).
+ * (`public.evolution_entries` and the private `evolution` bucket); and that
+ * every member reads the words in Home's boxes but only an admin changes
+ * them (`public.home_boxes`), which are put back as they were afterwards.
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -47,6 +49,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
+import { saveHomeBox } from '../core/homeBoxes.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -219,8 +222,8 @@ function commentStore(member) {
       if (got.status >= 300) throw new Error(`task_comments update failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return fromRow(got.json?.[0]) ?? null;
     },
-    async remove(id) {
-      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+    async remove(id, tool) {
+      const got = await call(`/rest/v1/task_comments?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool });
       return Array.isArray(got.json) && got.json.length > 0;
     },
   };
@@ -274,6 +277,23 @@ function roleStore(member) {
   };
 }
 
+/** A HomeBoxStore (core/homeBoxes.ts) over REST, acting as one member. */
+function homeBoxStore(member) {
+  const fromRow = (r) => r && { box: r.box, body: r.body, tool: r.tool, updatedAt: r.updated_at, updatedBy: r.updated_by };
+  return {
+    async list() {
+      return ((await call('/rest/v1/home_boxes?select=*', { token: member.token })).json ?? []).map(fromRow);
+    },
+    async save(box, body, tool) {
+      const got = await call('/rest/v1/home_boxes?on_conflict=box', {
+        method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation', body: { box, body, tool },
+      });
+      if (got.status >= 300) throw new Error(`home_boxes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return fromRow(got.json?.[0]) ?? null;
+    },
+  };
+}
+
 /** A TeamStore (core/teams.ts) over REST, acting as one member. */
 function teamStore(member) {
   const fromRow = (r) => r && { id: r.id, name: r.name, slug: r.slug, description: r.description, tool: r.tool, createdAt: r.created_at, createdBy: r.created_by };
@@ -298,8 +318,8 @@ function teamStore(member) {
     async update(id, fields, tool) {
       return fromRow(rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body: { ...fields, tool } }), 'teams update')[0]) ?? null;
     },
-    async remove(id) {
-      return rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'teams delete').length > 0;
+    async remove(id, tool) {
+      return rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool }), 'teams delete').length > 0;
     },
     async hasMember(teamId, memberId) {
       return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}&select=member_id`, { token: member.token }), 'team_members read').length > 0;
@@ -586,6 +606,19 @@ try {
   const burstRefused = burst.filter((r) => r.status >= 400 && r.json?.code === 'WC429').length;
   check('30 sends fired at once get at most 20 addresses; every other is refused with WC429', burstEmailed <= 20 && burstEmailed + burstRefused === 30, `${burstEmailed} looked up, ${burstRefused} refused, ${30 - burstEmailed - burstRefused} other`);
 
+  // Every message saved for another member was scored for its sender, inside
+  // the same save (messages_score); refused sends and a note to oneself
+  // scored nothing. A sent B one, then 30 at once; B sent A 22.
+  const MESSAGE_KIND = 'send_a_message_to_another_member';
+  const messagePoints = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${MESSAGE_KIND}&select=points`)).json?.[0]?.points;
+  const sentTo = async (from, to) => (await admin(`/rest/v1/messages?sender_id=eq.${from.id}&recipient_id=eq.${to.id}&select=id`)).json?.length;
+  const scoredFor = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${MESSAGE_KIND}&select=points,tool,task_id`)).json ?? [];
+  const [aToB, bToA, aScored, bScored] = [await sentTo(a, b), await sentTo(b, a), await scoredFor(a), await scoredFor(b)];
+  check('each message sent to another member records one engagement for its sender, worth what the rule says and naming its tool; a refused send or a note to oneself records none',
+    aToB === 31 && bToA === 22 && aScored.length === aToB && bScored.length === bToA && Number.isInteger(messagePoints)
+      && [...aScored, ...bScored].every((e) => e.points === messagePoints && e.tool === TOOL && e.task_id === null),
+    `A sent B ${aToB}, scored ${aScored.length}; B sent A ${bToA}, scored ${bScored.length}; rule worth ${messagePoints}`);
+
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through
   // core or straight at the tables. A is an admin and B a viewer by now.
@@ -599,6 +632,10 @@ try {
   check('the database refuses a malformed slug', badSlug.status >= 400, `HTTP ${badSlug.status} ${badSlug.json?.message ?? ''}`);
   const forgedMaker = await call('/rest/v1/teams', { method: 'POST', token: a.token, body: { name: 'Forged', slug: `${slug}-x`, created_by: b.id } });
   check('nobody can record someone else as a team’s maker', forgedMaker.status >= 400, `HTTP ${forgedMaker.status} ${forgedMaker.json?.message ?? ''}`);
+  // Making a team is scored by the table's trigger: once, for its maker.
+  const madeTeamA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_a_team&select=points,tool,task_id`);
+  check('making a team records one engagement, credited to its maker, naming the tool, and a refused team records none',
+    JSON.stringify(madeTeamA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]), JSON.stringify(madeTeamA.json));
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: a.id }, TOOL);
   await addTeamMember(teamDeps(a), { actorId: a.id, teamId: teamA.id, memberId: b.id }, TOOL);
   const addedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.added_a_member_to_a_team&select=points,tool,task_id`);
@@ -620,6 +657,8 @@ try {
   check('a viewer cannot make a team through core', /Only an admin or an editor/.test(refusedTeam), refusedTeam || 'the team was made');
   const forgedTeam = await call('/rest/v1/teams', { method: 'POST', token: b.token, body: { name: 'Viewer team', slug: `${slug}-v` } });
   check('a viewer cannot make a team straight at the table', forgedTeam.status >= 400, `HTTP ${forgedTeam.status} ${forgedTeam.json?.message ?? ''}`);
+  const madeTeamB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.made_a_team&select=id`);
+  check('a team that was refused records no engagement', madeTeamB.json?.length === 0, JSON.stringify(madeTeamB.json));
   const renameB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'Hijacked' } });
   check('a viewer cannot change a team', renameB.status >= 400 || (Array.isArray(renameB.json) && renameB.json.length === 0), `HTTP ${renameB.status} ${JSON.stringify(renameB.json)}`);
   const dropB = await call(`/rest/v1/teams?id=eq.${teamA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
@@ -635,6 +674,14 @@ try {
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'editor' }, TOOL);
   const edited = await updateTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id, name: 'RLS check team', slug, description: 'Changed by an editor.' }, TOOL);
   check('an editor changes a team through core', edited.description === 'Changed by an editor.', JSON.stringify(edited));
+  // Changing a team earns the member who changed it one point (teams_score_change);
+  // a save that changes nothing earns none.
+  await updateTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id, name: 'RLS check team', slug, description: 'Changed by an editor.' }, TOOL);
+  const teamScoreB = await call(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.changed_a_team&select=member_id,points,tool,task_id`, { token: b.token });
+  const teamScoreA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.changed_a_team&select=id`);
+  check('changing a team records one engagement for the member who changed it, from the rules, naming its tool; an unchanged save records none',
+    teamScoreB.json?.length === 1 && teamScoreB.json[0].points === 1 && teamScoreB.json[0].tool === TOOL && teamScoreB.json[0].task_id === null && teamScoreA.json?.length === 0,
+    `B ${JSON.stringify(teamScoreB.json)}, A ${JSON.stringify(teamScoreA.json)}`);
   await removeTeamMember(teamDeps(b), { actorId: b.id, teamId: teamA.id, memberId: b.id }, TOOL);
   check('an editor removes a member from a team', !(await teamStore(a).hasMember(teamA.id, b.id)), 'B is still on the team');
   await deleteTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id }, TOOL);
@@ -642,7 +689,50 @@ try {
   const goneLinks = await admin(`/rest/v1/team_members?team_id=eq.${teamA.id}&select=member_id`);
   const stillA2 = await admin(`/auth/v1/admin/users/${a.id}`);
   check('deleting a team removes its member links and no member account', goneTeam.json?.length === 0 && goneLinks.json?.length === 0 && stillA2.status === 200, `team ${JSON.stringify(goneTeam.json)}, links ${JSON.stringify(goneLinks.json)}, A HTTP ${stillA2.status}`);
+  // Deleting a team is scored by the table's trigger: once, for whoever deleted it (B, not its maker A), naming the tool; B's refused delete as a viewer earned nothing.
+  const deletedTeamB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.deleted_a_team&select=points,tool,task_id`);
+  const deletedTeamA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.deleted_a_team&select=id`);
+  check('deleting a team records one engagement, credited to the member who deleted it, naming the tool, and a refused delete records none',
+    JSON.stringify(deletedTeamB.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]) && deletedTeamA.json?.length === 0,
+    `B ${JSON.stringify(deletedTeamB.json)}, A ${JSON.stringify(deletedTeamA.json)}`);
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
+
+  // Home's boxes (20261102130000_home_boxes.sql): every member reads their
+  // words; only a role with home.edit (admin; A is one, B a viewer) changes
+  // them, through core or straight at the table. This may run against the
+  // live database, so the words Home had are put back afterwards.
+  const homeBefore = (await admin('/rest/v1/home_boxes?select=box,body,tool')).json;
+  if (!Array.isArray(homeBefore)) throw new Error(`could not read Home's boxes before checking them: ${JSON.stringify(homeBefore)}`);
+  try {
+    const boxDeps = (member) => ({ boxes: homeBoxStore(member), roles: roleStore(member) });
+    const words = `Written by **check_tasks_rls** ${randomUUID().slice(0, 8)}.`;
+    const savedA = await saveHomeBox(boxDeps(a), { actorId: a.id, box: 'about', body: words }, TOOL);
+    check('an admin changes a Home box through core, and the database stamps who and the tool', savedA.body === words && savedA.tool === TOOL && savedA.updatedBy === a.id, JSON.stringify(savedA));
+    const readB = await call('/rest/v1/home_boxes?box=eq.about&select=body', { token: b.token });
+    check('a viewer reads the words in Home’s boxes', readB.status === 200 && readB.json?.[0]?.body === words, `HTTP ${readB.status} ${JSON.stringify(readB.json)}`);
+    const viaCore = await saveHomeBox(boxDeps(b), { actorId: b.id, box: 'about', body: 'Hijacked' }, TOOL).then(() => '', (e) => e.message);
+    check('a viewer cannot change a Home box through core', /may not change the words on Home/.test(viaCore), viaCore || 'the words were changed');
+    const patchB = await call('/rest/v1/home_boxes?box=eq.about', { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { body: 'Hijacked' } });
+    const upsertB = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: b.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: 'Hijacked', tool: TOOL } });
+    const insertB = await call('/rest/v1/home_boxes', { method: 'POST', token: b.token, body: { box: 'deo', body: 'Hijacked', tool: TOOL } });
+    const afterB = await admin('/rest/v1/home_boxes?select=box,body');
+    const hijacked = (afterB.json ?? []).some?.((r) => r.body === 'Hijacked');
+    check('a viewer cannot change or add a Home box straight at the table', (patchB.status >= 400 || patchB.json?.length === 0) && upsertB.status >= 400 && insertB.status >= 400 && !hijacked,
+      `patch HTTP ${patchB.status} ${JSON.stringify(patchB.json)}, upsert HTTP ${upsertB.status}, insert HTTP ${insertB.status}, rows ${JSON.stringify(afterB.json)}`);
+    const forgedBy = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: a.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: words, tool: TOOL, updated_by: b.id } });
+    check('nobody can record someone else as the one who changed a box', forgedBy.status >= 400, `HTTP ${forgedBy.status} ${forgedBy.json?.message ?? ''}`);
+    const otherBox = await call('/rest/v1/home_boxes', { method: 'POST', token: a.token, body: { box: 'leaderboard', body: 'x', tool: TOOL } });
+    const emptyBox = await call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token: a.token, prefer: 'resolution=merge-duplicates', body: { box: 'about', body: ' \n ', tool: TOOL } });
+    check('the database refuses a box that is not editable and words that are only spaces', otherBox.status >= 400 && emptyBox.status >= 400, `other HTTP ${otherBox.status}, empty HTTP ${emptyBox.status}`);
+    const anonBoxes = await call('/rest/v1/home_boxes?select=box');
+    check('a signed-out visitor sees no Home box words', anonBoxes.status >= 400 || anonBoxes.json?.length === 0, `HTTP ${anonBoxes.status} ${JSON.stringify(anonBoxes.json)}`);
+  } finally {
+    await admin('/rest/v1/home_boxes?box=in.(about,deo)', { method: 'DELETE' });
+    if (homeBefore.length) await admin('/rest/v1/home_boxes', { method: 'POST', body: homeBefore });
+    const restored = (await admin('/rest/v1/home_boxes?select=box,body,tool&order=box')).json;
+    const want = [...homeBefore].sort((x, y) => x.box.localeCompare(y.box));
+    check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
+  }
 
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
@@ -739,10 +829,24 @@ try {
   const stillComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=body,owner_id,task_id`);
   check('A can edit A’s own comment through core, and only A’s change landed', editedA.body === 'A’s comment, edited' && stillComment.json?.[0]?.task_id === insA.id && stillComment.json?.[0]?.owner_id === a.id,
     JSON.stringify(stillComment.json));
+  const editsOf = async () => (await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.edited_a_comment&select=task_id,tool,points`)).json;
+  const editsOnce = await editsOf();
+  await editComment(commentStore(a), commentA.id, 'A’s comment, edited', TOOL);
+  const editsAfterSame = await editsOf();
+  check('editing a comment scores it once, for its writer, on its task; a save that changes nothing is not scored',
+    editsOnce?.length === 1 && editsOnce[0].task_id === insA.id && editsOnce[0].tool === TOOL && editsOnce[0].points === 1 && editsAfterSame?.length === 1,
+    `after the edit ${JSON.stringify(editsOnce)}, after saving the same words ${JSON.stringify(editsAfterSame)}`);
 
   await removeComment(commentStore(a), commentA.id, TOOL);
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
   check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
+
+  // Posting a comment is scored by the table's trigger: once, for the writer.
+  const postedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.posted_a_comment&select=points,tool,task_id`);
+  check('posting a comment records one engagement, credited to the writer, naming the tool and the task, and editing or removing it records none',
+    JSON.stringify(postedA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: insA.id }]), JSON.stringify(postedA.json));
+  const postedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.posted_a_comment&select=id`);
+  check('a comment that was refused records no engagement', postedB.json?.length === 0, JSON.stringify(postedB.json));
 
   // A comment's files: as private as the comment, and gone with it.
   const noteA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment with a file', TOOL);
@@ -836,13 +940,16 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  const ledgerA = await call('/rest/v1/engagements?select=member_id,kind,points,tool,task_id&order=created_at', { token: a.token });
+  // Messages were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=neq.${MESSAGE_KIND}&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile',
-    'added_a_member_to_a_team', 'added_a_member_to_a_team', 'attached_file', 'removed_file', 'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
-    'made_task', 'made_task', 'deleted_task',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'made_a_team',
+    'added_a_member_to_a_team', 'added_a_member_to_a_team', 'attached_file', 'removed_file',
+    'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
+    'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
+    'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
   check('every one of A’s engagements is credited to A and names its tool', Array.isArray(ledgerA.json) && ledgerA.json.every((e) => e.member_id === a.id && e.tool),
@@ -852,8 +959,12 @@ try {
   const deleted = Array.isArray(ledgerA.json) ? ledgerA.json.findLast((e) => e.kind === 'deleted_task') : null;
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
+  const commentDeletes = Array.isArray(ledgerA.json) ? ledgerA.json.filter((e) => e.kind === 'deleted_a_comment') : [];
+  check('deleting a comment on its own earns its writer one engagement, naming the task and the tool; a comment that goes with its task earns none',
+    commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
+
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 21, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 29 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

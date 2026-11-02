@@ -8,9 +8,10 @@
  * first. Dane's words (2026-10-12): "in priority, then chronological order".
  *
  * The loop-handoff lane then files each one as a Loop Queue ticket and
- * records it here (`handOffTask`). When the ticket goes Live the task is done
+ * records it here (`handOffTask`); work Dane asks for in a chat is recorded
+ * the same way through `handOffChatTask`. When the ticket goes Live the task is done
  * (`completeHandOff`); when it is closed without being built, the task comes
- * back to the member (`returnHandOff`). Only these three change a task's
+ * back to the member (`returnHandOff`). Only these four change a task's
  * ticket link.
  *
  * Like tasks, the switch is reached through a store a client supplies, and
@@ -92,6 +93,32 @@ export async function handOffTask(store: TaskStore, id: string, ticketUrl: strin
     throw new CoreError(`"${task.title}" is still proposed and waiting for an admin to approve it, so it was not handed over.`);
   }
   const saved = await store.update(id, { status: 'doing', agentTicketUrl: url, tool: named }, { agentTicketUrl: null });
+  if (!saved) throw new CoreError(`"${task.title}" was handed to AI agents by another pass first. Nothing was recorded.`);
+  return saved;
+}
+
+/**
+ * Record a ticket filed for work Dane asked for in a chat (loop-spec), on the
+ * task made for it a moment before. Unlike `handOffTask` the task need not be
+ * ticked first: it is ticked, made "doing" and given the link in ONE guarded
+ * write, so the hand-off lane never sees it ticked with no ticket and never
+ * files it a second time (Dane, 2026-11-01: "Yes, always a task").
+ */
+export async function handOffChatTask(store: TaskStore, id: string, ticketUrl: string, tool: string): Promise<Task> {
+  const named = requireTool(tool);
+  const url = requireTicketUrl(ticketUrl);
+  const task = await store.get(id);
+  if (!task) throw new CoreError(`No task ${id} was found to record the ticket on.`);
+  if (task.agentTicketUrl) throw new CoreError(`"${task.title}" was already handed to AI agents (${task.agentTicketUrl}).`);
+  if (task.status === 'done') throw new CoreError(`"${task.title}" is already done, so it was not handed over.`);
+  if (task.status === 'proposed') {
+    throw new CoreError(`"${task.title}" is still proposed and waiting for an admin to approve it, so it was not handed over.`);
+  }
+  const saved = await store.update(
+    id,
+    { status: 'doing', agentSelected: true, agentTicketUrl: url, tool: named },
+    { agentTicketUrl: null },
+  );
   if (!saved) throw new CoreError(`"${task.title}" was handed to AI agents by another pass first. Nothing was recorded.`);
   return saved;
 }

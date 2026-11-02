@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nextHandOff, recordHandOff, syncBack, serviceDb, taskLine, ticketIdFromUrl, ticketPriority, ticketProblems,
+  nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, syncBack, serviceDb, taskLine, ticketIdFromUrl, ticketPriority, ticketProblems,
   ticketOutcome, returnNote, emptyTakes, withTake, pickFromLine, skipLine, SKIP_AFTER_TAKES,
 } from './handoff.mjs';
 import { MemoryTaskStore } from '../../core/memoryTaskStore.ts';
@@ -24,6 +24,7 @@ function fakeDb(store, agentsOn = ['member-1']) {
     async read(path) {
       reads.push(path);
       if (path.startsWith('member_settings')) return agentsOn.map((owner_id) => ({ owner_id }));
+      if (path.startsWith('member_roles')) return path.includes(DANE_MEMBER_ID) ? [{ role: 'admin' }] : [];
       const rows = [...store.rows.values()].map(snake);
       if (path.includes('agent_ticket_url=is.null')) {
         return rows.filter((r) => agentsOn.includes(r.owner_id) && r.agent_selected && r.status !== 'done' && !r.agent_ticket_url);
@@ -200,6 +201,61 @@ test('a second ticket for the same task is refused, keeping the first', async ()
     /already handed/,
   );
   assert.equal((await store.get(t.id))?.agentTicketUrl, 'https://app.clickup.com/t/abc123');
+});
+
+test('a chat task is Dane\'s, unticked, 0 points unless he gave a number, and his role sets its status', async () => {
+  const store = new MemoryTaskStore(DANE_MEMBER_ID);
+  const db = fakeDb(store, [DANE_MEMBER_ID]);
+  const t = await createChatTask({ db, title: 'Make the logo bigger', notes: '  He said so.  ', tool: 'loop-spec' });
+  assert.equal(t.ownerId, DANE_MEMBER_ID);
+  assert.equal(t.status, 'todo');
+  assert.equal(t.points, 0);
+  assert.equal(t.notes, 'He said so.');
+  assert.equal(t.agentSelected, false);
+  assert.ok(db.reads.some((r) => r.startsWith(`member_roles?member_id=eq.${DANE_MEMBER_ID}`)));
+  // Unticked, so the hand-off lane does not offer it, even with his switch on.
+  assert.equal((await nextHandOff(db)).task, null);
+  const pointed = await createChatTask({ db, title: 'Five of them', points: 5, tool: 'loop-spec' });
+  assert.equal(pointed.points, 5);
+  assert.equal(pointed.notes, null);
+});
+
+test('recordChatTicket ticks the chat task and records its ticket, and the hand-off lane never files it again', async () => {
+  const store = new MemoryTaskStore(DANE_MEMBER_ID);
+  const db = fakeDb(store, [DANE_MEMBER_ID]);
+  const t = await createChatTask({ db, title: 'Make the logo bigger', tool: 'loop-spec' });
+  for (const ticket of [ticketFor('some-other-task'), ticketFor(t.id, { tags: [] }), ticketFor(t.id, { list: { id: '901418546619' } })]) {
+    await assert.rejects(recordChatTicket({ db, ticket, taskId: t.id, listId: LIST, tool: 'loop-spec' }), /was not recorded/);
+  }
+  assert.equal((await store.get(t.id))?.agentSelected, false);
+  const saved = await recordChatTicket({ db, ticket: ticketFor(t.id), taskId: t.id, listId: LIST, tool: 'loop-spec' });
+  assert.equal(saved.agentTicketUrl, 'https://app.clickup.com/t/abc123');
+  assert.equal(saved.agentSelected, true);
+  assert.equal(saved.status, 'doing');
+  assert.equal((await nextHandOff(db)).task, null);
+  await assert.rejects(recordHandOff({ db, ticket: ticketFor(t.id, { id: 'dup999' }), taskId: t.id, listId: LIST, tool: 'loop-handoff' }), /already handed/);
+  await assert.rejects(recordChatTicket({ db, ticket: ticketFor(t.id, { id: 'dup999' }), taskId: t.id, listId: LIST, tool: 'loop-spec' }), /already handed/);
+  // When the ticket goes Live, the sync marks it done like any handed-off task.
+  const tally = await syncBack({ db, readTicket: async () => ({ id: 'abc123', name: 'x', status: { status: 'live' }, tags: [] }), tool: 'loop-handoff', log: () => {} });
+  assert.equal(tally.done, 1);
+  assert.equal((await store.get(t.id))?.status, 'done');
+});
+
+test('the service store makes a new task for its owner, never through a column core writes', async () => {
+  const calls = [];
+  const db = serviceDb({
+    url: 'https://x.supabase.co', serviceKey: 'k', owner: DANE_MEMBER_ID,
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes('member_roles')) return { ok: true, status: 200, text: async () => '[{"role":"admin"}]' };
+      const body = JSON.parse(init.body);
+      return { ok: true, status: 201, text: async () => JSON.stringify([{ id: 't1', ...body, created_at: 'a', updated_at: 'a' }]) };
+    },
+  });
+  const t = await createChatTask({ db, title: 'Logo', tool: 'loop-spec' });
+  const post = calls.find((c) => c.init?.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).owner_id, DANE_MEMBER_ID);
+  assert.equal(t.ownerId, DANE_MEMBER_ID);
 });
 
 test('ticket outcomes: Live is done, Live with wont-do or deferred comes back, anything else waits', () => {
