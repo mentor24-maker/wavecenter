@@ -30,7 +30,7 @@ and the team permissions; `20261031130000_evolution.sql` added
 added `messages` and the Message members permission;
 `20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
 words and the link to where he said them;
-`20261102130000_evolution_task_link.sql` linked each Evolution card to its
+`20261102140000_evolution_task_link.sql` linked each Evolution card to its
 task); this page
 explains them.
 

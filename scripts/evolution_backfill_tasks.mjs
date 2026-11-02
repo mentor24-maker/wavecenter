@@ -11,7 +11,7 @@
  *   1. a card that came from a WaveCenter task still there (thread_url
  *      /tasks/<id>) is linked to that task, so it never gets a second one;
  *   2. every other card (a chat request, a founding commit) is given a new
- *      task through evolution_backfill_task (20261102130000_evolution_task_link.sql):
+ *      task through evolution_backfill_task (20261102140000_evolution_task_link.sql):
  *      done, 0 points, owned by Dane, dated at the change's merge time, its
  *      notes holding his words when the card has them. The task and the
  *      card's link are saved together or not at all, and nothing is scored.

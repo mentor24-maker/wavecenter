@@ -171,7 +171,7 @@ export function fillPage(page, tasks) {
  * permissions, scoring rules) come from that change's own migrations, not
  * from live.
  */
-/** The tool named on tasks scripts/evolution_backfill_tasks.mjs makes (20261102130000_evolution_task_link.sql). */
+/** The tool named on tasks scripts/evolution_backfill_tasks.mjs makes (20261102140000_evolution_task_link.sql). */
 export const BACKFILL_TOOL = 'evolution-backfill';
 
 export const COPIED_TABLES = ['tasks', 'task_comments', 'task_votes', 'task_files', 'engagements', 'member_settings', 'member_profiles', 'member_roles'];

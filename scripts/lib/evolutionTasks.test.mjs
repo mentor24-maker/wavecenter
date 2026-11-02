@@ -76,7 +76,7 @@ test('plan lines and the summary read plainly, dated in Mountain time', () => {
 });
 
 test('the migration makes the backfill score nothing and only the service key may call it', () => {
-  const sql = readFileSync(new URL('../../supabase/migrations/20261102130000_evolution_task_link.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../../supabase/migrations/20261102140000_evolution_task_link.sql', import.meta.url), 'utf8');
   assert.match(sql, /current_setting\('wavecenter\.backfill', true\)/);
   assert.match(sql, /set_config\('wavecenter\.backfill', 'on', true\)/);
   assert.ok(sql.includes(`'done', 0, p_at, false, '${BACKFILL_TOOL}'`), 'the tool the pictures leave out is the one the backfill writes');
