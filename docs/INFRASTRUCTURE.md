@@ -134,7 +134,8 @@ whenever the protection settings are touched.
 | `wavecenter.com` | WaveCenter's **public website**, built on StarCaster | StarCaster, never this project |
 | `www.wavecenter.com` | the same public website | StarCaster, never this project |
 
-**Where the domain lives (checked 2026-10-12, 9:57 am MT).**
+**Where the domain lives (checked 2026-10-12, 9:57 am MT; still true
+2026-11-02).**
 
 | | |
 |---|---|
@@ -167,6 +168,39 @@ configuration") and nudges older `cname.vercel-dns.com` records toward it. The
 old target keeps working and the yellow badge stays until the record is
 changed. Swapping it is optional: change the Hostinger `app` record's value to
 the target Vercel shows, then click Refresh.
+
+**The public website: `wavecenter.com` and `www.wavecenter.com` (live
+2026-11-02).** Both names point at StarCaster, which serves the Builder site
+of its project named **WaveCenter** (`proj_1791864939045_feolj2`, Domain field
+`wavecenter.com`; StarCaster treats `www.` as the same site). Three pieces
+make it work:
+
+1. **Vercel.** Both names are attached to the Vercel project `starcaster`
+   (`vercel domains add wavecenter.com starcaster --scope dane-of-earth`, and
+   the same for `www.`), never to `app-wavecenter`.
+2. **Hostinger DNS** (Dane, 2026-11-02):
+
+   | Type | Name | Value |
+   |---|---|---|
+   | `A` | `@` | `216.150.1.1` |
+   | `A` | `@` | `216.150.16.1` |
+   | `CNAME` | `www` | `f5b13d86a18c7f78.vercel-dns-017.com` |
+
+   The parking-page `A` (`82.180.172.168`) and `AAAA`
+   (`2a02:4780:b:860:0:8f9:99c1:4`) records were deleted. A leftover `AAAA`
+   sends visitors on IPv6 networks to Hostinger's parking page. The MX, SPF
+   and `app` records were not touched.
+3. **StarCaster.** The site's front page is the published, non-private page
+   whose address is `home` (or blank). StarCaster's guide is
+   `docs/CUSTOM_DOMAIN_PUBLIC_SITES.md` in the StarCaster repository.
+
+Checked 2026-11-02, 1:37 pm MT: `https://wavecenter.com`,
+`https://www.wavecenter.com` and `https://app.wavecenter.com` all answer
+`200`. The first two carry their own Let's Encrypt certificates and the header
+`x-site-handler: resolved` (StarCaster found the WaveCenter site). The
+certificates arrived about 35 minutes after the DNS change. While they were
+pending, Chrome showed `ERR_QUIC_PROTOCOL_ERROR`, which means "no certificate
+yet", not a DNS fault.
 
 **Never move the name servers while email depends on them.** Moving DNS to
 Vercel (as `starcaster.pro` does) would mean copying both MX records and the
