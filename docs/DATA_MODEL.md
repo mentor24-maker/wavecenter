@@ -476,6 +476,20 @@ a member has earned are kept separate for now. Levels, rewards and a
 leaderboard are later tickets (Dane, 2026-10-30: "Hold off on levels and
 rewards").
 
+### Granular and globular scores
+
+Dane, 2026-11-01, named the game layer's two basic types of score:
+
+- **Granular scores** are for tiny, mechanical actions that can be
+  discretely identified and tracked. They register automatically and need
+  no thought from the member: making a task, attaching a file, voting. They
+  are the rows of `game_scoring_rules`, one value per kind of action. How
+  each kind's value is worked out: `docs/GRANULAR_SCORING_ALGORITHM.md`.
+- **Globular scores** are values that need thought to assess accurately and
+  defensibly against other globular scores, such as what a given task is
+  worth. A task's `points` is one, and its owner's, human, AI and final
+  scores are planned in `docs/SCORING_GAME_PLAN.md`.
+
 ### Who may change the scoring rules
 
 Dane, 2026-10-30: an admin sets what each action is worth, and "if an admin
