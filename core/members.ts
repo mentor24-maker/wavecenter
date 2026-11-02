@@ -50,14 +50,15 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * the Actions column. Other members get view functionality"). Every member
  * views the teams; admins and editors manage them (Dane, 2026-10-30, "B").
  * Only an admin manages the game's scoring rules (core/game.ts,
- * `changeScoringRule`) and messages members to start (core/messages.ts).
+ * `changeScoringRule`). Every member messages members (Dane, 2026-11-01,
+ * "B", on the Messaging section of Your profile; core/messages.ts).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
   admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message'],
-  editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit'],
-  contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read'],
-  reviewer: ['task.read', 'member.read', 'team.read'],
-  viewer: ['task.read', 'member.read', 'team.read'],
+  editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message'],
+  contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message'],
+  reviewer: ['task.read', 'member.read', 'team.read', 'member.message'],
+  viewer: ['task.read', 'member.read', 'team.read', 'member.message'],
 };
 
 /** A member with no role recorded: what every member was before roles existed. */
