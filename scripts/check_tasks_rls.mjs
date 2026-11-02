@@ -791,6 +791,13 @@ try {
   const stillComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=body,owner_id,task_id`);
   check('A can edit A’s own comment through core, and only A’s change landed', editedA.body === 'A’s comment, edited' && stillComment.json?.[0]?.task_id === insA.id && stillComment.json?.[0]?.owner_id === a.id,
     JSON.stringify(stillComment.json));
+  const editsOf = async () => (await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.edited_a_comment&select=task_id,tool,points`)).json;
+  const editsOnce = await editsOf();
+  await editComment(commentStore(a), commentA.id, 'A’s comment, edited', TOOL);
+  const editsAfterSame = await editsOf();
+  check('editing a comment scores it once, for its writer, on its task; a save that changes nothing is not scored',
+    editsOnce?.length === 1 && editsOnce[0].task_id === insA.id && editsOnce[0].tool === TOOL && editsOnce[0].points === 1 && editsAfterSame?.length === 1,
+    `after the edit ${JSON.stringify(editsOnce)}, after saving the same words ${JSON.stringify(editsAfterSame)}`);
 
   await removeComment(commentStore(a), commentA.id, TOOL);
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
@@ -900,7 +907,7 @@ try {
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
     'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
-    'posted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
+    'posted_a_comment', 'edited_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
   ];
   check('every change A made was recorded and scored, once each, in order', JSON.stringify(kindsA) === JSON.stringify(expected), `expected ${JSON.stringify(expected)}`);
@@ -912,7 +919,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 23, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 24, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

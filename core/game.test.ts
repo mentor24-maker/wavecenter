@@ -286,7 +286,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: STARTING_SCORING_RULES.length + 1 });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1 });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -316,6 +316,7 @@ test('the sweep lists each new action once, under the kind the Add form would ma
     assert.equal(Boolean(starting), isWired(r.kind), `${r.kind} is a starting rule exactly when it is wired`);
   }
   assert.equal(isWired('posted_a_comment'), true);
+  assert.equal(isWired('edited_a_comment'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

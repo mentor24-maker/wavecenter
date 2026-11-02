@@ -42,6 +42,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_profile',
   'voted_on_task',
   'posted_a_comment',
+  'edited_a_comment',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -121,6 +122,9 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
   { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
   { kind: 'posted_a_comment', name: 'Posted a comment', description: "Wrote a comment in a task's discussion.", criteria: 'A new comment is saved on a task.', points: 1, position: 11 },
+  // Listed by the sweep migration (20261102120000), so on a fresh database it
+  // sits after the ten above and "Posted a comment".
+  { kind: 'edited_a_comment', name: 'Edited a comment', description: 'Changed the words of a comment you wrote.', criteria: 'A saved change to a comment.', points: 1, position: 12 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -232,6 +236,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   posted_a_comment: {
     fn: 'addComment', file: 'core/comments.ts', database: 'task_comments_score',
     test: 'posting a comment records one engagement, credited to the member who wrote it, naming the tool', testFile: 'core/comments.test.ts',
+  },
+  edited_a_comment: {
+    fn: 'editComment', file: 'core/comments.ts', database: 'task_comments_score_edit',
+    test: 'every edit that changes the words of a comment is scored once, for the member who wrote it', testFile: 'core/comments.test.ts',
   },
 };
 

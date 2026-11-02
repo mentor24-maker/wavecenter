@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Editing your comment on a task earns its point (#109)
+
+"Edited a comment" was on the Game → Manage list but marked "Not active
+yet", so editing a comment earned nothing. Now, each time a member saves a
+change to the words of one of their comments, they earn the points the
+rule says (1 for now; an admin can change it on Game → Manage). Saving a
+comment without changing its words earns nothing. The point is recorded
+inside the same save as the edit, so if it cannot be recorded, the edit is
+not saved either, and the screen says so. Tests prove one point per edit,
+for the right member, both in the core and on the test database.
+
+---
+
 ## 2026-11-02 — Posting a comment on a task earns its point (#108)
 
 "Posted a comment" was already on the Game Manager's list, but marked "Not
