@@ -54,8 +54,9 @@ status, a parent task and a points value from the very first version.
   matters into the reply. Test steps are a clickable link plus the exact
   clicks and what he should see.
 - **Times in Mountain time**, never UTC.
-- **Name tickets by their exact title.** Titles say in plain words what breaks
-  and who feels it.
+- **Name tickets by their exact title.** Dane's own title word for word when
+  the ticket came from him, unless it is over 12 words, then condensed to 12
+  or fewer; any other name is 6-12 plain words.
 - **"Done" means verified.** Passing checks, and for anything visible, a
   sentence saying which screen you opened and what you saw. "It should work"
   is not done.

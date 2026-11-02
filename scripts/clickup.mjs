@@ -49,6 +49,7 @@ import {
   conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
 } from './lib/mergeWords.mjs';
 import { applyMigrations, databaseLine, migrationFiles } from './lib/migrations.mjs';
+import { nameProblem } from './lib/ticketName.mjs';
 
 // ── The ids, written down once ───────────────────────────────────────────────
 // Everything here is overridable from the environment, so a moved list or a
@@ -160,7 +161,7 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   ticket-json --task <id>                         read-only: tags, body and comments (oldest first) as JSON
   comments --task <id>                            the comments, oldest first
   waiting [--task <id>]                           read-only: is this ACTUALLY waiting on Dane? exit 0 no / 3 yes / 1 could not tell
-  task --name "..." --body-file <f|-> [--list <id>] [--status S] [--priority p] [--tags a,b] [--id-out <file>]
+  task --name "..." --body-file <f|-> [--list <id>] [--status S] [--priority p] [--tags a,b] [--id-out <file>] [--name-is-danes]
   describe --task <id> --body-file <f|->          REPLACE the description (the left column)
   comment --task <id> --body-file <f|->           a plain note
   claim --task <id>                               safe claim: reads the status and guards the write on it
@@ -437,6 +438,8 @@ if (cmd === 'whoami') {
   const name = arg('name');
   const bodyFile = arg('body-file');
   if (!name || !bodyFile) usage();
+  const badName = nameProblem(name, { danes: flag('name-is-danes') });
+  if (badName) { console.error(`\n${badName} Nothing was created.\n`); process.exit(2); }
   if (String(arg('priority', '')).toLowerCase() === 'urgent' && !flag('operator-asked')) {
     console.error('\nUrgent is reserved for Dane, not something an agent sets on its own. File at High or below.');
     console.error('If he explicitly asked for Urgent, add --operator-asked — your written claim, visible in the transcript.\n');
