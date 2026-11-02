@@ -827,9 +827,11 @@ try {
   const bumpRule = await call('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 1000 } });
   check('A cannot change what an engagement is worth', bumpRule.status >= 400 || (Array.isArray(bumpRule.json) && bumpRule.json.length === 0), `HTTP ${bumpRule.status} ${JSON.stringify(bumpRule.json)}`);
 
+  // Listed-only actions (an admin's, or 20261102120000_scoring_actions_sweep.sql)
+  // sit beside the wired kinds, so this asks that every wired kind is there.
   const rulesA = await call('/rest/v1/game_scoring_rules?select=kind,points', { token: a.token });
   const ruleKinds = Array.isArray(rulesA.json) ? rulesA.json.map((r) => r.kind) : [];
-  check('a member can read the scoring rules, every kind among them, profiles and voting too', rulesA.status === 200 && ruleKinds.length === ENGAGEMENT_KINDS.length && ENGAGEMENT_KINDS.every((k) => ruleKinds.includes(k)), `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
+  check('a member can read the scoring rules, every kind among them, profiles and voting too', rulesA.status === 200 && ENGAGEMENT_KINDS.every((k) => ruleKinds.includes(k)), `HTTP ${rulesA.status} ${JSON.stringify(rulesA.json)}`);
   const anonEng = await call('/rest/v1/engagements?select=kind');
   const anonRules = await call('/rest/v1/game_scoring_rules?select=kind');
   check('a signed-out visitor sees no engagements and no rules', [anonEng, anonRules].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonEng.status} / ${anonRules.status}`);
