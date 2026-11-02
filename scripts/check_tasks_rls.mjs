@@ -1026,6 +1026,8 @@ try {
   const ruleChanges = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.changed_a_scoring_rule&select=points,tool,task_id`)).json;
   const addedName = `RLS check ${[...randomBytes(6)].map((n) => String.fromCharCode(97 + (n % 26))).join('')}`;
   const addedKind = addedName.toLowerCase().replace(/[^a-z]+/g, '_');
+  const serviceKind = `${addedKind}_service`;
+  const ruleAdds = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.added_a_scoring_action&select=points,tool,task_id`)).json;
   try {
     const rpcBody = (extra = {}) => ({ rule_kind: 'made_task', new_name: original.name, new_description: original.description, new_criteria: original.criteria, new_points: 1000, tool: TOOL, ...extra });
     const addBody = { new_kind: addedKind, new_name: addedName, new_description: '', new_criteria: '', new_points: 2, tool: TOOL };
@@ -1069,7 +1071,11 @@ try {
       madeAfter.length === madeBefore.length + 1 && madeAfter.at(-1)?.points === original.points + 2 && madeAfter.slice(0, -1).every((e) => e.points === original.points),
       JSON.stringify(madeAfter));
 
+    check('a refused new action scores nothing', (await ruleAdds(a))?.length === 0 && (await ruleAdds(b))?.length === 0, JSON.stringify(await ruleAdds(b)));
     const added = await addScoringRule(scoringStore(a), { role: 'admin' }, { name: addedName, points: 2 }, TOOL);
+    const scoredAdd = await ruleAdds(a);
+    check('adding a scoring action scores 1 for the admin who added it, naming the tool',
+      scoredAdd?.length === 1 && scoredAdd.every((e) => e.points === 1 && e.tool === TOOL && e.task_id === null), JSON.stringify(scoredAdd));
     const listed = (await call('/rest/v1/game_scoring_rules?select=kind,position&order=position', { token: b.token })).json ?? [];
     check('an admin adds a new action through core; every member sees it, last in the list',
       added.kind === addedKind && listed.at(-1)?.kind === addedKind && listed.at(-1)?.position === listed.length, JSON.stringify(listed.slice(-2)));
@@ -1078,14 +1084,18 @@ try {
     check('the same action cannot be added twice, and a kind must be a to z and _', again.status >= 400 && badKind.status >= 400, `HTTP ${again.status} / ${badKind.status}`);
     const earned = (await call(`/rest/v1/engagements?kind=eq.${addedKind}&select=id`, { token: a.token })).json ?? [];
     check('a new action earns nothing until it is wired in', Array.isArray(earned) && earned.length === 0, JSON.stringify(earned));
+    check('a duplicate or bad-kind add scores nothing more', (await ruleAdds(a))?.length === 1, JSON.stringify(await ruleAdds(a)));
+    const serviceAdd = await admin('/rest/v1/game_scoring_rules', { method: 'POST', body: { kind: serviceKind, name: `${addedName} service`, points: 1, position: 999, changed_by: a.id } });
+    check('a rule written with the service key, as a migration would, is saved and scores nobody',
+      serviceAdd.status < 300 && (await ruleAdds(a))?.length === 1, `HTTP ${serviceAdd.status} ${JSON.stringify(await ruleAdds(a))}`);
   } finally {
     const { kind, position, tool, changed_by, ...wording } = original ?? {};
     const restored = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { ...wording, tool, changed_by } });
-    const removed = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'DELETE' });
+    const removed = await admin(`/rest/v1/game_scoring_rules?kind=in.(${addedKind},${serviceKind})`, { method: 'DELETE' });
     check('putting a rule back with the service key scores nobody', (await ruleChanges(a))?.length === 1, JSON.stringify(await ruleChanges(a)));
     if (restored.status >= 300 || removed.status >= 300) {
       failures += 1;
-      console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} by hand`);
+      console.error(`could not put the scoring rules back (HTTP ${restored.status} / ${removed.status}) — set made_task to ${original?.points} and delete ${addedKind} and ${serviceKind} by hand`);
     }
   }
 

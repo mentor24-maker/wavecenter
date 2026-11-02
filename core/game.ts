@@ -54,6 +54,7 @@ export const ENGAGEMENT_KINDS = [
   'approved_a_proposed_task',
   'joined_wavecenter',
   'changed_a_scoring_rule',
+  'added_a_scoring_action',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -157,6 +158,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'joined_wavecenter', name: 'Joined WaveCenter', description: 'Made a WaveCenter account.', criteria: "A new member's account is created.", points: 1, position: 22 },
   // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, thirteenth of its rows.
   { kind: 'changed_a_scoring_rule', name: 'Changed a scoring rule', description: 'Edited an action\'s name, description, criteria or points on Game > Manage.', criteria: 'A saved change to a scoring rule.', points: 1, position: 23 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, fourteenth of its rows.
+  { kind: 'added_a_scoring_action', name: 'Added a scoring action', description: 'Added a new action to the list on Game > Manage.', criteria: 'A new scoring rule is saved.', points: 1, position: 24 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -319,6 +322,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
     fn: 'changeScoringRule', file: 'core/game.ts', database: 'game_scoring_rules_score',
     test: 'changing a scoring rule records one engagement, credited to the admin who changed it', testFile: 'core/game.test.ts',
   },
+  added_a_scoring_action: {
+    fn: 'addScoringRule', file: 'core/game.ts', database: 'game_scoring_rules_score_added',
+    test: 'adding a scoring action records one engagement, credited to the admin who added it', testFile: 'core/game.test.ts',
+  },
 };
 
 /**
@@ -438,7 +445,9 @@ export async function changeScoringRule(
  * Add a new action to the scoring rules. Its kind comes from its name
  * (`kindFromName`); neither the kind nor the name may be taken. It is inactive until an agent wires
  * it into WaveCenter (`isWired`): until then nothing records it, so it earns
- * nothing.
+ * nothing. Adding it is itself scored, for the admin who added it
+ * (`added_a_scoring_action`,
+ * supabase/migrations/20261102190000_score_added_a_scoring_action.sql).
  */
 export async function addScoringRule(
   store: ScoringRuleStore,

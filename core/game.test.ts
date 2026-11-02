@@ -288,7 +288,7 @@ test('changing a scoring rule records one engagement, credited to the admin who 
 
   // Adding a new action is not this action.
   await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 1 }, 'wavecenter');
-  assert.equal(ledger.rows.length, 2);
+  assert.equal(ledger.rows.filter((e) => e.kind === 'changed_a_scoring_rule').length, 2);
 
   // If the engagement cannot be written, the rule does not change either.
   ledger.failInsert = true;
@@ -385,8 +385,35 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(isWired('approved_a_proposed_task'), true);
   assert.equal(isWired('joined_wavecenter'), true);
   assert.equal(isWired('changed_a_scoring_rule'), true);
+  assert.equal(isWired('added_a_scoring_action'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
+});
+
+test('adding a scoring action records one engagement, credited to the admin who added it', async () => {
+  const ledger = new MemoryEngagementStore();
+  ledger.signedIn = 'dane';
+  await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 3 }, 'rule-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['dane', 'added_a_scoring_action', 1, 'rule-tool', null]]);
+
+  // Refused or failed: nothing is recorded, and the failure says so.
+  ledger.signedIn = 'vee';
+  await assert.rejects(addScoringRule(ledger, { role: 'contributor' }, { name: 'Shared a link', points: 1 }, 'wavecenter'), /Only an admin/);
+  ledger.signedIn = 'dane';
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Wrote a comment', points: 1 }, 'wavecenter'), /already an action/);
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Shared a link', points: -1 }, 'wavecenter'), /negative/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Shared a link', points: 1 }, 'wavecenter'), /did not save/);
+  assert.equal(ledger.rows.length, 1);
+
+  // Changing an action is not this action.
+  await changeScoringRule(ledger, ADMIN, { kind: 'made_task', name: 'Made a task', points: 2 }, 'wavecenter');
+  assert.equal(ledger.rows.filter((e) => e.kind === 'added_a_scoring_action').length, 1);
+
+  // If the engagement cannot be written, the action is not added either.
+  ledger.failInsert = true;
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Shared a link', points: 1 }, 'wavecenter'), /ledger is down/);
+  assert.equal((await ledger.rules()).some((r) => r.kind === 'shared_a_link'), false);
 });
 
 test('the migration checks the same lengths core does and grants Manage game scoring to admins only', () => {
