@@ -2,7 +2,13 @@
  * Teams kept in memory, for core's tests. Like the database, a slug is
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
+ *
+ * Given an engagement store, it also does what the table's score trigger
+ * does: every member removed on their own is scored for `signedIn`, the
+ * member the database would see as signed in (who removed them, never who
+ * was removed). Deleting a whole team scores no removals.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
 
 export class MemoryTeamStore implements TeamStore {
@@ -11,7 +17,14 @@ export class MemoryTeamStore implements TeamStore {
   readonly members = new Map<string, Map<string, string>>();
   /** Set to make the next write fail the way a refused write does. */
   failNextSave = false;
+  /** Who the database would see as signed in: the member credited for removing someone. */
+  signedIn: string | null = null;
   private next = 1;
+  private readonly engagements: EngagementStore | null;
+
+  constructor(engagements: EngagementStore | null = null) {
+    this.engagements = engagements;
+  }
 
   private failed() {
     if (!this.failNextSave) return false;
@@ -60,8 +73,12 @@ export class MemoryTeamStore implements TeamStore {
     return true;
   }
 
-  async removeMember(teamId: string, memberId: string) {
-    if (this.failed()) return false;
-    return this.members.get(teamId)?.delete(memberId) ?? false;
+  async removeMember(teamId: string, memberId: string, tool: string) {
+    if (this.failed() || !this.members.get(teamId)?.has(memberId)) return false;
+    // Score first: if that fails, the member stays on the team, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'removed_a_member_from_a_team', tool });
+    }
+    return this.members.get(teamId)!.delete(memberId);
   }
 }

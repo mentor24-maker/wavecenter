@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryTeamStore } from './memoryTeamStore.ts';
 import {
@@ -141,4 +142,34 @@ test('a save that does not land is reported, never called saved', async () => {
   deps.teams.failNextSave = true;
   await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /not deleted/);
   assert.equal(deps.teams.teams.size, 1);
+});
+
+test('removing a member from a team records one engagement, credited to the member who removed them', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  for (const memberId of ['dane', 'eddie', 'vee']) await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId }, TOOL);
+  deps.teams.signedIn = 'eddie';
+  await removeTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, 'team-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['eddie', 'removed_a_member_from_a_team', 1, 'team-tool', null]]);
+
+  // Refused, failed or not on the team: nothing is recorded.
+  await assert.rejects(removeTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, TOOL), /not on this team/);
+  await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
+  deps.teams.signedIn = 'vee';
+  await assert.rejects(removeTeamMember(deps, { actorId: 'vee', teamId: team.id, memberId: 'dane' }, TOOL), /Only an admin or an editor/);
+  deps.teams.signedIn = 'dane';
+  deps.teams.failNextSave = true;
+  await assert.rejects(removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /not removed/);
+  assert.equal(ledger.rows.length, 1);
+
+  // If the engagement cannot be written, the member stays on the team.
+  ledger.failInsert = true;
+  await assert.rejects(removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /ledger is down/);
+  assert.equal(await deps.teams.hasMember(team.id, 'vee'), true);
+  ledger.failInsert = false;
+
+  // Deleting the whole team takes its members with it, but removes no one on their own.
+  await deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL);
+  assert.equal(ledger.rows.length, 1);
 });

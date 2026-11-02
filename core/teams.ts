@@ -196,7 +196,12 @@ export async function addTeamMember(
   }
 }
 
-/** `actorId` takes `memberId` off a team, on behalf of `tool`. Their account is untouched. */
+/**
+ * `actorId` takes `memberId` off a team, on behalf of `tool`. Their account
+ * is untouched. The database scores it for whoever is signed in, the member
+ * who removed them (`removed_a_member_from_a_team`,
+ * supabase/migrations/20261102132000_score_removed_a_member_from_a_team.sql).
+ */
 export async function removeTeamMember(
   deps: TeamDeps,
   change: { actorId: string; teamId: string; memberId: string },
