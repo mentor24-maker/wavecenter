@@ -135,6 +135,9 @@ export async function roleOf(store: MemberRoleStore, memberId: string): Promise<
  * unless the actor is an admin, the role is one of WaveCenter's, and the
  * change would not leave WaveCenter without an admin. Throws if what comes
  * back is not what was asked for, so a failed save is never reported as saved.
+ * When the role saved differs from the one before, the database scores it for
+ * whoever is signed in, the admin who changed it (`changed_a_member_s_role`,
+ * supabase/migrations/20261102133000_score_changed_a_member_s_role.sql).
  */
 export async function setMemberRole(
   store: MemberRoleStore,

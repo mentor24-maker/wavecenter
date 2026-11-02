@@ -496,6 +496,12 @@ try {
   const viewerB = await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
   const ownB = await call('/rest/v1/member_roles?select=member_id,role,tool', { token: b.token });
   check('an admin changes a role through core, and the member reads it', viewerB === 'viewer' && ownB.json?.length === 1 && ownB.json[0].role === 'viewer' && ownB.json[0].tool === TOOL, JSON.stringify(ownB.json));
+  await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
+  const roleScoreA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.changed_a_member_s_role&select=points,tool,task_id`);
+  const roleScoreB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.changed_a_member_s_role&select=id`);
+  check('changing a role scores 1 for the admin who changed it, never the member, naming the tool; saving the same role, or a service-key write, scores nothing',
+    roleScoreA.json?.length === 1 && roleScoreA.json.every((e) => e.points === 1 && e.tool === TOOL && e.task_id === null) && roleScoreB.json?.length === 0,
+    `A ${JSON.stringify(roleScoreA.json)}, B ${JSON.stringify(roleScoreB.json)}`);
   const allA = await call('/rest/v1/member_roles?select=member_id', { token: a.token });
   check('an admin reads every role row', allA.json?.some((r) => r.member_id === a.id) && allA.json?.some((r) => r.member_id === b.id), JSON.stringify(allA.json));
   const bumpB = await call(`/rest/v1/member_roles?member_id=eq.${b.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { role: 'admin' } });
@@ -835,7 +841,8 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'attached_file', 'removed_file',
+    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile',
+    'changed_a_member_s_role', 'changed_a_member_s_role', 'changed_a_member_s_role', 'attached_file', 'removed_file',
     'attached_file', 'removed_file', 'made_task', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'deleted_task',
   ];
@@ -848,7 +855,7 @@ try {
   check('a delete names the tool that deleted, and its task', deleted?.tool === 'rls-check-deleter' && deleted?.task_id === parent.id, JSON.stringify(deleted));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 19, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 22, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);

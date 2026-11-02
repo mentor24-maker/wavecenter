@@ -5,6 +5,7 @@ import {
   DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, mayOpenAdmin, memberActions,
   memberPermissions, roleOf, setMemberRole,
 } from './members.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 
 const TOOL = 'wavecenter';
@@ -138,4 +139,36 @@ test('a save that does not land is reported, never called saved', async () => {
   const store = setup();
   store.failNextSave = true;
   await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'viewer' }, TOOL), /did not save/);
+});
+
+test('changing a member role records one engagement, credited to the admin who changed it, not the member', async () => {
+  const ledger = new MemoryEngagementStore();
+  const store = new MemoryMemberRoleStore(ledger);
+  store.rows.set('dane', { role: 'admin', tool: 'migration' });
+  store.signedIn = 'dane';
+  await setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'viewer' }, 'members-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['dane', 'changed_a_member_s_role', 1, 'members-tool', null]]);
+
+  // Saved as the same role (a member with no row is a contributor already): not a change, nothing recorded.
+  await setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'viewer' }, TOOL);
+  await setMemberRole(store, { actorId: 'dane', memberId: 'sasha', role: 'contributor' }, TOOL);
+  assert.equal(ledger.rows.length, 1);
+
+  // Refused or failed: nothing is recorded, and the failure says so.
+  store.signedIn = 'lee';
+  await assert.rejects(setMemberRole(store, { actorId: 'lee', memberId: 'lee', role: 'admin' }, TOOL), /Only an admin/);
+  store.signedIn = 'dane';
+  await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'dane', role: 'viewer' }, TOOL), /last admin/);
+  store.failNextSave = true;
+  await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'editor' }, TOOL), /did not save/);
+  assert.equal(ledger.rows.length, 1);
+
+  // A second change is a second engagement, still the admin's, never the member's.
+  await setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'editor' }, TOOL);
+  assert.deepEqual(ledger.rows.map((e) => e.memberId), ['dane', 'dane']);
+
+  // If the engagement cannot be written, the role does not change either.
+  ledger.failInsert = true;
+  await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'reviewer' }, TOOL), /ledger is down/);
+  assert.equal(store.rows.get('lee')?.role, 'editor');
 });
