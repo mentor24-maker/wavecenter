@@ -9,7 +9,9 @@ A click-by-click guide for Dane. When it is done:
   an hour.
 
 Email comes from **`WaveCenter <noreply@wavecenter.com>`** (Dane's choice,
-2026-11-01). Replies go to `daneofearth@gmail.com`.
+2026-11-01). A member's message has no reply-to address: it names its
+sender and says to answer on Your profile in WaveCenter, so a reply reaches
+nobody's inbox and shows nobody's address (Dane's "A", 2026-11-01).
 
 Four steps, in order. Allow about 30 minutes, most of it waiting for DNS.
 Only Dane does these steps: three of them involve the secret key, and the key
@@ -107,6 +109,12 @@ open that record in Hostinger and check it holds only `send` or
    **Production** and **Preview** (not Development). Mark it **Sensitive** if
    the option is there.
 3. Click **Save**.
+4. Check the list also has `SUPABASE_SERVICE_ROLE_KEY` for **Production** and
+   **Preview**. The server uses it to look up the recipient's address (no
+   member's session can), so without it a message is saved but not emailed,
+   and the form says WaveCenter cannot look up addresses yet. If it is
+   missing, an agent session copies it from Doppler `prd`; it stays on the
+   server and never reaches the browser.
 
 **3c. Redeploy.** Vercel reads keys only when it builds (engineering rule 4),
 so the saved key does nothing until a fresh build.

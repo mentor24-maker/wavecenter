@@ -7,7 +7,7 @@
  * The guide this checks: docs/EMAIL_SETUP.md.
  */
 import { parseTo, sendTestEmail } from './lib/emailTest.mjs';
-import { DEFAULT_FROM, DEFAULT_REPLY_TO } from '../app/lib/mailer.ts';
+import { DEFAULT_FROM } from '../app/lib/mailer.ts';
 
 const { to, error } = parseTo(process.argv.slice(2));
 if (error) {
@@ -20,7 +20,6 @@ const result = await sendTestEmail({
   key: process.env.RESEND_API_KEY,
   to,
   from,
-  replyTo: process.env.MESSAGE_REPLY_TO || DEFAULT_REPLY_TO,
 });
 
 if (result.ok) {

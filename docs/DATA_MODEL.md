@@ -285,9 +285,20 @@ the recipient read a message; **nobody else does**, and nobody writes the
 table directly. A message is saved only through the database function
 `send_message`, which refuses a role without `member.message`, an empty
 subject or message, and a message that names no tool; `sendMessage` in
-`core/messages.ts` applies the same rules first. `send_message` hands the
-recipient's email address back to the server so it can email them; it never
-goes to the browser, and every address read leaves a saved message behind.
+`core/messages.ts` applies the same rules first. `send_message` hands back
+only the new message's id, to every caller, an admin too: **no member's
+session is ever handed an email address.** To email the message, the server
+looks the recipient's address up itself through `message_recipient_email`,
+which only the server-only service key may call (`app/lib/messageAddressBook.ts`),
+and which answers only for a still-pending message the named sender sent.
+Every member's message is emailed this way (since 2026-11-01).
+One member may have at most 20 messages emailed an hour; past that the
+lookup refuses (code `WC429`) and the message stays saved, unemailed. It
+counts every message the sender saved in the hour, whatever its email
+status, so a burst of sends fired at once cannot slip past it. The
+email names its sender (their display name only when their profile is
+public) and has no reply-to address: the recipient answers in WaveCenter
+(Dane's "A", 2026-11-01).
 The email result is recorded only through `record_message_email`, by the
 sender, once. There is no screen for reading messages yet (a later ticket).
 

@@ -6,7 +6,9 @@
  *
  * Server only. Nothing here is ever sent to the browser: the browser holds no
  * Supabase key at all, only the session cookie. The service role key, which
- * ignores row-level security, is never read by app code (engineering rule 3).
+ * ignores row-level security, is read in one place only, on the server, to
+ * look up a message's recipient's address (messageAddressBook.ts), and never
+ * reaches the browser (engineering rule 3).
  */
 import { createServerClient } from "@supabase/ssr";
 import { isAuthSessionMissingError } from "@supabase/supabase-js";

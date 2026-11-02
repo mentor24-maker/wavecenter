@@ -4,9 +4,11 @@
  * tool, from the signed-in member, and records the email result once; the
  * rules about who may send are core's, so this store does not repeat them.
  * Like the messages table's row-level security, `list` hands back only the
- * messages the member sent or received.
+ * messages the member sent or received. Like the database's
+ * `message_recipient_email`, `recipientEmail` answers only for a pending
+ * message the named sender sent; `save` never hands back an address.
  */
-import type { EmailStatus, MessageStore, SavedMessage } from './messages.ts';
+import type { EmailStatus, MessageAddressBook, MessageStore, SavedMessage } from './messages.ts';
 
 export interface MemoryMessage {
   id: string;
@@ -31,6 +33,8 @@ export class MemoryMessageStore implements MessageStore {
   leaky = false;
   /** Set to make the next save fail the way a refused write does. */
   failNextSave = false;
+  /** Set to make the next address lookup fail. */
+  failNextLookup = false;
   /** Set to make the next email result fail to record. */
   failNextRecord = false;
 
@@ -42,8 +46,20 @@ export class MemoryMessageStore implements MessageStore {
     const id = `message-${this.rows.length + 1}`;
     const sentAt = new Date(Date.UTC(2026, 10, 1, 0, this.rows.length)).toISOString();
     this.rows.push({ id, senderId: this.signedIn, ...message, tool, emailStatus: 'pending', sentAt });
-    return { id, recipientEmail: this.emails.get(message.recipientId) ?? null };
+    return { id };
   }
+
+  /** The address book over these rows: the server's, never the member's session. */
+  readonly addresses: MessageAddressBook = {
+    recipientEmail: async (messageId, senderId) => {
+      if (this.failNextLookup) {
+        this.failNextLookup = false;
+        throw new Error('The address lookup failed.');
+      }
+      const row = this.rows.find((r) => r.id === messageId && r.senderId === senderId && r.emailStatus === 'pending');
+      return row ? this.emails.get(row.recipientId) ?? null : null;
+    },
+  };
 
   async recordEmail(messageId: string, status: 'sent' | 'failed') {
     if (this.failNextRecord) {

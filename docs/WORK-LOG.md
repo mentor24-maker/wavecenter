@@ -7,6 +7,34 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
+
+Until now only an admin's message went to the recipient's inbox. A member's
+message was saved and shown in WaveCenter, but not emailed, because the old
+way of emailing handed the recipient's address back to whoever sent it, and
+any member could have used that to collect everyone's addresses. Now the
+WaveCenter server looks the address up itself, with its own private key
+that never leaves the server, and sends the email. No member, an admin
+included, is ever handed an address. A test proves that only the server's
+key can look an address up, and only for a message the sender just sent.
+Emails still go out only once the email service key is added (see the
+email setup guide).
+
+After review, Dane chose (his "A") how the email reads: it names who wrote
+it ("Message from Kim Lee"), and clicking Reply goes nowhere; it says to
+answer on Your profile in WaveCenter instead. So a member's message no
+longer looks like it came from Dane, replies no longer land in his Gmail,
+and nobody's address is shown. A sender who keeps their profile private is
+named "An anonymous WaveCenter member". Each member can have at most 20
+messages emailed an hour, so nobody can use WaveCenter to flood inboxes.
+After a second review, that limit counts every message the member sent in
+the hour, not only the ones already emailed, so firing many messages at
+the same moment cannot slip past it (a test proves it with 30 at once).
+The Members page now says a message is emailed only when email is
+actually set up on that copy of WaveCenter.
+
+---
+
 ## 2026-11-01 — Game → Manage lists every action a member can take (#101)
 
 Game → Manage listed only the ten actions that already earn points.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseTo, sendTestEmail } from './emailTest.mjs';
 
 const KEY = 'test-key-not-real';
-const base = { key: KEY, to: 'a@example.com', from: 'WaveCenter <noreply@wavecenter.com>', replyTo: 'b@example.com' };
+const base = { key: KEY, to: 'a@example.com', from: 'WaveCenter <noreply@wavecenter.com>' };
 const reply = (status, body) => async () => ({ ok: status < 300, status, json: async () => body });
 
 test('parseTo: takes the address after --to, and says plainly when it is missing or wrong', () => {
@@ -21,13 +21,13 @@ test('no key: a plain sentence naming RESEND_API_KEY, and nothing is sent', asyn
   assert.equal(called, false);
 });
 
-test('accepted: returns Resend\'s id, and the request carries the from and reply-to', async () => {
+test('accepted: returns Resend\'s id, and the request carries the from and no reply-to, as a member\'s message does', async () => {
   let sent;
   const r = await sendTestEmail({ ...base, fetchImpl: async (url, init) => { sent = JSON.parse(init.body); return reply(200, { id: 'abc123' })(); } });
   assert.deepEqual(r, { ok: true, id: 'abc123' });
   assert.equal(sent.from, base.from);
   assert.deepEqual(sent.to, ['a@example.com']);
-  assert.equal(sent.reply_to, 'b@example.com');
+  assert.equal('reply_to' in sent, false);
 });
 
 test('refused: a failure with Resend\'s reason, never a success (rule 6), and never the key', async () => {
