@@ -324,6 +324,19 @@ export function danesWords(ticket) {
   return asked ? { prompt: asked, threadUrl: ticket.url ?? null } : none;
 }
 
+/**
+ * The run-output line naming a change whose ticket has no WaveCenter task
+ * behind it, or null when it has one. Every change starts as a WaveCenter
+ * task (Dane, 2026-11-01: "Yes, always a task"), and a card without one
+ * credits nobody, so the gap is said, never silent (engineering rule 7).
+ * `ticket` is the ticket's JSON, or null when the change names no ticket.
+ */
+export function noTaskLine(ticket, ticketUrl = null) {
+  if (/^WaveCenter task:\s*[0-9a-f-]{36}\s*$/m.test(String(ticket?.description ?? ''))) return null;
+  const which = ticket ? `its ticket ${ticket.url ?? ticketUrl ?? ticket.id} names` : 'it names no ticket, so it has';
+  return `  NO WAVECENTER TASK: ${which} no WaveCenter task, so this card credits nobody. Every change should start as one (CLAUDE.md, "Where the work is tracked").`;
+}
+
 /** A time as a Mountain-time date and clock, e.g. "2026-10-30 14:05 MDT". */
 export function mountain(iso) {
   const d = new Date(iso);

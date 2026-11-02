@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Every change Dane asks for in a chat starts as his WaveCenter task (#107)
+
+Until now, when Dane asked for a change in a Claude Code chat, it went
+straight to a ClickUp ticket, with nothing on his WaveCenter list behind it,
+so its Evolution card could not say who asked or what it was worth. 43 of
+the first 95 cards came that way. Now the agent makes the WaveCenter task
+first, owned by Dane, with his own words in it, then files the ticket from
+it and links the two. The task is only marked as "with the AI agents" once
+the ticket is safely linked, in a single step, so the lane that turns his
+ticked tasks into tickets can never file the same work twice. When the
+change goes live, the task is marked done on its own. The picture-taking
+run on the Mac Mini now also calls out, by name, any change that still has
+no WaveCenter task behind it, so a gap is seen instead of silent.
+
+---
+
 ## 2026-11-02 — An admin edits the words in two Home boxes from Home itself (#105)
 
 The words in Home's About WaveCenter and What is a DEO boxes used to be

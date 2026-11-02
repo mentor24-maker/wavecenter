@@ -73,6 +73,9 @@ of the **WaveCenter** space in ClickUp (list id `901422159126`). StarCaster
 has its own Loop Queue (`901418546619`); WaveCenter work never goes there, and
 StarCaster work never comes here.
 
+- **Every piece of work starts as a WaveCenter task**, owned by Dane, chat
+  requests included (Dane, 2026-11-01: "Yes, always a task"); `loop-spec`
+  makes it with `npm run clickup -- chat-task` before filing the ticket.
 - The process is the spec → build → review loop: `docs/LOOP_ENGINEERING.md`.
   The three skills are `loop-spec`, `loop-build` and `loop-review` in
   `.claude/skills/`.
