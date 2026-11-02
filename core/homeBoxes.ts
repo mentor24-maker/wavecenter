@@ -23,7 +23,7 @@ import { CoreError, requireTool } from './tool.ts';
 /** The editable boxes, in the order Home shows them, each with the words it was built with. The migration allows the same keys. */
 export const HOME_BOXES = [
   { key: 'about', name: 'About WaveCenter', words: 'The hub of the DEO movement: what it is for and where it is going.' },
-  { key: 'deo', name: 'What is a DEO', words: 'What a Decentralized Engagement Organization is.' },
+  { key: 'deo', name: 'What is a DEO', words: 'A DEO transforms human engagement into collective ownership, intelligence, and economic value through decentralized collaboration, shared governance, and technology.' },
 ] as const;
 export type HomeBoxKey = (typeof HOME_BOXES)[number]['key'];
 
