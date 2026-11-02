@@ -9,6 +9,7 @@
  */
 import { CoreError } from "../../core/tool.ts";
 import { slugTakenMessage, type Team, type TeamStore } from "../../core/teams.ts";
+import { TOOL_HEADER } from "./taskStore";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -48,8 +49,9 @@ export function supabaseTeamStore(supabase: Client): TeamStore {
       if (error) throw new Error(`The database refused to change the team: ${error.message}`);
       return data ? fromRow(data) : null;
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("teams").delete().eq("id", id).select("id");
+    async remove(id, tool) {
+      // A delete leaves no row to carry the tool's name; the scoring trigger reads it from this header.
+      const { data, error } = await supabase.from("teams").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) throw new Error(`The database refused to delete the team: ${error.message}`);
       return (data ?? []).length > 0;
     },
@@ -67,8 +69,15 @@ export function supabaseTeamStore(supabase: Client): TeamStore {
       if (error) throw new Error(`The database refused to add the member: ${error.message}`);
       return (data ?? []).length > 0;
     },
-    async removeMember(teamId, memberId) {
-      const { data, error } = await supabase.from("team_members").delete().eq("team_id", teamId).eq("member_id", memberId).select("member_id");
+    async removeMember(teamId, memberId, tool) {
+      // A delete leaves no row to name its tool; the score trigger reads it from this header.
+      const { data, error } = await supabase
+        .from("team_members")
+        .delete()
+        .eq("team_id", teamId)
+        .eq("member_id", memberId)
+        .select("member_id")
+        .setHeader(TOOL_HEADER, tool);
       if (error) throw new Error(`The database refused to remove the member: ${error.message}`);
       return (data ?? []).length > 0;
     },

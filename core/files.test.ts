@@ -144,8 +144,8 @@ async function commentSetup() {
     return gone;
   };
   const removeComment = comments.remove.bind(comments);
-  comments.remove = async (id) => {
-    const gone = await removeComment(id);
+  comments.remove = async (id, tool) => {
+    const gone = await removeComment(id, tool);
     if (gone) for (const [fileId, f] of base.files.rows) if (f.commentId === id) base.files.rows.delete(fileId);
     return gone;
   };
