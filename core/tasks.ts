@@ -272,7 +272,9 @@ export async function updateTask(store: TaskStore, id: string, changes: TaskChan
 /**
  * An admin approves a proposed task on behalf of `tool`: it becomes todo, and
  * work on it can start. `approverRole` is the role of the member asking;
- * anyone but an admin is refused and nothing changes.
+ * anyone but an admin is refused and nothing changes. The database scores it
+ * for whoever is signed in, the admin who approved it
+ * (`approved_a_proposed_task`, supabase/migrations/20261102134000_score_approved_a_proposed_task.sql).
  */
 export async function approveTask(store: TaskStore, id: string, approverRole: RoleKey, tool: string): Promise<Task> {
   const named = requireTool(tool);

@@ -4,7 +4,9 @@
  * The Evolution scroller (Dane, 2026-10-30: "It's a thumbnail scroller."),
  * on Home since 2026-11-01: a row of cards, one per change merged into main
  * that altered a screen, oldest on the left and newest on the right, opened
- * scrolled to the newest.
+ * at the left end on the oldest, so it reads from the beginning (Dane,
+ * 2026-11-01: "Make the Evolution slider focused on the left/earliest slides
+ * to start").
  * Each card is labeled with Dane's own words that asked for the change and
  * one link to where he said them (Dane, 2026-10-31: "use my prompt only,
  * with a link to the thread"). A phone swipes the
@@ -32,10 +34,8 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
     setEnds({ atStart: el.scrollLeft <= 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 });
   }
 
-  // Open on the newest change.
+  // Open at the left end, on the oldest change.
   useEffect(() => {
-    const el = strip.current;
-    if (el) el.scrollLeft = el.scrollWidth;
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);

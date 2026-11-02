@@ -7,7 +7,11 @@
  * messages the member sent or received. Like the database's
  * `message_recipient_email`, `recipientEmail` answers only for a pending
  * message the named sender sent; `save` never hands back an address.
+ * Given an engagement store, it scores each message to another member for
+ * its sender, as the database's `messages_score` does: if the engagement
+ * cannot be written, the message is not saved either.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { EmailStatus, MessageAddressBook, MessageStore, SavedMessage } from './messages.ts';
 
 export interface MemoryMessage {
@@ -37,11 +41,19 @@ export class MemoryMessageStore implements MessageStore {
   failNextLookup = false;
   /** Set to make the next email result fail to record. */
   failNextRecord = false;
+  private readonly engagements: EngagementStore | null;
+
+  constructor(engagements: EngagementStore | null = null) {
+    this.engagements = engagements;
+  }
 
   async save(message: { recipientId: string; subject: string; body: string }, tool: string) {
     if (this.failNextSave) {
       this.failNextSave = false;
       throw new Error('The database refused to save the message.');
+    }
+    if (this.engagements && message.recipientId !== this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'send_a_message_to_another_member', tool });
     }
     const id = `message-${this.rows.length + 1}`;
     const sentAt = new Date(Date.UTC(2026, 10, 1, 0, this.rows.length)).toISOString();
