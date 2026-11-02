@@ -25,12 +25,15 @@ export default function CommentEditor({
   onChange,
   placeholder,
   autoFocus,
+  maxLength = MAX_COMMENT_LENGTH,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** The most the box holds: a comment's limit unless the words are for something else. */
+  maxLength?: number;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const [preview, setPreview] = useState(false);
@@ -48,8 +51,8 @@ export default function CommentEditor({
   /** Put the new words in the box and select what the change left selected. */
   function commit(next: TextEdit) {
     // The toolbar adds marks the box's own length limit does not see.
-    if (next.value.length > MAX_COMMENT_LENGTH) {
-      setProblem(`That would make the comment longer than ${MAX_COMMENT_LENGTH.toLocaleString()} characters, so nothing was changed.`);
+    if (next.value.length > maxLength) {
+      setProblem(`That would make the words longer than ${maxLength.toLocaleString()} characters, so nothing was changed.`);
       return;
     }
     onChange(next.value);
@@ -118,7 +121,7 @@ export default function CommentEditor({
           aria-label={label}
           placeholder={placeholder}
           rows={3}
-          maxLength={MAX_COMMENT_LENGTH}
+          maxLength={maxLength}
           value={value}
           autoFocus={autoFocus}
           onKeyDown={keys}
