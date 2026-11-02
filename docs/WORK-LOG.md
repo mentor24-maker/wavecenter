@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — An admin edits the words in two Home boxes from Home itself (#105)
+
+The words in Home's About WaveCenter and What is a DEO boxes used to be
+written into the code, so changing them took a programmer. Now an admin
+sees a small pencil in the lower right of each of those two boxes; it opens
+the same editor used for task comments, already holding the words, and
+saving shows the new words to every member. Dane chose to start with just
+those two boxes, since the others show lists WaveCenter fills in itself. A
+new permission, Edit Home boxes, decides who gets the pencil: admins only to
+start, and it can be given to other roles later. The database itself refuses
+anyone without it, and a test proves that.
+
+---
+
 ## 2026-11-02 — A written way to value each game action, for Dane to approve (#103)
 
 Almost every action in the game layer was worth 1 point, so flipping the AI
