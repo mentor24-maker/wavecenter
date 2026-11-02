@@ -3,10 +3,24 @@
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
  *
- * Given an engagement store, it also does what the table's score trigger
- * does: every member removed on their own is scored for `signedIn`, the
- * member the database would see as signed in (who removed them, never who
- * was removed). Deleting a whole team scores no removals.
+ * Like the table, it stamps the signed-in member as a team's maker; given an
+ * engagement store, it scores making a team the way the table's game-layer
+ * trigger does, all-or-nothing. It scores changing one the same way
+ * (supabase/migrations/20261102170000_score_changed_a_team.sql): a saved
+ * change to a team's name, slug or description records one "changed_a_team"
+ * engagement for the signed-in member, a save that changes nothing records
+ * none, and if the engagement cannot be written the change is not saved either.
+ * It scores deleting a team for the signed-in member the same way
+ * (supabase/migrations/20261102171000_score_deleted_a_team.sql),
+ * all-or-nothing; the member links that go with it are not scored.
+ * It scores adding a member to a team the same way
+ * (supabase/migrations/20261102131000_score_added_a_member_to_a_team.sql):
+ * every member added is scored for the signed-in member (who added them,
+ * never who was added), all-or-nothing.
+ * It scores removing a member the same way
+ * (supabase/migrations/20261102132000_score_removed_a_member_from_a_team.sql):
+ * every member removed on their own is scored for the signed-in member (who
+ * removed them, never who was removed). Deleting a whole team scores no removals.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
@@ -17,7 +31,7 @@ export class MemoryTeamStore implements TeamStore {
   readonly members = new Map<string, Map<string, string>>();
   /** Set to make the next write fail the way a refused write does. */
   failNextSave = false;
-  /** Who the database would see as signed in: the member credited for removing someone. */
+  /** Who is signed in, as `auth.uid()` is for the table. */
   signedIn: string | null = null;
   private next = 1;
   private readonly engagements: EngagementStore | null;
@@ -42,7 +56,10 @@ export class MemoryTeamStore implements TeamStore {
 
   async insert(fields: TeamFields, tool: string) {
     if (this.failed()) return null;
-    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: null };
+    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: this.signedIn };
+    if (this.engagements && team.createdBy) {
+      await recordEngagement(this.engagements, { memberId: team.createdBy, kind: 'made_a_team', tool });
+    }
     this.teams.set(team.id, team);
     return team;
   }
@@ -51,12 +68,19 @@ export class MemoryTeamStore implements TeamStore {
     const team = this.teams.get(id);
     if (!team || this.failed()) return null;
     const saved = { ...team, ...fields, tool };
+    const changed = saved.name !== team.name || saved.slug !== team.slug || saved.description !== team.description;
+    if (this.engagements && this.signedIn && changed) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'changed_a_team', tool });
+    }
     this.teams.set(id, saved);
     return saved;
   }
 
-  async remove(id: string) {
-    if (this.failed()) return false;
+  async remove(id: string, tool: string) {
+    if (this.failed() || !this.teams.has(id)) return false;
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'deleted_a_team', tool });
+    }
     this.members.delete(id);
     return this.teams.delete(id);
   }
@@ -67,6 +91,10 @@ export class MemoryTeamStore implements TeamStore {
 
   async addMember(teamId: string, memberId: string, tool: string) {
     if (!this.teams.has(teamId) || this.failed()) return false;
+    // Score first: if that fails, the member is not added either, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'added_a_member_to_a_team', tool });
+    }
     let on = this.members.get(teamId);
     if (!on) this.members.set(teamId, (on = new Map()));
     on.set(memberId, tool);

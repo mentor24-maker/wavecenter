@@ -41,6 +41,14 @@ export const ENGAGEMENT_KINDS = [
   'switched_agents',
   'changed_profile',
   'voted_on_task',
+  'posted_a_comment',
+  'edited_a_comment',
+  'deleted_a_comment',
+  'send_a_message_to_another_member',
+  'made_a_team',
+  'changed_a_team',
+  'deleted_a_team',
+  'added_a_member_to_a_team',
   'removed_a_member_from_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -65,7 +73,7 @@ export interface ScoringRule {
 /** One row of `engagements`: one thing one member did, and what it earned. */
 export interface Engagement {
   id: string;
-  /** Who is credited: the member whose task, file or setting it was, or who voted. */
+  /** Who is credited: the member whose task, file or setting it was, or who voted or changed a team. */
   memberId: string;
   kind: EngagementKind;
   /** Copied from the scoring rule at the moment it happened. */
@@ -120,6 +128,21 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'switched_agents', name: 'Switched AI agents on or off', description: 'Flipped the Launch AI Agents switch.', criteria: 'The switch is saved, on or off.', points: 1, position: 8 },
   { kind: 'changed_profile', name: 'Changed your profile', description: 'Saved your name, avatar, bio or who can see them.', criteria: 'Your profile is saved.', points: 1, position: 9 },
   { kind: 'voted_on_task', name: 'Voted on a task', description: 'Voted on what a task is worth or how urgent it is.', criteria: 'A vote on a task is cast, changed or withdrawn.', points: 1, position: 10 },
+  { kind: 'posted_a_comment', name: 'Posted a comment', description: "Wrote a comment in a task's discussion.", criteria: 'A new comment is saved on a task.', points: 1, position: 11 },
+  // Listed by the sweep migration (20261102120000), so on a fresh database it
+  // sits after the ten above and "Posted a comment".
+  { kind: 'edited_a_comment', name: 'Edited a comment', description: 'Changed the words of a comment you wrote.', criteria: 'A saved change to a comment.', points: 1, position: 12 },
+  // Listed by the sweep migration too (third of its rows).
+  { kind: 'deleted_a_comment', name: 'Deleted a comment', description: 'Removed a comment you wrote.', criteria: 'A comment is deleted on its own, not by deleting its task.', points: 1, position: 13 },
+  // Listed by 20261102120000_scoring_actions_sweep.sql, fourth of its rows,
+  // so a fresh database puts it at 14.
+  { kind: 'send_a_message_to_another_member', name: 'Send a message to another member', description: 'Sent a message to a member from Members or Your profile.', criteria: 'A message is saved for its recipient.', points: 1, position: 14 },
+  { kind: 'made_a_team', name: 'Made a team', description: 'Started a new team on the Teams page.', criteria: 'A new team is saved.', points: 1, position: 15 },
+  // Listed by the sweep migration too, sixth of its rows.
+  { kind: 'changed_a_team', name: 'Changed a team', description: "Edited a team's name or details.", criteria: 'A saved change to a team.', points: 1, position: 16 },
+  { kind: 'deleted_a_team', name: 'Deleted a team', description: 'Removed a team.', criteria: 'A team is deleted.', points: 1, position: 17 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, eighth of its rows.
+  { kind: 'added_a_member_to_a_team', name: 'Added a member to a team', description: 'Put a member on a team.', criteria: 'A member joins a team they were not on.', points: 1, position: 18 },
   // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, ninth of its rows.
   { kind: 'removed_a_member_from_a_team', name: 'Removed a member from a team', description: 'Took a member off a team.', criteria: 'A member leaves a team, not by the team being deleted.', points: 1, position: 19 },
 ];
@@ -229,6 +252,40 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   voted_on_task: {
     fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',
     test: 'every vote cast, changed or withdrawn is scored for the voter', testFile: 'core/votes.test.ts',
+  },
+  posted_a_comment: {
+    fn: 'addComment', file: 'core/comments.ts', database: 'task_comments_score',
+    test: 'posting a comment records one engagement, credited to the member who wrote it, naming the tool', testFile: 'core/comments.test.ts',
+  },
+  edited_a_comment: {
+    fn: 'editComment', file: 'core/comments.ts', database: 'task_comments_score_edit',
+    test: 'every edit that changes the words of a comment is scored once, for the member who wrote it', testFile: 'core/comments.test.ts',
+  },
+  deleted_a_comment: {
+    fn: 'removeComment', file: 'core/comments.ts', database: 'task_comments_score_delete',
+    test: 'deleting a comment records one engagement for its writer, naming the tool; deleting its task records none for it',
+    testFile: 'core/comments.test.ts',
+  },
+  send_a_message_to_another_member: {
+    fn: 'sendMessage', file: 'core/messages.ts', database: 'messages_score',
+    test: 'each message sent to another member records one engagement for the sender, naming its tool', testFile: 'core/messages.test.ts',
+  },
+  made_a_team: {
+    fn: 'createTeam', file: 'core/teams.ts', database: 'teams_score',
+    test: 'making a team records one engagement, credited to the member who made it, naming the tool', testFile: 'core/teams.test.ts',
+  },
+  changed_a_team: {
+    fn: 'updateTeam', file: 'core/teams.ts', database: 'teams_score_change',
+    test: 'changing a team records one engagement for the member who changed it; a save that changes nothing records none',
+    testFile: 'core/teams.test.ts',
+  },
+  deleted_a_team: {
+    fn: 'deleteTeam', file: 'core/teams.ts', database: 'teams_score_delete',
+    test: 'deleting a team records one engagement, credited to the member who deleted it, naming the tool', testFile: 'core/teams.test.ts',
+  },
+  added_a_member_to_a_team: {
+    fn: 'addTeamMember', file: 'core/teams.ts', database: 'team_members_score',
+    test: 'adding a member to a team records one engagement, credited to the member who added them', testFile: 'core/teams.test.ts',
   },
   removed_a_member_from_a_team: {
     fn: 'removeTeamMember', file: 'core/teams.ts', database: 'team_members_score_removed',
