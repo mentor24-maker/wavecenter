@@ -327,8 +327,8 @@ function teamStore(member) {
     async addMember(teamId, memberId, tool) {
       return rows(await call('/rest/v1/team_members', { method: 'POST', token: member.token, prefer: 'return=representation', body: { team_id: teamId, member_id: memberId, tool } }), 'team_members insert').length > 0;
     },
-    async removeMember(teamId, memberId) {
-      return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'team_members delete').length > 0;
+    async removeMember(teamId, memberId, tool) {
+      return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool }), 'team_members delete').length > 0;
     },
   };
 }
@@ -682,9 +682,15 @@ try {
   check('changing a team records one engagement for the member who changed it, from the rules, naming its tool; an unchanged save records none',
     teamScoreB.json?.length === 1 && teamScoreB.json[0].points === 1 && teamScoreB.json[0].tool === TOOL && teamScoreB.json[0].task_id === null && teamScoreA.json?.length === 0,
     `B ${JSON.stringify(teamScoreB.json)}, A ${JSON.stringify(teamScoreA.json)}`);
-  await removeTeamMember(teamDeps(b), { actorId: b.id, teamId: teamA.id, memberId: b.id }, TOOL);
+  await removeTeamMember(teamDeps(b), { actorId: b.id, teamId: teamA.id, memberId: b.id }, 'rls-check-remover');
   check('an editor removes a member from a team', !(await teamStore(a).hasMember(teamA.id, b.id)), 'B is still on the team');
   await deleteTeam(teamDeps(b), { actorId: b.id, teamId: teamA.id }, TOOL);
+  // B removed one member; deleting the team then took A's link with it, which is not a removal of its own.
+  const removedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.removed_a_member_from_a_team&select=points,tool,task_id`);
+  const removedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.removed_a_member_from_a_team&select=id`);
+  check('removing a member from a team scores 1 for the member who removed them, naming the tool; deleting the team scores no removal',
+    removedB.json?.length === 1 && removedB.json[0].points === 1 && removedB.json[0].tool === 'rls-check-remover' && removedB.json[0].task_id === null && removedA.json?.length === 0,
+    `B ${JSON.stringify(removedB.json)}, A ${JSON.stringify(removedA.json)}`);
   const goneTeam = await admin(`/rest/v1/teams?id=eq.${teamA.id}&select=id`);
   const goneLinks = await admin(`/rest/v1/team_members?team_id=eq.${teamA.id}&select=member_id`);
   const stillA2 = await admin(`/auth/v1/admin/users/${a.id}`);

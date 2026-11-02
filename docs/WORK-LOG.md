@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Removing a member from a team earns its point (#117)
+
+"Removed a member from a team" was on the Game > Manage list but marked
+"Not active yet", so doing it earned nothing. Now, each time an admin or
+editor takes someone off a team, the person who removed them gets the
+action's point (1 for now). The member who was removed gets nothing. When a
+whole team is deleted, its members go with it, but that does not count as
+removing each of them. The point is saved together with the removal, so if
+the point cannot be written the member stays on the team and the screen
+says it did not work. The test database caught one trap along the way: the
+rule other scoring actions use to spot a team being deleted does not work
+here, so this one checks whether the team still exists instead.
+
+---
+
 ## 2026-11-02 — Adding a member to a team earns its point (#116)
 
 "Added a member to a team" was on the list of scoring actions, but nothing

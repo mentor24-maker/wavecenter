@@ -38,12 +38,13 @@ test('every kind has a starting rule, and only finishing a task is worth more th
 });
 
 test('the migrations seed exactly the starting rules core knows', () => {
-  const sql = ['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql']
-    .map((file) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'))
-    .join('\n');
-  const seeded = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2], description: m[3], criteria: m[4], points: Number(m[5]), position: Number(m[6]),
+  const read = (file: string) => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
+  const row = /^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm;
+  const rowsOf = (sql: string) => [...sql.matchAll(row)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"),
+    points: Number(m[5]), position: Number(m[6]),
   }));
+  const seeded = rowsOf(['20261027120000_game_layer.sql', '20261028120000_member_profiles.sql', '20261028140000_task_votes.sql'].map(read).join('\n'));
   // The sweep's rows go after those, in its own order; the ones wired since are starting rules too.
   const last = Math.max(...seeded.map((r) => r.position));
   const swept = sweepRows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: last + ord }));
@@ -323,6 +324,7 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.equal(isWired('changed_a_team'), true);
   assert.equal(isWired('deleted_a_team'), true);
   assert.equal(isWired('added_a_member_to_a_team'), true);
+  assert.equal(isWired('removed_a_member_from_a_team'), true);
   assert.match(SWEEP_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });

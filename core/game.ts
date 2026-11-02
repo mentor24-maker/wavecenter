@@ -49,6 +49,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_team',
   'deleted_a_team',
   'added_a_member_to_a_team',
+  'removed_a_member_from_a_team',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -142,6 +143,8 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   { kind: 'deleted_a_team', name: 'Deleted a team', description: 'Removed a team.', criteria: 'A team is deleted.', points: 1, position: 17 },
   // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, eighth of its rows.
   { kind: 'added_a_member_to_a_team', name: 'Added a member to a team', description: 'Put a member on a team.', criteria: 'A member joins a team they were not on.', points: 1, position: 18 },
+  // Listed by the sweep (20261102120000_scoring_actions_sweep.sql) after the ten above, ninth of its rows.
+  { kind: 'removed_a_member_from_a_team', name: 'Removed a member from a team', description: 'Took a member off a team.', criteria: 'A member leaves a team, not by the team being deleted.', points: 1, position: 19 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -283,6 +286,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   added_a_member_to_a_team: {
     fn: 'addTeamMember', file: 'core/teams.ts', database: 'team_members_score',
     test: 'adding a member to a team records one engagement, credited to the member who added them', testFile: 'core/teams.test.ts',
+  },
+  removed_a_member_from_a_team: {
+    fn: 'removeTeamMember', file: 'core/teams.ts', database: 'team_members_score_removed',
+    test: 'removing a member from a team records one engagement, credited to the member who removed them', testFile: 'core/teams.test.ts',
   },
 };
 

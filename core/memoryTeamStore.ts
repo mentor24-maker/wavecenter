@@ -17,6 +17,10 @@
  * (supabase/migrations/20261102131000_score_added_a_member_to_a_team.sql):
  * every member added is scored for the signed-in member (who added them,
  * never who was added), all-or-nothing.
+ * It scores removing a member the same way
+ * (supabase/migrations/20261102132000_score_removed_a_member_from_a_team.sql):
+ * every member removed on their own is scored for the signed-in member (who
+ * removed them, never who was removed). Deleting a whole team scores no removals.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
@@ -97,8 +101,12 @@ export class MemoryTeamStore implements TeamStore {
     return true;
   }
 
-  async removeMember(teamId: string, memberId: string) {
-    if (this.failed()) return false;
-    return this.members.get(teamId)?.delete(memberId) ?? false;
+  async removeMember(teamId: string, memberId: string, tool: string) {
+    if (this.failed() || !this.members.get(teamId)?.has(memberId)) return false;
+    // Score first: if that fails, the member stays on the team, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'removed_a_member_from_a_team', tool });
+    }
+    return this.members.get(teamId)!.delete(memberId);
   }
 }

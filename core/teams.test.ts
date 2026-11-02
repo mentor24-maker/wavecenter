@@ -281,10 +281,42 @@ test('adding a member to a team records one engagement, credited to the member w
 
   // Removing a member is not this action.
   await removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
-  assert.equal(ledger.rows.length, 1);
+  assert.equal(ledger.rows.filter((e) => e.kind === 'added_a_member_to_a_team').length, 1);
 
   // If the engagement cannot be written, the member is not added either.
   ledger.failInsert = true;
   await assert.rejects(addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /ledger is down/);
   assert.equal(await deps.teams.hasMember(team.id, 'vee'), false);
+});
+
+test('removing a member from a team records one engagement, credited to the member who removed them', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  for (const memberId of ['dane', 'eddie', 'vee']) await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId }, TOOL);
+  // Adding them back and deleting the team score their own actions; this counts only removals.
+  const removals = () => ledger.rows.filter((e) => e.kind === 'removed_a_member_from_a_team').length;
+  deps.teams.signedIn = 'eddie';
+  await removeTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, 'team-tool');
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['eddie', 'removed_a_member_from_a_team', 1, 'team-tool', null]]);
+
+  // Refused, failed or not on the team: nothing is recorded.
+  await assert.rejects(removeTeamMember(deps, { actorId: 'eddie', teamId: team.id, memberId: 'vee' }, TOOL), /not on this team/);
+  await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
+  deps.teams.signedIn = 'vee';
+  await assert.rejects(removeTeamMember(deps, { actorId: 'vee', teamId: team.id, memberId: 'dane' }, TOOL), /Only an admin or an editor/);
+  deps.teams.signedIn = 'dane';
+  deps.teams.failNextSave = true;
+  await assert.rejects(removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /not removed/);
+  assert.equal(removals(), 1);
+
+  // If the engagement cannot be written, the member stays on the team.
+  ledger.failInsert = true;
+  await assert.rejects(removeTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL), /ledger is down/);
+  assert.equal(await deps.teams.hasMember(team.id, 'vee'), true);
+  ledger.failInsert = false;
+
+  // Deleting the whole team takes its members with it, but removes no one on their own.
+  await deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL);
+  assert.equal(removals(), 1);
 });
