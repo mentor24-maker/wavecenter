@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — The Admin page can work out every action's points by formula (#113)
+
+Dane wanted the new way of valuing game actions to run as a job he starts
+himself, with no AI service. Now each action stores its four scores (effort,
+value, rarity and how easily it can be farmed), and the Admin page has a
+**Recalculate action points** button. It works out what every action should
+be worth and shows that beside what it is worth today, without changing
+anything. Only when Dane clicks **Put these live** do the new values save,
+and only for the actions that actually change; any that could not save are
+named, with the reason. Points members already earned stay as they were.
+On Game → Manage, each action now has four dropdowns for its scores, worded
+with the plain tests from the document, so a new action can be scored by
+hand and the next recalculation picks it up.
+
+---
+
 ## 2026-11-02 — Adding a new scoring action on Game Manage earns its point (#122)
 
 "Added a scoring action" was on the list of scoring actions, but nothing
