@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BODY_MAX, SUBJECT_MAX, messageProblem, sendMessage, type Mailer } from './messages.ts';
+import { BODY_MAX, NOT_EMAILED_YET, SUBJECT_MAX, listMessages, mayEmailMessage, messageEnvelopeNote, messageProblem, sendMessage, type Mailer } from './messages.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
 
@@ -23,7 +23,9 @@ test('an admin sends a message: it is saved with its tool, emailed, and marked s
   const { stores, messages, mailer, sent } = setup();
   const outcome = await sendMessage(stores, mailer, hello, TOOL);
   assert.deepEqual(outcome, { id: 'message-1', emailed: true, recorded: true });
-  assert.deepEqual(messages.rows, [{ id: 'message-1', recipientId: 'kim', subject: 'Test', body: 'Hello', tool: TOOL, emailStatus: 'sent' }]);
+  assert.deepEqual(messages.rows, [
+    { id: 'message-1', senderId: 'dane', recipientId: 'kim', subject: 'Test', body: 'Hello', tool: TOOL, emailStatus: 'sent', sentAt: messages.rows[0].sentAt },
+  ]);
   assert.deepEqual(sent, [{ to: 'kim@example.com', subject: 'Test', text: 'Hello' }]);
 });
 
@@ -33,23 +35,55 @@ test('the email address goes to the mailer, never back to the caller', async () 
   assert.equal(JSON.stringify(outcome).includes('@'), false);
 });
 
-test('only a role with Message members may send; nothing is saved or emailed otherwise', async () => {
+test('every role may send (Dane, 2026-11-01, "B"): saved, left pending for a later email, and emailed only when an admin sends, saying why', async () => {
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) {
     const { stores, messages, mailer, sent } = setup();
     stores.roles.rows.set('sam', { role, tool: 'migration' });
-    await assert.rejects(sendMessage(stores, mailer, { ...hello, senderId: 'sam' }, TOOL), /may not message/, role);
-    assert.equal(messages.rows.length, 0);
+    messages.signedIn = 'sam';
+    const outcome = await sendMessage(stores, mailer, { ...hello, senderId: 'sam' }, TOOL);
+    assert.deepEqual(outcome, { id: 'message-1', emailed: false, reason: NOT_EMAILED_YET, recorded: true }, role);
+    assert.equal(messages.rows[0].senderId, 'sam');
+    assert.equal(messages.rows[0].emailStatus, 'pending', role);
     assert.equal(sent.length, 0);
   }
-  const { stores, mailer } = setup();
-  await assert.rejects(sendMessage(stores, mailer, { ...hello, senderId: 'nobody-recorded' }, TOOL), /may not message/);
+  const { stores, messages, mailer } = setup();
+  messages.signedIn = 'nobody-recorded';
+  assert.equal((await sendMessage(stores, mailer, { ...hello, senderId: 'nobody-recorded' }, TOOL)).emailed, false);
+  assert.equal(messages.rows.length, 1);
+});
+
+test('only an admin\'s message is emailed, matching the database, which hands an address to an admin only', () => {
+  assert.equal(mayEmailMessage('admin'), true);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) assert.equal(mayEmailMessage(role), false, String(role));
+  const sql = readFileSync(new URL('../supabase/migrations/20261101130000_message_every_member.sql', import.meta.url), 'utf8');
+  assert.match(sql, /case when private\.member_role\(caller\) = 'admin' then u\.email::text else null end/);
+});
+
+test('the Members page promises an email only to the roles whose message is emailed', () => {
+  assert.match(messageEnvelopeNote('admin'), /emailed to them/);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) {
+    assert.doesNotMatch(messageEnvelopeNote(role), /emailed to them/, String(role));
+    assert.match(messageEnvelopeNote(role), /only an admin’s message is emailed/, String(role));
+  }
+  const page = readFileSync(new URL('../app/members/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /messageEnvelopeNote\(role\.value\)/);
+  assert.doesNotMatch(page, /emailed to them/);
+});
+
+test('a role without Message members may not send; nothing is saved or emailed', async () => {
+  const { stores, messages, mailer, sent } = setup();
+  stores.roles.rows.set('sam', { role: 'viewer', tool: 'migration' });
+  await assert.rejects(sendMessage(stores, mailer, { ...hello, senderId: 'sam', grants: { viewer: ['task.read'] } }, TOOL), /may not message/);
+  assert.equal(messages.rows.length, 0);
+  assert.equal(sent.length, 0);
 });
 
 test('the grants the database holds decide who may send', async () => {
   const { stores, mailer } = setup();
   stores.roles.rows.set('sam', { role: 'editor', tool: 'migration' });
+  stores.messages.signedIn = 'sam';
   const outcome = await sendMessage(stores, mailer, { ...hello, senderId: 'sam', grants: { editor: ['member.message'] } }, TOOL);
-  assert.equal(outcome.emailed, true);
+  assert.equal(outcome.id, 'message-1');
   await assert.rejects(sendMessage(stores, mailer, { ...hello, grants: { admin: ['member.read'] } }, TOOL), /may not message/);
 });
 
@@ -119,4 +153,48 @@ test('the migration turns on row-level security in the same file that makes the 
   assert.ok(made >= 0 && secured > made);
   assert.match(sql, /\(\s*'admin',\s*'member\.message'\)/);
   assert.doesNotMatch(sql, /for (insert|update|delete|all)/);
+  // Only the sender and the recipient read a message.
+  assert.match(sql, /for select to authenticated\s+using \(\(select auth\.uid\(\)\) = sender_id or \(select auth\.uid\(\)\) = recipient_id\)/);
+});
+
+/** Kim and Dane trade messages, and Lee writes to Kim: three messages, two for each of Dane's correspondents. */
+async function threeMessages() {
+  const s = setup();
+  s.stores.roles.rows.set('kim', { role: 'viewer', tool: 'migration' });
+  s.stores.roles.rows.set('lee', { role: 'viewer', tool: 'migration' });
+  s.messages.emails.set('dane', 'dane@example.com');
+  await sendMessage(s.stores, s.mailer, { ...hello, subject: 'First' }, TOOL);
+  s.messages.signedIn = 'kim';
+  await sendMessage(s.stores, s.mailer, { senderId: 'kim', recipientId: 'dane', subject: 'Reply', body: 'Hi Dane' }, TOOL);
+  s.messages.signedIn = 'lee';
+  await sendMessage(s.stores, s.mailer, { senderId: 'lee', recipientId: 'kim', subject: 'Private', body: 'Just for Kim' }, TOOL);
+  return s;
+}
+
+test('a member reads the messages they sent and received, newest first, and no one else\'s', async () => {
+  const { messages } = await threeMessages();
+  const dane = await listMessages(messages, 'dane');
+  assert.deepEqual(dane.map((m) => m.subject), ['Reply', 'First']);
+  assert.deepEqual(dane.map((m) => [m.senderId, m.recipientId]), [['kim', 'dane'], ['dane', 'kim']]);
+  assert.deepEqual((await listMessages(messages, 'kim')).map((m) => m.subject), ['Private', 'Reply', 'First']);
+  assert.deepEqual((await listMessages(messages, 'lee')).map((m) => m.subject), ['Private']);
+  assert.deepEqual(await listMessages(messages, 'stranger'), []);
+});
+
+test('a store that hands back too much still shows a member nobody else\'s messages', async () => {
+  const { messages } = await threeMessages();
+  messages.leaky = true;
+  assert.deepEqual((await listMessages(messages, 'dane')).map((m) => m.subject), ['Reply', 'First']);
+});
+
+test('a read message carries no email address', async () => {
+  const { messages } = await threeMessages();
+  assert.equal(JSON.stringify(await listMessages(messages, 'kim')).includes('@'), false);
+});
+
+test('a failed read throws, so the screen can say it could not load them', async () => {
+  const { messages } = await threeMessages();
+  messages.failNextList = true;
+  await assert.rejects(listMessages(messages, 'dane'), /refused to read/);
+  await assert.rejects(listMessages(messages, ''), /signed out/);
 });

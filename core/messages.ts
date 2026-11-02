@@ -4,17 +4,45 @@
  * WaveCenter for access within the app"). A message is saved first, then
  * emailed; the email's result is recorded on the saved message.
  *
- * Who may send is a permission, `member.message` (admins only to start;
+ * Who may send is a permission, `member.message` (every role since Dane's
+ * "B" on 2026-11-01, when Your profile gained a Messaging section;
  * core/members.ts). The database's `send_message` repeats every rule here, so
- * a client that skips core is refused too.
+ * a client that skips core is refused too. A member reads the messages they
+ * sent or received (`listMessages`); the database's row-level security lets
+ * nobody else read them.
  *
  * Like roles (core/members.ts), messages are reached through a store a client
  * supplies, and the email through a mailer a client supplies; every message
  * names its tool. The recipient's email address comes back from the store and
  * goes straight to the mailer: core never hands it to the caller.
  */
-import { mayDo, roleOf, STARTING_ROLE_PERMISSIONS, type MemberRoleStore } from './members.ts';
+import { mayDo, roleOf, STARTING_ROLE_PERMISSIONS, type MemberRoleStore, type RoleKey } from './members.ts';
 import { CoreError, requireTool } from './tool.ts';
+
+/**
+ * Whose messages are emailed as well as saved: an admin's only, for now. The
+ * database hands a recipient's email address only to an admin's
+ * `send_message`, so a member can never collect other members' addresses;
+ * a later ticket emails every member's message without that risk.
+ */
+export function mayEmailMessage(role: RoleKey | null | undefined): boolean {
+  return role === 'admin';
+}
+
+/** Why a member's message was saved but not emailed. */
+export const NOT_EMAILED_YET =
+  'Messages from members are saved in WaveCenter, where the recipient reads them on Your profile, but only an admin’s message is emailed for now.';
+
+/**
+ * What the Members page tells `role` its envelope does, from the same rule
+ * that decides whether the message is emailed, so the words never promise an
+ * email that does not go.
+ */
+export function messageEnvelopeNote(role: RoleKey | null | undefined): string {
+  return mayEmailMessage(role)
+    ? 'The envelope writes to a member: the message is saved in WaveCenter and emailed to them.'
+    : 'The envelope writes to a member: the message is saved in WaveCenter, where they read it on Your profile; only an admin’s message is emailed for now.';
+}
 
 /** The longest subject and message the database takes. */
 export const SUBJECT_MAX = 200;
@@ -28,6 +56,32 @@ export interface MessageStore {
   save(message: { recipientId: string; subject: string; body: string }, tool: string): Promise<{ id: string; recipientEmail: string | null }>;
   /** Record how the email went. Returns the status now recorded. */
   recordEmail(messageId: string, status: 'sent' | 'failed'): Promise<string | null>;
+  /** Every message `memberId` sent or received, in any order. Throws if the read is refused. */
+  list(memberId: string): Promise<SavedMessage[]>;
+}
+
+/** A saved message, as the sender and the recipient read it. Never carries an email address. */
+export interface SavedMessage {
+  id: string;
+  senderId: string;
+  recipientId: string;
+  subject: string;
+  body: string;
+  /** When it was saved, as an ISO date. */
+  sentAt: string;
+}
+
+/**
+ * The messages `memberId` sent or received, newest first. Anything the store
+ * hands back that the member neither sent nor received is dropped, so a store
+ * that reads too much still shows nobody else's mail. A failed read throws.
+ */
+export async function listMessages(store: MessageStore, memberId: string): Promise<SavedMessage[]> {
+  if (!memberId) throw new CoreError('You are signed out, so there are no messages to show.');
+  const rows = await store.list(memberId);
+  return rows
+    .filter((m) => m.senderId === memberId || m.recipientId === memberId)
+    .sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0));
 }
 
 /** What core needs to send an email. Throws, in words a person can read, if the email did not go. */
@@ -35,7 +89,13 @@ export interface Mailer {
   send(email: { to: string; subject: string; text: string }): Promise<void>;
 }
 
-/** What happened. The message is saved in every case; `emailed` says whether the email went too. */
+/**
+ * What happened. The message is saved in every case; `emailed` says whether
+ * the email went too. `recorded` says whether the saved message's email
+ * status is what it should be: a message never offered to the mailer (a
+ * member's, not an admin's) stays `pending`, so a later sender can still
+ * email it, and needs no record.
+ */
 export type MessageOutcome =
   | { id: string; emailed: true; recorded: boolean }
   | { id: string; emailed: false; reason: string; recorded: boolean };
@@ -82,7 +142,9 @@ export async function sendMessage(
   if (!saved?.id) throw new CoreError('The message did not save. Nothing was sent; try again.');
 
   let outcome: { emailed: true } | { emailed: false; reason: string };
-  if (!mailer) {
+  if (!mayEmailMessage(role)) {
+    outcome = { emailed: false, reason: NOT_EMAILED_YET };
+  } else if (!mailer) {
     outcome = { emailed: false, reason: 'WaveCenter has no email service set up yet.' };
   } else if (!saved.recipientEmail) {
     outcome = { emailed: false, reason: 'This member has no email address on file.' };
@@ -94,6 +156,10 @@ export async function sendMessage(
       outcome = { emailed: false, reason: err instanceof Error ? err.message : String(err) };
     }
   }
+
+  // Not offered to the mailer at all: leave it pending for the later sender,
+  // never locked as a failed delivery.
+  if (!mayEmailMessage(role)) return { id: saved.id, ...outcome, recorded: true };
 
   const status = outcome.emailed ? 'sent' : 'failed';
   let recorded = false;

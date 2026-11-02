@@ -12,8 +12,8 @@
  * the roles and permissions lists but nobody writes them, a member reads only
  * their own role row, every member lists the members, and only an admin
  * changes a role
- * (`public.member_roles`); that only an admin sends a message, and only its
- * sender and recipient read it (`public.messages`); that every member reads the teams and their
+ * (`public.member_roles`); that every member, a viewer too, sends a message
+ * only through send_message, and only its sender and recipient read it (`public.messages`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
@@ -504,13 +504,15 @@ try {
   const stillViewer = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}&select=role`);
   check('B is still a viewer afterwards', stillViewer.json?.[0]?.role === 'viewer', JSON.stringify(stillViewer.json));
 
-  // Messages: only a role with Message members (admin) saves one, only
-  // through send_message; the sender and the recipient read it and nobody
+  // Messages: a role with Message members (every role since 2026-11-01)
+  // saves one, only through send_message; the sender and the recipient read it and nobody
   // else; nobody writes the table directly; only the sender records the
   // email result, once.
   const sendRpc = (who, body) => call('/rest/v1/rpc/send_message', { method: 'POST', token: who.token, body });
   const viewerSends = await sendRpc(b, { recipient: a.id, subject: 'Hi', body: 'Hello', tool: TOOL });
-  check('a viewer cannot send a message', viewerSends.status >= 400, `HTTP ${viewerSends.status} ${viewerSends.json?.message ?? ''}`);
+  const viewerRow = Array.isArray(viewerSends.json) ? viewerSends.json[0] : null;
+  check('a viewer sends a message too (every member may message)', viewerSends.status === 200 && !!viewerRow?.id, `HTTP ${viewerSends.status} ${viewerSends.json?.message ?? ''}`);
+  check('a viewer is not handed the recipient’s email address', viewerSends.status === 200 && viewerRow?.recipient_email == null, JSON.stringify(viewerSends.json)?.replace(/[^@\s"]+@/g, '…@'));
   const forgeMessage = await call('/rest/v1/messages', { method: 'POST', token: b.token, body: { sender_id: a.id, recipient_id: b.id, subject: 'Forged', body: 'x', tool: TOOL } });
   check('a member cannot write a message row directly', forgeMessage.status >= 400, `HTTP ${forgeMessage.status} ${forgeMessage.json?.message ?? ''}`);
   const emptySubject = await sendRpc(a, { recipient: b.id, subject: ' ', body: 'Hello', tool: TOOL });
@@ -528,9 +530,10 @@ try {
   const toSelf = await sendRpc(a, { recipient: a.id, subject: 'Note to self', body: 'Private', tool: TOOL });
   const toSelfRow = Array.isArray(toSelf.json) ? toSelf.json[0] : null;
   const messagesB = await call('/rest/v1/messages?select=id,subject,sender_id,recipient_id,email_status', { token: b.token });
-  check('the recipient reads their message, and not a message between others', messagesB.json?.length === 1 && messagesB.json[0].id === toBRow?.id && messagesB.json[0].email_status === 'pending', JSON.stringify(messagesB.json));
+  const idsB = (messagesB.json ?? []).map((m) => m.id).sort();
+  check('B reads the message sent to them and the one they sent, and not A’s note to self', idsB.length === 2 && JSON.stringify(idsB) === JSON.stringify([toBRow?.id, viewerRow?.id].sort()) && !idsB.includes(toSelfRow?.id) && messagesB.json.find((m) => m.id === toBRow?.id)?.email_status === 'pending', JSON.stringify(messagesB.json));
   const messagesA = await call('/rest/v1/messages?select=id', { token: a.token });
-  check('the sender reads the messages they sent', messagesA.json?.length === 2, JSON.stringify(messagesA.json));
+  check('A reads the messages they sent and the one B sent them', messagesA.json?.length === 3, JSON.stringify(messagesA.json));
   const anonMessages = await call('/rest/v1/messages?select=id');
   check('a signed-out visitor reads no messages', anonMessages.status >= 400 || anonMessages.json?.length === 0, `HTTP ${anonMessages.status}`);
   const editMessage = await call(`/rest/v1/messages?id=eq.${toBRow?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { body: 'Changed' } });
