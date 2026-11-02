@@ -228,7 +228,7 @@ test('a saved message whose email fails still earns its points: the message was 
 });
 
 test('the database scores every saved message to another member for its sender, inside the same save', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261102130000_score_send_a_message_to_another_member.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261102144000_score_send_a_message_to_another_member.sql', import.meta.url), 'utf8');
   assert.match(sql, /create trigger messages_score\s+after insert on public\.messages\s+for each row execute function public\.messages_score\(\);/);
   assert.match(sql, /if new\.sender_id <> new\.recipient_id then\s+perform public\.record_engagement\(new\.sender_id, 'send_a_message_to_another_member', new\.tool, null\);/);
   assert.match(sql, /revoke execute on function public\.messages_score\(\) from public, anon, authenticated;/);

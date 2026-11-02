@@ -171,6 +171,9 @@ export function fillPage(page, tasks) {
  * permissions, scoring rules) come from that change's own migrations, not
  * from live.
  */
+/** The tool named on tasks scripts/evolution_backfill_tasks.mjs makes (20261102140000_evolution_task_link.sql). */
+export const BACKFILL_TOOL = 'evolution-backfill';
+
 export const COPIED_TABLES = ['tasks', 'task_comments', 'task_votes', 'task_files', 'engagements', 'member_settings', 'member_profiles', 'member_roles'];
 
 const MEMBER_COLUMNS = ['owner_id', 'member_id'];
@@ -184,7 +187,8 @@ const MEMBER_COLUMNS = ['owner_id', 'member_id'];
  *
  * Returns { users, tables } holding only what existed by then: members whose
  * account was made by then; tasks made by then, done only if completed by
- * then (otherwise open); every other row made by then, belonging to members
+ * then (otherwise open), leaving out tasks the Evolution backfill made
+ * afterwards; every other row made by then, belonging to members
  * and tasks that existed by then. Columns the old database lacks are dropped.
  */
 export function asOf(live, { mergedAt, columns }) {
@@ -203,7 +207,9 @@ export function asOf(live, { mergedAt, columns }) {
   };
   const ownedByMember = (r) => MEMBER_COLUMNS.every((c) => !(c in r) || r[c] == null || memberIds.has(r[c]));
 
-  const liveTasks = (live.tables?.tasks || []).filter((r) => by(r.created_at) && ownedByMember(r));
+  // A task the Evolution backfill made is dated at its change's merge, but
+  // did not exist then, so no picture of that time shows it.
+  const liveTasks = (live.tables?.tasks || []).filter((r) => by(r.created_at) && ownedByMember(r) && r.tool !== BACKFILL_TOOL);
   const taskIds = new Set(liveTasks.map((r) => r.id));
   const tasks = liveTasks.map((r) => {
     const row = { ...r };
@@ -316,6 +322,19 @@ export function danesWords(ticket) {
   }
   const asked = firstCardWords(ticket.comments);
   return asked ? { prompt: asked, threadUrl: ticket.url ?? null } : none;
+}
+
+/**
+ * The run-output line naming a change whose ticket has no WaveCenter task
+ * behind it, or null when it has one. Every change starts as a WaveCenter
+ * task (Dane, 2026-11-01: "Yes, always a task"), and a card without one
+ * credits nobody, so the gap is said, never silent (engineering rule 7).
+ * `ticket` is the ticket's JSON, or null when the change names no ticket.
+ */
+export function noTaskLine(ticket, ticketUrl = null) {
+  if (/^WaveCenter task:\s*[0-9a-f-]{36}\s*$/m.test(String(ticket?.description ?? ''))) return null;
+  const which = ticket ? `its ticket ${ticket.url ?? ticketUrl ?? ticket.id} names` : 'it names no ticket, so it has';
+  return `  NO WAVECENTER TASK: ${which} no WaveCenter task, so this card credits nobody. Every change should start as one (CLAUDE.md, "Where the work is tracked").`;
 }
 
 /** A time as a Mountain-time date and clock, e.g. "2026-10-30 14:05 MDT". */
