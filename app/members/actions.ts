@@ -15,6 +15,7 @@ import { sendMessage } from "../../core/messages.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { resendMailer } from "../lib/mailer";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../lib/memberRoleStore";
+import { serviceAddressBook } from "../lib/messageAddressBook";
 import { supabaseMessageStore } from "../lib/messageStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
@@ -76,7 +77,7 @@ export async function sendMemberMessage(recipientId: string, subject: string, bo
     // otherwise. send_message checks the database's own either way.
     const grants = await readRolesAndPermissions(supabase).then((l) => l.grants, () => undefined);
     const outcome = await sendMessage(
-      { roles: supabaseMemberRoleStore(supabase), messages: supabaseMessageStore(supabase) },
+      { roles: supabaseMemberRoleStore(supabase), messages: supabaseMessageStore(supabase), addresses: serviceAddressBook() },
       resendMailer(),
       { senderId: user.id, recipientId, subject, body, grants },
       WAVECENTER_TOOL,

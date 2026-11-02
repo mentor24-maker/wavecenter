@@ -13,7 +13,9 @@
  * their own role row, every member lists the members, and only an admin
  * changes a role
  * (`public.member_roles`); that every member, a viewer too, sends a message
- * only through send_message, and only its sender and recipient read it (`public.messages`); that every member reads the teams and their
+ * only through send_message, only its sender and recipient read it, and no
+ * member's session is ever handed an email address (`public.messages`,
+ * `message_recipient_email`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
@@ -512,7 +514,7 @@ try {
   const viewerSends = await sendRpc(b, { recipient: a.id, subject: 'Hi', body: 'Hello', tool: TOOL });
   const viewerRow = Array.isArray(viewerSends.json) ? viewerSends.json[0] : null;
   check('a viewer sends a message too (every member may message)', viewerSends.status === 200 && !!viewerRow?.id, `HTTP ${viewerSends.status} ${viewerSends.json?.message ?? ''}`);
-  check('a viewer is not handed the recipient’s email address', viewerSends.status === 200 && viewerRow?.recipient_email == null, JSON.stringify(viewerSends.json)?.replace(/[^@\s"]+@/g, '…@'));
+  check('a viewer is not handed the recipient’s email address', viewerSends.status === 200 && !JSON.stringify(viewerSends.json).includes('@') && !('recipient_email' in (viewerRow ?? {})), JSON.stringify(viewerSends.json)?.replace(/[^@\s"]+@/g, '…@'));
   const forgeMessage = await call('/rest/v1/messages', { method: 'POST', token: b.token, body: { sender_id: a.id, recipient_id: b.id, subject: 'Forged', body: 'x', tool: TOOL } });
   check('a member cannot write a message row directly', forgeMessage.status >= 400, `HTTP ${forgeMessage.status} ${forgeMessage.json?.message ?? ''}`);
   const emptySubject = await sendRpc(a, { recipient: b.id, subject: ' ', body: 'Hello', tool: TOOL });
@@ -526,7 +528,18 @@ try {
   check('the database refuses a message with no tool name', noToolMessage.status >= 400, `HTTP ${noToolMessage.status} ${noToolMessage.json?.message ?? ''}`);
   const toB = await sendRpc(a, { recipient: b.id, subject: 'Hi B', body: 'Hello B', tool: TOOL });
   const toBRow = Array.isArray(toB.json) ? toB.json[0] : null;
-  check('an admin sends a message, and the server gets the recipient’s address back', toB.status === 200 && !!toBRow?.id && toBRow?.recipient_email === b.email, `HTTP ${toB.status} ${JSON.stringify(toB.json)?.replace(/[^@\s"]+@/g, '…@')}`);
+  check('an admin sends a message and is not handed the address either', toB.status === 200 && !!toBRow?.id && !JSON.stringify(toB.json).includes('@'), `HTTP ${toB.status} ${JSON.stringify(toB.json)?.replace(/[^@\s"]+@/g, '…@')}`);
+  // The address comes only from message_recipient_email, which only the
+  // server's service key may call, and only for a pending message the named
+  // sender sent.
+  const lookup = (opts, message, sender) => call('/rest/v1/rpc/message_recipient_email', { method: 'POST', ...opts, body: { message, sender } });
+  const lookupA = await lookup({ token: a.token }, toBRow?.id, a.id);
+  const lookupB = await lookup({ token: b.token }, viewerRow?.id, b.id);
+  const lookupAnon = await lookup({}, toBRow?.id, a.id);
+  check('no member’s session, an admin’s or a viewer’s, and no signed-out visitor may look an address up', lookupA.status >= 400 && lookupB.status >= 400 && lookupAnon.status >= 400 && ![lookupA, lookupB, lookupAnon].some((r) => JSON.stringify(r.json ?? '').includes('@')), `admin HTTP ${lookupA.status}, viewer HTTP ${lookupB.status}, signed out HTTP ${lookupAnon.status}`);
+  const serverLookup = await lookup({ key: SERVICE }, toBRow?.id, a.id);
+  const wrongSender = await lookup({ key: SERVICE }, toBRow?.id, b.id);
+  check('the server’s service key looks up the recipient’s address, only for the message’s own sender', serverLookup.status === 200 && serverLookup.json === b.email && wrongSender.status === 200 && wrongSender.json === null, `right sender HTTP ${serverLookup.status} ${serverLookup.json === b.email ? 'the address' : JSON.stringify(serverLookup.json)}, wrong sender ${JSON.stringify(wrongSender.json)?.replace(/[^@\s"]+@/g, '…@')}`);
   const toSelf = await sendRpc(a, { recipient: a.id, subject: 'Note to self', body: 'Private', tool: TOOL });
   const toSelfRow = Array.isArray(toSelf.json) ? toSelf.json[0] : null;
   const messagesB = await call('/rest/v1/messages?select=id,subject,sender_id,recipient_id,email_status', { token: b.token });
@@ -545,6 +558,8 @@ try {
   const aRecords = await recordRpc(a, toBRow?.id, 'sent');
   const aRecordsAgain = await recordRpc(a, toBRow?.id, 'failed');
   check('the sender records the email result once', aRecords.status === 200 && aRecords.json === 'sent' && aRecordsAgain.status >= 400, `first HTTP ${aRecords.status} ${JSON.stringify(aRecords.json)}, second HTTP ${aRecordsAgain.status}`);
+  const afterSent = await lookup({ key: SERVICE }, toBRow?.id, a.id);
+  check('once a message is emailed, its address is no longer looked up', afterSent.status === 200 && afterSent.json === null, `HTTP ${afterSent.status} ${JSON.stringify(afterSent.json)?.replace(/[^@\s"]+@/g, '…@')}`);
   check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
 
   // Teams: every role reads them and their members; only an admin or an

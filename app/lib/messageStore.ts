@@ -2,13 +2,14 @@
  * The app's `MessageStore` (core/messages.ts): how core reaches the
  * `messages` table. It acts through the member's session, and every write
  * goes through a database function that repeats core's rules:
- * `send_message` saves a message (and hands back the recipient's email
- * address, for the server to email them), `record_message_email` records how
- * the email went. Reading goes straight to the table, and its row-level
+ * `send_message` saves a message and hands back its id, never an email
+ * address, `record_message_email` records how the email went. The address
+ * comes from the server's own lookup (messageAddressBook.ts), never this
+ * session. Reading goes straight to the table, and its row-level
  * security lets only a message's sender and recipient read it.
  *
  * It only translates names and turns a failed database call into a thrown
- * error. Server only: the address it reads never goes to the browser.
+ * error. Server only.
  */
 import type { MessageStore } from "../../core/messages.ts";
 import type { supabaseForRequest } from "./supabase";
@@ -20,9 +21,9 @@ export function supabaseMessageStore(supabase: Client): MessageStore {
     async save({ recipientId, subject, body }, tool) {
       const { data, error } = await supabase.rpc("send_message", { recipient: recipientId, subject, body, tool });
       if (error) throw new Error(`The database refused to save the message: ${error.message}`);
-      const row = (Array.isArray(data) ? data[0] : data) as { id?: string; recipient_email?: string | null } | null;
+      const row = (Array.isArray(data) ? data[0] : data) as { id?: string } | null;
       if (!row?.id) throw new Error("The database did not confirm the message was saved.");
-      return { id: row.id, recipientEmail: row.recipient_email ?? null };
+      return { id: row.id };
     },
     async recordEmail(messageId, status) {
       const { data, error } = await supabase.rpc("record_message_email", { message: messageId, status });

@@ -107,6 +107,12 @@ open that record in Hostinger and check it holds only `send` or
    **Production** and **Preview** (not Development). Mark it **Sensitive** if
    the option is there.
 3. Click **Save**.
+4. Check the list also has `SUPABASE_SERVICE_ROLE_KEY` for **Production** and
+   **Preview**. The server uses it to look up the recipient's address (no
+   member's session can), so without it a message is saved but not emailed,
+   and the form says WaveCenter cannot look up addresses yet. If it is
+   missing, an agent session copies it from Doppler `prd`; it stays on the
+   server and never reaches the browser.
 
 **3c. Redeploy.** Vercel reads keys only when it builds (engineering rule 4),
 so the saved key does nothing until a fresh build.
