@@ -6,6 +6,7 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 `main`.
 
 ---
+
 ## 2026-11-02 — Posting a comment on a task earns its point (#108)
 
 "Posted a comment" was already on the Game Manager's list, but marked "Not
@@ -18,7 +19,6 @@ this went live are not scored backwards. Game > Manage now shows the action
 as Active, with the function, database trigger and test that record it.
 
 ---
-
 
 ## 2026-11-01 — Every member's message is emailed, and nobody sees anyone's address (#99)
 
