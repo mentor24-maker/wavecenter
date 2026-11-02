@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Home's What is a DEO box has Dane's new words (#124)
+
+Dane wrote a one-sentence description of a DEO for the Home page. The What
+is a DEO box now shows it ("A DEO transforms human engagement into collective
+ownership, intelligence, and economic value through decentralized
+collaboration, shared governance, and technology."), and the link under the
+box now reads "Learn more about DEOs". If anyone had already saved other words
+in that box with the pencil, those saved words still show until they are
+replaced the same way; nothing saved was overwritten.
+
 ## 2026-11-02 — The Admin page can work out every action's points by formula (#113)
 
 Dane wanted the new way of valuing game actions to run as a job he starts
