@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  agentOrder, completeHandOff, handOffTask, returnHandOff, setAgentsOn, type MemberSettings, type MemberSettingsStore,
+  agentOrder, completeHandOff, handOffChatTask, handOffTask, returnHandOff, setAgentsOn, type MemberSettings, type MemberSettingsStore,
 } from './agents.ts';
 import { createTask, updateTask } from './tasks.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
@@ -173,4 +173,47 @@ test('handOffTask refuses a proposed task, even one ticked by a client that went
   await assert.rejects(handOffTask(store, made.id, 'https://app.clickup.com/t/abc', 'loop-handoff'), /still proposed/);
   assert.equal((await store.get(made.id))?.agentTicketUrl, null);
   assert.equal((await store.get(made.id))?.status, 'proposed');
+});
+
+test('handOffChatTask ticks an unticked task, makes it doing and records the ticket in one write', async () => {
+  const store = new MemoryTaskStore();
+  const t = await createTask(store, { title: 'Asked in a chat' }, 'loop-spec', 'admin');
+  const handed = await handOffChatTask(store, t.id, TICKET, 'loop-spec');
+  assert.equal(handed.status, 'doing');
+  assert.equal(handed.agentSelected, true);
+  assert.equal(handed.agentTicketUrl, TICKET);
+  assert.equal(handed.tool, 'loop-spec');
+  // Recorded as handed off, so the hand-off lane's line leaves it out.
+  assert.deepEqual(agentOrder([handed]), []);
+});
+
+test('handOffChatTask refuses a task already handed off, done, proposed or unknown, changing nothing', async () => {
+  const store = new MemoryTaskStore();
+  const t = await createTask(store, { title: 'Asked in a chat' }, 'loop-spec', 'admin');
+  await handOffChatTask(store, t.id, TICKET, 'loop-spec');
+  await assert.rejects(handOffChatTask(store, t.id, 'https://app.clickup.com/t/second', 'loop-spec'), /already handed/);
+  assert.equal((await store.get(t.id))?.agentTicketUrl, TICKET);
+  const done = await createTask(store, { title: 'Done', status: 'done' }, 'loop-spec', 'admin');
+  await assert.rejects(handOffChatTask(store, done.id, TICKET, 'loop-spec'), /already done/);
+  const proposed = await createTask(store, { title: 'Proposed' }, 'loop-spec', 'contributor');
+  await assert.rejects(handOffChatTask(store, proposed.id, TICKET, 'loop-spec'), /still proposed/);
+  await assert.rejects(handOffChatTask(store, 'nope', TICKET, 'loop-spec'), /No task/);
+  const plain = await createTask(store, { title: 'Plain' }, 'loop-spec', 'admin');
+  await assert.rejects(handOffChatTask(store, plain.id, 'not a link', 'loop-spec'), /https/);
+  await assert.rejects(handOffChatTask(store, plain.id, TICKET, ''), /must name the tool/);
+  assert.equal((await store.get(plain.id))?.agentSelected, false);
+  assert.equal((await store.get(plain.id))?.agentTicketUrl, null);
+});
+
+test('handOffChatTask lets only one of two racing passes record a ticket', async () => {
+  const store = new MemoryTaskStore();
+  const t = await createTask(store, { title: 'Asked in a chat' }, 'loop-spec', 'admin');
+  const racing = Object.create(store) as MemoryTaskStore;
+  racing.get = async (id: string) => {
+    const seen = await store.get(id);
+    await handOffChatTask(store, id, 'https://app.clickup.com/t/first', 'loop-spec');
+    return seen;
+  };
+  await assert.rejects(handOffChatTask(racing, t.id, 'https://app.clickup.com/t/late', 'loop-spec'), /another pass first/);
+  assert.equal((await store.get(t.id))?.agentTicketUrl, 'https://app.clickup.com/t/first');
 });
