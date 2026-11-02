@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — A written plan for the scoring guess game (#96)
+
+Dane asked for a plan for scoring every task and game action from a human
+score (members' votes averaged with the owner's score), an AI score and a
+final score (the average of the two), and for a game where members guess
+those scores and are measured by how far off they are (deviance, and their
+average, the DQ). The plan, docs/SCORING_GAME_PLAN.md, describes what exists
+today, including that the owner's suggested points are overwritten once
+members vote, which the new rule needs fixed first. It lays out ten
+sub-tasks in the order to build them and eight questions only Dane can
+answer, such as exactly how the owner's score and the votes are averaged.
+Nothing on any screen changed.
+
+---
+
 ## 2026-11-01 — Your profile shows your messages and lets every member send one (#93)
 
 Messages members sent each other were saved in WaveCenter, but there was no
