@@ -7,6 +7,45 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Joining WaveCenter earns the new member their first point (#120)
+
+"Joined WaveCenter" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every new account earns its new
+member their first point (1 to start) the moment the account is made.
+The database writes the point in the same save as the account, so one
+cannot happen without the other. The point names where the account came
+from: the Register page, or "supabase-auth" for an account an admin made
+another way. Game > Manage now shows the action as Active, naming the
+function, the database step and the test that prove it.
+
+---
+
+## 2026-11-02 — Approving a proposed task earns the approving admin a point (#119)
+
+"Approved a proposed task" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin approves a task a
+member proposed, the admin who approved it earns the point (1 to start). The
+database writes the point in the same save as the approval, so a task cannot
+be approved without its point, or the point given without the approval. The
+member who proposed the task still gets their usual point for the task
+changing, as before. Game > Manage now shows the action as Active, naming
+the function, the database step and the test that prove it.
+
+---
+
+## 2026-11-02 — Changing a member's role earns its point (#118)
+
+"Changed a member's role" was on the list of scoring actions, but nothing
+recorded it, so it earned nothing. Now every time an admin gives a member a
+different role on the Members page, the admin earns the point (1 to start),
+never the member whose role changed. Saving the role a member already has
+is not a change and earns nothing. The database writes the point in the
+same save as the role, so one cannot happen without the other. Game >
+Manage now shows the action as Active, naming the function, the database
+step and the test that prove it.
+
+---
+
 ## 2026-11-02 — Removing a member from a team earns its point (#117)
 
 "Removed a member from a team" was on the Game > Manage list but marked

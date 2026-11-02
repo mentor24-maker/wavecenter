@@ -46,6 +46,7 @@
  * Exit 0 = every check held. Exit 1 = a check failed or the run broke.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, changeScoringRule } from '../core/game.ts';
@@ -89,10 +90,11 @@ function check(label, ok, detail) {
 }
 
 const users = [];
-async function makeUser(tag) {
+/** A test member; `data` is the user metadata the account is made with, as register sends it. */
+async function makeUser(tag, data) {
   const email = `rls-check-${tag}-${randomUUID().slice(0, 8)}@example.com`;
   const password = randomBytes(24).toString('base64url');
-  const made = await admin('/auth/v1/admin/users', { method: 'POST', body: { email, password, email_confirm: true } });
+  const made = await admin('/auth/v1/admin/users', { method: 'POST', body: { email, password, email_confirm: true, user_metadata: data } });
   if (made.status >= 300) throw new Error(`could not create test user ${tag}: HTTP ${made.status} ${JSON.stringify(made.json)}`);
   users.push(made.json.id);
   const signin = await call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
@@ -345,8 +347,15 @@ const titles = (rows) => (Array.isArray(rows) ? rows.map((r) => r.title) : rows)
 
 try {
   const a = await makeUser('a');
-  const b = await makeUser('b');
+  const b = await makeUser('b', newAccountData(TOOL));
   console.log(`two test users made and signed in: A=${a.id}  B=${b.id}\n`);
+
+  const joined = await admin(`/rest/v1/engagements?kind=eq.joined_wavecenter&member_id=in.(${a.id},${b.id})&select=member_id,points,tool,task_id`);
+  const joinedBy = (m) => (joined.json ?? []).filter((e) => e.member_id === m.id);
+  check('a new account scores 1 for joining, credited to the new member, naming the tool it was made with',
+    joinedBy(a).length === 1 && joinedBy(b).length === 1 && joined.json.every((e) => e.points === 1 && e.task_id === null)
+      && joinedBy(a)[0].tool === ACCOUNT_FALLBACK_TOOL && joinedBy(b)[0].tool === TOOL,
+    JSON.stringify(joined.json));
 
   const insA = await createTask(a.store, { title: 'A’s task', points: 3 }, TOOL);
   const insB = await createTask(b.store, { title: 'B’s task', points: 5 }, TOOL);
@@ -506,6 +515,10 @@ try {
   check('an admin approves another member’s proposed task through core, and it becomes todo', approvedB.status === 'todo' && approvedB.ownerId === b.id && approvedB.tool === TOOL, JSON.stringify(approvedB));
   const again = await call('/rest/v1/rpc/approve_task', { method: 'POST', token: a.token, body: { task: skipped.id, tool: TOOL } });
   check('approving a task that is no longer proposed changes nothing', again.status === 200 && Array.isArray(again.json) && again.json.length === 0, `HTTP ${again.status} ${JSON.stringify(again.json)}`);
+  const approvals = await admin(`/rest/v1/engagements?kind=eq.approved_a_proposed_task&task_id=in.(${insA.id},${skipped.id})&select=member_id,points,tool,task_id`);
+  check('approving a proposed task scores 1 for the admin who approved it, once, naming the tool; the service key’s approval scores nobody',
+    approvals.json?.length === 1 && approvals.json[0].member_id === a.id && approvals.json[0].points === 1 && approvals.json[0].tool === TOOL && approvals.json[0].task_id === skipped.id,
+    JSON.stringify(approvals.json));
   const listA = await call('/rest/v1/rpc/list_members', { method: 'POST', token: a.token, body: {} });
   const rowA = listA.json?.find?.((m) => m.member_id === a.id);
   const rowB = listA.json?.find?.((m) => m.member_id === b.id);
@@ -516,6 +529,12 @@ try {
   const viewerB = await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
   const ownB = await call('/rest/v1/member_roles?select=member_id,role,tool', { token: b.token });
   check('an admin changes a role through core, and the member reads it', viewerB === 'viewer' && ownB.json?.length === 1 && ownB.json[0].role === 'viewer' && ownB.json[0].tool === TOOL, JSON.stringify(ownB.json));
+  await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
+  const roleScoreA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.changed_a_member_s_role&select=points,tool,task_id`);
+  const roleScoreB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.changed_a_member_s_role&select=id`);
+  check('changing a role scores 1 for the admin who changed it, never the member, naming the tool; saving the same role, or a service-key write, scores nothing',
+    roleScoreA.json?.length === 1 && roleScoreA.json.every((e) => e.points === 1 && e.tool === TOOL && e.task_id === null) && roleScoreB.json?.length === 0,
+    `A ${JSON.stringify(roleScoreA.json)}, B ${JSON.stringify(roleScoreB.json)}`);
   const allA = await call('/rest/v1/member_roles?select=member_id', { token: a.token });
   check('an admin reads every role row', allA.json?.some((r) => r.member_id === a.id) && allA.json?.some((r) => r.member_id === b.id), JSON.stringify(allA.json));
   const bumpB = await call(`/rest/v1/member_roles?member_id=eq.${b.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { role: 'admin' } });
@@ -951,8 +970,8 @@ try {
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
-    'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'made_a_team',
-    'added_a_member_to_a_team', 'added_a_member_to_a_team', 'attached_file', 'removed_file',
+    'joined_wavecenter', 'made_task', 'changed_task', 'finished_task', 'switched_agents', 'changed_profile', 'approved_a_proposed_task', 'changed_a_member_s_role', 'made_a_team',
+    'added_a_member_to_a_team', 'added_a_member_to_a_team', 'changed_a_member_s_role', 'changed_a_member_s_role', 'attached_file', 'removed_file',
     'posted_a_comment', 'edited_a_comment', 'deleted_a_comment', 'posted_a_comment', 'attached_file', 'removed_file', 'deleted_a_comment',
     'made_task', 'posted_a_comment', 'attached_file', 'deleted_task',
     'made_task', 'made_task', 'posted_a_comment', 'deleted_task',
@@ -970,7 +989,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 29 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
