@@ -70,6 +70,14 @@
  * wipes the local copy and gives the test database back, so the next pass
  * retakes it from the start.
  *
+ * A broken run (RunFailed: no headless browser, test database down, a
+ * missing key) stops `missing` before any picture, and on its own would only
+ * reach the lane log on the Mini (2026-10-31 to 11-01: 96 passes in a row,
+ * and nobody knew). So `missing` counts them in RUN_STATE, on the Mini and
+ * never in the repo: the ALERT_AFTER-th in a row with the same reason files
+ * one ticket with an operator card for Dane, and the first clean pass after
+ * it adds one "works again" note to that ticket (nextRunState).
+ *
  * Each row also keeps Dane's own words behind the change and a link to
  * where he said them (danesWords), read from its ClickUp ticket through
  * `scripts/clickup.mjs ticket-json`. The Evolution cards show those words.
@@ -106,7 +114,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, RULES_FILE, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -611,6 +619,76 @@ function tellTicket(row) {
   console.log(sent.ok ? `  told ticket ${task} the screenshot could not be taken.` : `  could not comment on ticket ${task}: ${tail(sent.out)}`);
 }
 
+// ------------------------------------------------- when the run itself breaks
+
+const RUN_STATE = join(homedir(), 'loop-logs', 'wavecenter-evolution-run-failures.json');
+
+function readRunState() {
+  try { return JSON.parse(readFileSync(RUN_STATE, 'utf8')); } catch { return null; }
+}
+
+function writeRunState(state) {
+  if (!state) { rmSync(RUN_STATE, { force: true }); return; }
+  mkdirSync(dirname(RUN_STATE), { recursive: true });
+  writeFileSync(RUN_STATE, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function clickup(args, input) {
+  try {
+    return sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), ...args], { input });
+  } catch (err) {
+    return { ok: false, out: err.message };
+  }
+}
+
+/**
+ * File the ticket (in Building, which no loop claims, until the card moves it
+ * to Needs your input) and post the card. A step that fails is said in the
+ * log and left for the next pass: a ticket filed but not yet asked on is kept
+ * as `pending` and asked on again, never filed twice.
+ */
+function tellDane(state) {
+  let task = state.pending;
+  if (!task) {
+    const idFile = join(tmpdir(), `evolution-run-alert-${process.pid}.txt`);
+    const made = clickup(['task', '--name', RUN_ALERT_NAME, '--status', 'building', '--body-file', '-', '--id-out', idFile], runAlertDescription(state));
+    task = existsSync(idFile) ? readFileSync(idFile, 'utf8').trim() : null;
+    rmSync(idFile, { force: true });
+    if (!task) {
+      console.error(`  could NOT file the ticket that tells Dane: ${tail(made.out)}. The next pass tries again.`);
+      return state;
+    }
+  }
+  const asked = clickup(['ask', '--task', task, '--status', 'Needs your input', '--body-file', '-'], runAlertCard(state));
+  if (!asked.ok) {
+    console.error(`  filed ticket ${task}, but could NOT post Dane's card on it: ${tail(asked.out)}. The next pass tries again.`);
+    return { ...state, pending: task };
+  }
+  console.error(`  ${state.count} broken runs in a row: told Dane on ticket ${task} (https://app.clickup.com/t/${task}).`);
+  const { pending, ...rest } = state;
+  return { ...rest, carded: task, tickets: [...state.tickets, task] };
+}
+
+/** Note on each card of this outage that it works again; keep any not yet noted. */
+function tellRecovered(state) {
+  const left = state.tickets.filter((task) => {
+    const sent = clickup(['comment', '--task', task, '--body-file', '-'], recoveredNote());
+    console.log(sent.ok ? `  told ticket ${task} picture-taking works again.` : `  could NOT tell ticket ${task} picture-taking works again: ${tail(sent.out)}. The next pass tries again.`);
+    return !sent.ok;
+  });
+  return left.length ? { tickets: left } : null;
+}
+
+/** Count this `missing` pass: broken (`reason`) or clean (no reason). */
+function countRun(reason) {
+  const { state, action } = nextRunState(readRunState(), reason ? { reason } : { ok: true });
+  let after = state;
+  if (action === 'card') after = tellDane(state);
+  else if (action === 'recovered') after = tellRecovered(state);
+  else if (state) console.error(`  broken run ${state.count} in a row with this reason${state.carded ? `; Dane was told on ticket ${state.carded}` : ''}.`);
+  writeRunState(after);
+}
+
 const tally = () => ({ retaken: 0, leftOff: 0, kept: 0, failed: 0, reasons: [] });
 
 /**
@@ -800,6 +878,7 @@ try {
     console.log(todo.length
       ? `missing: captured ${todo.length} change(s) that had no row; ${failed} failed (each with its reason above).`
       : `missing: all ${shas.length} change(s) on main already have a row; nothing to capture.`);
+    countRun(null);
     process.exit(0);
   } else if (command === 'words') {
     requireLive();
@@ -846,5 +925,7 @@ try {
   }
   if (!(err instanceof RunFailed)) throw err;
   console.error(`evolution FAILED — ${err.message}`);
+  // Another run holding the test database is a short clash, not a breakage: leave the count alone.
+  if (command === 'missing' && !(err instanceof Busy)) countRun(err.message);
   process.exit(1);
 }

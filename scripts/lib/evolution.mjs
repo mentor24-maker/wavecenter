@@ -371,6 +371,120 @@ export function failureComment(row) {
   ].join('\n');
 }
 
+// ------------------------------------------------- when the run itself breaks
+
+/** Consecutive broken runs, with the same reason, before Dane is told. */
+export const ALERT_AFTER = 3;
+
+/**
+ * A run-failure reason with its changing details taken out (the words in
+ * brackets, the numbers), so the same breakage reads the same every pass.
+ */
+export function reasonKey(reason) {
+  return String(reason || '').replace(/\([^)]*\)/g, '').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+}
+
+/** The one command the reason itself names as its fix ("Install it once with `…`"), or null. */
+export function fixCommand(reason) {
+  const m = String(reason || '').match(/(?:with|Run) `([^`]+)`/);
+  return m ? m[1] : null;
+}
+
+/**
+ * The next state of the run-failure counter after one `missing` pass, and
+ * what to do about it. `state` is what the last pass left (null: nothing is
+ * wrong); `outcome` is { reason } for a broken run, or { ok: true }.
+ *
+ *   action 'card'       this pass is the ALERT_AFTER-th in a row with the
+ *                       same reason and no card has been posted for it yet
+ *   action 'recovered'  the run works again after a card: note it on
+ *                       state.tickets, then clear the state
+ *   action null         nothing to say
+ *
+ * A card that could not be posted leaves `carded` unset, so the next pass
+ * tries again. `tickets` keeps every card of this outage (a new reason gets
+ * its own card) until the recovery note has been posted on each.
+ */
+export function nextRunState(state, outcome, now = new Date().toISOString()) {
+  const tickets = state?.tickets ?? [];
+  if (outcome?.ok) {
+    if (!tickets.length) return { state: null, action: null };
+    return { state: { tickets }, action: 'recovered' };
+  }
+  const key = reasonKey(outcome?.reason);
+  const same = state?.key === key;
+  const next = {
+    key,
+    reason: outcome?.reason ?? '',
+    count: same ? state.count + 1 : 1,
+    since: same ? state.since : now,
+    carded: same ? state.carded ?? null : null,
+    tickets,
+  };
+  if (state?.pending) next.pending = state.pending;
+  return { state: next, action: next.count >= ALERT_AFTER && !next.carded ? 'card' : null };
+}
+
+/** The ticket name the merge lane files when picture-taking stops. */
+export const RUN_ALERT_NAME = 'Evolution pictures have stopped: the Mac Mini cannot take them';
+
+const LANE_LOG = '~/loop-logs/wavecenter-merge-on-comment.log';
+
+function firstWords(text, n) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  return words.length > n ? `${words.slice(0, n).join(' ')} …` : words.join(' ');
+}
+
+function fixLine(reason) {
+  const cmd = fixCommand(reason);
+  return cmd ? `runs \`${cmd}\` in the main checkout` : `reads the last lines of \`${LANE_LOG}\` and fixes what they name`;
+}
+
+/** The left-hand description of that ticket: the whole reason and the fix. */
+export function runAlertDescription(state) {
+  return [
+    '## Goal',
+    'Picture-taking for the Home "Evolution of WaveCenter" row works again on the Mac Mini.',
+    '',
+    '## What happened',
+    `The merge lane's \`npm run evolution -- missing\` step has failed ${state.count} passes in a row (every 10 minutes, since ${mountain(state.since)}) for one reason, so no newly merged change gets its Evolution card:`,
+    '',
+    '```',
+    state.reason,
+    '```',
+    '',
+    'Each pass writes the same line to `' + LANE_LOG + '` on the Mac Mini. Merges themselves are not affected.',
+    '',
+    '## Scope',
+    `*   On the Mac Mini, the agent session ${fixLine(state.reason)}.`,
+    '*   Then `npm run evolution -- missing` from the main checkout, and see it end with `missing: …` and exit 0.',
+    '*   No code change is expected. If the fix needs one, file it as its own ticket.',
+    '',
+    '## Acceptance criteria',
+    '- [ ] The next merge-lane pass ends `/evolution-missing (exit 0)` in the lane log.',
+    '- [ ] This ticket carries the merge lane\'s "picture-taking works again" note.',
+  ].join('\n');
+}
+
+/** The operator card on that ticket (scripts/lib/operatorCard.mjs shape). */
+export function runAlertCard(state) {
+  return [
+    '@@ASKED',
+    'No instruction from Dane: the merge lane raised this on its own. It descends from the Evolution row on Home, which shows a picture of every change merged into main.',
+    '@@WHEN',
+    `from ${mountain(state.since)}, the merge lane on the Mac Mini`,
+    '@@CONTEXT',
+    `The Mac Mini has not been able to take any Evolution pictures for ${state.count} merge-lane passes in a row, so changes merged since then are missing from the Evolution row on Home. Merging still works. The reason it gives: ${firstWords(state.reason, 20)} The whole message is in the description. The fix is on the machine itself, not in the code, and this card gets a note as soon as pictures work again.`,
+    '@@NEEDED',
+    `Your go-ahead: reply **fix it** and the next agent session on the Mac Mini ${fixLine(state.reason)}, then checks that pictures work again. If they start working first, this card gets a note and you can close the ticket.`,
+  ].join('\n');
+}
+
+/** The one note a card's ticket gets when the run works again. */
+export function recoveredNote() {
+  return 'Picture-taking works again: the last merge-lane pass took the Evolution pictures it owed and finished cleanly. Nothing more is needed for this card; the ticket can be closed.';
+}
+
 // ------------------------------------------- retaking after a rules change
 
 /** The file whose rules (choosePage) pick each card's page. */
