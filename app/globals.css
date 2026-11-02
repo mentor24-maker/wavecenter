@@ -594,7 +594,9 @@ table.teams .num { padding-right: 1.5rem; }
   .home-page { --glass: rgb(221 243 251 / 0.85); }
   @media (prefers-color-scheme: dark) { .home-page { --glass: rgb(11 42 52 / 0.85); } }
 }
-.home-page .dashboard { gap: calc(var(--space) * 1.25); align-items: start; margin-top: calc(var(--space) * 1.25); }
+/* Home's boxes sit twice as far apart as they used to (Dane, 2026-11-01:
+   room to breathe, and more of the drop showing between them). */
+.home-page .dashboard { gap: calc(var(--space) * 2.5); align-items: start; margin-top: calc(var(--space) * 2.5); }
 .home-page .dashboard > .box { padding: 1rem 1.15rem 1.1rem; }
 .home-page .dashboard > .box > h2:first-child {
   display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem;

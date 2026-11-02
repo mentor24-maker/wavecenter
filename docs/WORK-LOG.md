@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Home's boxes sit twice as far apart (#92)
+
+The space between the boxes on the signed-in Home page is doubled, both
+between boxes side by side and between the rows, so the page has more room
+to breathe and more of Dane's water-drop picture shows between them. Nothing
+else about the boxes changed, and other pages keep their spacing. Dane asked
+for this on Home.
+
+---
+
 ## 2026-11-01 — The browser tab shows the gold-and-aqua logo (#91)
 
 The little picture in the browser tab was still the old all-blue rings, so
