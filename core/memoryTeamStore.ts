@@ -3,8 +3,10 @@
  * unique and deleting a team takes its member links with it; the rules about
  * who may change a team are core's, so this store does not repeat them.
  *
- * Given an engagement store, it also does what the table's game-layer trigger
- * does (supabase/migrations/20261102130000_score_changed_a_team.sql): a saved
+ * Like the table, it stamps the signed-in member as a team's maker; given an
+ * engagement store, it scores making a team the way the table's game-layer
+ * trigger does, all-or-nothing. It scores changing one the same way
+ * (supabase/migrations/20261102170000_score_changed_a_team.sql): a saved
  * change to a team's name, slug or description records one "changed_a_team"
  * engagement for the signed-in member, a save that changes nothing records
  * none, and if the engagement cannot be written the change is not saved either.
@@ -13,20 +15,19 @@ import { recordEngagement, type EngagementStore } from './game.ts';
 import type { Team, TeamFields, TeamStore } from './teams.ts';
 
 export class MemoryTeamStore implements TeamStore {
-  /** Who is signed in, as the database's auth.uid() is: the member a change is credited to. */
-  signedIn: string | null = null;
-  private readonly engagements: EngagementStore | null;
-
-  constructor(engagements: EngagementStore | null = null) {
-    this.engagements = engagements;
-  }
-
   readonly teams = new Map<string, Team>();
   /** team id → member ids, with the tool that added each. */
   readonly members = new Map<string, Map<string, string>>();
   /** Set to make the next write fail the way a refused write does. */
   failNextSave = false;
+  /** Who is signed in, as `auth.uid()` is for the table. */
+  signedIn: string | null = null;
   private next = 1;
+  private readonly engagements: EngagementStore | null;
+
+  constructor(engagements: EngagementStore | null = null) {
+    this.engagements = engagements;
+  }
 
   private failed() {
     if (!this.failNextSave) return false;
@@ -44,7 +45,10 @@ export class MemoryTeamStore implements TeamStore {
 
   async insert(fields: TeamFields, tool: string) {
     if (this.failed()) return null;
-    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: null };
+    const team: Team = { id: `team-${this.next++}`, ...fields, tool, createdAt: new Date().toISOString(), createdBy: this.signedIn };
+    if (this.engagements && team.createdBy) {
+      await recordEngagement(this.engagements, { memberId: team.createdBy, kind: 'made_a_team', tool });
+    }
     this.teams.set(team.id, team);
     return team;
   }

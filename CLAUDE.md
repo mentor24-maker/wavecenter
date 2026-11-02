@@ -26,6 +26,11 @@ The path, in order:
 5. The plan is broken into tasks with defined points, and other people are
    invited in through the platform. That is how the project bootstraps itself.
 
+The game layer has two types of score: **granular** (tiny automatic
+actions, valued per kind) and **globular** (values that need thought, such
+as what a task is worth). See `docs/DATA_MODEL.md`, "Granular and globular
+scores".
+
 The to-do list is a seed, not a throwaway prototype. Every design choice must
 leave room for steps 2–5. In particular, a task record carries an owner, a
 status, a parent task and a points value from the very first version.
@@ -68,6 +73,9 @@ of the **WaveCenter** space in ClickUp (list id `901422159126`). StarCaster
 has its own Loop Queue (`901418546619`); WaveCenter work never goes there, and
 StarCaster work never comes here.
 
+- **Every piece of work starts as a WaveCenter task**, owned by Dane, chat
+  requests included (Dane, 2026-11-01: "Yes, always a task"); `loop-spec`
+  makes it with `npm run clickup -- chat-task` before filing the ticket.
 - The process is the spec → build → review loop: `docs/LOOP_ENGINEERING.md`.
   The three skills are `loop-spec`, `loop-build` and `loop-review` in
   `.claude/skills/`.

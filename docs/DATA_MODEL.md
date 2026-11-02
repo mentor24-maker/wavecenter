@@ -29,7 +29,9 @@ and the team permissions; `20261031130000_evolution.sql` added
 `evolution_entries` and the `evolution` bucket; `20261031150000_messages.sql`
 added `messages` and the Message members permission;
 `20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
-words and the link to where he said them); this page
+words and the link to where he said them;
+`20261102140000_evolution_task_link.sql` linked each Evolution card to its
+task); this page
 explains them.
 
 ## The `tasks` table
@@ -232,8 +234,8 @@ count** (2026-10-29): `member.read` decides who may list the members, and
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) and **message members** (`member.message`, added by `20261031150000_messages.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and messages members. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) **message members** (`member.message`, added by `20261031150000_messages.sql`) and **edit Home boxes** (`home.edit`, added by `20261102130000_home_boxes.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and edits Home's boxes; every role messages members. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -300,7 +302,10 @@ email names its sender (their display name only when their profile is
 public) and has no reply-to address: the recipient answers in WaveCenter
 (Dane's "A", 2026-11-01).
 The email result is recorded only through `record_message_email`, by the
-sender, once. There is no screen for reading messages yet (a later ticket).
+sender, once. Every message saved for another member is also an engagement
+for its sender (`send_a_message_to_another_member`, worth what Game > Manage
+says), recorded by the `messages_score` trigger in the same save; a note to
+oneself earns nothing. There is no screen for reading messages yet (a later ticket).
 
 ### Teams: `teams` and `team_members`
 
@@ -320,11 +325,13 @@ deletes a row. The check asks a helper, `private.may`, which, like
 `private.member_role`, the API does not expose. Every change goes through
 `core/teams.ts` (`createTeam`, `updateTeam`, `deleteTeam`, `addTeamMember`,
 `removeTeamMember`), which applies the same rules first, checks the slug, and
-names the tool.
-
-Each saved change to a team's name, slug or description is an engagement for
-the member who made it (`changed_a_team`, 1 point), recorded in the same save
-by the trigger `teams_score`. A save that changes nothing earns nothing.
+names the tool. Making a team is an engagement for the member who made it
+(`made_a_team`, 1 point to start), recorded by the table's trigger
+`teams_score` in the same save. Each saved change to a team's name, slug or
+description is an engagement for the member who made the change
+(`changed_a_team`, 1 point), recorded in the same save by its own trigger,
+`teams_score_change`; a save that changes nothing earns nothing. Deleting a
+team, or changing who is on it, earns nothing yet.
 
 The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
 for each one, its members through the function `list_team_members`. Like
@@ -332,6 +339,29 @@ for each one, its members through the function `list_team_members`. Like
 avatar unless their profile is private, and their name only if it is public.
 No email address leaves the database. `npm run check:tasks-rls` proves all of
 this, on the test database for an unmerged change (`npm run db:test`).
+
+### Home's box words: `home_boxes`
+
+The words in two of Home's boxes, About WaveCenter and What is a DEO, are
+edited from Home itself (Dane, 2026-11-01; he chose "B": only those two for
+now, since the other boxes show lists WaveCenter fills in by itself). A role
+with `home.edit` (**Edit Home boxes**, admins only to start) sees a small
+pencil in each box's lower right; it opens the same rich-text editor as a
+task's Discussion.
+
+| Column | What it holds |
+|---|---|
+| `box` | Which box: `about` or `deo`. One row per box, at most. |
+| `body` | The words, in the comment rich-text format (`core/richText.ts`): plain words with marks for bold, italic, lists and links, never HTML. Up to 2,000 characters, and never only spaces. |
+| `tool` | The tool that last changed them (`wavecenter` for Home). |
+| `updated_by`, `updated_at` | Who changed them last and when, stamped by the database. |
+
+A box with no row shows the words it was built with, which live in
+`core/homeBoxes.ts`. Row-level security was on from the moment the table was
+made: every signed-in member reads it; only a role with `home.edit` adds or
+changes a row, checked by `private.may`. Nobody deletes a row from the
+browser. `saveHomeBox` in `core/homeBoxes.ts` applies the same rules first and
+names the tool.
 
 ### Files attached to a task
 
@@ -406,7 +436,15 @@ That rule lives in one place, `commentAuthorKind` in `core/comments.ts`, so
 the screen and any future agent path agree. Comments only change through
 `core/comments.ts`: `addComment`, `editComment` and `removeComment`. An edit
 can change only the words (and the tool that changed them): a comment never
-moves to another task or another author. Comments earn no points yet.
+moves to another task or another author. Posting a comment is an engagement
+for the member who wrote it (`posted_a_comment`, 1 point to start), recorded
+by the table's trigger `task_comments_score` in the same save. Editing its
+words earns its writer "Edited a comment" (`edited_a_comment`), recorded by
+`task_comments_score_edit`. Deleting a comment on its own earns its writer
+"Deleted a comment" (`deleted_a_comment`, 1 point), recorded by the database
+inside the same delete (`task_comments_score_delete`); a comment that goes
+because its task was deleted earns nothing, since deleting the task was the
+engagement.
 
 Row-level security was on from the moment `task_comments` was made: a member
 reads, adds, edits and deletes only their own comments, and adds them only to
@@ -444,7 +482,9 @@ scored." This is the first piece of that, modelled on Normie's game layer.
 - **`game_scoring_rules`** is the list of kinds of engagement and what each
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
-  agents on or off, changed your profile, voted on a task. Each has a name, a
+  agents on or off, changed your profile, voted on a task, posted a comment,
+  made a team.
+  Each has a name, a
   description, exactly what counts, and its points. Every kind is worth 1 point except finishing a task, worth 5.
   An admin changes them on the Game management screen (below); a members'
   vote comes later. Each rule also records which tool and which member last
@@ -456,7 +496,7 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   someone already earned. A row about a deleted task stays.
 
 **The database writes the ledger itself.** Every time a task, an attached
-file, the AI agents switch or a profile is saved, the database records the engagement
+file, the AI agents switch, a profile or a message is saved, the database records the engagement
 in the same step as the save. The two go through together or not at all: if
 the engagement cannot be written, the save fails and the screen says so. No
 tool, and no page, can choose how many points something is worth, and a
@@ -479,6 +519,20 @@ This does not yet change a task's own `points`: what a task is worth and what
 a member has earned are kept separate for now. Levels, rewards and a
 leaderboard are later tickets (Dane, 2026-10-30: "Hold off on levels and
 rewards").
+
+### Granular and globular scores
+
+Dane, 2026-11-01, named the game layer's two basic types of score:
+
+- **Granular scores** are for tiny, mechanical actions that can be
+  discretely identified and tracked. They register automatically and need
+  no thought from the member: making a task, attaching a file, voting. They
+  are the rows of `game_scoring_rules`, one granular value per kind of action. How
+  each kind's value is worked out: `docs/GRANULAR_SCORING_ALGORITHM.md`.
+- **Globular scores** are values that need thought to assess accurately and
+  defensibly against other globular scores, such as what a given task is
+  worth. A task's `points` is one; the owner, human, AI and final scores
+  for a task are planned in `docs/SCORING_GAME_PLAN.md`.
 
 ### Who may change the scoring rules
 
@@ -532,11 +586,25 @@ rebuilds "the data as it stood" and what it cannot show.
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
 | `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
 | `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |
+| `task_id` | The WaveCenter task behind the change. Empty until `npm run evolution:tasks` fills it; if that task is deleted, the card keeps going with no task. |
 | `captured_at` | When the row was last written. |
 
 The Evolution view shows only `captured` changes, each labeled with
 `prompt`. `npm run evolution -- words` fills `prompt` and `thread_url` on
 rows recorded before they existed, without retaking any picture.
+
+Every card has a task behind it (Dane, 2026-11-01: "I thought all cards had
+to have a task associated with it"). `npm run evolution:tasks`
+(`scripts/evolution_backfill_tasks.mjs`; `--dry-run` writes nothing) links a
+card that came from a WaveCenter task to that task, and gives every other
+card (a chat request, a founding commit) a new task: done, 0 points, owned
+by Dane, dated at the change's merge, its notes holding his words when the
+card has them, and named with the tool `evolution-backfill`. It makes them
+through `evolution_backfill_task`, a database function only the service key
+may call, which saves the task and the card's link together or not at all
+and records no engagement: nobody made a task that day, so nobody is
+credited for one. Pictures of the past leave those tasks out, since they did
+not exist then. Dane sets real points later from the task page.
 
 The table refuses a `captured` row without its stored picture and a `failed`
 row without a reason (engineering rule 6). Row-level security is on from the

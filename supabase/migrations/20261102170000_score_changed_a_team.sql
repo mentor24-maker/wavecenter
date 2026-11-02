@@ -11,7 +11,7 @@
 --
 -- No new table. Safe to re-run.
 
-create or replace function public.teams_score()
+create or replace function public.teams_score_change()
 returns trigger
 language plpgsql
 security definer
@@ -26,11 +26,11 @@ begin
 end;
 $$;
 
-drop trigger if exists teams_score on public.teams;
-create trigger teams_score
+drop trigger if exists teams_score_change on public.teams;
+create trigger teams_score_change
   after update on public.teams
-  for each row execute function public.teams_score();
+  for each row execute function public.teams_score_change();
 
-revoke execute on function public.teams_score() from public, anon, authenticated;
+revoke execute on function public.teams_score_change() from public, anon, authenticated;
 
 notify pgrst, 'reload schema';
