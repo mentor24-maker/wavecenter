@@ -17,7 +17,11 @@ picture rules changed, and if they did it retakes the cards those rules now
 picture differently. If the rules did not change it retakes nothing. If a
 retake fails, the old cards stay as they were, the lane tries again on the
 next pass, and the ticket behind the rules change gets one note when it
-fails and one when it works.
+fails and one when it works. The check stays quick as the cards pile up,
+because it only compares pictures where a retake made two cards neighbours.
+If it keeps running out of time without retaking anything, the ticket is
+told, the same as a failure; another lane briefly using the test database
+just means it waits for the next pass.
 
 ---
 

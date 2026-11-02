@@ -387,20 +387,42 @@ export function recaptureDue(state, rules) {
   return !state || state.done !== rules;
 }
 
+/** Cut off at the time limit this many passes running, with no card retaken, a retake is stuck: say so. */
+export const RECAPTURE_CUTOFF_LIMIT = 3;
+
 /**
  * The next retake state after one `recapture` the lane ran, and what to say.
- * `outcome` is { ok: true } or { reason }. Like the run-failure rule, Dane's
- * side hears about one rules change once: the first failure posts a note
- * (action 'tell', then the caller sets `told` to the ticket it reached), later
- * failures of the same rules say nothing, and the first success after a note
- * posts one "done" note (action 'recovered').
+ * `outcome` is one of:
+ *   { ok: true }                     every card the rules owed was handled
+ *   { reason }                       it failed
+ *   { stopped: true, progressed }    the time limit cut it off; `progressed`
+ *                                    when it retook at least one card first
+ *   { busy: true }                   another run held the test database
+ * Like the run-failure rule, Dane's side hears about one rules change once:
+ * the first failure posts a note (action 'tell', then the caller sets `told`
+ * to the ticket it reached), later failures of the same rules say nothing,
+ * and the first success after a note posts one "done" note (action
+ * 'recovered'). A cut-off that retook a card is progress (each retaken card
+ * now matches the rules, so the next pass skips it) and says nothing; one
+ * that retook nothing, RECAPTURE_CUTOFF_LIMIT passes running, is stuck and
+ * counts as a failure. A busy test database is a short clash with another
+ * lane, not a failure: nothing changes and the next pass tries again.
  */
 export function nextRecaptureState(state, rules, outcome) {
   if (outcome?.ok) {
     return { state: { done: rules }, action: state?.told ? 'recovered' : null };
   }
+  if (outcome?.busy) return { state: state ?? { done: null }, action: null };
   const same = state?.failing === rules;
-  const next = { done: state?.done ?? null, failing: rules, reason: outcome?.reason ?? '', told: same ? state.told ?? null : null };
+  const told = same ? state.told ?? null : null;
+  if (outcome?.stopped) {
+    const cutoffs = outcome.progressed ? 0 : (same ? state.cutoffs ?? 0 : 0) + 1;
+    const stuck = cutoffs >= RECAPTURE_CUTOFF_LIMIT;
+    const reason = stuck ? `it was cut off at the time limit ${cutoffs} passes running without retaking a single card` : (same ? state.reason ?? '' : '');
+    const next = { done: state?.done ?? null, failing: rules, reason, told, cutoffs };
+    return { state: next, action: stuck && !told ? 'tell' : null };
+  }
+  const next = { done: state?.done ?? null, failing: rules, reason: outcome?.reason ?? '', told, cutoffs: same ? state.cutoffs ?? 0 : 0 };
   return { state: next, action: next.told ? null : 'tell' };
 }
 

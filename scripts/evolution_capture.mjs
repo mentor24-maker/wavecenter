@@ -87,7 +87,12 @@
  * rules the last successful retake used, on the Mini and never in the repo,
  * and retakes only when the rules it runs differ. A failed retake keeps the
  * old fingerprint, so the next pass tries again; the ticket of the rules
- * change gets one note when it fails and one when it works again.
+ * change gets one note when it fails and one when it works again. The scan
+ * compares stored pictures only where the run made two cards neighbours, so
+ * it stays inside the time limit as the cards grow. A run cut off at the
+ * limit keeps every card it retook (the next pass skips those), and three
+ * cut-offs running that retook nothing count as a failure. Another lane
+ * holding the test database is not a failure: it waits for the next pass.
  *
  * Exit 0 = done. Exit 1 = something failed, said in plain words; a picture
  * that was not stored is never recorded as captured (engineering rule 6).
@@ -117,6 +122,8 @@ class CaptureFailed extends Error {}
 class RunFailed extends Error {}
 /** The time limit stopped the run: record nothing, so the next pass retakes it. */
 class Stopped extends Error {}
+/** Another run held the test database: a short clash, so try again next pass. */
+class Busy extends RunFailed {}
 
 // scripts/run_with_time_limit.sh sends SIGTERM to this process and every
 // child at once. A killed `npm ci` or `next build` would otherwise look like
@@ -466,7 +473,12 @@ async function screenshot({ base, page, cookies, file }) {
 
 // ---------------------------------------------------------------- one change
 
-function commitInfo(rev) {
+/**
+ * What one commit changed, and its ticket. `ticket: false` skips looking the
+ * ticket up on GitHub (a network call per commit) for a caller that only
+ * needs choosePage's inputs.
+ */
+function commitInfo(rev, { ticket: lookUp = true } = {}) {
   const sha = git(['rev-parse', `${rev}^{commit}`]);
   const [mergedAt, parents, subject] = git(['show', '-s', '--format=%cI%n%P%n%s', sha]).split('\n');
   const parent = parents.split(' ').filter(Boolean)[0];
@@ -475,7 +487,7 @@ function commitInfo(rev) {
   const files = git(['ls-tree', '-r', '--name-only', sha]).split('\n').filter(Boolean);
   const { title, prNumber } = parseSubject(subject);
   let ticket = ticketUrl(git(['show', '-s', '--format=%b', sha]));
-  if (!ticket && prNumber) {
+  if (!ticket && prNumber && lookUp) {
     const pr = sh('gh', ['pr', 'view', String(prNumber), '--json', 'body', '-q', '.body']);
     if (pr.ok) ticket = ticketUrl(pr.stdout);
   }
@@ -542,7 +554,7 @@ async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
     let cookies = [];
     if (usesDb) {
       const lock = takeTestDbLock();
-      if (!lock.ok) throw new RunFailed(`another run is using the test database (lock ${TEST_DB_LOCK}). Try again when it finishes.`);
+      if (!lock.ok) throw new Busy(`another run is using the test database (lock ${TEST_DB_LOCK}). Try again when it finishes.`);
       locked = true;
       console.log(`  rebuilding the test database from this change's migrations and copying in the live rows as of ${info.mergedAt}...`);
       resetTestDb(info.sha);
@@ -599,22 +611,32 @@ function tellTicket(row) {
   console.log(sent.ok ? `  told ticket ${task} the screenshot could not be taken.` : `  could not comment on ticket ${task}: ${tail(sent.out)}`);
 }
 
+const tally = () => ({ retaken: 0, leftOff: 0, kept: 0, failed: 0, reasons: [] });
+
 /**
  * Retake every captured change whose page the current rules choose
  * differently, and leave off a picture identical to the card before it.
- * Returns the counts and each failed retake's reason.
+ * Counts into `out` as it goes (so a caller still has them after a stop),
+ * and returns it, with each failed retake's reason.
+ *
+ * `newNeighboursOnly` (the merge lane) compares pictures only where this run
+ * made two cards neighbours: after a retake, or where a card between them
+ * was left off. Two untouched neighbours were compared when the later one
+ * was taken, and downloading every stored picture on every pass would grow
+ * past the lane's time limit (47 seconds for 62 cards on 2026-11-01). The
+ * hand-run `recapture` still compares every pair.
  */
-async function recapture({ plan = false } = {}) {
+async function recapture({ plan = false, newNeighboursOnly = false, out = tally() } = {}) {
   const hashes = new Map();
   const hashOf = async (path) => {
     if (!hashes.has(path)) hashes.set(path, await storedHash(path));
     return hashes.get(path);
   };
   let prev = null;
-  const out = { retaken: 0, leftOff: 0, kept: 0, failed: 0, reasons: [] };
+  let fresh = false; // prev and the next card were not neighbours before this run
   for (const row of (await recorded()).filter((r) => r.capture_state === 'captured')) {
     if (stopping) throw new Stopped(`stopped before retaking ${row.commit_sha.slice(0, 7)}`);
-    const pattern = choosePage({ ...commitInfo(row.commit_sha), prompt: row.prompt });
+    const pattern = choosePage({ ...commitInfo(row.commit_sha, { ticket: false }), prompt: row.prompt });
     const label = `${row.commit_sha.slice(0, 7)} ${row.title}`;
     if (pattern && !samePage(pattern, row.page)) {
       if (plan) {
@@ -624,15 +646,16 @@ async function recapture({ plan = false } = {}) {
         continue;
       }
       const got = await capture(row.commit_sha, { previous: prev, retake: row });
-      if (got.retakeFailed) { out.failed += 1; out.reasons.push(`${row.commit_sha.slice(0, 7)}: ${got.retakeFailed}`); prev = row; }
-      else if (got.capture_state === 'captured') { out.retaken += 1; prev = got; }
-      else out.leftOff += 1;
+      if (got.retakeFailed) { out.failed += 1; out.reasons.push(`${row.commit_sha.slice(0, 7)}: ${got.retakeFailed}`); prev = row; fresh = false; }
+      else if (got.capture_state === 'captured') { out.retaken += 1; prev = got; fresh = true; }
+      else { out.leftOff += 1; fresh = true; }
       continue;
     }
-    const same = prev?.screenshot_path && await hashOf(prev.screenshot_path);
+    const same = (fresh || !newNeighboursOnly) && prev?.screenshot_path && await hashOf(prev.screenshot_path);
     if (same && same === await hashOf(row.screenshot_path)) {
       console.log(`${label}\n  ${plan ? 'would leave off' : 'leaving off'}: its picture is exactly the same as the card before it`);
       out.leftOff += 1;
+      fresh = true;
       if (plan) continue;
       const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${row.commit_sha}&capture_state=eq.captured`, {
         method: 'PATCH', body: { capture_state: 'no screen', screenshot_path: null }, headers: { Prefer: 'return=representation' },
@@ -644,6 +667,7 @@ async function recapture({ plan = false } = {}) {
     }
     out.kept += 1;
     prev = row;
+    fresh = false;
   }
   return out;
 }
@@ -697,26 +721,36 @@ async function recaptureIfRulesChanged() {
   console.log(`recapture: the picture rules changed (${before?.done ?? 'no retake recorded on this machine'} -> ${rules}); retaking the cards they choose differently...`);
   let outcome;
   let summary = '';
+  const got = tally();
   try {
-    const got = await recapture();
+    await recapture({ newNeighboursOnly: true, out: got });
     summary = recaptureSummary(got);
     console.log(summary);
     outcome = got.failed ? { reason: got.reasons.join('; ') } : { ok: true };
   } catch (err) {
-    if (!(err instanceof RunFailed) || stopping) throw err;
-    console.error(`recapture FAILED — ${err.message}`);
-    outcome = { reason: err.message };
+    if (err instanceof Stopped || stopping) {
+      // Record the cut-off before exiting, so a run that never finishes is
+      // counted and, once stuck, told; the time limit allows 30 seconds for it.
+      console.error(`recapture STOPPED at the time limit after retaking ${got.retaken} card(s). The next pass carries on.`);
+      outcome = { stopped: true, progressed: got.retaken > 0 };
+    } else if (err instanceof Busy) {
+      console.log(`recapture: ${err.message} Nothing changed; the next pass tries again.`);
+      outcome = { busy: true };
+    } else if (err instanceof RunFailed) {
+      console.error(`recapture FAILED — ${err.message}`);
+      outcome = { reason: err.message };
+    } else throw err;
   }
   const { state, action } = nextRecaptureState(before, rules, outcome);
   if (action === 'tell') {
     const task = rulesTicket();
     if (!task) console.log('  the latest change to the picture rules has no ticket link, so no ticket to tell.');
-    if (!task || noteOn(task, recaptureFailedComment(outcome.reason))) state.told = task ?? 'none';
+    if (!task || noteOn(task, recaptureFailedComment(state.reason))) state.told = task ?? 'none';
   } else if (action === 'recovered' && before.told !== 'none') {
     noteOn(before.told, recaptureDoneNote(summary.replace(/^recapture: /, '').replace(/\.$/, '')));
   }
   writeRecaptureState(state);
-  process.exit(outcome.ok ? 0 : 1);
+  process.exit(outcome.stopped ? 143 : outcome.ok || outcome.busy ? 0 : 1);
 }
 
 async function recorded() {

@@ -53,7 +53,9 @@ cd "$REPO" || exit 1
   # one file read. Only after a clean `missing`: a broken run would break this
   # the same way, and new changes get their first picture before old ones are
   # redone. 180 seconds fits two retakes; one cut off at the limit leaves its
-  # old card, and the next pass carries on from there.
+  # old card, and the next pass carries on from there (cards already retaken
+  # are skipped). A run that keeps being cut off without retaking anything
+  # tells the rules change's ticket once, as a failure does.
   if [ "$CODE" -eq 0 ]; then
     echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /evolution-recapture ====="
     "$REPO/scripts/run_with_time_limit.sh" 180 -- npm run --silent evolution -- recapture --if-rules-changed 2>&1
