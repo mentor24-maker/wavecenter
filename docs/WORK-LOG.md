@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-01 — Dane hears about it when the Mac Mini stops taking Evolution pictures (#97)
+
+For most of a day the Mac Mini could not take Evolution pictures: a piece
+it needs (a hidden web browser it uses to photograph each screen) had gone
+missing. The merge lane failed 96 times in a row and wrote that only into a
+log file on the Mini, so nobody knew, and no new change showed up on the
+Home "Evolution of WaveCenter" row. Now the lane counts those failures.
+After three in a row for the same reason, it files one ticket with a card
+for Dane saying what broke and the one command that fixes it, and it does
+not repeat itself. When pictures work again, it adds one "works again"
+note to that ticket. Setting up a fresh Mini now installs the hidden
+browser too, so this cannot start on a new machine.
+
 ## 2026-11-01 — The Home picture is mirrored so the logo sits on the dark side (#95)
 
 Dane's water-drop picture on Home is now flipped left to right. The darker
