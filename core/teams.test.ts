@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryTeamStore } from './memoryTeamStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import {
   addTeamMember, checkTeam, createTeam, deleteTeam, mayManageTeams, mayViewTeams, removeTeamMember, slugFromName,
   updateTeam, type TeamDeps,
@@ -58,6 +59,52 @@ test('an admin and an editor make a team, and the change names its tool', async 
   const byEditor = await createTeam(deps, { actorId: 'eddie', name: 'Editors', slug: '', description: null }, TOOL);
   assert.equal(byEditor.slug, 'editors');
   assert.equal(deps.teams.teams.size, 2);
+});
+
+test('deleting a team records one engagement, credited to the member who deleted it, naming the tool', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  const first = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  const second = await createTeam(deps, { actorId: 'dane', name: 'Second', slug: '', description: null }, TOOL);
+  // Making, changing and changing who is on a team are not deleting one.
+  deps.teams.signedIn = 'dane';
+  await updateTeam(deps, { actorId: 'dane', teamId: first.id, ...TEST_TEAM, name: 'Renamed' }, TOOL);
+  await addTeamMember(deps, { actorId: 'dane', teamId: first.id, memberId: 'vee' }, TOOL);
+  await addTeamMember(deps, { actorId: 'dane', teamId: first.id, memberId: 'eddie' }, TOOL);
+  await removeTeamMember(deps, { actorId: 'dane', teamId: first.id, memberId: 'eddie' }, TOOL);
+  assert.equal(ledger.rows.length, 0);
+
+  // An editor deletes a team it did not make: the editor is credited, once, and its members leaving with it are not scored.
+  deps.teams.signedIn = 'eddie';
+  await deleteTeam(deps, { actorId: 'eddie', teamId: first.id }, 'loop-build');
+  assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
+    { memberId: 'eddie', kind: 'deleted_a_team', points: 1, tool: 'loop-build', taskId: null },
+  ]);
+  assert.equal(deps.teams.members.has(first.id), false);
+
+  // The rule decides the worth, at the moment it happens.
+  ledger.ruleList.find((r) => r.kind === 'deleted_a_team')!.points = 3;
+  deps.teams.signedIn = 'dane';
+  await deleteTeam(deps, { actorId: 'dane', teamId: second.id }, TOOL);
+  assert.deepEqual(ledger.rows.map((e) => [e.memberId, e.points, e.tool]), [['eddie', 1, 'loop-build'], ['dane', 3, TOOL]]);
+});
+
+test('a team delete that is refused or fails records no engagement, and one whose engagement fails keeps the team', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = { ...setup(), teams: new MemoryTeamStore(ledger) };
+  const team = await createTeam(deps, { actorId: 'dane', ...TEST_TEAM }, TOOL);
+  await addTeamMember(deps, { actorId: 'dane', teamId: team.id, memberId: 'vee' }, TOOL);
+  deps.teams.signedIn = 'vee';
+  await assert.rejects(deleteTeam(deps, { actorId: 'vee', teamId: team.id }, TOOL), /Only an admin or an editor/);
+  deps.teams.signedIn = 'dane';
+  deps.teams.failNextSave = true;
+  await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /was not deleted/);
+  await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: 'team-gone' }, TOOL));
+  ledger.failInsert = true;
+  await assert.rejects(deleteTeam(deps, { actorId: 'dane', teamId: team.id }, TOOL), /ledger is down/);
+  assert.equal(ledger.rows.length, 0);
+  assert.equal(deps.teams.teams.has(team.id), true);
+  assert.equal(deps.teams.members.get(team.id)?.has('vee'), true);
 });
 
 test('a viewer or a contributor cannot make, change or delete a team', async () => {

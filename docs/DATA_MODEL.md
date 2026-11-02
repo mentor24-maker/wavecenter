@@ -320,7 +320,10 @@ deletes a row. The check asks a helper, `private.may`, which, like
 `private.member_role`, the API does not expose. Every change goes through
 `core/teams.ts` (`createTeam`, `updateTeam`, `deleteTeam`, `addTeamMember`,
 `removeTeamMember`), which applies the same rules first, checks the slug, and
-names the tool.
+names the tool. Deleting a team is an engagement for the member who deleted
+it (`deleted_a_team`, 1 point to start), recorded by the table's trigger
+`teams_score_delete` in the same delete; its member links going with it earn
+nothing.
 
 The **Team Manager** page (`/teams`, "Teams" in the menu) lists the teams and,
 for each one, its members through the function `list_team_members`. Like
@@ -440,7 +443,8 @@ scored." This is the first piece of that, modelled on Normie's game layer.
 - **`game_scoring_rules`** is the list of kinds of engagement and what each
   is worth: made a task, changed a task, finished a task, deleted a task,
   attached a file, removed a file, handed a task to AI agents, switched AI
-  agents on or off, changed your profile, voted on a task. Each has a name, a
+  agents on or off, changed your profile, voted on a task, deleted a team.
+  Each has a name, a
   description, exactly what counts, and its points. Every kind is worth 1 point except finishing a task, worth 5.
   An admin changes them on the Game management screen (below); a members'
   vote comes later. Each rule also records which tool and which member last

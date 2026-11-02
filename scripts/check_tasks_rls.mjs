@@ -298,8 +298,8 @@ function teamStore(member) {
     async update(id, fields, tool) {
       return fromRow(rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body: { ...fields, tool } }), 'teams update')[0]) ?? null;
     },
-    async remove(id) {
-      return rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'teams delete').length > 0;
+    async remove(id, tool) {
+      return rows(await call(`/rest/v1/teams?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool }), 'teams delete').length > 0;
     },
     async hasMember(teamId, memberId) {
       return rows(await call(`/rest/v1/team_members?team_id=eq.${teamId}&member_id=eq.${memberId}&select=member_id`, { token: member.token }), 'team_members read').length > 0;
@@ -637,6 +637,12 @@ try {
   const goneLinks = await admin(`/rest/v1/team_members?team_id=eq.${teamA.id}&select=member_id`);
   const stillA2 = await admin(`/auth/v1/admin/users/${a.id}`);
   check('deleting a team removes its member links and no member account', goneTeam.json?.length === 0 && goneLinks.json?.length === 0 && stillA2.status === 200, `team ${JSON.stringify(goneTeam.json)}, links ${JSON.stringify(goneLinks.json)}, A HTTP ${stillA2.status}`);
+  // Deleting a team is scored by the table's trigger: once, for whoever deleted it (B, not its maker A), naming the tool; B's refused delete as a viewer earned nothing.
+  const deletedTeamB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.deleted_a_team&select=points,tool,task_id`);
+  const deletedTeamA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.deleted_a_team&select=id`);
+  check('deleting a team records one engagement, credited to the member who deleted it, naming the tool, and a refused delete records none',
+    JSON.stringify(deletedTeamB.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]) && deletedTeamA.json?.length === 0,
+    `B ${JSON.stringify(deletedTeamB.json)}, A ${JSON.stringify(deletedTeamA.json)}`);
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
 
   // task_files and the task-files bucket: a member's attached files are their own.
