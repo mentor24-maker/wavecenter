@@ -486,9 +486,9 @@ export interface ScoringFactors {
   effort: number;
   /** V, what it does for the project and other members. Counted twice. */
   value: number;
-  /** R, how often a member genuinely does it. Counts only when it cannot loop. */
+  /** R, how often a member genuinely does it. */
   rarity: number;
-  /** F, how easily it can be repeated just to collect points. Subtracted. */
+  /** F, how easily it can be repeated just to collect points. Scored and stored for anti-farming work; not part of the formula. */
   farmRisk: number;
 }
 export type FactorKey = keyof ScoringFactors;
@@ -564,15 +564,14 @@ function sameFactors(a: ScoringFactors | null | undefined, b: ScoringFactors | n
 }
 
 /**
- * The formula: Points = 1 + E + 2 × V + R − F, never below 0, and R counts
- * as 0 when F is 3 (an action that loops is not rare, however seldom an
- * honest member does it).
+ * The formula: Points = 1 + E + 2 × V + R, so every action scores at least 1.
+ * Farm risk is still required and stored, but does not change the points
+ * (Dane, 2026-11-02: "Drop F at this level"); anti-farming work comes later.
  */
 export function granularPoints(factors: ScoringFactors): number {
   const f = checkFactors(factors);
   if (!f) throw new CoreError('An action needs all four factors before the formula can score it.');
-  const rarity = f.farmRisk === 3 ? 0 : f.rarity;
-  return Math.max(0, 1 + f.effort + 2 * f.value + rarity - f.farmRisk);
+  return 1 + f.effort + 2 * f.value + f.rarity;
 }
 
 /** One row of the batch's results: what an action is worth now and what the formula says. */

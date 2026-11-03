@@ -63,8 +63,8 @@ export default async function Admin() {
             <h2>Recalculate action points</h2>
             <p className="note">
               Works out what every action on <Link href="/game/manage">Game → Manage</Link> is worth with the formula
-              (1 + Effort + 2 × Value + Rarity − Farm risk, never below 0; Rarity does not count when Farm risk is 3), and
-              shows it beside what each is worth now. Nothing changes until you click “Put these live”. A new value counts
+              (1 + Effort + 2 × Value + Rarity. Farm risk is scored but not counted yet; it is kept for anti-farming work
+              to come), and shows it beside what each is worth now. Nothing changes until you click “Put these live”. A new value counts
               from the next time someone does the action; points already earned keep their value. An action with no
               factor scores is left alone: score it on Game → Manage.
             </p>

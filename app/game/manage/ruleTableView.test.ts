@@ -30,7 +30,7 @@ test('the factor dropdowns read the plain tests, and the formula shows once all 
   assert.deepEqual(factorFormOf(rule), BLANK_FACTORS, 'not scored yet');
   const finished = factorFormOf({ factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 } });
   assert.equal(factorFormState(finished), 'all');
-  assert.equal(formulaFor(finished), 7);
+  assert.equal(formulaFor(finished), 11);
   assert.equal(factorFormState({ ...BLANK_FACTORS, effort: '1' }), 'some');
   assert.equal(formulaFor({ ...BLANK_FACTORS, effort: '1' }), null);
 });
