@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Every action scores at least 1 point (#131)
+
+The formula that works out what each small action is worth used to take
+"farm risk" (how easily an action can be repeated just for points) away
+from the total. Nearly every action had the highest farm risk, so six of
+them came out at 0. Dane wanted every action to score something, and felt
+farm risk was weighed too heavily. Farm risk is now still scored and kept
+for later anti-farming work, but it no longer changes the points. The
+lowest an action can score is 1. Finishing a task, the most valuable, now
+proposes 11. Nothing goes live until Dane clicks "Put these live" on the
+Admin page.
+
 ## 2026-11-02 — Evolution cards look harder for Dane's own words (#129)
 
 Dane asked that every Evolution card on Home show his own prompt, not an
