@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Admins can write the reason behind each factor score (#136)
+
+#134 showed why each action got its Effort, Value, Rarity and Farm-risk
+scores, but nobody could change those reasons, and a newly added action
+would say "No reason has been written" forever. Now each factor on
+Game → Manage has a "why" button. It opens the reason to write or change,
+and the Admin page's pop-ups show the new text straight away. A new
+action can be given its reasons when it is added. Only admins may change
+them, a reason is one short sentence (300 characters at most), and
+reasons never change anyone's points.
+
 ## 2026-11-03 — Two ways to farm points are closed (#133)
 
 Two loops paid points every time round, and now that Farm risk no longer

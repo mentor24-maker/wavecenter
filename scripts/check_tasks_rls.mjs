@@ -51,7 +51,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
 import { setMemberRole } from '../core/members.ts';
@@ -117,7 +117,11 @@ function scoringStore(member) {
     return got.json;
   };
   const withFactors = (row) => row && typeof row === 'object'
-    ? { ...row, factors: row.effort == null ? null : { effort: row.effort, value: row.value, rarity: row.rarity, farmRisk: row.farm_risk } }
+    ? {
+      ...row,
+      factors: row.effort == null ? null : { effort: row.effort, value: row.value, rarity: row.rarity, farmRisk: row.farm_risk },
+      reasons: { effort: row.effort_reason ?? null, value: row.value_reason ?? null, rarity: row.rarity_reason ?? null, farmRisk: row.farm_risk_reason ?? null },
+    }
     : row;
   return {
     async rules() {
@@ -131,6 +135,14 @@ function scoringStore(member) {
         body: { rule_kind: kind, new_effort: factors?.effort ?? null, new_value: factors?.value ?? null, new_rarity: factors?.rarity ?? null, new_farm_risk: factors?.farmRisk ?? null, tool },
       });
       if (got.status >= 300) throw new Error(`set_scoring_factors failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+      return withFactors(got.json);
+    },
+    async setReasons(kind, reasons, tool) {
+      const got = await call('/rest/v1/rpc/set_scoring_factor_reasons', {
+        method: 'POST', token: member.token,
+        body: { rule_kind: kind, new_effort_reason: reasons.effort, new_value_reason: reasons.value, new_rarity_reason: reasons.rarity, new_farm_risk_reason: reasons.farmRisk, tool },
+      });
+      if (got.status >= 300) throw new Error(`set_scoring_factor_reasons failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return withFactors(got.json);
     },
   };
@@ -1140,7 +1152,7 @@ try {
   // only through update_scoring_rule / add_scoring_rule; a change counts from
   // the next engagement; what was earned keeps its points. Whatever this
   // changes is put back below, so the rules end as they started.
-  const ruleRow = async (kind) => (await admin(`/rest/v1/game_scoring_rules?kind=eq.${kind}&select=kind,name,description,criteria,points,position,tool,changed_by`)).json?.[0];
+  const ruleRow = async (kind) => (await admin(`/rest/v1/game_scoring_rules?kind=eq.${kind}&select=kind,name,description,criteria,points,position,tool,changed_by,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
   const original = await ruleRow('made_task');
   const ruleChanges = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.changed_a_scoring_rule&select=points,tool,task_id`)).json;
   const addedName = `RLS check ${[...randomBytes(6)].map((n) => String.fromCharCode(97 + (n % 26))).join('')}`;
@@ -1235,6 +1247,22 @@ try {
     const batchChanges = await ruleChanges(a);
     check('putting the batch live scores 1 "changed a scoring rule" per saved row, for the admin who put it live',
       batchChanges?.length === 2 && batchChanges.every((e) => e.points === 1 && e.tool === TOOL), JSON.stringify(batchChanges));
+
+    // Factor reasons written on Game > Manage (20261103140000_edit_factor_reasons.sql).
+    const reasonBody = (extra = {}) => ({ rule_kind: 'made_task', new_effort_reason: null, new_value_reason: null, new_rarity_reason: null, new_farm_risk_reason: 'Mine now.', tool: TOOL, ...extra });
+    const reasonsByB = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', token: b.token, body: reasonBody() });
+    const reasonsByAnon = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', body: reasonBody() });
+    const tooLong = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', token: a.token, body: reasonBody({ new_farm_risk_reason: 'x'.repeat(301) }) });
+    check('a non-admin cannot change a factor reason; one over 300 characters is refused even for an admin',
+      [reasonsByB, reasonsByAnon, tooLong].every((r) => r.status >= 400) && (await ruleRow('made_task'))?.farm_risk_reason === original.farm_risk_reason,
+      `HTTP ${reasonsByB.status} / ${reasonsByAnon.status} / ${tooLong.status}`);
+    const changesBeforeReason = (await ruleChanges(a))?.length;
+    const reasoned = await changeFactorReasons(scoringStore(a), { role: 'admin' }, { kind: 'made_task', reasons: { farmRisk: '  Make-and-delete loops.  ' } }, TOOL);
+    const reasonedRow = await ruleRow('made_task');
+    check('an admin changes one factor reason through core; the others and the points stay, and nobody is scored',
+      reasoned.reasons?.farmRisk === 'Make-and-delete loops.' && reasonedRow?.farm_risk_reason === 'Make-and-delete loops.' && reasonedRow?.effort_reason === original.effort_reason
+        && reasonedRow?.points === original.points + 2 && (await ruleChanges(a))?.length === changesBeforeReason,
+      JSON.stringify(reasonedRow));
   } finally {
     const changesBefore = (await ruleChanges(a))?.length;
     const { kind, position, tool, changed_by, ...wording } = original ?? {};
