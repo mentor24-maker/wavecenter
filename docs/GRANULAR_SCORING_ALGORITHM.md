@@ -208,6 +208,116 @@ ticket each.
 | Changed a scoring rule | 1 | 1 | 2 | 1 | 3 | **7** | Sets values every member earns by; can be changed back. Admin only. |
 | Added a scoring action | 1 | 1 | 2 | 1 | 2 | **7** | Grows the list of what counts; no rule can be deleted, so it cannot loop, but a new one takes a minute. Admin only. |
 
+### Why each factor got its score
+
+The "Why" lines above cover all four factors at once. Below, each action's
+factors are taken one at a time: one sentence for each, drafted from the
+action's "Why" line and the factor's level test. The same 96 sentences are
+stored with the action in `game_scoring_rules` (`effort_reason`,
+`value_reason`, `rarity_reason`, `farm_risk_reason`, filled by
+`supabase/migrations/20261103120000_scoring_factor_reasons.sql`; a test
+keeps the two in step). On the Admin page, clicking a factor's number in
+**Recalculate action points** shows its sentence.
+
+| Action | Factor | Score | Reason |
+|---|---|---|---|
+| Made a task | Effort | 1 | Typing a title and saving it is a short form: under a minute. |
+| Made a task | Value | 2 | Adds work the other members can read and pick up. |
+| Made a task | Rarity | 0 | Members make tasks many times a day. |
+| Made a task | Farm risk | 3 | Paired with deleting it, so make-and-delete loops. |
+| Changed a task | Effort | 1 | An edit is a short form or a few words: under a minute. |
+| Changed a task | Value | 1 | Keeps a task accurate, which tidies up the list. |
+| Changed a task | Rarity | 0 | Tasks are edited many times a day. |
+| Changed a task | Farm risk | 3 | Any edit can be changed straight back, so it loops. |
+| Finished a task | Effort | 3 | The click records the hours of work done outside it. |
+| Finished a task | Value | 3 | Delivers finished work the project planned. |
+| Finished a task | Rarity | 1 | A member finishes a task a few times a week, not many times a day. |
+| Finished a task | Farm risk | 3 | Reopening the task and finishing it again loops. |
+| Deleted a task | Effort | 0 | One click. |
+| Deleted a task | Value | 1 | Housekeeping worth having: it tidies up the list. |
+| Deleted a task | Rarity | 0 | Tasks can be deleted many times a day. |
+| Deleted a task | Farm risk | 3 | The undo half of the make-and-delete loop. |
+| Attached a file | Effort | 1 | Choosing a file and saving it takes under a minute. |
+| Attached a file | Value | 2 | Gives the other members the picture or file they need. |
+| Attached a file | Rarity | 0 | Files can be attached many times a day. |
+| Attached a file | Farm risk | 3 | Paired with removing it, so attach-and-remove loops. |
+| Removed a file | Effort | 0 | One click. |
+| Removed a file | Value | 1 | Tidies up a task. |
+| Removed a file | Rarity | 0 | Files can be removed many times a day. |
+| Removed a file | Farm risk | 3 | The undo half of the attach-and-remove loop. |
+| Handed a task to AI agents | Effort | 0 | One tick; WaveCenter files the ticket itself. |
+| Handed a task to AI agents | Value | 2 | Puts work into the build queue, which the other members rely on. |
+| Handed a task to AI agents | Rarity | 1 | It happens once per task, a few times a week. |
+| Handed a task to AI agents | Farm risk | 2 | Once per task, so it cannot undo itself, but a new task to hand off takes seconds to make. |
+| Switched AI agents on or off | Effort | 0 | One click on a switch. |
+| Switched AI agents on or off | Value | 0 | A personal setting: it does nothing for anyone else. |
+| Switched AI agents on or off | Rarity | 0 | The switch can be flipped many times a day. |
+| Switched AI agents on or off | Farm risk | 3 | A switch that flips back and forth, so it loops. |
+| Changed your profile | Effort | 1 | A few words in a short form: under a minute. |
+| Changed your profile | Value | 1 | Helps the other members know who you are. |
+| Changed your profile | Rarity | 1 | A member changes their profile a few times a week at most. |
+| Changed your profile | Farm risk | 3 | Saving the same profile again loops. |
+| Voted on a task | Effort | 1 | A quick judgment in a short form: under a minute. |
+| Voted on a task | Value | 2 | Sets what tasks are worth, which the other members rely on. |
+| Voted on a task | Rarity | 0 | Members vote many times a day. |
+| Voted on a task | Farm risk | 3 | A vote can be cast, changed and withdrawn forever, so it loops. |
+| Posted a comment | Effort | 1 | A few words: under a minute. |
+| Posted a comment | Value | 2 | The other members read it on the task. |
+| Posted a comment | Rarity | 0 | Members comment many times a day. |
+| Posted a comment | Farm risk | 3 | Paired with deleting it, so post-and-delete loops. |
+| Edited a comment | Effort | 1 | Changing a few words: under a minute. |
+| Edited a comment | Value | 1 | Corrects your own words, which tidies up the discussion. |
+| Edited a comment | Rarity | 0 | Comments can be edited many times a day. |
+| Edited a comment | Farm risk | 3 | A comment can be edited back, so it loops. |
+| Deleted a comment | Effort | 0 | One click. |
+| Deleted a comment | Value | 1 | Tidies up the discussion. |
+| Deleted a comment | Rarity | 0 | Comments can be deleted many times a day. |
+| Deleted a comment | Farm risk | 3 | The undo half of the post-and-delete loop. |
+| Send a message to another member | Effort | 1 | A few words: under a minute. |
+| Send a message to another member | Value | 1 | Helps one other member, not the shared record. |
+| Send a message to another member | Rarity | 0 | Members can send messages many times a day. |
+| Send a message to another member | Farm risk | 2 | Repeatable in seconds, but a sent message has no undo, so it cannot loop. |
+| Made a team | Effort | 1 | A name and a few details: under a minute. |
+| Made a team | Value | 2 | Gives members a group to work in. |
+| Made a team | Rarity | 1 | Teams are made a few times a week at most. |
+| Made a team | Farm risk | 3 | Paired with deleting it, so make-and-delete loops. |
+| Changed a team | Effort | 1 | Editing a name or details: under a minute. |
+| Changed a team | Value | 1 | Keeps a team accurate, which tidies up. |
+| Changed a team | Rarity | 0 | A team can be edited many times a day. |
+| Changed a team | Farm risk | 3 | A team can be changed straight back, so it loops. |
+| Deleted a team | Effort | 0 | One click. |
+| Deleted a team | Value | 1 | Tidies up the list of teams. |
+| Deleted a team | Rarity | 1 | Teams are deleted a few times a week at most. |
+| Deleted a team | Farm risk | 3 | The undo half of the make-and-delete loop. |
+| Added a member to a team | Effort | 0 | One click to put a member on a team. |
+| Added a member to a team | Value | 2 | Brings a member into shared work the team relies on. |
+| Added a member to a team | Rarity | 0 | Members can be added to teams many times a day. |
+| Added a member to a team | Farm risk | 3 | Paired with removing them, so add-and-remove loops. |
+| Removed a member from a team | Effort | 0 | One click. |
+| Removed a member from a team | Value | 1 | Tidies up who is on a team. |
+| Removed a member from a team | Rarity | 0 | Members can be taken off teams many times a day. |
+| Removed a member from a team | Farm risk | 3 | The undo half of the add-and-remove loop. |
+| Changed a member's role | Effort | 1 | Choosing a role takes under a minute. |
+| Changed a member's role | Value | 2 | Governance the other members rely on. |
+| Changed a member's role | Rarity | 1 | Roles change a few times a week at most, and only an admin can change one. |
+| Changed a member's role | Farm risk | 3 | A role can be changed straight back, so it loops. |
+| Approved a proposed task | Effort | 1 | Reading a proposal and approving it takes under a minute. |
+| Approved a proposed task | Value | 2 | Admits work to the list that the other members pick up. |
+| Approved a proposed task | Rarity | 0 | An admin can approve proposals many times a day. |
+| Approved a proposed task | Farm risk | 2 | Each approval needs a proposal and cannot undo itself, but a proposal takes seconds to make. |
+| Joined WaveCenter | Effort | 1 | Signing up is a short form: under a minute. |
+| Joined WaveCenter | Value | 1 | New members are how the project grows; the value comes from what they do next, scored on its own. |
+| Joined WaveCenter | Rarity | 2 | Once per member. |
+| Joined WaveCenter | Farm risk | 1 | Once per member, but accounts are cheap to make (the canon's Sybil failure), so F is 1, not 0. |
+| Changed a scoring rule | Effort | 1 | Editing a rule's wording or points: under a minute. |
+| Changed a scoring rule | Value | 2 | Sets the values every member earns by. |
+| Changed a scoring rule | Rarity | 1 | Rules change a few times a week at most, and only an admin can change one. |
+| Changed a scoring rule | Farm risk | 3 | A rule can be changed straight back, so it loops. |
+| Added a scoring action | Effort | 1 | A new action's name and criteria take about a minute. |
+| Added a scoring action | Value | 2 | Grows the list of what counts, which every member earns by. |
+| Added a scoring action | Rarity | 1 | New actions are added a few times a week at most, and only by an admin. |
+| Added a scoring action | Farm risk | 2 | No rule can be deleted, so it cannot loop, but a new one takes a minute. |
+
 ## Scoring an action added later
 
 When an admin adds an action on Game → Manage, or an agent wires a new one:
@@ -217,8 +327,9 @@ When an admin adds an action on Game → Manage, or an agent wires a new one:
    anything undo it, and can it be saved again unchanged? If so, F is 3.
    F is recorded for anti-farming work; it does not change the points.
 3. Points = 1 + E + 2 × V + R.
-4. Add a row to the table in this document with one line of reasons, in the
-   same pull request that wires the action, so the record stays complete.
+4. Add a row to the table in this document with one line of reasons, and
+   one sentence per factor to "Why each factor got its score", in the same
+   pull request that wires the action, so the record stays complete.
 
 An in-person action, when one exists, should be scored V = 3 and land near
 the top of the scale (canon, "Trajectory: URL > IRL").
@@ -262,7 +373,9 @@ formula above, run by WaveCenter's own server when an admin clicks.
    admin clicks **Recalculate action points**. WaveCenter works out every
    action's points with the formula (`granularPoints` in `core/game.ts`) and
    shows a table: each action, its four factors, its points now, its points
-   proposed, and which would change. Nothing is saved. An action not scored
+   proposed, and which would change. Clicking any factor's number opens a
+   pop-up with its level test and the reason this action got it. Nothing is
+   saved. An action not scored
    yet reads "not scored yet" and is left alone, never given 0 by accident.
 3. **"Put these live" saves only the changed rows**, each through the same
    path as a change on Game → Manage (`changeScoringRule`, then the database's

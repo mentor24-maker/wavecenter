@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Click a factor score to see why it was given (#134)
+
+Each action's points come from four scores: Effort, Value, Rarity and Farm
+risk. On the Admin page's Recalculate action points table, you could see
+those numbers but not the thinking behind them. Each number can now be
+clicked (or reached with Tab and opened with Enter). A small pop-up shows
+what that level means, plus one sentence on why this action got that
+score. All 96 sentences (24 actions, four scores each) are stored with the
+actions and written into the scoring document. A test checks the two
+match. Dane can now check every score himself before putting new points
+live. No score or points value changed.
+
 ## 2026-11-03 — A scoring wiki explains how points work (#135)
 
 How WaveCenter scores what members do was spread over several long

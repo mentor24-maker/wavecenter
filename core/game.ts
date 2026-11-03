@@ -75,6 +75,8 @@ export interface ScoringRule {
   position: number;
   /** Its four factor scores for the formula (`granularPoints`); null or absent = not scored yet. */
   factors?: ScoringFactors | null;
+  /** Why it got each factor score, one sentence each; absent = none written yet. */
+  reasons?: FactorReasons | null;
 }
 
 /** One row of `engagements`: one thing one member did, and what it earned. */
@@ -495,6 +497,14 @@ export type FactorKey = keyof ScoringFactors;
 
 export const FACTOR_KEYS: readonly FactorKey[] = ['effort', 'value', 'rarity', 'farmRisk'];
 
+/**
+ * Why an action got each of its factor scores, one sentence per factor; null
+ * = no reason written yet. Shown on the Admin page; never read by the formula.
+ */
+export type FactorReasons = Record<FactorKey, string | null>;
+
+export const NO_REASONS: FactorReasons = { effort: null, value: null, rarity: null, farmRisk: null };
+
 /** The highest score each factor may have; the lowest is 0. The migration checks the same. */
 export const FACTOR_MAX: Record<FactorKey, number> = { effort: 3, value: 3, rarity: 2, farmRisk: 3 };
 
@@ -621,6 +631,8 @@ export interface GranularProposal {
   kind: string;
   name: string;
   factors: ScoringFactors | null;
+  /** Why it got each factor score, as stored; a reason not written yet is null. */
+  reasons: FactorReasons;
   now: number;
   /** What the formula gives, or null when the action is not scored yet (it is left alone). */
   proposed: number | null;
@@ -633,7 +645,8 @@ export function proposeGranularPoints(rules: readonly ScoringRule[]): GranularPr
   return rules.map((r) => {
     const factors = r.factors ?? null;
     const proposed = factors ? granularPoints(factors) : null;
-    return { kind: r.kind, name: r.name, factors, now: r.points, proposed, changes: proposed !== null && proposed !== r.points };
+    const reasons = { ...NO_REASONS, ...r.reasons };
+    return { kind: r.kind, name: r.name, factors, reasons, now: r.points, proposed, changes: proposed !== null && proposed !== r.points };
   });
 }
 
