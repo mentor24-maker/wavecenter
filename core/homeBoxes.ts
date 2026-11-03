@@ -2,7 +2,7 @@
  * The words in Home's boxes, editable from Home itself (Dane, 2026-11-01:
  * "An Admin user will see a small edit icon in the lower right corner of each
  * module on the home page, other than the slider. Clicking it will launch a
- * rich text editor populated with the current content"). For now only About
+ * rich text editor populated with the current content"). For now only What is
  * WaveCenter and What is a DEO are editable (his "B" the same evening): the
  * other boxes show live lists WaveCenter fills in by itself.
  *
@@ -22,7 +22,7 @@ import { CoreError, requireTool } from './tool.ts';
 
 /** The editable boxes, in the order Home shows them, each with the words it was built with. The migration allows the same keys. */
 export const HOME_BOXES = [
-  { key: 'about', name: 'About WaveCenter', words: 'The hub of the DEO movement: what it is for and where it is going.' },
+  { key: 'about', name: 'What is WaveCenter', words: 'The hub of the DEO movement: a member-owned collaboration platform where every contribution is tracked, valued in points, and rewarded.' },
   { key: 'deo', name: 'What is a DEO', words: 'A DEO transforms human engagement into collective ownership, intelligence, and economic value through decentralized collaboration, shared governance, and technology.' },
 ] as const;
 export type HomeBoxKey = (typeof HOME_BOXES)[number]['key'];

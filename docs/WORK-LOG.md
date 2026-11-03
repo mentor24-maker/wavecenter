@@ -17,6 +17,35 @@ box now reads "Learn more about DEOs". If anyone had already saved other words
 in that box with the pencil, those saved words still show until they are
 replaced the same way; nothing saved was overwritten.
 
+---
+
+## 2026-11-02 — Evolution cards show who made each change and its points (#104)
+
+Each card in the Evolution row on Home now credits the member behind the
+change: their avatar, their name if their profile is set to Public, and
+the points on the WaveCenter task the change came from. This is the first
+place the game layer shows up on a merged change. A member who keeps their
+profile Anonymous is shown by their avatar alone; one who chose Private is
+not shown at all, just the points, the same as on the Members page (Dane's
+choice). Nobody's bio is ever shown. What a card may show of its creator is decided in one
+spot, so the permissions settings Dane plans can plug in there later. A card
+with no WaveCenter task linked shows no credit, and nothing on it breaks.
+
+---
+
+## 2026-11-02 — Home's first box says what WaveCenter is in 20 words (#125)
+
+Dane asked for a compelling 20-word description in the first box on Home,
+and for its link to read "Learn more about WaveCenter". The box is now
+headed **What is WaveCenter** (his choice when asked) and reads: "The hub of
+the DEO movement: a member-owned collaboration platform where every
+contribution is tracked, valued in points, and rewarded." Every phrase comes
+from the canon or wavecenter.com, and a test keeps it at exactly 20 words.
+No member had saved their own words for the box, so the new ones show
+straight away; an admin can still change them with the pencil.
+
+---
+
 ## 2026-11-02 — The Admin page can work out every action's points by formula (#113)
 
 Dane wanted the new way of valuing game actions to run as a job he starts

@@ -7,7 +7,7 @@
  * visitor never gets one.
  */
 import { fullDate } from "../tasks/listView";
-import { cardWords, showsOnScroller, type EvolutionCard } from "../tasks/evolutionView";
+import { cardWords, creditsByCommit, showsOnScroller, type CreditRow, type EvolutionCard } from "../tasks/evolutionView";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -22,8 +22,8 @@ const PICTURE_LINK_SECONDS = 60 * 60;
  * The cards, oldest first, and how many changes are recorded in all
  * (`recorded`), so an empty scroller can say why it is empty. `error` means
  * the changes and Dane's words could not be read. `problems` are the
- * smaller failures (the picture links) said on the page while the cards
- * still show (rule 7).
+ * smaller failures (the picture links, the creators and points) said on the
+ * page while the cards still show (rule 7).
  */
 export async function loadEvolution(supabase: Client): Promise<{ cards: EvolutionCard[]; recorded: number; error: string | null; problems: string[] }> {
   const { data: rows, error } = await supabase
@@ -37,11 +37,18 @@ export async function loadEvolution(supabase: Client): Promise<{ cards: Evolutio
   const shown = rows.filter((r) => showsOnScroller(r.capture_state));
   const problems: string[] = [];
   const paths = shown.filter((r) => r.screenshot_path).map((r) => r.screenshot_path as string);
-  const links = paths.length
-    ? await supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
-    : { data: [], error: null };
+  // The picture links, and who made each change and its points (from the
+  // WaveCenter task behind it), read side by side.
+  const [links, got] = await Promise.all([
+    paths.length
+      ? supabase.storage.from(EVOLUTION_BUCKET).createSignedUrls(paths, PICTURE_LINK_SECONDS)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc("evolution_credits"),
+  ]);
   if (links.error) problems.push(`The screenshots could not be loaded: ${links.error.message}. Try reloading the page.`);
   const pictures = new Map((links.data ?? []).filter((l) => l.signedUrl).map((l) => [l.path, l.signedUrl]));
+  if (got.error) problems.push(`Who made each change, and its points, could not be loaded: ${got.error.message}. Try reloading the page.`);
+  const credits = creditsByCommit((got.data ?? []) as CreditRow[]);
 
   return {
     cards: shown.map((r) => ({
@@ -52,6 +59,7 @@ export async function loadEvolution(supabase: Client): Promise<{ cards: Evolutio
       page: r.page,
       imageUrl: r.screenshot_path ? (pictures.get(r.screenshot_path) ?? null) : null,
       failureReason: r.failure_reason,
+      credit: credits.get(r.commit_sha) ?? null,
     })),
     recorded: rows.length,
     error: null,
