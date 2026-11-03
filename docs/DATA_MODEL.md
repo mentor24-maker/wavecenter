@@ -9,7 +9,8 @@ game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
 `member_roles`; the two that hold teams, `teams` and `team_members`;
 `evolution_entries`, the record of how WaveCenter looked after each change;
-and `messages`, what admins write to members.
+`messages`, what admins write to members; and `proposals`, ideas for a
+change that could become a task.
 The exact definition is the migrations in `supabase/migrations/`
 (`20261011120000_tasks.sql` made the table; `20261011200000_tasks_tool.sql`
 added `tool`; `20261012180000_ai_agents.sql` added `priority`,
@@ -31,7 +32,7 @@ added `messages` and the Message members permission;
 `20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
 words and the link to where he said them;
 `20261102140000_evolution_task_link.sql` linked each Evolution card to its
-task); this page
+task; `20261102200000_proposals.sql` added `proposals`); this page
 explains them.
 
 ## The `tasks` table
@@ -627,6 +628,35 @@ row without a reason (engineering rule 6). Row-level security is on from the
 migration that made the table: signed-in members read every row and every
 picture; signed-out visitors read nothing; nobody adds, changes or deletes
 either from the browser. `check:tasks-rls` proves each of those.
+
+## Proposals: `proposals`
+
+One row is one proposal: an idea for a change that could become a task, if
+it passes muster (Dane, 2026-11-02). It is its own record, kept apart from
+`tasks` ("a proposal is really a different animal"), so it can be reshaped
+without touching tasks; it has nothing to do with a task's Proposed status.
+To start it has a task's fields, and later steps of the series change them
+and add the process that turns a proposal into a task. The rules live in
+`core/proposals.ts`; the Proposals page (`/proposals`) is its first screen.
+
+| Column | What it holds |
+|---|---|
+| `id` | The proposal's own id. |
+| `title` | What is proposed, in a few words. Never blank. |
+| `notes` | Details, if any. |
+| `owner_id` | The member who made it; set by the database to whoever is signed in. |
+| `status` | `todo`, `doing` or `done`, as for a task, without Proposed. |
+| `parent_proposal_id` | A proposal this one sits under, or empty. Deleting the parent keeps this one, at the top level. |
+| `points` | What the member who made it says it is worth: a whole number, never below zero. |
+| `position` | Its place in the list. |
+| `priority` | `urgent`, `high`, `normal` or `low`, the same four as a task. |
+| `tool` | The tool that last changed it, such as `wavecenter`. |
+| `created_at`, `updated_at` | When it was made and last changed; the database stamps both. |
+
+Row-level security is on from the migration that made the table: every
+signed-in member reads every proposal; a member adds, changes and deletes
+only their own; signed-out visitors read nothing. Making, changing and
+deleting a proposal is not scored yet. `check:tasks-rls` proves each rule.
 
 ## Why the four fields are there from day one
 
