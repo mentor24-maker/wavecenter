@@ -7,6 +7,17 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Your point total in the header on every page (#139)
+
+Until now a member could see their points only on My Points. The header
+now shows the total on every page, between the member's name and Log out
+("Dane · 1,234 points | Log out"), and clicking it opens My Points. This
+is the first step of the token animation: the spinning discs Dane asked
+for need a total in the header to float up to. If the total cannot be
+read, the header says "points unavailable" (hover for the reason) rather
+than showing a misleading 0. On a phone a long name shortens with "…" so
+the points and Log out stay on screen.
+
 ## 2026-11-03 — Proposed and Change columns centred on Recalculate action points (#137)
 
 On Admin → Recalculate action points, the Change column ("1 → 3") was
