@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Token animations planned as four tickets (#138)
+
+Dane asked for a small coloured disc to spin up into a member's point
+total in the header whenever they earn points, with admins choosing the
+discs' sizes, colours and the point levels for each size. This ticket was
+the plan, not the build: it split the work into four tickets now waiting
+in the queue, in order. First the point total goes in the header (today
+it is only on My Points). Then a Tokens section on Game → Manage for the
+sizes and colours. Then the spinning disc itself, with a Preview button.
+Last, playing it the next time a page loads after points are earned, as
+Dane chose. Each ticket has its own task on Dane's list. No code changed.
+
 ## 2026-11-03 — Proposed and Change columns centred on Recalculate action points (#137)
 
 On Admin → Recalculate action points, the Change column ("1 → 3") was
