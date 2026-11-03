@@ -84,9 +84,6 @@ export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
 
   return (
     <>
-      <p className="note">
-        {cards.length} change{cards.length === 1 ? "" : "s"}, oldest on the left. Use the arrows, swipe or scroll sideways; click a picture to see it full size.
-      </p>
       <div className="evolution-rail">
         <button type="button" className="evolution-arrow" onClick={() => slide(-1)} disabled={ends.atStart} aria-label="Older change">
           <ArrowIcon back />
