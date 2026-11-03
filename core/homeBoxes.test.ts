@@ -45,10 +45,10 @@ test('What is WaveCenter is described in exactly 20 words (Dane, 2026-11-02)', (
 
 test('a box with no saved words shows the words it was built with', () => {
   assert.equal(homeBoxWords('about', []), 'The hub of the DEO movement: a member-owned collaboration platform where every contribution is tracked, valued in points, and rewarded.');
-  assert.equal(homeBoxWords('deo', []), 'What a Decentralized Engagement Organization is.');
+  assert.equal(homeBoxWords('deo', []), 'A DEO transforms human engagement into collective ownership, intelligence, and economic value through decentralized collaboration, shared governance, and technology.');
   const saved = [{ box: 'about' as const, body: 'New **words**', tool: TOOL, updatedAt: '2026-11-02T00:00:00Z', updatedBy: 'dane' }];
   assert.equal(homeBoxWords('about', saved), 'New **words**');
-  assert.equal(homeBoxWords('deo', saved), 'What a Decentralized Engagement Organization is.');
+  assert.equal(homeBoxWords('deo', saved), 'A DEO transforms human engagement into collective ownership, intelligence, and economic value through decentralized collaboration, shared governance, and technology.');
 });
 
 test('an admin saves a box’s words, trimmed, naming the tool', async () => {

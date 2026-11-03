@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  AVATARS, BIO_MAX, DEFAULT_MEMBER_PROFILE, DISPLAY_NAME_MAX, PROFILE_VISIBILITIES, loadProfile, saveProfile,
+  AVATARS, BIO_MAX, DEFAULT_MEMBER_PROFILE, DISPLAY_NAME_MAX, PROFILE_VISIBILITIES, cardCredit, loadProfile, saveProfile,
   type MemberProfile, type MemberProfileStore,
 } from './profiles.ts';
 
@@ -65,4 +65,22 @@ test('the migration allows exactly the avatars, visibilities and lengths core kn
   assert.match(sql, /alter table public\.member_profiles enable row level security/);
   assert.match(sql, new RegExp(`avatar\\s+text\\s+not null default '${DEFAULT_MEMBER_PROFILE.avatar}'`));
   assert.match(sql, new RegExp(`visibility\\s+text\\s+not null default '${DEFAULT_MEMBER_PROFILE.visibility}'`));
+});
+
+test('cardCredit shows the name only for a Public profile, and nothing of a Private one', () => {
+  const sun = { displayName: 'Dane', avatar: 'sun' as const };
+  assert.deepEqual(cardCredit({ ...sun, visibility: 'public' }), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: false });
+  assert.deepEqual(cardCredit({ ...sun, visibility: 'anonymous' }), { avatar: '☀️', avatarLabel: 'Sun', name: null, profileLink: false });
+  assert.deepEqual(cardCredit({ ...sun, visibility: 'private' }), { avatar: null, avatarLabel: null, name: null, profileLink: false });
+});
+
+test('cardCredit: a Public profile with no name shows the avatar alone; an unknown avatar shows the neutral one', () => {
+  assert.equal(cardCredit({ displayName: '  ', avatar: 'moon', visibility: 'public' }).name, null);
+  assert.equal(cardCredit({ displayName: 'X', avatar: 'nope' as never, visibility: 'public' }).avatar, '👤');
+});
+
+test('cardCredit never links to a profile while no profile page exists', () => {
+  for (const visibility of PROFILE_VISIBILITIES) {
+    assert.equal(cardCredit({ displayName: 'Dane', avatar: 'wave', visibility }, { memberId: 'someone' }).profileLink, false);
+  }
 });

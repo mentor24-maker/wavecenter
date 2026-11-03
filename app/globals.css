@@ -780,6 +780,10 @@ blockquote.evolution-words { padding-left: 0.6rem; border-left: 3px solid var(--
 .evolution-words.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .evolution-facts p { margin: 0 0 0.25rem; font-size: 0.9rem; }
 .evolution-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; }
+.evolution-facts .evolution-credit { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; margin-bottom: 0.4rem; }
+.evolution-avatar { font-size: 1.35rem; line-height: 1; }
+.evolution-creator-name { font-weight: 600; color: var(--fg); }
+.evolution-points { margin-left: auto; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--accent); color: var(--bg); font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
 dialog.evolution-full {
   --surface: var(--level-1);
   background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius);

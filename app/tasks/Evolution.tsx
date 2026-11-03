@@ -19,7 +19,7 @@
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { arrowStep, cardNote, step, type EvolutionCard } from "./evolutionView";
+import { arrowStep, cardNote, pointsLabel, step, type EvolutionCard } from "./evolutionView";
 
 export default function Evolution({ cards }: { cards: EvolutionCard[] }) {
   const strip = useRef<HTMLOListElement>(null);
@@ -150,11 +150,34 @@ function short(words: string): string {
   return first.length > 120 ? `${first.slice(0, 117)}...` : first;
 }
 
-/** Dane's words (or, with none on record, what changed), the merge date, and the one link to the thread. */
+/**
+ * Who made the change and its points, from the WaveCenter task behind it.
+ * The avatar and name show only where core's cardCredit allows them (a
+ * Private creator's card shows the points alone).
+ * No profile page exists yet, so `profileLink` is false and the name is
+ * plain text; once one does, the name links to it here.
+ */
+function Credit({ credit }: { credit: NonNullable<EvolutionCard["credit"]> }) {
+  const name = credit.name ? <span className="evolution-creator-name">{credit.name}</span> : null;
+  return (
+    <p className="evolution-credit">
+      {credit.avatar && (
+        <span className="evolution-avatar" role="img" aria-label={credit.name ? `${credit.avatarLabel} avatar` : `Made by a member shown by the ${credit.avatarLabel} avatar`}>
+          {credit.avatar}
+        </span>
+      )}
+      {name}
+      <span className="evolution-points">{pointsLabel(credit.points)}</span>
+    </p>
+  );
+}
+
+/** Who made it and its points, Dane's words (or, with none on record, what changed), the merge date, and the one link to the thread. */
 function CardFacts({ card, full = false }: { card: EvolutionCard; full?: boolean }) {
   const thread = card.threadUrl;
   return (
     <div className="evolution-facts">
+      {card.credit && <Credit credit={card.credit} />}
       {card.fromDane ? (
         <blockquote className={full ? "evolution-words" : "evolution-words clamped"}>{card.words}</blockquote>
       ) : (

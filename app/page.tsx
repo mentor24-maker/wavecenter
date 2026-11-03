@@ -120,7 +120,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
           <section className="box level-1 callout">
             <h2><BoxIcon name="deo" />What is a DEO</h2>
             <EditableWords box="deo" boxes={boxes} editable={mayEditBoxes} />
-            <p><Link href="/deo">Read what a DEO is &rarr;</Link></p>
+            <p><Link href="/deo">Learn more about DEOs &rarr;</Link></p>
           </section>
 
           <section className="box level-1">

@@ -210,12 +210,25 @@ async function liveData() {
 
 /**
  * Store the screenshot, then the row; read each back. Throws RunFailed on
- * any failure. Empty words are left out of the write, so retaking a picture
- * while ClickUp cannot be read never wipes words already stored.
+ * any failure. Empty words and an empty task link are left out of the write,
+ * so retaking a picture while ClickUp cannot be read never wipes ones already
+ * stored.
  */
 async function record(fullRow, pngFile, { keepOld = false } = {}) {
   const row = { ...fullRow };
   if (row.prompt == null) { delete row.prompt; delete row.thread_url; }
+  if (row.task_id == null) delete row.task_id;
+  else {
+    // task_id links to tasks, so a ticket naming a task that is gone would
+    // make the whole row's write fail. Leave the link out instead, as the
+    // migration's backfill does.
+    const task = await live(`/rest/v1/tasks?id=eq.${encodeURIComponent(row.task_id)}&select=id`);
+    if (task.status >= 300) throw new RunFailed(`could not check WaveCenter task ${row.task_id} exists: HTTP ${task.status} ${JSON.stringify(task.json)}`);
+    if (!task.json?.length) {
+      console.log(`  WaveCenter task ${row.task_id} no longer exists; the card is recorded with no creator or points`);
+      delete row.task_id;
+    }
+  }
   if (row.capture_state === 'captured') {
     const put = await live(`/storage/v1/object/${BUCKET}/${row.screenshot_path}`, {
       method: 'POST', raw: readFileSync(pngFile), headers: { 'Content-Type': 'image/png', 'x-upsert': 'true' },
@@ -503,14 +516,14 @@ function commitInfo(rev, { ticket: lookUp = true } = {}) {
 }
 
 /**
- * Dane's words behind a change, from its ticket: { prompt, threadUrl }, both
+ * Dane's words behind a change, from its ticket: { prompt, threadUrl, taskId }, all
  * null when the ticket holds none, or null when the ticket could not be read
  * (said in the output, never recorded as "none"). `noTask` is the line that
  * names a ticket with no WaveCenter task behind it (noTaskLine), else null.
  */
 function ticketWords(url) {
   const task = ticketId(url);
-  if (!task) return { prompt: null, threadUrl: null, noTask: noTaskLine(null) };
+  if (!task) return { prompt: null, threadUrl: null, taskId: null, noTask: noTaskLine(null) };
   const got = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'ticket-json', '--task', task]);
   const json = got.ok ? got.stdout.trim().split('\n').filter((l) => l.startsWith('{')).at(-1) : null;
   if (!json) {
@@ -538,7 +551,7 @@ function ticketWords(url) {
  */
 async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const info = commitInfo(rev);
-  const { noTask, ...words } = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url } : { prompt: null, threadUrl: null });
+  const { noTask, ...words } = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url, taskId: retake.task_id } : { prompt: null, threadUrl: null, taskId: null });
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
   const pattern = choosePage({ ...info, prompt: words.prompt });

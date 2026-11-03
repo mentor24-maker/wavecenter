@@ -244,7 +244,7 @@ export function asOf(live, { mergedAt, columns }) {
  * no stored screenshot and a `failed` row with no reason (rule 6: never say
  * a picture is there when it is not).
  */
-export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, page, screenshotPath, state, reason, prompt, threadUrl }) {
+export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, page, screenshotPath, state, reason, prompt, threadUrl, taskId }) {
   if (!/^[0-9a-f]{40}$/.test(String(sha))) throw new Error(`entryRow: not a full commit id: ${sha}`);
   if (!CAPTURE_STATES.includes(state)) throw new Error(`entryRow: unknown capture state "${state}"`);
   if (state === 'captured' && (!page || !screenshotPath)) throw new Error('entryRow: a captured row needs its page and its stored screenshot');
@@ -261,6 +261,7 @@ export function entryRow({ sha, mergedAt, prNumber, title, ticketUrl: ticket, pa
     failure_reason: state === 'failed' ? String(reason).trim().slice(0, 500) : null,
     prompt: prompt ?? null,
     thread_url: prompt ? (threadUrl ?? null) : null,
+    task_id: taskId ?? null,
   };
 }
 
@@ -270,13 +271,22 @@ const FROM_WAVECENTER_TAG = 'from-wavecenter';
 const CARD_HEADING = "DANE'S WORDS — the instruction behind this ticket";
 const CARD_NEXT_HEADING = "WHAT'S GOING ON";
 
+/**
+ * The WaveCenter task a ticket names on its "WaveCenter task: <id>" line, or
+ * null. Only a well-formed id counts: a malformed one would make the capture's
+ * existence check fail with HTTP 400 and stop the whole run.
+ */
+function waveCenterTaskId(description) {
+  const task = String(description || '').match(/^WaveCenter task:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*$/m);
+  return task ? task[1] : null;
+}
+
 /** The fenced title and notes under a ticket's "## From WaveCenter" heading, and the task it names. */
 function fromWaveCenter(description) {
   const text = String(description || '');
   const m = text.match(/^##\s*From WaveCenter\s*\n+\s*```[^\n]*\n([\s\S]*?)\n\s*```/m);
   if (!m) return null;
-  const task = text.match(/^WaveCenter task:\s*([0-9a-f-]{36})\s*$/m);
-  return { words: m[1].trim(), taskId: task ? task[1] : null };
+  return { words: m[1].trim(), taskId: waveCenterTaskId(text) };
 }
 
 /**
@@ -312,16 +322,21 @@ function firstCardWords(comments) {
  *
  * Verbatim, whitespace trimmed. { prompt: null, threadUrl: null } when the
  * ticket holds none of his words.
+ *
+ * `taskId` is the WaveCenter task the ticket names on its "WaveCenter task:"
+ * line, whatever the words: the card credits that task's owner and shows its
+ * points (evolution_entries.task_id). Null when it names none.
  */
 export function danesWords(ticket) {
-  const none = { prompt: null, threadUrl: null };
+  const none = { prompt: null, threadUrl: null, taskId: null };
   if (!ticket) return none;
+  const taskId = waveCenterTaskId(ticket.description);
   if ((ticket.tags || []).includes(FROM_WAVECENTER_TAG)) {
     const from = fromWaveCenter(ticket.description);
-    if (from?.words) return { prompt: from.words, threadUrl: from.taskId ? `/tasks/${from.taskId}` : (ticket.url ?? null) };
+    if (from?.words) return { prompt: from.words, threadUrl: from.taskId ? `/tasks/${from.taskId}` : (ticket.url ?? null), taskId };
   }
   const asked = firstCardWords(ticket.comments);
-  return asked ? { prompt: asked, threadUrl: ticket.url ?? null } : none;
+  return asked ? { prompt: asked, threadUrl: ticket.url ?? null, taskId } : { ...none, taskId };
 }
 
 /**
