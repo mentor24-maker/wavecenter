@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Evolution cards show who made each change and its points (#104)
+
+Each card in the Evolution row on Home now credits the member behind the
+change: their avatar, their name if their profile is set to Public, and
+the points on the WaveCenter task the change came from. This is the first
+place the game layer shows up on a merged change. A member who keeps their
+profile Anonymous is shown by their avatar alone; one who chose Private is
+not shown at all, just the points, the same as on the Members page (Dane's
+choice). Nobody's bio is ever shown. What a card may show of its creator is decided in one
+spot, so the permissions settings Dane plans can plug in there later. A card
+with no WaveCenter task linked shows no credit, and nothing on it breaks.
+
+---
+
 ## 2026-11-02 — Home's first box says what WaveCenter is in 20 words (#125)
 
 Dane asked for a compelling 20-word description in the first box on Home,

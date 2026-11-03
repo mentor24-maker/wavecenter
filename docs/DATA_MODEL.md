@@ -602,11 +602,17 @@ rebuilds "the data as it stood" and what it cannot show.
 | `failure_reason` | Why a `failed` change has no picture, in plain words (for example, that change would not build). |
 | `prompt` | Dane's own words that asked for the change, word for word: the WaveCenter task's title and notes when the ticket came from a WaveCenter task, otherwise the "Dane's words" part of the ticket's first card. Empty when none are on record; the card then says briefly what changed. |
 | `thread_url` | Where he said them: the WaveCenter task (`/tasks/<id>`) or the ClickUp ticket. Set only with `prompt`. |
-| `task_id` | The WaveCenter task behind the change. Empty until `npm run evolution:tasks` fills it; if that task is deleted, the card keeps going with no task. |
+| `task_id` | The WaveCenter task behind the change. The capture sets it from the ticket's "WaveCenter task:" line (leaving it out when that task no longer exists); `npm run evolution:tasks` fills it for older cards. The card credits that task's owner and shows its points. If the task is deleted, the card keeps going with no task. |
 | `captured_at` | When the row was last written. |
 
 The Evolution view shows only `captured` changes, each labeled with
-`prompt`. `npm run evolution -- words` fills `prompt` and `thread_url` on
+`prompt`. A card with a `task_id` also shows who made the change and its
+points (Dane, 2026-11-01), read through `evolution_credits()`: for each such
+card, the task's `points`, its owner's avatar unless their profile is
+Private (as on the Members page), and their display name only when their
+profile is Public. It never returns the bio or the privacy setting, and refuses a
+signed-out visitor. Which of those the card shows is `cardCredit` in
+`core/profiles.ts`, the placeholder for the permissions settings to come. `npm run evolution -- words` fills `prompt` and `thread_url` on
 rows recorded before they existed, without retaking any picture.
 
 Every card has a task behind it (Dane, 2026-11-01: "I thought all cards had

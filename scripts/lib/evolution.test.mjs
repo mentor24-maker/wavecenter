@@ -286,6 +286,17 @@ test('a WaveCenter ticket gives the task\'s title and notes, verbatim, linking t
   const words = danesWords({ url: 'https://app.clickup.com/t/86bcw3my3', tags: ['from-wavecenter'], description: FROM_WC, comments: [{ text: CARD('Something else') }] });
   assert.equal(words.prompt, 'The header background overlay is too dark\n\nIt appears there is a dark overlay on the header.');
   assert.equal(words.threadUrl, `/tasks/${TASK}`);
+  assert.equal(words.taskId, TASK);
+});
+
+test('the WaveCenter task a ticket names is its card\'s task link, whatever the words, and goes on the row', () => {
+  const card = danesWords({ url: 'u', tags: [], description: `## Goal\nx\n\nWaveCenter task: ${TASK}\n`, comments: [{ text: CARD('Asked.') }] });
+  assert.deepEqual(card, { prompt: 'Asked.', threadUrl: 'u', taskId: TASK });
+  assert.deepEqual(danesWords({ url: 'u', tags: [], description: `WaveCenter task: ${TASK}`, comments: [] }), { prompt: null, threadUrl: null, taskId: TASK });
+  assert.equal(entryRow({ ...BASE, state: 'no screen', taskId: TASK }).task_id, TASK);
+  assert.equal(entryRow({ ...BASE, state: 'no screen' }).task_id, null);
+  // A malformed id (right length, wrong shape) is no link, not a failed run.
+  assert.equal(danesWords({ url: 'u', tags: [], description: `WaveCenter task: ${'-'.repeat(36)}`, comments: [] }).taskId, null);
 });
 
 test('any other ticket gives the first card\'s asked words, without its when line, linking to the ticket', () => {
@@ -295,13 +306,13 @@ test('any other ticket gives the first card\'s asked words, without its when lin
     description: '## Goal\nx',
     comments: [{ text: 'PR opened: https://github.com/x/y/pull/1' }, { text: CARD('Use real data. We can always redact later.', '2026-10-30, planning') }, { text: CARD('Later card') }],
   });
-  assert.deepEqual(words, { prompt: 'Use real data. We can always redact later.', threadUrl: 'https://app.clickup.com/t/86bcvtyhk' });
+  assert.deepEqual(words, { prompt: 'Use real data. We can always redact later.', threadUrl: 'https://app.clickup.com/t/86bcvtyhk', taskId: null });
   // Words of several paragraphs are kept whole.
   assert.equal(danesWords({ url: 'u', tags: [], comments: [{ text: CARD('One.\n\nTwo.') }] }).prompt, 'One.\n\nTwo.');
 });
 
 test('a ticket with none of Dane\'s words on record gives none', () => {
-  const none = { prompt: null, threadUrl: null };
+  const none = { prompt: null, threadUrl: null, taskId: null };
   assert.deepEqual(danesWords(null), none);
   assert.deepEqual(danesWords({ url: 'u', tags: [], description: '## Goal', comments: [{ text: 'a plain note' }] }), none);
   // A from-wavecenter tag with no block falls back to the card, then to none.
