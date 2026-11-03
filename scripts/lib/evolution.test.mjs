@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
 import { nameProblem } from './ticketName.mjs';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, typedWords, createdTickets, chatWords, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, typedWords, createdTickets, chatWords, addChatWords, captureWords, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
 import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
@@ -383,6 +383,49 @@ test('a ticket a loop made in a chat nobody typed in has no words, and is said t
   assert.equal(got.has('86bcloop1'), true);
   assert.equal(got.get('86bcloop1'), null);
   assert.equal(chatWords([], new Set(['86bcloop1'])).size, 0);
+});
+
+test('the summary Claude Code writes when it compacts a chat is not his typing', () => {
+  const summary = typed('This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.', { isCompactSummary: true });
+  assert.equal(typedWords(summary), null);
+  const chat = [typed('Let members vote on points'), summary, toolOut('Created task 86bccomp1')];
+  assert.equal(chatWords(chat, new Set(['86bccomp1'])).get('86bccomp1'), 'Let members vote on points');
+});
+
+test('a null from one chat never hides a real request in another, and the first request wins', () => {
+  const found = new Map();
+  addChatWords(found, new Map([['86bcone01', null], ['86bctwo02', 'Add a filter bar']]));
+  addChatWords(found, new Map([['86bcone01', 'Build the simple to-do list'], ['86bctwo02', 'Something later']]));
+  addChatWords(found, new Map([['86bcone01', null], ['86bcthr03', null]]));
+  assert.equal(found.get('86bcone01'), 'Build the simple to-do list');
+  assert.equal(found.get('86bctwo02'), 'Add a filter bar');
+  assert.equal(found.has('86bcthr03'), true);
+  assert.equal(found.get('86bcthr03'), null);
+});
+
+test('a retake keeps the row\'s own words, so it pictures the page recapture chose from them', () => {
+  const row = { prompt: 'Fix the profile page', thread_url: 'https://app.clickup.com/t/86bcchat1', task_id: 'w1' };
+  const ticketHasNone = { prompt: null, threadUrl: null, taskId: null, noTask: null };
+  const kept = captureWords(ticketHasNone, row);
+  assert.equal(kept.prompt, row.prompt);
+  assert.equal(kept.threadUrl, row.thread_url);
+  assert.equal(kept.taskId, 'w1');
+  // His request names the page: recapture chose /profile from the row, and the
+  // retake now does too (before, it chose / from the ticket's empty words, so
+  // the row stayed due and was retaken on every run).
+  const files = ['app/page.tsx', 'app/profile/page.tsx', 'app/tasks/page.tsx'];
+  const info = { title: 'Tidy shared styles', changed: ['app/globals.css'], added: [], files };
+  assert.equal(choosePage({ ...info, prompt: row.prompt }), '/profile');
+  assert.equal(choosePage({ ...info, prompt: kept.prompt }), '/profile');
+  assert.equal(choosePage({ ...info, prompt: ticketHasNone.prompt }), '/');
+  // Ticket could not be read: the row's words still stand.
+  assert.equal(captureWords(null, row).prompt, row.prompt);
+  // A row with no words takes the ticket's, and with neither, none.
+  assert.equal(captureWords({ prompt: 'Build it', threadUrl: 'u', taskId: null }, { prompt: null, task_id: 'w2' }).prompt, 'Build it');
+  assert.deepEqual(captureWords(null, { prompt: null, task_id: 'w2' }), { prompt: null, threadUrl: null, taskId: 'w2' });
+  assert.deepEqual(captureWords(null), { prompt: null, threadUrl: null, taskId: null });
+  // A first capture uses the ticket's words as before.
+  assert.equal(captureWords(ticketHasNone), ticketHasNone);
 });
 
 test('times are shown in Mountain time', () => {

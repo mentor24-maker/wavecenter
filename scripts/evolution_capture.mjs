@@ -122,7 +122,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, chatWords, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, typedWords, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { addChatWords, asOf, BUCKET, captureWords, chatWords, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, typedWords, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -573,7 +573,7 @@ async function chatTicketWords(wanted) {
       }
       const got = chatWords(entries, wanted);
       if (entries.some((e) => typedWords(e))) typed += 1;
-      for (const [id, words] of got) if (!found.has(id)) found.set(id, words);
+      addChatWords(found, got);
     }
   }
   return { found, chats, typed };
@@ -591,7 +591,7 @@ async function chatTicketWords(wanted) {
  */
 async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const info = commitInfo(rev);
-  const { noTask, ...words } = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url, taskId: retake.task_id } : { prompt: null, threadUrl: null, taskId: null });
+  const { noTask = null, ...words } = captureWords(ticketWords(info.ticketUrl), retake);
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
   const pattern = choosePage({ ...info, prompt: words.prompt });

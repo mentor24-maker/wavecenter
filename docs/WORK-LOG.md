@@ -19,6 +19,12 @@ including the first to-do list's "Build the simple to-do list". The other
 9 have no words of his on record anywhere on this machine, so they keep
 their short statement.
 
+After review, the chat reader was made stricter: the summary Claude Code
+writes when a long chat runs out of room no longer counts as Dane's
+typing, a chat with no typing can no longer hide his request in another
+chat, and a retaken picture keeps the card's own words, so a card is not
+retaken over and over.
+
 ---
 
 ## 2026-11-02 — New welcome words on the Evolution slider (#128)

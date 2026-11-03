@@ -366,11 +366,12 @@ function textOf(content) {
  * What a person typed in one Claude Code transcript entry (a line of
  * ~/.claude/projects/<folder>/<session>.jsonl), verbatim and trimmed, or
  * null: a tool's output, a skill's text, a system note, a loop's command,
- * or a subagent's prompt is nobody's typing. A slash command counts by what
+ * a subagent's prompt, or the summary Claude Code writes when it compacts a
+ * long chat ("This session is being continued…") is nobody's typing. A slash command counts by what
  * was typed after it ("/loop-spec <his idea>" is his idea).
  */
 export function typedWords(entry) {
-  if (entry?.type !== 'user' || entry.isMeta || entry.isSidechain || entry.message?.role !== 'user') return null;
+  if (entry?.type !== 'user' || entry.isMeta || entry.isSidechain || entry.isCompactSummary || entry.message?.role !== 'user') return null;
   const text = String(textOf(entry.message.content) ?? '').trim();
   if (!text) return null;
   const command = text.match(/<command-name>([^<]*)<\/command-name>/);
@@ -410,6 +411,30 @@ export function chatWords(entries, wanted) {
     for (const id of createdTickets(e)) if (wanted.has(id) && !found.has(id)) found.set(id, last);
   }
   return found;
+}
+
+/**
+ * Adds one chat's chatWords answers to `found` (the answers so far, across
+ * chats). The first real request for a ticket wins; a null (a loop made it,
+ * or nobody typed in that chat) never hides one another chat holds.
+ */
+export function addChatWords(found, got) {
+  for (const [id, words] of got) if (!found.has(id) || (found.get(id) == null && words != null)) found.set(id, words);
+  return found;
+}
+
+/**
+ * The words a capture records, and picks its page from. `fromTicket` is
+ * ticketWords' answer (null when the ticket could not be read). A retake
+ * keeps the row's own words when it has some (they may have come from a
+ * chat, which the ticket does not hold), so the page it retakes is the one
+ * recapture chose from those same words, and the two never disagree.
+ */
+export function captureWords(fromTicket, retake = null) {
+  const none = { prompt: null, threadUrl: null, taskId: null };
+  if (retake?.prompt) return { ...none, ...fromTicket, prompt: retake.prompt, threadUrl: retake.thread_url ?? null, taskId: fromTicket?.taskId ?? retake.task_id ?? null };
+  if (fromTicket) return fromTicket;
+  return retake ? { ...none, taskId: retake.task_id ?? null } : none;
 }
 
 /**
