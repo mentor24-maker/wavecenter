@@ -137,7 +137,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
         <div className="dashboard">
           <section className="box level-1 wide" id="evolution">
             <h2><BoxIcon name="evolution" />Evolution of WaveCenter</h2>
-            <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
+            <p className="note">See the evolution of WaveCenter, from the very first instruction to it&rsquo;s current version &mdash; task by task. Then get busy helping build WaveCenter yourself!</p>
             {evolution.error !== null || evolution.value.error ? (
               <p className="error" role="alert">
                 The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
