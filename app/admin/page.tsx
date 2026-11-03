@@ -6,6 +6,7 @@ import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import FormulaExplained from "./FormulaExplained";
 import RecalculatePoints from "./RecalculatePoints";
 
 /**
@@ -68,6 +69,7 @@ export default async function Admin() {
               from the next time someone does the action; points already earned keep their value. An action with no
               factor scores is left alone: score it on Game → Manage.
             </p>
+            <FormulaExplained />
             <RecalculatePoints />
           </div>
         ) : (

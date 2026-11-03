@@ -19,6 +19,18 @@ actions and written into the scoring document. A test checks the two
 match. Dane can now check every score himself before putting new points
 live. No score or points value changed.
 
+## 2026-11-03 — A scoring wiki explains how points work (#135)
+
+How WaveCenter scores what members do was spread over several long
+documents. There is now one place to start: a small wiki in
+`docs/scoring/`, with an index and short pages on the principles (Dane's
+two types of score, and his point that scores grow with how complex the
+work is), the small automatic points and their formula, the bigger
+thought-through values such as what a task is worth, how farming points
+is being stopped, a glossary, and a list of open questions for Dane.
+Every claim names where it comes from. The index lists the pages still
+to write, so it can grow as scoring does.
+
 ## 2026-11-02 — Every action scores at least 1 point (#131)
 
 The formula that works out what each small action is worth used to take
@@ -33,6 +45,20 @@ Admin page.
 
 The formula line above the Recalculate action points table (added in
 #130) now shows the new formula too.
+
+## 2026-11-02 — The Admin page explains how action points are worked out (#132)
+
+The Recalculate action points panel showed the formula in one dense line
+and labelled its columns only E, V, R and F. It now has a "How the formula
+works" section that opens on a click: what Effort, Value, Rarity and Farm
+risk each mean, how high each can go, how each one raises or lowers the
+points, and the plain test for every level. Four worked examples show the
+sum step by step, including one where farm risk is high but changes
+nothing and one that scores the lowest possible 1. The wording and sums
+are read from the same code the formula uses, and a test checks every
+example, so the explanation cannot quietly fall out of step with the real
+scores. (It follows the formula as #131 left it: farm risk no longer
+counts.)
 
 ## 2026-11-02 — The Recalculate action points table is readable (#130)
 
