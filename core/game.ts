@@ -486,9 +486,9 @@ export interface ScoringFactors {
   effort: number;
   /** V, what it does for the project and other members. Counted twice. */
   value: number;
-  /** R, how often a member genuinely does it. Counts only when it cannot loop. */
+  /** R, how often a member genuinely does it. */
   rarity: number;
-  /** F, how easily it can be repeated just to collect points. Subtracted. */
+  /** F, how easily it can be repeated just to collect points. Scored and stored for anti-farming work; not part of the formula. */
   farmRisk: number;
 }
 export type FactorKey = keyof ScoringFactors;
@@ -529,13 +529,13 @@ export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; mea
   rarity: {
     name: 'Rarity', letter: 'R',
     measures: 'How often a member genuinely does it. A rare action is a bigger moment.',
-    effect: 'Added once, but only when the action cannot loop: it counts as 0 when Farm risk is 3.',
+    effect: 'Added once.',
     levels: ['Many times a day.', 'A few times a week.', 'A handful of times ever, or once (joining).'],
   },
   farmRisk: {
     name: 'Farm risk', letter: 'F',
     measures: 'How easily the action can be repeated just to collect points.',
-    effect: 'Subtracted.',
+    effect: 'Scored and kept for later anti-farming work, but it does not change the points.',
     levels: [
       'Cannot be repeated (once per member), or costs real work every time.',
       'Repeatable, but each time needs something real from someone else.',
@@ -576,48 +576,43 @@ function sameFactors(a: ScoringFactors | null | undefined, b: ScoringFactors | n
 }
 
 /**
- * The formula: Points = 1 + E + 2 × V + R − F, never below 0, and R counts
- * as 0 when F is 3 (an action that loops is not rare, however seldom an
- * honest member does it).
+ * The formula: Points = 1 + E + 2 × V + R, so every action scores at least 1.
+ * Farm risk is still required and stored, but does not change the points
+ * (Dane, 2026-11-02: "Drop F at this level"); anti-farming work comes later.
  */
 export function granularPoints(factors: ScoringFactors): number {
   const f = checkFactors(factors);
   if (!f) throw new CoreError('An action needs all four factors before the formula can score it.');
-  const rarity = f.farmRisk === 3 ? 0 : f.rarity;
-  return Math.max(0, 1 + f.effort + 2 * f.value + rarity - f.farmRisk);
+  return 1 + f.effort + 2 * f.value + f.rarity;
 }
 
 /**
  * The formula's arithmetic for one action, written out the way the Admin
- * page explains it: "1 + 1 + 2 × 2 + 0 − 3 = 3". It ends in
- * `granularPoints`, so the sum shown is always the one the formula uses.
+ * page explains it: "1 + 1 + 2 × 2 + 0 = 6". It ends in `granularPoints`,
+ * so the total shown is always the one the formula uses.
  */
 export function granularWorking(factors: ScoringFactors): string {
-  const points = granularPoints(factors);
-  const { effort, value, rarity, farmRisk } = factors;
-  const r = farmRisk === 3 && rarity > 0 ? `0 (Rarity ${rarity} does not count: Farm risk is 3)` : String(farmRisk === 3 ? 0 : rarity);
-  const raw = 1 + effort + 2 * value + (farmRisk === 3 ? 0 : rarity) - farmRisk;
-  const sum = `1 + ${effort} + 2 × ${value} + ${r} − ${farmRisk}`;
-  return raw === points ? `${sum} = ${points}` : `${sum} = ${String(raw).replace('-', '−')}, so ${points} (never below 0)`;
+  const { effort, value, rarity } = factors;
+  return `1 + ${effort} + 2 × ${value} + ${rarity} = ${granularPoints(factors)}`;
 }
 
 /** Worked examples for the Admin page, from docs/GRANULAR_SCORING_ALGORITHM.md. A test checks each `points` against `granularPoints`. */
 export const FORMULA_EXAMPLES: readonly { action: string; factors: ScoringFactors; points: number; why: string }[] = [
   {
-    action: 'Voted on a task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 }, points: 3,
-    why: 'A judgment of a few seconds that other members rely on (it sets what a task is worth), done many times a day, and a vote can be changed forever.',
+    action: 'Voted on a task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 }, points: 6,
+    why: 'A judgment of a few seconds that other members rely on (it sets what a task is worth), done many times a day. A vote can be changed forever, so Farm risk is 3, but that does not lower the points.',
   },
   {
-    action: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, points: 7,
-    why: 'Records hours of real finished work the project planned, but reopening and finishing again loops, so its rarity does not count.',
+    action: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, points: 11,
+    why: 'Records hours of real finished work the project planned: the most valuable action. Reopening and finishing again loops, which anti-farming work will deal with separately.',
   },
   {
-    action: 'Joined WaveCenter', factors: { effort: 1, value: 1, rarity: 2, farmRisk: 1 }, points: 5,
-    why: 'Once per member, so it is rare and its rarity counts; accounts are cheap to make, so Farm risk is 1, not 0.',
+    action: 'Joined WaveCenter', factors: { effort: 1, value: 1, rarity: 2, farmRisk: 1 }, points: 6,
+    why: 'Once per member, so it is as rare as an action gets. Accounts are cheap to make, so Farm risk is 1, not 0.',
   },
   {
-    action: 'Switched AI agents on or off', factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 }, points: 0,
-    why: 'A personal switch that flips back and forth: the loop cancels the starting 1, and the total stops at 0.',
+    action: 'Switched AI agents on or off', factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 }, points: 1,
+    why: 'A personal switch that flips back and forth: it scores 0 on every counted factor, so it earns only the starting 1, the lowest any action can score.',
   },
 ];
 

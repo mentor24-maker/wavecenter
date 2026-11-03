@@ -444,11 +444,11 @@ test('the formula gives the Proposed column of every row in the document', () =>
   for (const r of rows) assert.equal(granularPoints(r.factors), r.proposed, r.name);
 });
 
-test('the formula: 1 + E + 2V + R - F, rarity not counted when F is 3, never below 0', () => {
-  assert.equal(granularPoints({ effort: 1, value: 2, rarity: 0, farmRisk: 3 }), 3);
-  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), 7, 'rarity ignored when it loops');
-  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 1, farmRisk: 2 }), 9, 'rarity counts when it does not');
-  assert.equal(granularPoints({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), 0, 'never below 0');
+test('the formula: 1 + E + 2V + R, farm risk not counted, never below 1', () => {
+  assert.equal(granularPoints({ effort: 0, value: 0, rarity: 0, farmRisk: 0 }), 1, 'all-zero factors still score 1');
+  assert.equal(granularPoints({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), 11, 'Finished a task');
+  assert.equal(granularPoints({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), 1, 'Switched AI agents on or off');
+  for (const farmRisk of [0, 1, 2, 3]) assert.equal(granularPoints({ effort: 1, value: 2, rarity: 1, farmRisk }), 7, `farm risk ${farmRisk} has no effect`);
   assert.equal(granularPoints({ effort: 3, value: 3, rarity: 2, farmRisk: 0 }), 12, 'the top of the scale');
   assert.throws(() => granularPoints({ effort: 4, value: 0, rarity: 0, farmRisk: 0 }), /Effort must be a whole number from 0 to 3/);
   assert.throws(() => granularPoints({ effort: 0, value: 0, rarity: 3, farmRisk: 0 }), /Rarity must be a whole number from 0 to 2/);
@@ -460,18 +460,18 @@ test('each worked example on the Admin page gives the points it says, matching t
   assert.ok(FORMULA_EXAMPLES.length >= 2);
   for (const e of FORMULA_EXAMPLES) {
     assert.equal(granularPoints(e.factors), e.points, e.action);
-    assert.match(granularWorking(e.factors), new RegExp(`(= |so )${e.points}( \\(never below 0\\))?$`), e.action);
+    assert.match(granularWorking(e.factors), new RegExp(`= ${e.points}$`), e.action);
     const row = rows.find((r) => r.name === e.action);
     assert.ok(row, `${e.action} is in the document's table`);
     assert.deepEqual(row.factors, e.factors, e.action);
   }
 });
 
-test('the written-out working shows the sum, the ignored rarity and the floor at 0', () => {
-  assert.equal(granularWorking({ effort: 1, value: 2, rarity: 0, farmRisk: 3 }), '1 + 1 + 2 × 2 + 0 − 3 = 3');
-  assert.equal(granularWorking({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), '1 + 3 + 2 × 3 + 0 (Rarity 1 does not count: Farm risk is 3) − 3 = 7');
-  assert.equal(granularWorking({ effort: 1, value: 1, rarity: 2, farmRisk: 1 }), '1 + 1 + 2 × 1 + 2 − 1 = 5');
-  assert.equal(granularWorking({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), '1 + 0 + 2 × 0 + 0 − 3 = −2, so 0 (never below 0)');
+test('the written-out working shows the sum, with farm risk left out', () => {
+  assert.equal(granularWorking({ effort: 1, value: 2, rarity: 0, farmRisk: 3 }), '1 + 1 + 2 × 2 + 0 = 6');
+  assert.equal(granularWorking({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), '1 + 3 + 2 × 3 + 1 = 11');
+  assert.equal(granularWorking({ effort: 1, value: 1, rarity: 2, farmRisk: 1 }), '1 + 1 + 2 × 1 + 2 = 6');
+  assert.equal(granularWorking({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), '1 + 0 + 2 × 0 + 0 = 1');
 });
 
 test('every factor says what it measures and how it moves the points, with one test per level', () => {
@@ -521,9 +521,9 @@ test('the batch shows now and proposed for every action and saves nothing', asyn
   const proposals = await recalculateGranularPoints(ledger, ADMIN);
   assert.deepEqual(await ledger.rules(), before, 'nothing saved');
   assert.deepEqual(proposals.find((p) => p.kind === 'finished_task'), {
-    kind: 'finished_task', name: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, now: 5, proposed: 7, changes: true,
+    kind: 'finished_task', name: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, now: 5, proposed: 11, changes: true,
   });
-  assert.deepEqual(proposals.find((p) => p.kind === 'changed_task')?.changes, false, '1 stays 1');
+  assert.deepEqual(proposals.find((p) => p.kind === 'switched_agents')?.changes, false, '1 stays 1');
   const unscored = proposals.find((p) => p.kind === 'shared_a_link');
   assert.deepEqual([unscored?.proposed, unscored?.changes], [null, false], 'not scored yet, never 0 by accident');
   await assert.rejects(recalculateGranularPoints(ledger, { role: 'viewer' }), /Only an admin can recalculate/);
@@ -540,24 +540,24 @@ test('putting the batch live saves only the rows that change, and only for an ad
   const changing = documentRows().filter((r) => isWired(r.kind) && r.now !== r.proposed);
   assert.deepEqual(result.saved.map((s) => s.kind), changing.map((r) => r.kind));
   assert.deepEqual([...ledger.ruleTools.keys()], changing.map((r) => r.kind), 'unchanged rows are not written');
-  assert.equal((await ledger.rules()).find((r) => r.kind === 'finished_task')?.points, 7);
+  assert.equal((await ledger.rules()).find((r) => r.kind === 'finished_task')?.points, 11);
 });
 
 test('a row that fails or changed meanwhile is named with its reason, and the others still save', async () => {
   const ledger = scoredLedger();
   const accepted = [
-    { kind: 'made_task', now: 1, proposed: 3 },
-    { kind: 'finished_task', now: 5, proposed: 7 },
-    { kind: 'deleted_task', now: 1, proposed: 0 },
+    { kind: 'made_task', now: 1, proposed: 6 },
+    { kind: 'finished_task', now: 5, proposed: 11 },
+    { kind: 'deleted_task', now: 1, proposed: 3 },
   ];
   ledger.ruleList = ledger.ruleList.map((r) => (r.kind === 'finished_task' ? { ...r, points: 6 } : r));
   ledger.failNextRuleSave = true;
   const result = await applyGranularPoints(ledger, ADMIN, accepted, 'wavecenter');
   assert.deepEqual(result.failed.map((f) => [f.kind, f.reason.split('.')[0]]), [
     ['made_task', 'The change did not save'],
-    ['finished_task', 'It changed since you recalculated (now 6, formula 7)'],
+    ['finished_task', 'It changed since you recalculated (now 6, formula 11)'],
   ]);
-  assert.deepEqual(result.saved, [{ kind: 'deleted_task', name: 'Deleted a task', from: 1, to: 0 }]);
+  assert.deepEqual(result.saved, [{ kind: 'deleted_task', name: 'Deleted a task', from: 1, to: 3 }]);
 });
 
 test('an admin scores an action by hand on Game > Manage, when adding it or later', async () => {

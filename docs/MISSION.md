@@ -93,3 +93,6 @@ Step 6 matters more than it looks. Points on the first to-do item are the
 earliest form of the whitepaper's engagement ledger. Design the task record
 so a later step can add the voted valuation table, reputation and
 member-to-member engagement without rebuilding it.
+
+How scoring works today, and why, is in the scoring wiki:
+[scoring/README.md](scoring/README.md).

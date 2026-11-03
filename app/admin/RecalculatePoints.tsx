@@ -81,7 +81,7 @@ export default function RecalculatePoints() {
           </p>
           {/* Mirrors granularPoints in core/game.ts; change the two together. */}
           <p className="note">
-            Proposed = 1 + E + 2 × V + R − F, never below 0. R counts as 0 when F is 3. The Now column is today&apos;s value and is not part of the formula.
+            Proposed = 1 + E + 2 × V + R, so every action scores at least 1. F (farm risk) is scored but does not change the points. The Now column is today&apos;s value and is not part of the formula.
           </p>
           <div className="rule-table-wrap">
             <table className="game recalc-table">

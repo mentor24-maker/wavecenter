@@ -58,7 +58,8 @@ score, and members' votes on actions come later.
 Every action is worth 1 point, except finishing a task, worth 5. That makes
 switching the AI agents switch on and off worth exactly as much as attaching
 a file, and lets anyone earn a point a second by saving the same thing over
-and over. The algorithm below fixes both.
+and over. The algorithm below fixes the first. The second is left to
+anti-farming work of its own (see "Safeguards the formula cannot give").
 
 ## The four factors
 
@@ -97,15 +98,13 @@ action is a bigger moment and should feel like one.
 | 1 | A few times a week. |
 | 2 | A handful of times ever, or once (joining). |
 
-**Rarity counts only when the action cannot loop** (F below 3): an action
-that can be repeated forever is not rare, however seldom an honest member
-does it.
-
 **4. Farm risk (F), 0 to 3.** How easily the action can be repeated just to
-collect points. It is subtracted. The canon names this danger: the
-valuation repository exists so the membership can keep "deflating any
-category being farmed" (`docs/canon/deo-whitepaper.md`, "Failure Modes and
-Their Defenses").
+collect points. **It is scored, not counted:** every action still gets an F
+score, and it is stored, but it does not change the points (see "Why farm
+risk is not in the formula"). It is kept for the anti-farming work to come.
+The canon names this danger: the valuation repository exists so the
+membership can keep "deflating any category being farmed"
+(`docs/canon/deo-whitepaper.md`, "Failure Modes and Their Defenses").
 
 | F | Test |
 |---|---|
@@ -116,26 +115,55 @@ Their Defenses").
 
 ## The formula
 
-> **Points = 1 + E + 2 × V + R − F**, and never below 0.
-> (R counts as 0 when F is 3.)
+> **Points = 1 + E + 2 × V + R**
+
+Farm risk (F) is scored and stored, but not counted.
 
 - **The 1 is the starting point every recorded action gets**, because
   nothing a member does goes unaccounted (canon, "Engagement and
-  Intelligence"). A pure loop with no value cancels it out and earns 0. An
-  action worth 0 is still recorded in the ledger; it just adds nothing to
-  the total.
-- **The lowest possible score is 0 and the highest is 12** (1 + 3 + 6 + 2).
-  No granular action proposed here goes above 7. The top of the scale is left
-  free on purpose: the canon says "in-person engagement is valued at the
-  highest levels of the game layer" (`docs/canon/deo-whitepaper.md`,
-  "Trajectory: URL > IRL"), and WaveCenter records no in-person action yet.
-- **The result is a whole number from 0 up**, which is exactly what Game →
+  Intelligence"). Every action scores at least 1; none scores 0.
+- **The lowest possible score is 1 and the highest is 12** (1 + 3 + 6 + 2).
+  Finishing a task, at 11, is the only action proposed here above 7. The
+  very top is left free on purpose: the canon says "in-person engagement is
+  valued at the highest levels of the game layer"
+  (`docs/canon/deo-whitepaper.md`, "Trajectory: URL > IRL"), and WaveCenter
+  records no in-person action yet.
+- **The result is a whole number from 1 up**, which is exactly what Game →
   Manage accepts.
 
 A worked example, voting on a task: E = 1 (a judgment, a few seconds),
 V = 2 (other members rely on the result: it sets what the task is worth),
-R = 0 (many a day), F = 3 (a vote can be cast, changed and withdrawn
-forever). Points = 1 + 1 + 4 + 0 − 3 = **3**.
+R = 0 (many a day). Points = 1 + 1 + 4 + 0 = **6**. Its F is 3 (a vote can
+be cast, changed and withdrawn forever), which is recorded but does not
+change the 6.
+
+### Why farm risk is not in the formula
+
+The first version subtracted F, and counted R as 0 whenever F was 3. That
+left six actions at 0 points. Dane, 2026-11-02:
+
+> I want a floor of 1 point. Every single action scores something.
+> I was wondering if the farming quotient was being over-emphasized,
+> resulting in the 0 scores in spite of other values. [...] In time, we
+> will be adding more sophisticated anti-farming behavior negative scores.
+> So I'm not sure we have the need to lean so hard on the farming factor at
+> this point.
+> I agree to all three. Drop F at this level.
+
+19 of the 24 actions have F = 3, so F worked as a flat −3 on nearly every
+row and barely told actions apart. It also counted twice, because F = 3
+also set Rarity to 0. Every one of the six zero rows had F = 3. Without F,
+every action scores at least 1 with no separate floor needed.
+
+### Granular points are small on purpose
+
+Dane, 2026-11-02:
+
+> We don't need to nail it at this level. They just need to make sense
+> relative to each other.
+
+So the numbers below aim for the right order (finishing a task well above
+making one, making one above deleting one), not for exact worth.
 
 ## The table
 
@@ -143,18 +171,16 @@ forever). Points = 1 + 1 + 4 + 0 − 3 = **3**.
 
 | Action | Now | E | V | R | F | Proposed | Why |
 |---|---|---|---|---|---|---|---|
-| Made a task | 1 | 1 | 2 | 0 | 3 | **3** | Adds work others can pick up; paired with deleting it, so it loops. |
-| Changed a task | 1 | 1 | 1 | 0 | 3 | **1** | Keeps a task accurate; any edit can be changed straight back. |
-| Finished a task | 5 | 3 | 3 | 1* | 3 | **7** | Records real finished work; reopening and finishing again loops (see safeguards). |
-| Deleted a task | 1 | 0 | 1 | 0 | 3 | **0** | Housekeeping worth having, but paying for it pays the make-and-delete loop twice. |
-| Attached a file | 1 | 1 | 2 | 0 | 3 | **3** | Gives others the picture or file they need; paired with removing it. |
-| Removed a file | 1 | 0 | 1 | 0 | 3 | **0** | Tidies up; the undo half of a loop. |
-| Handed a task to AI agents | 1 | 0 | 2 | 1 | 2 | **4** | Puts work into the build queue; once per task, but a task takes seconds to make. |
-| Switched AI agents on or off | 1 | 0 | 0 | 0 | 3 | **0** | A personal switch that flips back and forth. |
-| Changed your profile | 1 | 1 | 1 | 1* | 3 | **1** | Helps others know who you are; saving the same profile again loops. |
-| Voted on a task | 1 | 1 | 2 | 0 | 3 | **3** | Sets what tasks are worth, which others rely on; a vote can be changed forever. |
-
-\* Rarity does not count, because the action loops (F = 3).
+| Made a task | 1 | 1 | 2 | 0 | 3 | **6** | Adds work others can pick up; paired with deleting it, so it loops. |
+| Changed a task | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a task accurate; any edit can be changed straight back. |
+| Finished a task | 5 | 3 | 3 | 1 | 3 | **11** | Records real finished work; reopening and finishing again loops (see safeguards). |
+| Deleted a task | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. |
+| Attached a file | 1 | 1 | 2 | 0 | 3 | **6** | Gives others the picture or file they need; paired with removing it. |
+| Removed a file | 1 | 0 | 1 | 0 | 3 | **3** | Tidies up; the undo half of a loop. |
+| Handed a task to AI agents | 1 | 0 | 2 | 1 | 2 | **6** | Puts work into the build queue; once per task, but a task takes seconds to make. |
+| Switched AI agents on or off | 1 | 0 | 0 | 0 | 3 | **1** | A personal switch that flips back and forth. |
+| Changed your profile | 1 | 1 | 1 | 1 | 3 | **5** | Helps others know who you are; saving the same profile again loops. |
+| Voted on a task | 1 | 1 | 2 | 0 | 3 | **6** | Sets what tasks are worth, which others rely on; a vote can be changed forever. |
 
 ### The fourteen actions listed but not active yet
 
@@ -167,32 +193,30 @@ ticket each.
 
 | Action | Now | E | V | R | F | Proposed | Why |
 |---|---|---|---|---|---|---|---|
-| Posted a comment | 1 | 1 | 2 | 0 | 3 | **3** | Others read it on the task; paired with deleting it. Same as making a task. |
-| Edited a comment | 1 | 1 | 1 | 0 | 3 | **1** | Corrects your own words; can be edited back. |
-| Deleted a comment | 1 | 0 | 1 | 0 | 3 | **0** | The undo half of a loop. |
-| Send a message to another member | 1 | 1 | 1 | 0 | 2 | **2** | Helps one member, not the shared record; each needs words, and there is no undo. |
-| Made a team | 1 | 1 | 2 | 1* | 3 | **3** | Gives members a group to work in; paired with deleting it. |
-| Changed a team | 1 | 1 | 1 | 0 | 3 | **1** | Keeps a team accurate; can be changed back. |
-| Deleted a team | 1 | 0 | 1 | 1* | 3 | **0** | The undo half of a loop. |
-| Added a member to a team | 1 | 0 | 2 | 0 | 3 | **2** | Brings a member into shared work; paired with removing them. |
-| Removed a member from a team | 1 | 0 | 1 | 0 | 3 | **0** | The undo half of a loop. |
-| Changed a member's role | 1 | 1 | 2 | 1* | 3 | **3** | Governance others rely on; a role can be changed straight back. Admin only. |
-| Approved a proposed task | 1 | 1 | 2 | 0 | 2 | **4** | Reviews and admits work to the list; each needs a proposal, but one takes seconds. Admin only. |
-| Joined WaveCenter | 1 | 1 | 1 | 2 | 1 | **5** | Once per member, and new members are how the project grows; the value comes from what they do next, scored on its own. Accounts are cheap to make (the canon's Sybil failure), so F is 1, not 0. |
-| Changed a scoring rule | 1 | 1 | 2 | 1* | 3 | **3** | Sets values every member earns by; can be changed back. Admin only. |
-| Added a scoring action | 1 | 1 | 2 | 1 | 2 | **5** | Grows the list of what counts; no rule can be deleted, so it cannot loop, but a new one takes a minute. Admin only. |
-
-\* Rarity does not count, because the action loops (F = 3).
+| Posted a comment | 1 | 1 | 2 | 0 | 3 | **6** | Others read it on the task; paired with deleting it. Same as making a task. |
+| Edited a comment | 1 | 1 | 1 | 0 | 3 | **4** | Corrects your own words; can be edited back. |
+| Deleted a comment | 1 | 0 | 1 | 0 | 3 | **3** | The undo half of a loop. |
+| Send a message to another member | 1 | 1 | 1 | 0 | 2 | **4** | Helps one member, not the shared record; each needs words, and there is no undo. |
+| Made a team | 1 | 1 | 2 | 1 | 3 | **7** | Gives members a group to work in; paired with deleting it. |
+| Changed a team | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a team accurate; can be changed back. |
+| Deleted a team | 1 | 0 | 1 | 1 | 3 | **4** | The undo half of a loop. |
+| Added a member to a team | 1 | 0 | 2 | 0 | 3 | **5** | Brings a member into shared work; paired with removing them. |
+| Removed a member from a team | 1 | 0 | 1 | 0 | 3 | **3** | The undo half of a loop. |
+| Changed a member's role | 1 | 1 | 2 | 1 | 3 | **7** | Governance others rely on; a role can be changed straight back. Admin only. |
+| Approved a proposed task | 1 | 1 | 2 | 0 | 2 | **6** | Reviews and admits work to the list; each needs a proposal, but one takes seconds. Admin only. |
+| Joined WaveCenter | 1 | 1 | 1 | 2 | 1 | **6** | Once per member, and new members are how the project grows; the value comes from what they do next, scored on its own. Accounts are cheap to make (the canon's Sybil failure), so F is 1, not 0. |
+| Changed a scoring rule | 1 | 1 | 2 | 1 | 3 | **7** | Sets values every member earns by; can be changed back. Admin only. |
+| Added a scoring action | 1 | 1 | 2 | 1 | 2 | **7** | Grows the list of what counts; no rule can be deleted, so it cannot loop, but a new one takes a minute. Admin only. |
 
 ## Scoring an action added later
 
 When an admin adds an action on Game → Manage, or an agent wires a new one:
 
 1. Read its criteria ("exactly what counts").
-2. Score E, V, R and F with the four tables above. Ask especially: does
-   anything undo it, and can it be saved again unchanged? If so, F is 3 and
-   R counts as 0.
-3. Points = 1 + E + 2 × V + R − F, never below 0.
+2. Score E, V, R and F with the four tables above. For F, ask: does
+   anything undo it, and can it be saved again unchanged? If so, F is 3.
+   F is recorded for anti-farming work; it does not change the points.
+3. Points = 1 + E + 2 × V + R.
 4. Add a row to the table in this document with one line of reasons, in the
    same pull request that wires the action, so the record stays complete.
 
@@ -201,9 +225,11 @@ the top of the scale (canon, "Trajectory: URL > IRL").
 
 ## Safeguards the formula cannot give
 
-The formula lowers what a loop pays, but a positive action that loops still
-pays something each time round. Three later tickets would close that gap.
-None is part of this proposal; each is Dane's call:
+The formula does not stop loops: every action, looping or not, pays at
+least 1 each time round. Three later safeguards would close that gap (the
+ticket "Members could farm points before anyone is invited: finishing the
+same task again and saving something unchanged still pay"). None is part of
+this proposal; each is Dane's call:
 
 - **Finishing the same task again earns nothing.** Only the first time a task
   becomes done would score "Finished a task".
@@ -251,10 +277,10 @@ formula above, run by WaveCenter's own server when an admin clicks.
 
 ## Questions for Dane
 
-1. **Are the weights right?** Value counts twice; effort, rarity and farm
-   risk once each. Changing a weight changes every row, so it is the one
-   decision that matters most.
-2. **Are zeros acceptable?** Six actions (five undo halves of loops, and the
-   AI agents switch) come out at 0. They are still recorded in the ledger;
-   they just add nothing. The alternative is a floor of 1, which keeps
-   today's "a point a second" loop open.
+1. **Are the weights right?** Value counts twice; effort and rarity once
+   each; farm risk not at all. Changing a weight changes every row, so it is
+   the one decision that matters most.
+2. **Are zeros acceptable?** Answered: no zeros, decided 2026-11-02. Dane:
+   "I want a floor of 1 point. Every single action scores something."
+   Farm risk was dropped from the formula, so every action scores at least
+   1 (see "Why farm risk is not in the formula").

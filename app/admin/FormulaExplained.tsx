@@ -11,9 +11,9 @@ export default function FormulaExplained() {
     <details className="formula-explained">
       <summary>How the formula works</summary>
       <p>
-        <b>Points = 1 + E + 2 × V + R − F</b>, never below 0. Each action is scored on four factors, and the formula
-        turns them into its points. The starting 1 is there because every recorded action counts for something; an
-        action that only loops cancels it out and earns 0.
+        <b>Points = 1 + E + 2 × V + R</b>. Each action is scored on four factors, and the formula turns three of them
+        into its points. The starting 1 is there because every recorded action counts for something, so the lowest
+        any action can score is 1.
       </p>
       <dl>
         {FACTOR_KEYS.map((k) => {
@@ -32,8 +32,8 @@ export default function FormulaExplained() {
         })}
       </dl>
       <p>
-        Rarity counts as 0 when Farm risk is 3, because an action that can be repeated forever is not rare, however
-        seldom an honest member does it.
+        Farm risk is still scored for every action, because later anti-farming work will use it, but it does not
+        change the points.
       </p>
       <h3>Examples</h3>
       <ul>
