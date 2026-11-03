@@ -498,10 +498,16 @@ export const FACTOR_KEYS: readonly FactorKey[] = ['effort', 'value', 'rarity', '
 /** The highest score each factor may have; the lowest is 0. The migration checks the same. */
 export const FACTOR_MAX: Record<FactorKey, number> = { effort: 3, value: 3, rarity: 2, farmRisk: 3 };
 
-/** Each factor's name, letter and the plain test for each level, word for word from the document. */
-export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; levels: readonly string[] }> = {
+/**
+ * Each factor's name, letter, what it measures, how it moves the points
+ * (`effect`, matching `granularPoints`) and the plain test for each level,
+ * word for word from the document.
+ */
+export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; measures: string; effect: string; levels: readonly string[] }> = {
   effort: {
     name: 'Effort', letter: 'E',
+    measures: 'How much of the member\'s time and attention the action takes.',
+    effect: 'Added once.',
     levels: [
       'One click or one tick.',
       'A short form or a few words: under a minute.',
@@ -511,6 +517,8 @@ export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; lev
   },
   value: {
     name: 'Value', letter: 'V',
+    measures: 'What the action does for the project and for other members.',
+    effect: 'Counted twice, because it is the reason the game layer exists.',
     levels: [
       'Nothing for anyone else: a personal setting.',
       'Tidies up, or helps one other member.',
@@ -520,10 +528,14 @@ export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; lev
   },
   rarity: {
     name: 'Rarity', letter: 'R',
+    measures: 'How often a member genuinely does it. A rare action is a bigger moment.',
+    effect: 'Added once, but only when the action cannot loop: it counts as 0 when Farm risk is 3.',
     levels: ['Many times a day.', 'A few times a week.', 'A handful of times ever, or once (joining).'],
   },
   farmRisk: {
     name: 'Farm risk', letter: 'F',
+    measures: 'How easily the action can be repeated just to collect points.',
+    effect: 'Subtracted.',
     levels: [
       'Cannot be repeated (once per member), or costs real work every time.',
       'Repeatable, but each time needs something real from someone else.',
@@ -574,6 +586,40 @@ export function granularPoints(factors: ScoringFactors): number {
   const rarity = f.farmRisk === 3 ? 0 : f.rarity;
   return Math.max(0, 1 + f.effort + 2 * f.value + rarity - f.farmRisk);
 }
+
+/**
+ * The formula's arithmetic for one action, written out the way the Admin
+ * page explains it: "1 + 1 + 2 × 2 + 0 − 3 = 3". It ends in
+ * `granularPoints`, so the sum shown is always the one the formula uses.
+ */
+export function granularWorking(factors: ScoringFactors): string {
+  const points = granularPoints(factors);
+  const { effort, value, rarity, farmRisk } = factors;
+  const r = farmRisk === 3 && rarity > 0 ? `0 (Rarity ${rarity} does not count: Farm risk is 3)` : String(farmRisk === 3 ? 0 : rarity);
+  const raw = 1 + effort + 2 * value + (farmRisk === 3 ? 0 : rarity) - farmRisk;
+  const sum = `1 + ${effort} + 2 × ${value} + ${r} − ${farmRisk}`;
+  return raw === points ? `${sum} = ${points}` : `${sum} = ${String(raw).replace('-', '−')}, so ${points} (never below 0)`;
+}
+
+/** Worked examples for the Admin page, from docs/GRANULAR_SCORING_ALGORITHM.md. A test checks each `points` against `granularPoints`. */
+export const FORMULA_EXAMPLES: readonly { action: string; factors: ScoringFactors; points: number; why: string }[] = [
+  {
+    action: 'Voted on a task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 }, points: 3,
+    why: 'A judgment of a few seconds that other members rely on (it sets what a task is worth), done many times a day, and a vote can be changed forever.',
+  },
+  {
+    action: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, points: 7,
+    why: 'Records hours of real finished work the project planned, but reopening and finishing again loops, so its rarity does not count.',
+  },
+  {
+    action: 'Joined WaveCenter', factors: { effort: 1, value: 1, rarity: 2, farmRisk: 1 }, points: 5,
+    why: 'Once per member, so it is rare and its rarity counts; accounts are cheap to make, so Farm risk is 1, not 0.',
+  },
+  {
+    action: 'Switched AI agents on or off', factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 }, points: 0,
+    why: 'A personal switch that flips back and forth: the loop cancels the starting 1, and the total stops at 0.',
+  },
+];
 
 /** One row of the batch's results: what an action is worth now and what the formula says. */
 export interface GranularProposal {
