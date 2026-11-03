@@ -7,6 +7,26 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Evolution cards look harder for Dane's own words (#129)
+
+Dane asked that every Evolution card on Home show his own prompt, not an
+agent's summary. 26 cards had none. The tool that fills them now also looks
+in the Claude Code chat where a change's ticket was made, as he chose. It
+also stops showing a one-word reply ("A", "D", "merge") or an agent's
+"your words aren't recorded" as if it were his request, and names each
+card it leaves alone. Run once after this merge, it fills 17 cards,
+including the first to-do list's "Build the simple to-do list". The other
+9 have no words of his on record anywhere on this machine, so they keep
+their short statement.
+
+After review, the chat reader was made stricter: the summary Claude Code
+writes when a long chat runs out of room no longer counts as Dane's
+typing, a chat with no typing can no longer hide his request in another
+chat, and a retaken picture keeps the card's own words, so a card is not
+retaken over and over.
+
+---
+
 ## 2026-11-02 — New welcome words on the Evolution slider (#128)
 
 Dane rewrote the sentence under "Evolution of WaveCenter" on the home page.

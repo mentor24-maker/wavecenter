@@ -11,8 +11,11 @@
  *                                                         skipping ones already captured
  *   npm run evolution -- missing                          every first-parent change on main with no row
  *                                                         yet, oldest first (the merge lane runs this)
- *   npm run evolution -- words                            fill Dane's words and their thread on every
- *                                                         recorded change that has none yet; no pictures
+ *   npm run evolution -- words [--plan]                   fill Dane's words and their thread on every
+ *                                                         recorded change that has none yet, from its
+ *                                                         ticket, else the chat that made the ticket; no
+ *                                                         pictures. --plan says what it would fill and
+ *                                                         saves nothing
  *   npm run evolution -- recapture [--plan]               retake every captured change whose page the
  *                                                         current rules choose differently, and leave off
  *                                                         a picture identical to the card before it;
@@ -82,7 +85,11 @@
  * where he said them (danesWords), read from its ClickUp ticket through
  * `scripts/clickup.mjs ticket-json`. The Evolution cards show those words.
  * A ticket that cannot be read leaves them empty, and `words` fills them
- * on a later run without retaking any picture.
+ * on a later run without retaking any picture. When a ticket holds none of
+ * his words, `words` also looks for the Claude Code chat that made the
+ * ticket, in this machine's transcripts (CHATS), and takes the request he
+ * typed there (chatWords; Dane, 2026-11-02, choosing "B" on 86bcx0aku).
+ * Only `words` reads them: 3.6 GB on the Mac Mini, too slow for each pass.
  *
  * `recapture` retakes a change into a new file and only then points its row
  * at it, so a retake that fails leaves the old row and picture as they were
@@ -106,7 +113,8 @@
  * that was not stored is never recorded as captured (engineering rule 6).
  * Exit 143 = stopped at the time limit.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync, existsSync, readdirSync, createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { tmpdir, homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,7 +122,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
-import { asOf, BUCKET, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
+import { addChatWords, asOf, BUCKET, captureWords, chatWords, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, typedWords, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
@@ -539,6 +547,38 @@ function ticketWords(url) {
   }
 }
 
+/** Where Claude Code keeps every chat on this machine, one folder per project, one .jsonl file per chat. */
+const CHATS = join(homedir(), '.claude/projects');
+
+/**
+ * Dane's words behind each ticket in `wanted` (a Set of ids) from the chat
+ * on this machine that made it: Map id -> words, or null when a loop made it.
+ * A ticket made before the transcripts begin, or on another machine, is
+ * absent. Every project's folder is read, since ticket ids never repeat. Only
+ * lines that could matter are parsed: a ticket being made, or a person's turn.
+ * `typed` counts the chats in which somebody typed at all.
+ */
+async function chatTicketWords(wanted) {
+  const found = new Map();
+  let chats = 0, typed = 0;
+  const folders = existsSync(CHATS) ? readdirSync(CHATS, { withFileTypes: true }).filter((d) => d.isDirectory()) : [];
+  for (const folder of folders) {
+    const dir = join(CHATS, folder.name);
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.jsonl'))) {
+      chats += 1;
+      const entries = [];
+      for await (const line of createInterface({ input: createReadStream(join(dir, file)), crlfDelay: Infinity })) {
+        if (!line.includes('Created task ') && !(line.includes('"type":"user"') && !line.includes('"tool_result"'))) continue;
+        try { entries.push(JSON.parse(line)); } catch { /* a half-written last line */ }
+      }
+      const got = chatWords(entries, wanted);
+      if (entries.some((e) => typedWords(e))) typed += 1;
+      addChatWords(found, got);
+    }
+  }
+  return { found, chats, typed };
+}
+
 /**
  * Picture one change. Returns the row it recorded (or would record, with
  * `dryRun`). Throws RunFailed when the run itself broke.
@@ -551,7 +591,7 @@ function ticketWords(url) {
  */
 async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   const info = commitInfo(rev);
-  const { noTask, ...words } = ticketWords(info.ticketUrl) ?? (retake ? { prompt: retake.prompt, threadUrl: retake.thread_url, taskId: retake.task_id } : { prompt: null, threadUrl: null, taskId: null });
+  const { noTask = null, ...words } = captureWords(ticketWords(info.ticketUrl), retake);
   const base = { sha: info.sha, mergedAt: info.mergedAt, prNumber: info.prNumber, title: info.title, ticketUrl: info.ticketUrl, ...words };
   const before = previous !== undefined ? previous : previousCard(await recorded(), info.mergedAt);
   const pattern = choosePage({ ...info, prompt: words.prompt });
@@ -899,23 +939,48 @@ try {
     countRun(null);
     process.exit(0);
   } else if (command === 'words') {
+    const plan = rest.includes('--plan');
     requireLive();
     const todo = (await recorded()).filter((r) => r.prompt == null);
-    let filled = 0, none = 0, unread = 0;
+    const words = new Map();
+    let unread = 0;
     for (const r of todo) {
-      const words = ticketWords(r.ticket_url);
-      if (!words) { unread += 1; continue; }
-      if (!words.prompt) { none += 1; continue; }
+      const got = ticketWords(r.ticket_url);
+      if (!got) unread += 1;
+      else words.set(r.commit_sha, got.prompt ? { prompt: got.prompt, threadUrl: got.threadUrl, from: 'its ticket' } : null);
+    }
+    // A ticket with none of his words: the chat that made it, if it was made on this machine.
+    const ask = new Set(todo.filter((r) => words.get(r.commit_sha) === null && ticketId(r.ticket_url)).map((r) => ticketId(r.ticket_url)));
+    const chats = ask.size ? await chatTicketWords(ask) : null;
+    if (chats) console.log(`read ${chats.chats} Claude Code chat(s) in ${CHATS}, ${chats.typed} of them with anything typed by a person, for the ${ask.size} ticket(s) with none of Dane's words on them.`);
+    let filled = 0, none = 0;
+    for (const r of todo) {
+      if (!words.has(r.commit_sha)) continue;
+      const said = chats?.found.get(ticketId(r.ticket_url));
+      const w = words.get(r.commit_sha) ?? (said ? { prompt: said, threadUrl: r.ticket_url, from: 'the Claude Code chat that made its ticket' } : null);
+      if (!w) {
+        none += 1;
+        const where = !r.ticket_url ? 'it names no ticket'
+          : chats?.found.has(ticketId(r.ticket_url)) ? 'not on its ticket, and a loop made the ticket, so nobody typed them'
+          : 'not on its ticket, and no chat on this machine made the ticket';
+        console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  no words of Dane's on record: ${where}. The card keeps its short statement.`);
+        continue;
+      }
+      if (plan) {
+        filled += 1;
+        console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  would fill his words: ${w.prompt.split('\n')[0]}\n  from: ${w.from}`);
+        continue;
+      }
       const saved = await live(`/rest/v1/evolution_entries?commit_sha=eq.${r.commit_sha}&prompt=is.null`, {
-        method: 'PATCH', body: { prompt: words.prompt, thread_url: words.threadUrl }, headers: { Prefer: 'return=representation' },
+        method: 'PATCH', body: { prompt: w.prompt, thread_url: w.threadUrl }, headers: { Prefer: 'return=representation' },
       });
-      if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.prompt !== words.prompt) {
-        throw new RunFailed(`saving Dane's words for ${r.commit_sha.slice(0, 7)} failed: HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
+      if (saved.status >= 300 || !Array.isArray(saved.json) || saved.json[0]?.prompt !== w.prompt) {
+        throw new RunFailed(`saving Dane's words for ${r.commit_sha.slice(0, 7)} "${r.title}" failed, so that card still has none (and the cards after it were not tried): HTTP ${saved.status} ${JSON.stringify(saved.json)}`);
       }
       filled += 1;
-      console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  his words: ${words.prompt.split('\n')[0]}`);
+      console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  his words: ${w.prompt.split('\n')[0]}\n  from: ${w.from}`);
     }
-    console.log(`words: ${todo.length} change(s) had none; filled ${filled}, ${none} with none of Dane's words on their ticket, ${unread} whose ticket could not be read.`);
+    console.log(`words${plan ? ' (plan, nothing saved)' : ''}: ${todo.length} change(s) had none; ${plan ? 'would fill' : 'filled'} ${filled}, ${none} with none of Dane's words on record, ${unread} whose ticket could not be read.`);
     process.exit(unread ? 1 : 0);
   } else if (command === 'recapture' && rest.includes('--if-rules-changed')) {
     requireLive();
@@ -933,7 +998,7 @@ try {
     console.log(rows.length ? `${rows.length} change(s) recorded.` : 'No changes recorded yet: run `npm run evolution -- backfill`.');
     process.exit(0);
   } else {
-    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words | recapture [--plan | --if-rules-changed] | list');
+    console.error('usage: npm run evolution -- capture <sha> [--dry-run <file.png>] | backfill | missing | words [--plan] | recapture [--plan | --if-rules-changed] | list');
     process.exit(1);
   }
 } catch (err) {
