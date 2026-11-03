@@ -7,6 +7,14 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Proposed and Change columns centred on Recalculate action points (#137)
+
+On Admin → Recalculate action points, the Change column ("1 → 3") was
+lined up on the left, so it started right against the Proposed number
+next to it and the two could read as one run of characters. The Change
+heading and every value under it are now centred, like Proposed, so each
+number sits in the middle of its own column. Only this table changed.
+
 ## 2026-11-03 — Admins can write the reason behind each factor score (#136)
 
 #134 showed why each action got its Effort, Value, Rarity and Farm-risk
