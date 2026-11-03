@@ -4,6 +4,7 @@ import { mayDo, mayOpenAdmin, ROLES, STARTING_ROLE_PERMISSIONS, type RoleKey } f
 import { listMessages, type SavedMessage } from "../../core/messages.ts";
 import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
 import { shownName } from "../members/memberView";
+import { headerPoints } from "../lib/engagementStore";
 import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow } from "../lib/memberRoleStore";
 import { supabaseMessageStore } from "../lib/messageStore";
@@ -88,11 +89,12 @@ export default async function Profile() {
     );
   }
 
-  const [role, lists, members, messages] = await Promise.all([
+  const [role, lists, members, messages, points] = await Promise.all([
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     read(() => listMembers(supabase)),
     read(() => listMessages(supabaseMessageStore(supabase), user.id)),
+    headerPoints(supabase, user.id),
   ]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
   // The database's grants when they could be read; the starting ones
@@ -119,7 +121,7 @@ export default async function Profile() {
 
   return (
     <>
-      <SiteHeader name={profile?.displayName?.trim() || (user.email ?? "you")} isAdmin={isAdmin} />
+      <SiteHeader name={profile?.displayName?.trim() || (user.email ?? "you")} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Your profile</h1>
         <p className="lede">

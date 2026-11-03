@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ROLES, STARTING_ROLE_PERMISSIONS } from "../../core/members.ts";
 import { mayManageTeams, mayViewTeams } from "../../core/teams.ts";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -49,10 +50,11 @@ export default async function Teams() {
     );
   }
 
-  const [role, lists, name] = await Promise.all([
+  const [role, lists, name, points] = await Promise.all([
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     headerName(supabase, user),
+    headerPoints(supabase, user.id),
   ]);
   // The database's grants when they could be read; the starting ones
   // otherwise, which the database's own rules repeat, so nobody sees more.
@@ -62,7 +64,7 @@ export default async function Teams() {
   if (!mayView) {
     return (
       <>
-        <SiteHeader name={name} />
+        <SiteHeader name={name} points={points} />
         <main>
           <h1>Team Manager</h1>
           {role.error !== null ? (
@@ -103,7 +105,7 @@ export default async function Teams() {
 
   return (
     <>
-      <SiteHeader name={name} />
+      <SiteHeader name={name} points={points} />
       <main>
         <h1>Team Manager</h1>
         <p className="lede">

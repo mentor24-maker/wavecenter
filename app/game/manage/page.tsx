@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { SCORING_TRIGGERS, isWired, mayManageScoring, type ScoringRule } from "../../../core/game.ts";
 import type { TokenSize } from "../../../core/tokens.ts";
 import { ROLES, mayOpenAdmin } from "../../../core/members.ts";
-import { supabaseScoringRuleStore } from "../../lib/engagementStore";
+import { headerPoints, supabaseScoringRuleStore } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
@@ -57,10 +57,11 @@ export default async function ManageGame() {
     );
   }
 
-  const [role, lists, name] = await Promise.all([
+  const [role, lists, name, points] = await Promise.all([
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     headerName(supabase, user),
+    headerPoints(supabase, user.id),
   ]);
 
   // The header's Admin item: shown only when the role was read and is an admin's.
@@ -69,7 +70,7 @@ export default async function ManageGame() {
   if (role.error !== null || lists.error !== null) {
     return (
       <>
-        <SiteHeader name={name} isAdmin={isAdmin} />
+        <SiteHeader name={name} isAdmin={isAdmin} points={points} />
         <main>
           <h1>Game</h1>
           <GameMenu current="manage" />
@@ -84,7 +85,7 @@ export default async function ManageGame() {
   if (!mayManageScoring({ role: role.value, grants: lists.value.grants })) {
     return (
       <>
-        <SiteHeader name={name} isAdmin={isAdmin} />
+        <SiteHeader name={name} isAdmin={isAdmin} points={points} />
         <main>
           <h1>Game</h1>
           <GameMenu current="manage" />
@@ -104,7 +105,7 @@ export default async function ManageGame() {
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Game</h1>
         <GameMenu current="manage" mayManage />

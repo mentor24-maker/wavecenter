@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { mayManageScoring } from "../../core/game.ts";
 import { mayOpenAdmin, ROLES } from "../../core/members.ts";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -38,8 +39,9 @@ export default async function Admin() {
     );
   }
 
-  const [name, role] = await Promise.all([
+  const [name, points, role] = await Promise.all([
     headerName(supabase, user),
+    headerPoints(supabase, user.id),
     Promise.all([myRole(supabase, user.id), readRolesAndPermissions(supabase)]).then(
       ([value, lists]) => ({ value, grants: lists.grants, error: null }),
       (err: unknown) => ({ value: null, grants: undefined, error: err instanceof Error ? err.message : String(err) }),
@@ -50,7 +52,7 @@ export default async function Admin() {
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Admin</h1>
         {role.error !== null ? (

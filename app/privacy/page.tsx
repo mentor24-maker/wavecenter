@@ -1,3 +1,4 @@
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
@@ -12,13 +13,13 @@ import SiteHeader from "../SiteHeader";
 export default async function Privacy() {
   const supabase = await supabaseForRequest();
   const { user } = supabase ? await currentUser(supabase) : { user: null };
-  const [name, isAdmin] = supabase && user
-    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id)])
-    : [null, false];
+  const [name, isAdmin, points] = supabase && user
+    ? await Promise.all([headerName(supabase, user), headerIsAdmin(supabase, user.id), headerPoints(supabase, user.id)])
+    : [null, false, undefined];
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Privacy and Security First</h1>
         <h2>Data Sovereignty and Privacy</h2>

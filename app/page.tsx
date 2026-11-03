@@ -3,6 +3,7 @@ import { HOME_BOXES, homeBoxWords, mayEditHomeBoxes, type HomeBox, type HomeBoxK
 import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
 import HomeBoxWords from "./HomeBoxWords";
+import { headerPoints } from "./lib/engagementStore";
 import { loadEvolution } from "./lib/evolutionReads";
 import { listHomeBoxes } from "./lib/homeBoxStore";
 import { headerName } from "./lib/memberProfileStore";
@@ -91,7 +92,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
 type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
-  const [name, working, completed, role, lists, evolution, boxes] = await Promise.all([
+  const [name, working, completed, role, lists, evolution, boxes, points] = await Promise.all([
     headerName(supabase, user),
     supabase.from("tasks").select("id, title").eq("status", "doing").order("position").order("created_at"),
     supabase.from("tasks").select("id, title, completed_at").eq("status", "done")
@@ -100,6 +101,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
     read(() => readRolesAndPermissions(supabase)),
     read(() => loadEvolution(supabase)),
     read(() => listHomeBoxes(supabase)),
+    headerPoints(supabase, user.id),
   ]);
   // The database's grants when they could be read; the starting ones
   // otherwise, which the database's own check repeats, so nobody saves more.
@@ -107,7 +109,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <div className="home-page">
-      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} onPicture />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} points={points} onPicture />
       <main>
         <h1 className="sr-only">Home</h1>
         <div className="dashboard four">

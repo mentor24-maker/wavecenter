@@ -92,7 +92,7 @@ export default async function Game() {
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={total} />
       <main>
         <h1>Game</h1>
         <GameMenu current="points" mayManage={mayManage} />
