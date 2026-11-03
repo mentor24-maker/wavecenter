@@ -7,6 +7,21 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — Members can make proposals on a new Proposals page (#127)
+
+Dane wanted a place for ideas that could become tasks once they pass
+muster. There is now a **Proposals** link in the menu, just left of Tasks.
+It opens a page where every member sees every proposal, adds their own, and
+edits or deletes only the ones they made. Dane chose to keep proposals apart
+from tasks ("a proposal is really a different animal"), so they have their
+own table and can be reshaped later without touching tasks. For now each
+proposal looks just like a task: a title, details, status, priority and
+points. The database itself stops a member from changing someone else's
+proposal, and a test on the private test database proves it. This is the
+first step of a series; turning a proposal into a task comes later.
+
+---
+
 ## 2026-11-02 — Home's first box says what WaveCenter is in 20 words (#125)
 
 Dane asked for a compelling 20-word description in the first box on Home,
