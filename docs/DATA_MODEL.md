@@ -367,6 +367,33 @@ changes a row, checked by `private.may`. Nobody deletes a row from the
 browser. `saveHomeBox` in `core/homeBoxes.ts` applies the same rules first and
 names the tool.
 
+### Earned-points token sizes: `token_sizes`
+
+When a member earns points, a small coloured disc (a **token**) will spin as
+it floats up to their point total in the header (Dane, 2026-11-03; the
+animation is a later ticket). This table says what the discs look like. It
+is edited in the **Tokens** section of Game → Manage by a role with
+`game.edit` (**Manage game scoring**, admins to start); no new permission.
+
+| Column | What it holds |
+|---|---|
+| `id` | The size's own id. |
+| `name` | A short name, such as Small. Up to 40 characters. |
+| `diameter` | How wide the disc is, in pixels: a whole number from 8 to 64. |
+| `color` | Its colour, as a `#rrggbb` hex code in lowercase. |
+| `min_points` | Its **point level**: the fewest points that show this size, 1 or more. No two sizes share one. |
+| `tool` | The tool that last changed it (`wavecenter` for Game → Manage, `migration` for the starting sizes). |
+| `updated_by`, `updated_at` | Who changed it last and when, stamped by the database. |
+
+An amount of points shows the largest size whose level it reaches, and an
+amount below every level shows the smallest size (`tokenSizeFor` in
+`core/tokens.ts`). Three sizes are seeded: Small (1 point up), Medium (5 up)
+and Large (20 up). Row-level security was on from the moment the table was
+made: every signed-in member reads it; only a role with `game.edit` adds,
+changes or removes a size, checked by `private.may`. `core/tokens.ts`
+applies the same rules first and names the tool. Changing a size earns no
+points yet.
+
 ### Files attached to a task
 
 A member can attach files to a task: a logo, a screenshot, a document. Each
