@@ -7,6 +7,16 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Two ways to farm points are closed (#133)
+
+Since Farm risk stopped taking points away, two loops paid every time
+round. Finishing a task, reopening it and finishing it again paid "Finished
+a task" (5 points) each time. Saving a task, a profile or the AI agents
+switch without changing anything still paid a point. Now a task earns its
+finish only once; finishing it again counts as an ordinary change, worth 1.
+A save that changes nothing earns nothing. Every real action still scores,
+as Dane asked. This had to land before other members are invited.
+
 ## 2026-11-02 — The Recalculate action points table is readable (#130)
 
 On Admin → Recalculate action points, the Proposed number and the Change
