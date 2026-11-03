@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — A scoring wiki explains how points work (#135)
+
+How WaveCenter scores what members do was spread over several long
+documents. There is now one place to start: a small wiki in
+`docs/scoring/`, with an index and short pages on the principles (Dane's
+two types of score, and his point that scores grow with how complex the
+work is), the small automatic points and their formula, the bigger
+thought-through values such as what a task is worth, how farming points
+is being stopped, a glossary, and a list of open questions for Dane.
+Every claim names where it comes from. The index lists the pages still
+to write, so it can grow as scoring does.
+
 ## 2026-11-02 — Every action scores at least 1 point (#131)
 
 The formula that works out what each small action is worth used to take
