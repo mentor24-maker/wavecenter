@@ -9,8 +9,8 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ## 2026-11-03 — Two ways to farm points are closed (#133)
 
-Since Farm risk stopped taking points away, two loops paid every time
-round. Finishing a task, reopening it and finishing it again paid "Finished
+Two loops paid points every time round, and once Farm risk stops taking
+points away (#131) nothing would hold them back. Finishing a task, reopening it and finishing it again paid "Finished
 a task" (5 points) each time. Saving a task, a profile or the AI agents
 switch without changing anything still paid a point. Now a task earns its
 finish only once; finishing it again counts as an ordinary change, worth 1.
