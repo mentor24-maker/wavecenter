@@ -553,7 +553,12 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   `farm_risk_reason`, plain text, null meaning "no reason written yet".
   Added by `20261103120000_scoring_factor_reasons.sql` under the same
   row-level security; the Admin page shows them when a factor's number is
-  clicked. They change no points.
+  clicked. They change no points. An admin writes or changes them on
+  Game → Manage ("why" beside each factor), through
+  `set_scoring_factor_reasons`, or gives them when adding an action through
+  `add_scoring_rule`; both refuse a role without `game.edit`, trim each
+  reason, store a blank one as null and refuse one over 300 characters
+  (`20261103140000_edit_factor_reasons.sql`).
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
   worth. A task's `points` is one; the owner, human, AI and final scores

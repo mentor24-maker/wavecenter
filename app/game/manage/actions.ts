@@ -2,7 +2,8 @@
 
 /**
  * Changing the scoring rules, run on the server through core
- * (changeScoringRule, addScoringRule, changeScoringFactors) as the tool
+ * (changeScoringRule, addScoringRule, changeScoringFactors,
+ * changeFactorReasons) as the tool
  * `wavecenter`. The database's
  * own functions check the same permission again.
  *
@@ -11,7 +12,7 @@
  * screen shows it without calling anything saved (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
-import { addScoringRule, changeScoringFactors, changeScoringRule, type GameActor, type ScoringRule } from "../../../core/game.ts";
+import { addScoringRule, changeFactorReasons, changeScoringFactors, changeScoringRule, type FactorKey, type GameActor, type ScoringRule } from "../../../core/game.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
 import { supabaseScoringRuleStore } from "../../lib/engagementStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
@@ -67,11 +68,19 @@ export async function saveScoringRule(kind: string, form: RuleForm): Promise<Rul
 /** The four factor dropdowns as chosen ('' for not chosen), or null for none. Core checks them. */
 export type FactorsForm = Record<"effort" | "value" | "rarity" | "farmRisk", string> | null;
 
-export async function addScoringAction(form: RuleForm, factors: FactorsForm = null): Promise<RuleSaveResult> {
-  return asManager((store, actor) => addScoringRule(store, actor, { ...fields(form), factors }, WAVECENTER_TOOL));
+/** The four reasons as typed ('' for none). Core trims and checks them. */
+export type ReasonsForm = Record<FactorKey, string> | null;
+
+export async function addScoringAction(form: RuleForm, factors: FactorsForm = null, reasons: ReasonsForm = null): Promise<RuleSaveResult> {
+  return asManager((store, actor) => addScoringRule(store, actor, { ...fields(form), factors, reasons }, WAVECENTER_TOOL));
 }
 
 /** Save an action's four factors. Its points do not change until the Admin page's batch is put live. */
 export async function saveScoringFactors(kind: string, factors: FactorsForm): Promise<RuleSaveResult> {
   return asManager((store, actor) => changeScoringFactors(store, actor, { kind, factors }, WAVECENTER_TOOL));
+}
+
+/** Save why an action got one factor score. The other three keep theirs; a blank one is cleared. */
+export async function saveFactorReason(kind: string, factor: FactorKey, reason: string): Promise<RuleSaveResult> {
+  return asManager((store, actor) => changeFactorReasons(store, actor, { kind, reasons: { [factor]: reason } }, WAVECENTER_TOOL));
 }

@@ -384,10 +384,12 @@ export interface ScoringRuleStore {
   rules(): Promise<ScoringRule[]>;
   /** Write a rule's wording and points. Returns the rule as stored, or null if nothing was written. */
   update(kind: string, fields: RuleFields, tool: string): Promise<ScoringRule | null>;
-  /** Add a new rule at the end of the list, with its factors or none. Returns it as stored, or null if nothing was written. */
-  add(kind: string, fields: RuleFields, tool: string, factors?: ScoringFactors | null): Promise<ScoringRule | null>;
+  /** Add a new rule at the end of the list, with its factors and reasons or none. Returns it as stored, or null if nothing was written. */
+  add(kind: string, fields: RuleFields, tool: string, factors?: ScoringFactors | null, reasons?: FactorReasons): Promise<ScoringRule | null>;
   /** Write a rule's four factors (null clears them). Returns the rule as stored, or null if nothing was written. */
   setFactors(kind: string, factors: ScoringFactors | null, tool: string): Promise<ScoringRule | null>;
+  /** Write why a rule got each factor score (null = none written). Returns the rule as stored, or null if nothing was written. */
+  setReasons(kind: string, reasons: FactorReasons, tool: string): Promise<ScoringRule | null>;
 }
 
 /** May this member change the scoring rules? Only a role with "Manage game scoring" may (admin, to start). */
@@ -484,19 +486,20 @@ export async function changeScoringRule(
 export async function addScoringRule(
   store: ScoringRuleStore,
   actor: GameActor,
-  input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown; factors?: unknown },
+  input: { name?: unknown; description?: unknown; criteria?: unknown; points?: unknown; factors?: unknown; reasons?: unknown },
   tool: string,
 ): Promise<ScoringRule> {
   const named = requireTool(tool);
   requireManager(actor);
   const fields = checkRuleFields(input);
   const factors = checkFactors(input.factors);
+  const reasons = checkReasons(input.reasons);
   const kind = kindFromName(fields.name);
   const sameName = (r: ScoringRule) => r.name.trim().toLowerCase() === fields.name.toLowerCase();
   const taken = (await store.rules()).find((r) => r.kind === kind || sameName(r));
   if (taken) throw new CoreError(`There is already an action "${taken.name}" (${taken.kind}). Change that one, or pick another name. Nothing was saved.`);
-  const added = await store.add(kind, fields, named, factors);
-  if (!added || added.kind !== kind || !sameFields(added, fields) || !sameFactors(added.factors, factors)) throw new CoreError('The new action did not save. Nothing changed; try again.');
+  const added = await store.add(kind, fields, named, factors, reasons);
+  if (!added || added.kind !== kind || !sameFields(added, fields) || !sameFactors(added.factors, factors) || !sameReasons(added.reasons, reasons)) throw new CoreError('The new action did not save. Nothing changed; try again.');
   return added;
 }
 
@@ -528,6 +531,9 @@ export const FACTOR_KEYS: readonly FactorKey[] = ['effort', 'value', 'rarity', '
 export type FactorReasons = Record<FactorKey, string | null>;
 
 export const NO_REASONS: FactorReasons = { effort: null, value: null, rarity: null, farmRisk: null };
+
+/** The longest a factor's reason may be. The database checks the same (20261103140000_edit_factor_reasons.sql). */
+export const REASON_MAX = 300;
 
 /** The highest score each factor may have; the lowest is 0. The migration checks the same. */
 export const FACTOR_MAX: Record<FactorKey, number> = { effort: 3, value: 3, rarity: 2, farmRisk: 3 };
@@ -602,6 +608,31 @@ export function checkFactors(input: unknown): ScoringFactors | null {
     throw new CoreError(`Score all four factors or none; ${missing.map((k) => FACTOR_TESTS[k].name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'is' : 'are'} missing. Nothing was saved.`);
   }
   return { effort: factor(given.effort, 'effort'), value: factor(given.value, 'value'), rarity: factor(given.rarity, 'rarity'), farmRisk: factor(given.farmRisk, 'farmRisk') };
+}
+
+/**
+ * The reasons behind the four factor scores, each trimmed and checked; a
+ * blank or missing one is null ("no reason written yet"). One over
+ * REASON_MAX is refused, and nothing is saved.
+ */
+export function checkReasons(input: unknown): FactorReasons {
+  if (input == null) return { ...NO_REASONS };
+  if (typeof input !== 'object') throw new CoreError('The reasons must be effort, value, rarity and farm risk. Nothing was saved.');
+  const given = input as Record<string, unknown>;
+  const reasons = { ...NO_REASONS };
+  for (const k of FACTOR_KEYS) {
+    try {
+      reasons[k] = text(given[k], `${FACTOR_TESTS[k].name} reason`, REASON_MAX) || null;
+    } catch (err) {
+      throw new CoreError(`${(err as Error).message} Nothing was saved.`);
+    }
+  }
+  return reasons;
+}
+
+function sameReasons(a: FactorReasons | null | undefined, b: FactorReasons): boolean {
+  const stored = { ...NO_REASONS, ...a };
+  return FACTOR_KEYS.every((k) => stored[k] === b[k]);
 }
 
 function sameFactors(a: ScoringFactors | null | undefined, b: ScoringFactors | null): boolean {
@@ -697,6 +728,30 @@ export async function changeScoringFactors(
   if (!before) throw new CoreError(`There is no action "${String(change.kind)}" to change. Reload the page.`);
   const after = await store.setFactors(before.kind, factors, named);
   if (!after || !sameFactors(after.factors, factors)) throw new CoreError('The factors did not save. Nothing changed; try again.');
+  return after;
+}
+
+/**
+ * Change why an action got its factor scores (Game → Manage). Only an admin
+ * may. A factor left out of `reasons` keeps its stored reason; a blank one is
+ * cleared. Each is checked by `checkReasons`. The reasons change no points.
+ */
+export async function changeFactorReasons(
+  store: ScoringRuleStore,
+  actor: GameActor,
+  change: { kind: string; reasons?: unknown },
+  tool: string,
+): Promise<ScoringRule> {
+  const named = requireTool(tool);
+  requireManager(actor);
+  if (change.reasons != null && typeof change.reasons !== 'object') throw new CoreError('The reasons must be effort, value, rarity and farm risk. Nothing was saved.');
+  const given = (change.reasons ?? {}) as Record<string, unknown>;
+  const before = (await store.rules()).find((r) => r.kind === change.kind);
+  if (!before) throw new CoreError(`There is no action "${String(change.kind)}" to change. Reload the page.`);
+  const stored = { ...NO_REASONS, ...before.reasons };
+  const reasons = checkReasons(Object.fromEntries(FACTOR_KEYS.map((k) => [k, k in given ? given[k] : stored[k]])));
+  const after = await store.setReasons(before.kind, reasons, named);
+  if (!after || !sameReasons(after.reasons, reasons)) throw new CoreError('The reasons did not save. Nothing changed; try again.');
   return after;
 }
 

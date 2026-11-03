@@ -3,7 +3,7 @@
  * tested: which cells may be edited, what a one-cell save sends, and whether
  * a cell's typed value differs from what is stored.
  */
-import { FACTOR_KEYS, FACTOR_TESTS, granularPoints, type FactorKey, type ScoringRule } from '../../../core/game.ts';
+import { FACTOR_KEYS, FACTOR_TESTS, NO_REASONS, REASON_MAX, granularPoints, type FactorKey, type ScoringRule } from '../../../core/game.ts';
 
 /** The form one save sends: every editable part, as text. */
 export interface RuleFormValues {
@@ -75,4 +75,29 @@ export function formulaFor(form: FactorForm): number | null {
 /** The chosen factors as core takes them: null for none. */
 export function factorsFromForm(form: FactorForm): FactorForm | null {
   return factorFormState(form) === 'none' ? null : form;
+}
+
+/** The four reasons as text, '' for one not written yet. */
+export type ReasonForm = Record<FactorKey, string>;
+
+/** The longest a reason's box takes: core's own limit. */
+export const REASON_BOX_MAX = REASON_MAX;
+
+export const BLANK_REASONS: ReasonForm = { effort: '', value: '', rarity: '', farmRisk: '' };
+
+/** A rule's stored reasons as text, '' for one not written yet. */
+export function reasonFormOf(rule: Pick<ScoringRule, 'reasons'>): ReasonForm {
+  const stored = { ...NO_REASONS, ...rule.reasons };
+  return { effort: stored.effort ?? '', value: stored.value ?? '', rarity: stored.rarity ?? '', farmRisk: stored.farmRisk ?? '' };
+}
+
+/** The new action's reasons as core takes them: null when none was written. */
+export function reasonsFromForm(form: ReasonForm): ReasonForm | null {
+  return FACTOR_KEYS.some((k) => form[k].trim()) ? form : null;
+}
+
+/** The button beside a factor's dropdown: what it reads to a screen reader, and its hover text. */
+export function reasonButtonLabel(key: FactorKey, of: string, reason: string): string {
+  const name = FACTOR_TESTS[key].name;
+  return reason.trim() ? `Reason for the ${name} of ${of}: ${reason.trim()}` : `Write the reason for the ${name} of ${of} (none yet)`;
 }

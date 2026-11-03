@@ -6,7 +6,7 @@ import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
-  applyGranularPoints, changeScoringFactors, changeScoringRule, checkFactors, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
+  applyGranularPoints, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type FactorReasons, type GameActor, type ScoringFactors,
 } from './game.ts';
@@ -378,7 +378,7 @@ test('a rule change or a new action that does not save says so', async () => {
 test('an admin adds a new action: it is listed, inactive, and earns nothing until it is wired', async () => {
   const ledger = new MemoryEngagementStore();
   const added = await addScoringRule(ledger, ADMIN, { name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2 }, 'wavecenter');
-  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1, factors: null });
+  assert.deepEqual(added, { kind: 'wrote_a_comment', name: 'Wrote a comment!', description: 'Commented on a task.', criteria: '', points: 2, position: Math.max(...STARTING_SCORING_RULES.map((r) => r.position)) + 1, factors: null, reasons: { effort: null, value: null, rarity: null, farmRisk: null } });
   assert.equal(isWired(added.kind), false);
   assert.equal(ENGAGEMENT_KINDS.every(isWired), true);
   await assert.rejects(recordEngagement(ledger, { memberId: 'dane', kind: 'wrote_a_comment', tool: 'x' }), /not a kind of engagement WaveCenter scores/);
@@ -667,4 +667,47 @@ test('an admin scores an action by hand on Game > Manage, when adding it or late
   await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: { effort: 9, value: 0, rarity: 0, farmRisk: 0 } }, 'wavecenter'), /Effort/);
   ledger.failNextRuleSave = true;
   await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: null }, 'wavecenter'), /did not save/);
+});
+
+test('a factor reason is trimmed, a blank one is none, and one over 300 characters is refused', () => {
+  assert.deepEqual(checkReasons(null), { effort: null, value: null, rarity: null, farmRisk: null });
+  assert.deepEqual(checkReasons({ effort: '  One click.  ', value: '   ', farmRisk: 'x'.repeat(300) }), { effort: 'One click.', value: null, rarity: null, farmRisk: 'x'.repeat(300) });
+  assert.throws(() => checkReasons({ farmRisk: 'x'.repeat(301) }), /Farm risk reason can be at most 300 characters; this one is 301\. Nothing was saved\./);
+  assert.throws(() => checkReasons({ value: 7 }), /must be text/);
+  assert.throws(() => checkReasons('Because.'), /must be effort, value, rarity and farm risk/);
+});
+
+test('an admin writes or changes one factor reason on Game > Manage, and the others keep theirs', async () => {
+  const ledger = new MemoryEngagementStore();
+  ledger.ruleList = ledger.ruleList.map((r) => (r.kind === 'made_task' ? { ...r, reasons: { effort: 'A short form.', value: 'Adds work.', rarity: 'Many a day.', farmRisk: 'Make and delete.' } } : r));
+  const changed = await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { farmRisk: '  Make-and-delete loops.  ' } }, 'wavecenter');
+  assert.deepEqual(changed.reasons, { effort: 'A short form.', value: 'Adds work.', rarity: 'Many a day.', farmRisk: 'Make-and-delete loops.' });
+  assert.equal(ledger.ruleTools.get('made_task'), 'wavecenter');
+  const proposal = proposeGranularPoints(await ledger.rules()).find((p) => p.kind === 'made_task');
+  assert.equal(proposal?.reasons.farmRisk, 'Make-and-delete loops.', 'the Recalculate pop-up reads the new text');
+  const cleared = await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: '' } }, 'wavecenter');
+  assert.equal(cleared.reasons?.value, null, 'a blank reason saves as none');
+  assert.equal(cleared.points, 1, 'a reason changes no points');
+});
+
+test('a reason change is refused for a member without game.edit, when too long, or when the save fails', async () => {
+  const ledger = new MemoryEngagementStore();
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null] as const) {
+    await assert.rejects(changeFactorReasons(ledger, { role }, { kind: 'made_task', reasons: { farmRisk: 'Mine now.' } }, 'wavecenter'), /Only an admin/);
+  }
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { farmRisk: 'x'.repeat(301) } }, 'wavecenter'), /at most 300 characters/);
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'no_such_action', reasons: { farmRisk: 'Hm.' } }, 'wavecenter'), /There is no action/);
+  assert.equal(ledger.ruleTools.size, 0, 'a refused change saves nothing');
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { farmRisk: 'Hm.' } }, 'wavecenter'), /reasons did not save/);
+});
+
+test('a new action is added with its reasons, or with none written yet', async () => {
+  const ledger = new MemoryEngagementStore();
+  const added = await addScoringRule(ledger, ADMIN, { name: 'Shared a link', points: 1, reasons: { effort: ' Paste a link. ', farmRisk: 'Easy to repeat.' } }, 'wavecenter');
+  assert.deepEqual(added.reasons, { effort: 'Paste a link.', value: null, rarity: null, farmRisk: 'Easy to repeat.' });
+  const plain = await addScoringRule(ledger, ADMIN, { name: 'Read a task', points: 1 }, 'wavecenter');
+  assert.deepEqual(plain.reasons, { effort: null, value: null, rarity: null, farmRisk: null });
+  await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Wrote a poem', points: 1, reasons: { value: 'x'.repeat(301) } }, 'wavecenter'), /Value reason can be at most 300/);
+  assert.equal((await ledger.rules()).some((r) => r.kind === 'wrote_a_poem'), false, 'nothing was saved');
 });

@@ -15,9 +15,11 @@
  * `set_scoring_factors` for an action's four factor scores
  * (supabase/migrations/20261102180000_scoring_factors.sql). Each rule also
  * carries why it got each factor score
- * (supabase/migrations/20261103120000_scoring_factor_reasons.sql).
+ * (supabase/migrations/20261103120000_scoring_factor_reasons.sql), which
+ * `set_scoring_factor_reasons` changes and `add_scoring_rule` also takes
+ * (supabase/migrations/20261103140000_edit_factor_reasons.sql).
  */
-import type { Engagement, EngagementLedger, ScoringFactors, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
+import type { Engagement, EngagementLedger, FactorReasons, ScoringFactors, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -52,6 +54,15 @@ function factorParams(factors: ScoringFactors | null | undefined) {
     new_value: factors?.value ?? null,
     new_rarity: factors?.rarity ?? null,
     new_farm_risk: factors?.farmRisk ?? null,
+  };
+}
+
+function reasonParams(reasons: FactorReasons | null | undefined) {
+  return {
+    new_effort_reason: reasons?.effort ?? null,
+    new_value_reason: reasons?.value ?? null,
+    new_rarity_reason: reasons?.rarity ?? null,
+    new_farm_risk_reason: reasons?.farmRisk ?? null,
   };
 }
 
@@ -117,7 +128,9 @@ export function supabaseScoringRuleStore(supabase: Client): ScoringRuleStore {
       return (data ?? []).map(ruleFromRow);
     },
     update: (kind, fields, tool) => call("update_scoring_rule", { rule_kind: kind, ...wording(fields, tool) }),
-    add: (kind, fields, tool, factors) => call("add_scoring_rule", { new_kind: kind, ...wording(fields, tool), ...factorParams(factors) }),
+    add: (kind, fields, tool, factors, reasons) =>
+      call("add_scoring_rule", { new_kind: kind, ...wording(fields, tool), ...factorParams(factors), ...reasonParams(reasons) }),
     setFactors: (kind, factors, tool) => call("set_scoring_factors", { rule_kind: kind, ...factorParams(factors), tool }),
+    setReasons: (kind, reasons, tool) => call("set_scoring_factor_reasons", { rule_kind: kind, ...reasonParams(reasons), tool }),
   };
 }

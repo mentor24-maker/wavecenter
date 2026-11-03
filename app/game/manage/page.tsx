@@ -112,7 +112,8 @@ export default async function ManageGame() {
             Click a name, points, description or what counts to change it; Enter or clicking away saves it, Escape puts it
             back. Factors are the four scores the formula on the <Link href="/admin">Admin page</Link> works points out from
             (Effort, Value, Rarity, Farm risk); choosing the fourth saves them, and they change no points until an admin
-            puts the recalculation live there. The expand button opens the text in a large box. The last row adds a new action: it is listed straight
+            puts the recalculation live there. &ldquo;why&rdquo; beside a factor opens the one-sentence reason for that score, to
+            write or change (faint means none is written yet). The expand button opens the text in a large box. The last row adds a new action: it is listed straight
             away but is not active, because nothing in WaveCenter records it yet, so it earns nothing. An agent wires it
             to a function, a database trigger and a test; ask for that as a task.
           </p>

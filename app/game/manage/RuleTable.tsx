@@ -19,17 +19,22 @@
  * (FactorCell), whose options read the plain tests from
  * docs/GRANULAR_SCORING_ALGORITHM.md. Choosing the fourth saves them
  * (saveScoringFactors); they change no points until the Admin page's
- * "Recalculate action points" is put live.
+ * "Recalculate action points" is put live. Beside each dropdown, "why"
+ * opens the one-sentence reason for that score in a pop-up (TextDialog),
+ * saved on its own (saveFactorReason). The Admin page's Recalculate pop-ups
+ * show the same text. A new action takes its reasons too, all optional.
  */
 import { useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { FACTOR_KEYS, FACTOR_TESTS, type FactorKey, type ScoringRule } from "../../../core/game.ts";
-import { addScoringAction, saveScoringFactors, saveScoringRule } from "./actions";
+import { addScoringAction, saveFactorReason, saveScoringFactors, saveScoringRule } from "./actions";
 import TextDialog from "./TextDialog";
 import {
   BLANK_FACTORS,
   BLANK_FORM,
+  BLANK_REASONS,
   FIELD_LABELS,
   FIELD_MAX,
+  REASON_BOX_MAX,
   TEXT_FIELDS,
   factorFormOf,
   factorFormState,
@@ -38,7 +43,11 @@ import {
   formWith,
   formulaFor,
   isChanged,
+  reasonButtonLabel,
+  reasonFormOf,
+  reasonsFromForm,
   type FactorForm,
+  type ReasonForm,
   type RuleField,
   type RuleFormValues,
 } from "./ruleTableView";
@@ -68,26 +77,77 @@ function MessageRow({ message }: { message: Message }) {
   );
 }
 
-/** The four factor dropdowns, and what the formula gives once all four are chosen. */
-function FactorCell({ form, label, disabled, onChange }: { form: FactorForm; label: string; disabled?: boolean; onChange: (key: FactorKey, value: string) => void }) {
+/**
+ * The four factor dropdowns, each with its reason button, and what the
+ * formula gives once all four are chosen. `children` is the open reason
+ * pop-up, if any.
+ */
+function FactorCell({
+  form,
+  reasons,
+  label,
+  disabled,
+  onChange,
+  onReason,
+  children,
+}: {
+  form: FactorForm;
+  reasons: ReasonForm;
+  label: string;
+  disabled?: boolean;
+  onChange: (key: FactorKey, value: string) => void;
+  onReason: (key: FactorKey) => void;
+  children?: ReactNode;
+}) {
   const formula = formulaFor(form);
   return (
     <td className="col-factors">
-      {FACTOR_KEYS.map((k) => (
-        <label key={k} className="factor">
-          <span title={FACTOR_TESTS[k].name}>{FACTOR_TESTS[k].letter}</span>
-          <select value={form[k]} aria-label={`${FACTOR_TESTS[k].name} of ${label}`} disabled={disabled} onChange={(e) => onChange(k, e.target.value)}>
-            <option value="">–</option>
-            {factorOptions(k).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
-      ))}
+      {FACTOR_KEYS.map((k) => {
+        const why = reasonButtonLabel(k, label, reasons[k]);
+        return (
+          <div key={k} className="factor">
+            <label>
+              <span title={FACTOR_TESTS[k].name}>{FACTOR_TESTS[k].letter}</span>
+              <select value={form[k]} aria-label={`${FACTOR_TESTS[k].name} of ${label}`} disabled={disabled} onChange={(e) => onChange(k, e.target.value)}>
+                <option value="">–</option>
+                {factorOptions(k).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <button type="button" className={`factor-reason${reasons[k].trim() ? "" : " empty"}`} aria-label={why} title={why} onClick={() => onReason(k)} disabled={disabled}>
+              why
+            </button>
+          </div>
+        );
+      })}
       <span className="note block">
         {formula !== null ? `Formula: ${formula}` : factorFormState(form) === "none" ? "Not scored yet" : "Choose all four"}
       </span>
+      {children}
     </td>
   );
 }
+
+/** The pop-up for one factor's reason: TextDialog, held to core's limit. */
+function ReasonDialog({ factor, of, value, saveLabel, onSave, onClose }: {
+  factor: FactorKey;
+  of: string;
+  value: string;
+  saveLabel?: string;
+  onSave: (text: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  return (
+    <TextDialog
+      title={`Why ${of} has its ${FACTOR_TESTS[factor].name} score`}
+      value={value}
+      maxLength={REASON_BOX_MAX}
+      saveLabel={saveLabel}
+      onSave={onSave}
+      onClose={onClose}
+    />
+  );
+}
+
 
 /** One scoring rule as a table row, every part but its kind editable in place. */
 export function RuleRow({ rule: stored, active, detail }: { rule: ScoringRule; active: boolean; detail: ReactNode }) {
@@ -98,6 +158,7 @@ export function RuleRow({ rule: stored, active, detail }: { rule: ScoringRule; a
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
   const [factors, setFactors] = useState<FactorForm>(() => factorFormOf(stored));
+  const [reasonPopup, setReasonPopup] = useState<FactorKey | null>(null);
   // Escape unmounts the box; a blur that follows must not save it.
   const cancelled = useRef(false);
 
@@ -142,6 +203,21 @@ export function RuleRow({ rule: stored, active, detail }: { rule: ScoringRule; a
         setMessage({ ok: false, text: UNREACHABLE });
       }
     });
+  }
+
+  /** Save one factor's reason from its pop-up. Returns null when the database took it, or the plain reason it did not. */
+  async function saveReason(key: FactorKey, typed: string): Promise<string | null> {
+    if (reasonFormOf(rule)[key].trim() === typed.trim()) return null;
+    try {
+      const result = await saveFactorReason(rule.kind, key, typed);
+      if (!result.ok) return `Not saved. ${result.error}`;
+      setRule(result.rule);
+      const name = FACTOR_TESTS[key].name;
+      setMessage({ ok: true, text: `Saved. The ${name} reason of "${result.rule.name}" is ${result.rule.reasons?.[key] ? "changed" : "cleared"}.` });
+      return null;
+    } catch {
+      return UNREACHABLE;
+    }
   }
 
   function start(field: RuleField) {
@@ -212,7 +288,17 @@ export function RuleRow({ rule: stored, active, detail }: { rule: ScoringRule; a
         {cell("name")}
         <td className="col-kind"><code>{rule.kind}</code></td>
         {cell("points")}
-        <FactorCell form={factors} label={rule.name} disabled={pending} onChange={chooseFactor} />
+        <FactorCell form={factors} reasons={reasonFormOf(rule)} label={rule.name} disabled={pending} onChange={chooseFactor} onReason={setReasonPopup}>
+          {reasonPopup && (
+            <ReasonDialog
+              factor={reasonPopup}
+              of={rule.name}
+              value={reasonFormOf(rule)[reasonPopup]}
+              onSave={(text) => saveReason(reasonPopup, text)}
+              onClose={() => setReasonPopup(null)}
+            />
+          )}
+        </FactorCell>
         {cell("description")}
         {cell("criteria")}
         <td className="col-status">
@@ -245,7 +331,9 @@ export function RuleRow({ rule: stored, active, detail }: { rule: ScoringRule; a
 export function NewRuleRow() {
   const [form, setForm] = useState<RuleFormValues>(BLANK_FORM);
   const [factors, setFactors] = useState<FactorForm>(BLANK_FACTORS);
+  const [reasons, setReasons] = useState<ReasonForm>(BLANK_REASONS);
   const [popup, setPopup] = useState<RuleField | null>(null);
+  const [reasonPopup, setReasonPopup] = useState<FactorKey | null>(null);
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
 
@@ -259,10 +347,11 @@ export function NewRuleRow() {
     setMessage(null);
     startTransition(async () => {
       try {
-        const result = await addScoringAction(form, factorsFromForm(factors));
+        const result = await addScoringAction(form, factorsFromForm(factors), reasonsFromForm(reasons));
         if (result.ok) {
           setForm(BLANK_FORM);
           setFactors(BLANK_FACTORS);
+          setReasons(BLANK_REASONS);
           setMessage({ ok: true, text: `Added "${result.rule.name}". It is in the table above, marked Not active yet.` });
         } else {
           setMessage({ ok: false, text: `Not saved. ${result.error}` });
@@ -306,13 +395,30 @@ export function NewRuleRow() {
         </td>
         <FactorCell
           form={factors}
+          reasons={reasons}
           label="the new action"
           disabled={pending}
           onChange={(key, value) => {
             setFactors((f) => ({ ...f, [key]: value }));
             setMessage(null);
           }}
-        />
+          onReason={setReasonPopup}
+        >
+          {reasonPopup && (
+            <ReasonDialog
+              factor={reasonPopup}
+              of="the new action"
+              value={reasons[reasonPopup]}
+              saveLabel="Use this text"
+              onSave={async (text) => {
+                setReasons((r) => ({ ...r, [reasonPopup]: text }));
+                setMessage(null);
+                return null;
+              }}
+              onClose={() => setReasonPopup(null)}
+            />
+          )}
+        </FactorCell>
         {textCell("description")}
         {textCell("criteria")}
         <td className="col-status">

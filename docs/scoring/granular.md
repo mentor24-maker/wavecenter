@@ -88,6 +88,8 @@ one asks for its four factors from dropdowns that read the plain tests
 4. Add a row with one line of reasons to the table in
    `docs/GRANULAR_SCORING_ALGORITHM.md`, in the same pull request that wires
    the action.
+5. Write the same reasons on Game → Manage: "why" beside each factor (or
+   in the add-action row), so the Admin page's pop-ups show them.
 
 A new action is not active until an agent wires it to a function, a
 database trigger and a test (`docs/DATA_MODEL.md`, "Who may change the
