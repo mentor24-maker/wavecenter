@@ -6,7 +6,7 @@ import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
-  applyGranularPoints, changeScoringFactors, changeScoringRule, checkFactors, checkRuleFields, engagementKindForTask, granularPoints,
+  applyGranularPoints, changeScoringFactors, changeScoringRule, checkFactors, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type GameActor, type ScoringFactors,
 } from './game.ts';
@@ -453,6 +453,32 @@ test('the formula: 1 + E + 2V + R, farm risk not counted, never below 1', () => 
   assert.throws(() => granularPoints({ effort: 4, value: 0, rarity: 0, farmRisk: 0 }), /Effort must be a whole number from 0 to 3/);
   assert.throws(() => granularPoints({ effort: 0, value: 0, rarity: 3, farmRisk: 0 }), /Rarity must be a whole number from 0 to 2/);
   assert.throws(() => granularPoints({ effort: 0, value: 1.5, rarity: 0, farmRisk: 0 }), /Value must be a whole number/);
+});
+
+test('each worked example on the Admin page gives the points it says, matching the document', () => {
+  const rows = documentRows();
+  assert.ok(FORMULA_EXAMPLES.length >= 2);
+  for (const e of FORMULA_EXAMPLES) {
+    assert.equal(granularPoints(e.factors), e.points, e.action);
+    assert.match(granularWorking(e.factors), new RegExp(`= ${e.points}$`), e.action);
+    const row = rows.find((r) => r.name === e.action);
+    assert.ok(row, `${e.action} is in the document's table`);
+    assert.deepEqual(row.factors, e.factors, e.action);
+  }
+});
+
+test('the written-out working shows the sum, with farm risk left out', () => {
+  assert.equal(granularWorking({ effort: 1, value: 2, rarity: 0, farmRisk: 3 }), '1 + 1 + 2 × 2 + 0 = 6');
+  assert.equal(granularWorking({ effort: 3, value: 3, rarity: 1, farmRisk: 3 }), '1 + 3 + 2 × 3 + 1 = 11');
+  assert.equal(granularWorking({ effort: 1, value: 1, rarity: 2, farmRisk: 1 }), '1 + 1 + 2 × 1 + 2 = 6');
+  assert.equal(granularWorking({ effort: 0, value: 0, rarity: 0, farmRisk: 3 }), '1 + 0 + 2 × 0 + 0 = 1');
+});
+
+test('every factor says what it measures and how it moves the points, with one test per level', () => {
+  for (const [k, t] of Object.entries(FACTOR_TESTS)) {
+    assert.ok(t.measures && t.effect, k);
+    assert.equal(t.levels.length, FACTOR_MAX[k as keyof typeof FACTOR_MAX] + 1, k);
+  }
 });
 
 test('factors are all four or none; text digits from a form are accepted', () => {

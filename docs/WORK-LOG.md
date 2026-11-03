@@ -34,6 +34,20 @@ Admin page.
 The formula line above the Recalculate action points table (added in
 #130) now shows the new formula too.
 
+## 2026-11-02 — The Admin page explains how action points are worked out (#132)
+
+The Recalculate action points panel showed the formula in one dense line
+and labelled its columns only E, V, R and F. It now has a "How the formula
+works" section that opens on a click: what Effort, Value, Rarity and Farm
+risk each mean, how high each can go, how each one raises or lowers the
+points, and the plain test for every level. Four worked examples show the
+sum step by step, including one where farm risk is high but changes
+nothing and one that scores the lowest possible 1. The wording and sums
+are read from the same code the formula uses, and a test checks every
+example, so the explanation cannot quietly fall out of step with the real
+scores. (It follows the formula as #131 left it: farm risk no longer
+counts.)
+
 ## 2026-11-02 — The Recalculate action points table is readable (#130)
 
 On Admin → Recalculate action points, the Proposed number and the Change
