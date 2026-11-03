@@ -95,7 +95,7 @@ export default function RecalculatePoints() {
                   {FACTOR_KEYS.map((k) => <th key={k} scope="col" className="num" title={FACTOR_TESTS[k].name}>{FACTOR_TESTS[k].letter}</th>)}
                   <th scope="col" className="num">Now</th>
                   <th scope="col" className="num">Proposed</th>
-                  <th scope="col">Change</th>
+                  <th scope="col" className="change">Change</th>
                 </tr>
               </thead>
               <tbody>
@@ -118,7 +118,7 @@ export default function RecalculatePoints() {
                     ))}
                     <td className="num">{r.now}</td>
                     <td className="num">{r.proposed ?? <span className="note">not scored yet</span>}</td>
-                    <td>
+                    <td className="change">
                       {r.proposed === null ? <span className="note">Left alone</span> : r.changes ? <b>{r.now} → {r.proposed}</b> : <span className="note">No change</span>}
                     </td>
                   </tr>
