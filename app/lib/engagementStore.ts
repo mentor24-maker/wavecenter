@@ -13,7 +13,9 @@
  * and `add_scoring_rule`, which refuse any role without "Manage game scoring"
  * (supabase/migrations/20261031140000_game_scoring_admin.sql), and
  * `set_scoring_factors` for an action's four factor scores
- * (supabase/migrations/20261102180000_scoring_factors.sql).
+ * (supabase/migrations/20261102180000_scoring_factors.sql). Each rule also
+ * carries why it got each factor score
+ * (supabase/migrations/20261103120000_scoring_factor_reasons.sql).
  */
 import type { Engagement, EngagementLedger, ScoringFactors, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";
@@ -29,6 +31,12 @@ export function ruleFromRow(row: any): ScoringRule {
     points: row.points,
     position: row.position,
     factors: factorsFromRow(row),
+    reasons: {
+      effort: row.effort_reason ?? null,
+      value: row.value_reason ?? null,
+      rarity: row.rarity_reason ?? null,
+      farmRisk: row.farm_risk_reason ?? null,
+    },
   };
 }
 

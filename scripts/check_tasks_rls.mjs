@@ -1220,17 +1220,17 @@ try {
     check('an admin sets an action\'s factors through core, and its points do not change', scored.factors?.value === 2 && scored.points === 2, JSON.stringify(scored));
     const proposals = await recalculateGranularPoints(scoringStore(a), { role: 'admin' });
     const madeProposal = proposals.find((p) => p.kind === 'made_task');
-    check('the batch reads the factors the migration filled and proposes by formula', madeProposal?.proposed === 3 && proposals.find((p) => p.kind === addedKind)?.proposed === 4,
+    check('the batch reads the factors the migration filled and proposes by formula', madeProposal?.proposed === 6 && proposals.find((p) => p.kind === addedKind)?.proposed === 6,
       JSON.stringify(proposals.slice(0, 2)));
     let refusedBatch = '';
     try {
-      await applyGranularPoints(scoringStore(b), { role: 'viewer' }, [{ kind: addedKind, now: 2, proposed: 4 }], TOOL);
+      await applyGranularPoints(scoringStore(b), { role: 'viewer' }, [{ kind: addedKind, now: 2, proposed: 6 }], TOOL);
     } catch (err) {
       refusedBatch = err.message;
     }
     check('a non-admin cannot put the batch live', /Only an admin/.test(refusedBatch), refusedBatch || 'it went through');
-    const live = await applyGranularPoints(scoringStore(a), { role: 'admin' }, [{ kind: addedKind, now: 2, proposed: 4 }], TOOL);
-    check('an admin puts the batch live, and only the accepted row changes', live.saved.length === 1 && live.failed.length === 0 && (await ruleRow(addedKind))?.points === 4 && (await ruleRow('made_task'))?.points === original.points + 2,
+    const live = await applyGranularPoints(scoringStore(a), { role: 'admin' }, [{ kind: addedKind, now: 2, proposed: 6 }], TOOL);
+    check('an admin puts the batch live, and only the accepted row changes', live.saved.length === 1 && live.failed.length === 0 && (await ruleRow(addedKind))?.points === 6 && (await ruleRow('made_task'))?.points === original.points + 2,
       JSON.stringify(live));
     const batchChanges = await ruleChanges(a);
     check('putting the batch live scores 1 "changed a scoring rule" per saved row, for the admin who put it live',

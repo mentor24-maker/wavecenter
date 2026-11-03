@@ -689,6 +689,9 @@ dialog.text-dialog h2 { margin-top: 0; }
 dialog.text-dialog textarea { display: block; width: 100%; }
 dialog.text-dialog p { margin: 0.5rem 0; }
 dialog.text-dialog .buttons { display: flex; gap: 1rem; align-items: center; margin-top: 0.75rem; }
+/* The read-only reason behind one factor score (app/admin/FactorDialog.tsx). */
+dialog.factor-dialog { width: min(32rem, calc(100vw - 2rem)); }
+dialog.factor-dialog h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }
 
 /* The signed-out home page (Dane, 2026-10-31): his water-drop picture over
    the whole screen, the logo top left, the introduction left-middle and the
@@ -795,6 +798,17 @@ dialog.evolution-full img { display: block; max-width: 100%; max-height: calc(10
 .evolution-full-bar .link { margin-left: auto; }
 
 /* Admin → Recalculate action points */
+/* "How the formula works" on the Admin page. */
+.formula-explained { margin: 0.5rem 0 1rem; }
+.formula-explained summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.formula-explained dl { margin: 0.5rem 0; }
+.formula-explained dt { font-weight: 600; margin-top: 0.75rem; }
+.formula-explained dd { margin: 0.25rem 0 0; }
+.formula-explained dd p { margin: 0; }
+.formula-explained ol { list-style: none; padding-left: 0; margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; }
+.formula-explained h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }
+.formula-explained ul { padding-left: 1.25rem; margin: 0; }
+.formula-explained ul li { margin-bottom: 0.35rem; }
 table.recalc-table { min-width: 36rem; margin: 0; }
 table.recalc-table tr.recalc-changes td { background: var(--level-2); }
 /* Every cell gets space on both sides, and the number columns are centred,
@@ -802,6 +816,8 @@ table.recalc-table tr.recalc-changes td { background: var(--level-2); }
 table.recalc-table th, table.recalc-table td { padding: 0.5rem 0.75rem; }
 table.recalc-table th:first-child, table.recalc-table td:first-child { padding-left: 0; }
 table.recalc-table .num { text-align: center; padding-right: 0.75rem; }
+/* Each factor number opens the reason behind it; a wide enough target to tap. */
+table.recalc-table button.factor-score { font: inherit; min-width: 1.75rem; min-height: 1.75rem; }
 table.rule-table .col-factors { width: 11rem; }
 table.rule-table .col-factors .factor { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.2rem; }
 table.rule-table .col-factors .factor span { width: 1rem; font-weight: 600; }

@@ -75,6 +75,8 @@ export interface ScoringRule {
   position: number;
   /** Its four factor scores for the formula (`granularPoints`); null or absent = not scored yet. */
   factors?: ScoringFactors | null;
+  /** Why it got each factor score, one sentence each; absent = none written yet. */
+  reasons?: FactorReasons | null;
 }
 
 /** One row of `engagements`: one thing one member did, and what it earned. */
@@ -510,22 +512,36 @@ export interface ScoringFactors {
   effort: number;
   /** V, what it does for the project and other members. Counted twice. */
   value: number;
-  /** R, how often a member genuinely does it. Counts only when it cannot loop. */
+  /** R, how often a member genuinely does it. */
   rarity: number;
-  /** F, how easily it can be repeated just to collect points. Subtracted. */
+  /** F, how easily it can be repeated just to collect points. Scored and stored for anti-farming work; not part of the formula. */
   farmRisk: number;
 }
 export type FactorKey = keyof ScoringFactors;
 
 export const FACTOR_KEYS: readonly FactorKey[] = ['effort', 'value', 'rarity', 'farmRisk'];
 
+/**
+ * Why an action got each of its factor scores, one sentence per factor; null
+ * = no reason written yet. Shown on the Admin page; never read by the formula.
+ */
+export type FactorReasons = Record<FactorKey, string | null>;
+
+export const NO_REASONS: FactorReasons = { effort: null, value: null, rarity: null, farmRisk: null };
+
 /** The highest score each factor may have; the lowest is 0. The migration checks the same. */
 export const FACTOR_MAX: Record<FactorKey, number> = { effort: 3, value: 3, rarity: 2, farmRisk: 3 };
 
-/** Each factor's name, letter and the plain test for each level, word for word from the document. */
-export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; levels: readonly string[] }> = {
+/**
+ * Each factor's name, letter, what it measures, how it moves the points
+ * (`effect`, matching `granularPoints`) and the plain test for each level,
+ * word for word from the document.
+ */
+export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; measures: string; effect: string; levels: readonly string[] }> = {
   effort: {
     name: 'Effort', letter: 'E',
+    measures: 'How much of the member\'s time and attention the action takes.',
+    effect: 'Added once.',
     levels: [
       'One click or one tick.',
       'A short form or a few words: under a minute.',
@@ -535,6 +551,8 @@ export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; lev
   },
   value: {
     name: 'Value', letter: 'V',
+    measures: 'What the action does for the project and for other members.',
+    effect: 'Counted twice, because it is the reason the game layer exists.',
     levels: [
       'Nothing for anyone else: a personal setting.',
       'Tidies up, or helps one other member.',
@@ -544,10 +562,14 @@ export const FACTOR_TESTS: Record<FactorKey, { name: string; letter: string; lev
   },
   rarity: {
     name: 'Rarity', letter: 'R',
+    measures: 'How often a member genuinely does it. A rare action is a bigger moment.',
+    effect: 'Added once.',
     levels: ['Many times a day.', 'A few times a week.', 'A handful of times ever, or once (joining).'],
   },
   farmRisk: {
     name: 'Farm risk', letter: 'F',
+    measures: 'How easily the action can be repeated just to collect points.',
+    effect: 'Scored and kept for later anti-farming work, but it does not change the points.',
     levels: [
       'Cannot be repeated (once per member), or costs real work every time.',
       'Repeatable, but each time needs something real from someone else.',
@@ -588,22 +610,53 @@ function sameFactors(a: ScoringFactors | null | undefined, b: ScoringFactors | n
 }
 
 /**
- * The formula: Points = 1 + E + 2 × V + R − F, never below 0, and R counts
- * as 0 when F is 3 (an action that loops is not rare, however seldom an
- * honest member does it).
+ * The formula: Points = 1 + E + 2 × V + R, so every action scores at least 1.
+ * Farm risk is still required and stored, but does not change the points
+ * (Dane, 2026-11-02: "Drop F at this level"); anti-farming work comes later.
  */
 export function granularPoints(factors: ScoringFactors): number {
   const f = checkFactors(factors);
   if (!f) throw new CoreError('An action needs all four factors before the formula can score it.');
-  const rarity = f.farmRisk === 3 ? 0 : f.rarity;
-  return Math.max(0, 1 + f.effort + 2 * f.value + rarity - f.farmRisk);
+  return 1 + f.effort + 2 * f.value + f.rarity;
 }
+
+/**
+ * The formula's arithmetic for one action, written out the way the Admin
+ * page explains it: "1 + 1 + 2 × 2 + 0 = 6". It ends in `granularPoints`,
+ * so the total shown is always the one the formula uses.
+ */
+export function granularWorking(factors: ScoringFactors): string {
+  const { effort, value, rarity } = factors;
+  return `1 + ${effort} + 2 × ${value} + ${rarity} = ${granularPoints(factors)}`;
+}
+
+/** Worked examples for the Admin page, from docs/GRANULAR_SCORING_ALGORITHM.md. A test checks each `points` against `granularPoints`. */
+export const FORMULA_EXAMPLES: readonly { action: string; factors: ScoringFactors; points: number; why: string }[] = [
+  {
+    action: 'Voted on a task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 }, points: 6,
+    why: 'A judgment of a few seconds that other members rely on (it sets what a task is worth), done many times a day. A vote can be changed forever, so Farm risk is 3, but that does not lower the points.',
+  },
+  {
+    action: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, points: 11,
+    why: 'Records hours of real finished work the project planned: the most valuable action. Reopening and finishing again loops, which anti-farming work will deal with separately.',
+  },
+  {
+    action: 'Joined WaveCenter', factors: { effort: 1, value: 1, rarity: 2, farmRisk: 1 }, points: 6,
+    why: 'Once per member, so it is as rare as an action gets. Accounts are cheap to make, so Farm risk is 1, not 0.',
+  },
+  {
+    action: 'Switched AI agents on or off', factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 }, points: 1,
+    why: 'A personal switch that flips back and forth: it scores 0 on every counted factor, so it earns only the starting 1, the lowest any action can score.',
+  },
+];
 
 /** One row of the batch's results: what an action is worth now and what the formula says. */
 export interface GranularProposal {
   kind: string;
   name: string;
   factors: ScoringFactors | null;
+  /** Why it got each factor score, as stored; a reason not written yet is null. */
+  reasons: FactorReasons;
   now: number;
   /** What the formula gives, or null when the action is not scored yet (it is left alone). */
   proposed: number | null;
@@ -616,7 +669,8 @@ export function proposeGranularPoints(rules: readonly ScoringRule[]): GranularPr
   return rules.map((r) => {
     const factors = r.factors ?? null;
     const proposed = factors ? granularPoints(factors) : null;
-    return { kind: r.kind, name: r.name, factors, now: r.points, proposed, changes: proposed !== null && proposed !== r.points };
+    const reasons = { ...NO_REASONS, ...r.reasons };
+    return { kind: r.kind, name: r.name, factors, reasons, now: r.points, proposed, changes: proposed !== null && proposed !== r.points };
   });
 }
 

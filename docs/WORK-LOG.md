@@ -9,13 +9,66 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ## 2026-11-03 — Two ways to farm points are closed (#133)
 
-Two loops paid points every time round, and once Farm risk stops taking
-points away (#131) nothing would hold them back. Finishing a task, reopening it and finishing it again paid "Finished
+Two loops paid points every time round, and now that Farm risk no longer
+takes points away (#131) nothing would hold them back. Finishing a task, reopening it and finishing it again paid "Finished
 a task" (5 points) each time. Saving a task, a profile or the AI agents
 switch without changing anything still paid a point. Now a task earns its
 finish only once; finishing it again counts as an ordinary change, worth 1.
 A save that changes nothing earns nothing. Every real action still scores,
 as Dane asked. This had to land before other members are invited.
+
+## 2026-11-03 — Click a factor score to see why it was given (#134)
+
+Each action's points come from four scores: Effort, Value, Rarity and Farm
+risk. On the Admin page's Recalculate action points table, you could see
+those numbers but not the thinking behind them. Each number can now be
+clicked (or reached with Tab and opened with Enter). A small pop-up shows
+what that level means, plus one sentence on why this action got that
+score. All 96 sentences (24 actions, four scores each) are stored with the
+actions and written into the scoring document. A test checks the two
+match. Dane can now check every score himself before putting new points
+live. No score or points value changed.
+
+## 2026-11-03 — A scoring wiki explains how points work (#135)
+
+How WaveCenter scores what members do was spread over several long
+documents. There is now one place to start: a small wiki in
+`docs/scoring/`, with an index and short pages on the principles (Dane's
+two types of score, and his point that scores grow with how complex the
+work is), the small automatic points and their formula, the bigger
+thought-through values such as what a task is worth, how farming points
+is being stopped, a glossary, and a list of open questions for Dane.
+Every claim names where it comes from. The index lists the pages still
+to write, so it can grow as scoring does.
+
+## 2026-11-02 — Every action scores at least 1 point (#131)
+
+The formula that works out what each small action is worth used to take
+"farm risk" (how easily an action can be repeated just for points) away
+from the total. Nearly every action had the highest farm risk, so six of
+them came out at 0. Dane wanted every action to score something, and felt
+farm risk was weighed too heavily. Farm risk is now still scored and kept
+for later anti-farming work, but it no longer changes the points. The
+lowest an action can score is 1. Finishing a task, the most valuable, now
+proposes 11. Nothing goes live until Dane clicks "Put these live" on the
+Admin page.
+
+The formula line above the Recalculate action points table (added in
+#130) now shows the new formula too.
+
+## 2026-11-02 — The Admin page explains how action points are worked out (#132)
+
+The Recalculate action points panel showed the formula in one dense line
+and labelled its columns only E, V, R and F. It now has a "How the formula
+works" section that opens on a click: what Effort, Value, Rarity and Farm
+risk each mean, how high each can go, how each one raises or lowers the
+points, and the plain test for every level. Four worked examples show the
+sum step by step, including one where farm risk is high but changes
+nothing and one that scores the lowest possible 1. The wording and sums
+are read from the same code the formula uses, and a test checks every
+example, so the explanation cannot quietly fall out of step with the real
+scores. (It follows the formula as #131 left it: farm risk no longer
+counts.)
 
 ## 2026-11-02 — The Recalculate action points table is readable (#130)
 
