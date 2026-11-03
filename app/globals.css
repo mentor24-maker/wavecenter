@@ -797,6 +797,11 @@ dialog.evolution-full img { display: block; max-width: 100%; max-height: calc(10
 /* Admin → Recalculate action points */
 table.recalc-table { min-width: 36rem; margin: 0; }
 table.recalc-table tr.recalc-changes td { background: var(--level-2); }
+/* Every cell gets space on both sides, and the number columns are centred,
+   so Proposed and Change never run together ("3" + "1 → 3" read "31 → 3"). */
+table.recalc-table th, table.recalc-table td { padding: 0.5rem 0.75rem; }
+table.recalc-table th:first-child, table.recalc-table td:first-child { padding-left: 0; }
+table.recalc-table .num { text-align: center; padding-right: 0.75rem; }
 table.rule-table .col-factors { width: 11rem; }
 table.rule-table .col-factors .factor { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.2rem; }
 table.rule-table .col-factors .factor span { width: 1rem; font-weight: 600; }
