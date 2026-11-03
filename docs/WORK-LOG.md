@@ -19,6 +19,18 @@ lowest an action can score is 1. Finishing a task, the most valuable, now
 proposes 11. Nothing goes live until Dane clicks "Put these live" on the
 Admin page.
 
+The formula line above the Recalculate action points table (added in
+#130) now shows the new formula too.
+
+## 2026-11-02 — The Recalculate action points table is readable (#130)
+
+On Admin → Recalculate action points, the Proposed number and the Change
+text were printed with no gap, so "3" beside "1 → 3" read as "31 → 3".
+Every column in that table now has space around it, and the number columns
+are centred. A line above the table now spells out the formula that turns
+the four factor scores into the Proposed number, using the same words as
+the rule in the code. The other tables on the site look the same as before.
+
 ## 2026-11-02 — Evolution cards look harder for Dane's own words (#129)
 
 Dane asked that every Evolution card on Home show his own prompt, not an
