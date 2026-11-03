@@ -692,6 +692,19 @@ dialog.text-dialog h2 { margin-top: 0; }
 dialog.text-dialog textarea { display: block; width: 100%; }
 dialog.text-dialog p { margin: 0.5rem 0; }
 dialog.text-dialog .buttons { display: flex; gap: 1rem; align-items: center; margin-top: 0.75rem; }
+/* Game management's Tokens section: one row per disc size, each with a
+   swatch drawn at its own size and colour. */
+table.token-table { min-width: 40rem; margin: 0; }
+table.token-table td, table.token-table th { vertical-align: middle; }
+table.token-table input[type="text"] { width: 10rem; }
+table.token-table input[type="number"] { width: 5rem; }
+table.token-table input[type="color"] { width: 2.5rem; height: 2rem; padding: 0.1rem; }
+.token-colour { display: inline-flex; align-items: center; gap: 0.5rem; }
+.token-swatch { display: inline-block; flex: none; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+.token-buttons { display: flex; gap: 1rem; align-items: center; justify-content: flex-end; margin: 0; }
+table.token-table tr.token-message td { padding-top: 0; }
+table.token-table tr.token-message p { margin: 0; }
+table.token-table tr:has(+ tr.token-message) td, table.token-table tr:has(+ tr.token-message) th { border-bottom: 0; }
 /* The read-only reason behind one factor score (app/admin/FactorDialog.tsx). */
 dialog.factor-dialog { width: min(32rem, calc(100vw - 2rem)); }
 dialog.factor-dialog h3 { font-size: 1rem; margin: 1rem 0 0.25rem; }

@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SCORING_TRIGGERS, isWired, mayManageScoring, type ScoringRule } from "../../../core/game.ts";
+import type { TokenSize } from "../../../core/tokens.ts";
 import { ROLES, mayOpenAdmin } from "../../../core/members.ts";
 import { headerPoints, supabaseScoringRuleStore } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
+import { listTokenSizes } from "../../lib/tokenStore";
 import SiteHeader from "../../SiteHeader";
 import GameMenu from "../GameMenu";
 import { NewRuleRow, RuleRow } from "./RuleTable";
+import TokenTable from "./TokenTable";
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
@@ -26,7 +29,8 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * row folds out the function, database trigger and test that make it fire
  * (core/game.ts SCORING_TRIGGERS). A change counts from the very next
  * engagement. The table's last row adds a new action, which stays inactive
- * until an agent wires it in.
+ * until an agent wires it in. Below it, Tokens sets the sizes, colours and
+ * point levels of the discs the earned-points animation shows (TokenTable).
  *
  * It sits under the Game menu (Manage). Only a role with "Manage game
  * scoring" (admin) sees the table, and only they see Manage in the menu;
@@ -94,7 +98,10 @@ export default async function ManageGame() {
     );
   }
 
-  const rules = await read(() => supabaseScoringRuleStore(supabase).rules());
+  const [rules, tokens] = await Promise.all([
+    read(() => supabaseScoringRuleStore(supabase).rules()),
+    read(() => listTokenSizes(supabase)),
+  ]);
 
   return (
     <>
@@ -119,6 +126,16 @@ export default async function ManageGame() {
             to a function, a database trigger and a test; ask for that as a task.
           </p>
           <RuleTable rules={rules} />
+        </div>
+
+        <div className="panel">
+          <h2>Tokens</h2>
+          <p className="note">
+            When someone earns points, a small coloured disc will float up to their point total in the header. Each size
+            below is one disc: it shows for any amount of points from its point level up to the next size&rsquo;s level.
+            An amount below every level shows the smallest size.
+          </p>
+          <Tokens tokens={tokens} />
         </div>
       </main>
     </>
@@ -164,6 +181,13 @@ function RuleTable({ rules }: { rules: Read<ScoringRule[]> }) {
       </table>
     </div>
   );
+}
+
+function Tokens({ tokens }: { tokens: Read<TokenSize[]> }) {
+  if (tokens.error !== null) {
+    return <p className="error" role="alert">The token sizes could not be loaded: {tokens.error}. Try reloading the page.</p>;
+  }
+  return <TokenTable sizes={tokens.value} />;
 }
 
 function Trigger({ kind }: { kind: string }) {

@@ -18,6 +18,31 @@ read, the header says "points unavailable" (hover for the reason) rather
 than showing a misleading 0. On a phone a long name shortens with "…" so
 the points and Log out stay on screen.
 
+## 2026-11-03 — Token animations planned as four tickets (#138)
+
+Dane asked for a small coloured disc to spin up into a member's point
+total in the header whenever they earn points, with admins choosing the
+discs' sizes, colours and the point levels for each size. This ticket was
+the plan, not the build: it split the work into four tickets now waiting
+in the queue, in order. First the point total goes in the header (today
+it is only on My Points). Then a Tokens section on Game → Manage for the
+sizes and colours. Then the spinning disc itself, with a Preview button.
+Last, playing it the next time a page loads after points are earned, as
+Dane chose. Each ticket has its own task on Dane's list. No code changed.
+
+## 2026-11-03 — Token settings on Game Manage: sizes, colours and point levels (#140)
+
+Game → Manage has a new Tokens section. A token is the small coloured disc
+that will soon float up to a member's point total when they earn points.
+Admins can now set how many sizes there are, how big each one is, what
+colour it is, and how many points it takes to get each size. It starts with
+three: Small from 1 point, Medium from 5 and Large from 20. The animation
+itself comes in a later ticket. Only an admin can change the sizes, and the
+database enforces that as well, so a non-admin cannot get around it. If a
+save fails, the page says so and keeps what was typed, for example when two
+sizes are given the same point level. If every size is removed, the page
+says why the table is empty.
+
 ## 2026-11-03 — Proposed and Change columns centred on Recalculate action points (#137)
 
 On Admin → Recalculate action points, the Change column ("1 → 3") was
