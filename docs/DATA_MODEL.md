@@ -510,6 +510,13 @@ rules. A change the database makes on its own while doing something else
 (letting go of a deleted task's sub-tasks, removing a deleted task's files)
 is part of that one engagement, not extra ones.
 
+**Two loops that do not pay.** A save that changes nothing (a task, a
+profile, or the AI agents switch saved just as it was) records nothing; the
+time of the save and the tool that made it do not count as changes. A task
+earns "Finished a task" only the first time it becomes done: reopening it
+and finishing it again is "Changed a task". The database reads the ledger
+to tell whether a task has finished before.
+
 **Who can see what.** Every signed-in member can read the scoring rules. A
 member can read **only their own** engagements and their own points total.
 Nobody can add, change or delete a ledger row through the website or the

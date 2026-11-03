@@ -1090,6 +1090,26 @@ try {
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
   check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
 
+  // The first anti-farming step: a task earns "Finished a task" once, and a
+  // save that changes nothing records nothing (task, profile, agents switch).
+  const loop = await createTask(a.store, { title: 'A finishes this twice' }, TOOL, 'admin');
+  await updateTask(a.store, loop.id, { status: 'done' }, TOOL);
+  await updateTask(a.store, loop.id, { status: 'todo' }, TOOL);
+  await updateTask(a.store, loop.id, { status: 'done' }, TOOL);
+  await updateTask(a.store, loop.id, { title: 'A finishes this twice' }, 'rls-check-other-tool');
+  const loopKinds = (await call(`/rest/v1/engagements?task_id=eq.${loop.id}&select=kind&order=created_at`, { token: a.token })).json?.map?.((e) => e.kind);
+  check('finishing a task again after reopening it is a change, not a second finish; saving it unchanged records nothing',
+    JSON.stringify(loopKinds) === JSON.stringify(['made_task', 'finished_task', 'changed_task', 'changed_task']), JSON.stringify(loopKinds));
+  await updateTask(a.store, loop.id, { title: 'A renamed this' }, TOOL);
+  const renamedKinds = (await call(`/rest/v1/engagements?task_id=eq.${loop.id}&select=kind&order=created_at`, { token: a.token })).json?.map?.((e) => e.kind);
+  check('a real change to a task still earns "Changed a task"', renamedKinds?.length === 5 && renamedKinds[4] === 'changed_task', JSON.stringify(renamedKinds));
+  const settingsBefore = (await call(`/rest/v1/engagements?kind=in.(changed_profile,switched_agents)&select=kind`, { token: a.token })).json?.length;
+  await saveProfile(profileStore(a), { displayName: 'A', avatar: 'sun', bio: 'A’s bio', visibility: 'public' }, 'rls-check-other-tool');
+  await setAgentsOn(settingsStore(a), true, TOOL);
+  const settingsAfter = (await call(`/rest/v1/engagements?kind=in.(changed_profile,switched_agents)&select=kind`, { token: a.token })).json?.length;
+  check('saving a profile unchanged, or the agents switch at the setting it had, records nothing', typeof settingsBefore === 'number' && settingsAfter === settingsBefore,
+    `before ${settingsBefore}, after ${settingsAfter}`);
+
   const ledgerB = await call(`/rest/v1/engagements?member_id=eq.${a.id}&select=kind`, { token: b.token });
   check('B cannot read A’s engagements', ledgerB.status === 200 && ledgerB.json.length === 0, `sees ${JSON.stringify(ledgerB.json)}`);
   const totalB = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: b.token });

@@ -342,13 +342,16 @@ ticket "Members could farm points before anyone is invited: finishing the
 same task again and saving something unchanged still pay"). None is part of
 this proposal; each is Dane's call:
 
-- **Finishing the same task again earns nothing.** Only the first time a task
-  becomes done would score "Finished a task".
+- **Finishing the same task again earns no second finish.** Shipped: only the
+  first time a task becomes done scores "Finished a task"; finishing it again
+  after reopening it scores "Changed a task", so every real action still
+  earns something.
 - **An undo takes back what its action earned.** Deleting a task you made
   today would cancel that task's "Made a task" points, so a make-and-delete
   loop earns 0.
-- **Saving something unchanged is not a change.** A profile, task or rule
-  saved with nothing different would record nothing.
+- **Saving something unchanged is not a change.** Shipped: a task, profile or
+  AI agents switch saved with nothing different records nothing. Teams,
+  scoring rules, comments and member roles already worked this way.
 
 The canon's own longer-term defences are the members' votes on what each
 action is worth, reputation weighting so "low-quality volume earns

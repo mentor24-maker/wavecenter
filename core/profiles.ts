@@ -72,6 +72,22 @@ export interface MemberProfileStore {
   save(profile: MemberProfile): Promise<MemberProfile | null>;
 }
 
+/**
+ * Did this save change the profile? Saving it with nothing different is not
+ * an action, so it records no engagement and earns nothing. The tool that
+ * saved is a stamp, not a change. The member_profiles trigger mirrors this;
+ * a first save always counts.
+ */
+export function profileChanged(before: MemberProfile | null, after: MemberProfile): boolean {
+  if (!before) return true;
+  return (
+    before.displayName !== after.displayName ||
+    before.avatar !== after.avatar ||
+    before.bio !== after.bio ||
+    before.visibility !== after.visibility
+  );
+}
+
 /** What a member who has never saved a profile has: completely anonymous. */
 export const DEFAULT_MEMBER_PROFILE: MemberProfile = {
   displayName: null,
