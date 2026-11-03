@@ -202,16 +202,40 @@ export async function recordEngagement(store: EngagementStore, input: Engagement
  * `after` is null for a deleted one. Handing a task to agents (it gains a
  * ticket link) and finishing it (it becomes done) are their own kinds; any
  * other change is "changed a task". The database trigger mirrors this.
+ *
+ * A task earns "Finished a task" once. `finishedBefore` says it already has,
+ * so finishing it again after reopening it is only a change: otherwise done,
+ * reopen, done pays the finish every time round (the first anti-farming step,
+ * docs/GRANULAR_SCORING_ALGORITHM.md, "Safeguards the formula cannot give").
  */
 export function engagementKindForTask(
   before: Pick<Task, 'status' | 'agentTicketUrl'> | null,
   after: Pick<Task, 'status' | 'agentTicketUrl'> | null,
+  finishedBefore = false,
 ): EngagementKind {
   if (!before) return 'made_task';
   if (!after) return 'deleted_task';
   if (after.agentTicketUrl && !before.agentTicketUrl) return 'handed_to_agents';
-  if (after.status === 'done' && before.status !== 'done') return 'finished_task';
+  if (after.status === 'done' && before.status !== 'done' && !finishedBefore) return 'finished_task';
   return 'changed_task';
+}
+
+/**
+ * The task fields a save stamps for itself: when it happened, which tool did
+ * it, and the finish time, which only moves with the status. A save that
+ * differs only in these changed nothing.
+ */
+const TASK_SAVE_STAMPS: readonly (keyof Task)[] = ['updatedAt', 'tool', 'completedAt'];
+
+/**
+ * Did this save change the task? A save with nothing different is not an
+ * action, so it records no engagement and earns nothing. The database
+ * trigger mirrors this.
+ */
+export function taskChanged(before: Task, after: Task): boolean {
+  return (Object.keys(after) as (keyof Task)[]).some(
+    (key) => !TASK_SAVE_STAMPS.includes(key) && before[key] !== after[key],
+  );
 }
 
 /** Add up a list of engagements' points. */
@@ -264,7 +288,7 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   },
   changed_profile: {
     fn: 'saveProfile', file: 'core/profiles.ts', database: 'member_profiles_score',
-    test: 'saving a profile records one engagement each time', testFile: 'core/game.test.ts',
+    test: 'saving a profile records one engagement each time it changes, and none when nothing changed', testFile: 'core/game.test.ts',
   },
   voted_on_task: {
     fn: 'castVote', file: 'core/votes.ts', database: 'task_votes_apply',

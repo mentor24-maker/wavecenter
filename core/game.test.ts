@@ -10,7 +10,7 @@ import {
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type GameActor, type ScoringFactors,
 } from './game.ts';
-import { saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
+import { profileChanged, saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
 import { createTask, deleteTask, updateTask } from './tasks.ts';
 import { MemoryAccountStore } from './memoryAccountStore.ts';
@@ -72,6 +72,31 @@ test('making, changing, finishing and deleting a task each record exactly one en
   assert.deepEqual(ledger.rows.map((e) => e.tool), ['wavecenter', 'wavecenter', 'wavecenter', 'cleanup-tool'], 'a delete names the tool that deleted');
 });
 
+test('finishing a task again after reopening it is a change, not a second finish', async () => {
+  const { ledger, tasks } = setup();
+  const task = await createTask(tasks, { title: 'Ship it' }, 'wavecenter', 'admin');
+  await updateTask(tasks, task.id, { status: 'done' }, 'wavecenter');
+  await updateTask(tasks, task.id, { status: 'todo' }, 'wavecenter');
+  await updateTask(tasks, task.id, { status: 'done' }, 'wavecenter');
+  await updateTask(tasks, task.id, { status: 'doing' }, 'wavecenter');
+  await updateTask(tasks, task.id, { status: 'done' }, 'wavecenter');
+  assert.deepEqual(kinds(ledger), ['made_task', 'finished_task', 'changed_task', 'changed_task', 'changed_task', 'changed_task']);
+  // Another task still earns its own first finish.
+  const other = await createTask(tasks, { title: 'Ship the next' }, 'wavecenter', 'admin');
+  await updateTask(tasks, other.id, { status: 'done' }, 'wavecenter');
+  assert.deepEqual(kinds(ledger).slice(-2), ['made_task', 'finished_task']);
+});
+
+test('saving a task with nothing changed records nothing; a real change still does', async () => {
+  const { ledger, tasks } = setup();
+  const task = await createTask(tasks, { title: 'Same' }, 'wavecenter', 'admin');
+  await updateTask(tasks, task.id, { title: 'Same' }, 'wavecenter');
+  await updateTask(tasks, task.id, { title: 'Same' }, 'another-tool');
+  assert.deepEqual(kinds(ledger), ['made_task'], 'an unchanged save, even from another tool, records nothing');
+  await updateTask(tasks, task.id, { title: 'Different' }, 'wavecenter');
+  assert.deepEqual(kinds(ledger), ['made_task', 'changed_task']);
+});
+
 test('changing a task\'s points is a change like any other', async () => {
   const { ledger, tasks } = setup();
   const task = await createTask(tasks, { title: 'x' }, 'wavecenter', 'admin');
@@ -115,12 +140,14 @@ test('handing a task to agents is its own kind, credited to the member, naming t
 
 test('flipping the AI agents switch records one engagement each time', async () => {
   const ledger = new MemoryEngagementStore();
-  // What the member_settings trigger does: score the save inside it.
+  // What the member_settings trigger does: score the save inside it, unless the switch did not move.
   const settings: MemberSettingsStore & { row: MemberSettings | null } = {
     row: null,
     async get() { return this.row; },
     async save(s) {
-      await recordEngagement(ledger, { memberId: 'dane', kind: 'switched_agents', tool: s.tool });
+      if (!this.row || this.row.agentsOn !== s.agentsOn) {
+        await recordEngagement(ledger, { memberId: 'dane', kind: 'switched_agents', tool: s.tool });
+      }
       this.row = { ...s };
       return this.row;
     },
@@ -128,6 +155,8 @@ test('flipping the AI agents switch records one engagement each time', async () 
   await setAgentsOn(settings, true, 'wavecenter');
   await setAgentsOn(settings, false, 'wavecenter');
   assert.deepEqual(kinds(ledger), ['switched_agents', 'switched_agents']);
+  await setAgentsOn(settings, false, 'wavecenter');
+  assert.deepEqual(kinds(ledger), ['switched_agents', 'switched_agents'], 'saving the setting it already had is not a flip');
 });
 
 test('if the engagement cannot be written, the change is not saved either, and says so', async () => {
@@ -189,18 +218,21 @@ test('engagementKindForTask and totalPoints', () => {
   assert.equal(engagementKindForTask(open, { status: 'done', agentTicketUrl: null }), 'finished_task');
   assert.equal(engagementKindForTask({ status: 'done', agentTicketUrl: null }, { status: 'done', agentTicketUrl: null }), 'changed_task');
   assert.equal(engagementKindForTask(open, { status: 'doing', agentTicketUrl: 'https://x' }), 'handed_to_agents');
+  assert.equal(engagementKindForTask(open, { status: 'done', agentTicketUrl: null }, true), 'changed_task', 'a task finished before is not finished again');
   assert.equal(totalPoints([{ points: 1 }, { points: 5 }]), 6);
   assert.equal(totalPoints([]), 0);
 });
 
-test('saving a profile records one engagement each time', async () => {
+test('saving a profile records one engagement each time it changes, and none when nothing changed', async () => {
   const ledger = new MemoryEngagementStore();
-  // What the member_profiles trigger does: score the save inside it.
+  // What the member_profiles trigger does: score the save inside it, unless nothing changed.
   const profiles: MemberProfileStore & { row: MemberProfile | null } = {
     row: null,
     async get() { return this.row; },
     async save(p) {
-      await recordEngagement(ledger, { memberId: 'dane', kind: 'changed_profile', tool: p.tool });
+      if (profileChanged(this.row, p)) {
+        await recordEngagement(ledger, { memberId: 'dane', kind: 'changed_profile', tool: p.tool });
+      }
       this.row = { ...p };
       return this.row;
     },
@@ -209,6 +241,8 @@ test('saving a profile records one engagement each time', async () => {
   await saveProfile(profiles, profile, 'wavecenter');
   await saveProfile(profiles, { ...profile, bio: 'Builds WaveCenter.' }, 'wavecenter');
   assert.deepEqual(kinds(ledger), ['changed_profile', 'changed_profile']);
+  await saveProfile(profiles, { ...profile, bio: 'Builds WaveCenter.' }, 'another-tool');
+  assert.deepEqual(kinds(ledger), ['changed_profile', 'changed_profile'], 'an unchanged save, even from another tool, records nothing');
 });
 
 test('joining WaveCenter records one engagement, credited to the new member, naming the tool', async () => {

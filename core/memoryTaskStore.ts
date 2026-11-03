@@ -6,11 +6,12 @@
  *
  * Given an engagement store, it also does what the table's game-layer trigger
  * does: every insert, update and delete records one engagement for the owner,
- * and if that cannot be written the change is not saved either. Approving a
+ * and if that cannot be written the change is not saved either. A save that
+ * changes nothing records nothing, and a task earns "Finished a task" once. Approving a
  * proposed task is also scored for `signedIn`, the admin the database would
  * see as signed in, as `tasks_score_approval` does.
  */
-import { engagementKindForTask, recordEngagement, type EngagementStore } from './game.ts';
+import { engagementKindForTask, recordEngagement, taskChanged, type EngagementStore } from './game.ts';
 import type { NewTaskRow, Task, TaskRowChanges, TaskStore, UpdateGuard } from './tasks.ts';
 
 export class MemoryTaskStore implements TaskStore {
@@ -27,16 +28,17 @@ export class MemoryTaskStore implements TaskStore {
     this.engagements = engagements;
   }
 
+  /** The tasks that have earned "Finished a task", as the trigger reads them from the ledger. */
+  private readonly finished = new Set<string>();
+
   private async score(before: Task | null, after: Task | null, tool: string): Promise<void> {
     const task = (after ?? before)!;
-    if (this.engagements) {
-      await recordEngagement(this.engagements, {
-        memberId: task.ownerId,
-        kind: engagementKindForTask(before, after),
-        tool,
-        taskId: task.id,
-      });
-    }
+    if (!this.engagements) return;
+    // A save that changed nothing records nothing.
+    if (before && after && !taskChanged(before, after)) return;
+    const kind = engagementKindForTask(before, after, this.finished.has(task.id));
+    await recordEngagement(this.engagements, { memberId: task.ownerId, kind, tool, taskId: task.id });
+    if (kind === 'finished_task') this.finished.add(task.id);
   }
 
   async insert(row: NewTaskRow): Promise<Task> {
