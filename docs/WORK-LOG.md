@@ -7,6 +7,30 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — New welcome words on the Evolution slider (#128)
+
+Dane rewrote the sentence under "Evolution of WaveCenter" on the home page.
+It now invites visitors in: "See the evolution of WaveCenter, from the very
+first instruction to it’s current version — task by task. Then get busy
+helping build WaveCenter yourself!" The line above the pictures that counted
+the changes and explained the arrows is gone, so the box opens straight onto
+the slider. The slider itself works exactly as before.
+
+## 2026-11-02 — Members can make proposals on a new Proposals page (#127)
+
+Dane wanted a place for ideas that could become tasks once they pass
+muster. There is now a **Proposals** link in the menu, just left of Tasks.
+It opens a page where every member sees every proposal, adds their own, and
+edits or deletes only the ones they made. Dane chose to keep proposals apart
+from tasks ("a proposal is really a different animal"), so they have their
+own table and can be reshaped later without touching tasks. For now each
+proposal looks just like a task: a title, details, status, priority and
+points. The database itself stops a member from changing someone else's
+proposal, and a test on the private test database proves it. This is the
+first step of a series; turning a proposal into a task comes later.
+
+---
+
 ## 2026-11-02 — The password reset email looks like WaveCenter (#126)
 
 Dane asked for the "Forgot password" email to look nice instead of
@@ -20,6 +44,45 @@ email, clicked the button and set a new password that then worked for
 signing in. The live site needs the design pasted in once (step 5 of the
 email setup guide); it arrives from noreply@wavecenter.com once the Resend
 setup is switched on.
+
+---
+
+## 2026-11-02 — Home's What is a DEO box has Dane's new words (#124)
+
+Dane wrote a one-sentence description of a DEO for the Home page. The What
+is a DEO box now shows it ("A DEO transforms human engagement into collective
+ownership, intelligence, and economic value through decentralized
+collaboration, shared governance, and technology."), and the link under the
+box now reads "Learn more about DEOs". If anyone had already saved other words
+in that box with the pencil, those saved words still show until they are
+replaced the same way; nothing saved was overwritten.
+
+---
+
+## 2026-11-02 — Evolution cards show who made each change and its points (#104)
+
+Each card in the Evolution row on Home now credits the member behind the
+change: their avatar, their name if their profile is set to Public, and
+the points on the WaveCenter task the change came from. This is the first
+place the game layer shows up on a merged change. A member who keeps their
+profile Anonymous is shown by their avatar alone; one who chose Private is
+not shown at all, just the points, the same as on the Members page (Dane's
+choice). Nobody's bio is ever shown. What a card may show of its creator is decided in one
+spot, so the permissions settings Dane plans can plug in there later. A card
+with no WaveCenter task linked shows no credit, and nothing on it breaks.
+
+---
+
+## 2026-11-02 — Home's first box says what WaveCenter is in 20 words (#125)
+
+Dane asked for a compelling 20-word description in the first box on Home,
+and for its link to read "Learn more about WaveCenter". The box is now
+headed **What is WaveCenter** (his choice when asked) and reads: "The hub of
+the DEO movement: a member-owned collaboration platform where every
+contribution is tracked, valued in points, and rewarded." Every phrase comes
+from the canon or wavecenter.com, and a test keeps it at exactly 20 words.
+No member had saved their own words for the box, so the new ones show
+straight away; an admin can still change them with the pencil.
 
 ---
 

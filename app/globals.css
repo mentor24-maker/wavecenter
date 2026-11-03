@@ -512,9 +512,12 @@ table.game.members th.actions { text-align: center; }
 /* The Members page's roles-and-permissions grid: space between the permission columns. */
 table.grants .num { text-align: center; padding: 0.5rem 0.75rem; }
 /* The Team Manager: a team's form and its member list, opened under its row. */
-.team-form { max-width: 32rem; margin: 0.5rem 0 var(--space); }
-.team-form h3, .team-members h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-.team-form p, .team-members p { margin: 0 0 0.5rem; }
+.team-form, .proposal-form { max-width: 32rem; margin: 0.5rem 0 var(--space); }
+.team-form h3, .team-members h3, .proposal-form h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.team-form p, .team-members p, .proposal-form p { margin: 0 0 0.5rem; }
+/* The Proposals table: long titles and details wrap rather than widen it. */
+table.proposals td { overflow-wrap: anywhere; }
+.proposal-form input.points { width: 5rem; }
 .team-member-list { list-style: none; padding: 0; margin: 0 0 0.5rem; }
 .team-member-list li { padding: 0.2rem 0; }
 table.teams td { overflow-wrap: anywhere; }
@@ -777,6 +780,10 @@ blockquote.evolution-words { padding-left: 0.6rem; border-left: 3px solid var(--
 .evolution-words.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .evolution-facts p { margin: 0 0 0.25rem; font-size: 0.9rem; }
 .evolution-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; }
+.evolution-facts .evolution-credit { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; margin-bottom: 0.4rem; }
+.evolution-avatar { font-size: 1.35rem; line-height: 1; }
+.evolution-creator-name { font-weight: 600; color: var(--fg); }
+.evolution-points { margin-left: auto; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--accent); color: var(--bg); font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
 dialog.evolution-full {
   --surface: var(--level-1);
   background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius);

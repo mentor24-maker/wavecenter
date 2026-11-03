@@ -28,7 +28,9 @@
  * rows and screenshots but only the service key writes them
  * (`public.evolution_entries` and the private `evolution` bucket); and that
  * every member reads the words in Home's boxes but only an admin changes
- * them (`public.home_boxes`), which are put back as they were afterwards.
+ * them (`public.home_boxes`), which are put back as they were afterwards;
+ * and that every member reads every proposal but adds, changes and deletes
+ * only their own (`public.proposals`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -51,6 +53,7 @@ import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
+import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -303,6 +306,35 @@ function homeBoxStore(member) {
       });
       if (got.status >= 300) throw new Error(`home_boxes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return fromRow(got.json?.[0]) ?? null;
+    },
+  };
+}
+
+/** A ProposalStore (core/proposals.ts) over REST, acting as one member. */
+function proposalStore(member) {
+  const COLUMNS = { title: 'title', notes: 'notes', status: 'status', parentProposalId: 'parent_proposal_id', points: 'points', position: 'position', priority: 'priority', tool: 'tool' };
+  const toRow = (fields) => Object.fromEntries(Object.entries(fields).map(([k, v]) => [COLUMNS[k], v]));
+  const fromRow = (r) => r && {
+    id: r.id, title: r.title, notes: r.notes, ownerId: r.owner_id, status: r.status, parentProposalId: r.parent_proposal_id,
+    points: r.points, position: r.position, priority: r.priority, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+  const mine = (id) => `/rest/v1/proposals?id=eq.${id}&owner_id=eq.${member.id}`;
+  const sure = (got, what) => {
+    if (got.status >= 300) throw new Error(`proposals ${what} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return got.json ?? [];
+  };
+  return {
+    async insert(row) {
+      return fromRow(sure(await call('/rest/v1/proposals', { method: 'POST', token: member.token, prefer: 'return=representation', body: toRow(row) }), 'insert')[0]);
+    },
+    async get(id) {
+      return fromRow(sure(await call(`${mine(id)}&select=*`, { token: member.token }), 'read')[0]) ?? null;
+    },
+    async update(id, changes) {
+      return fromRow(sure(await call(mine(id), { method: 'PATCH', token: member.token, prefer: 'return=representation', body: toRow(changes) }), 'update')[0]) ?? null;
+    },
+    async remove(id) {
+      return sure(await call(mine(id), { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'delete').length > 0;
     },
   };
 }
@@ -770,6 +802,42 @@ try {
     check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
   }
 
+  // Proposals (20261102210000_proposals.sql): every member reads every
+  // proposal; a member adds, changes and deletes only their own, through core
+  // or straight at the table. The test members' proposals go with their
+  // accounts at the end (owner_id cascades).
+  {
+    const propA = await createProposal(proposalStore(a), { title: 'A’s proposal', notes: 'why', points: 3, priority: 'high' }, TOOL);
+    check('a member adds a proposal through core, owned by them and naming the tool', propA.ownerId === a.id && propA.tool === TOOL && propA.points === 3 && propA.priority === 'high', JSON.stringify(propA));
+    const propB = await createProposal(proposalStore(b), { title: 'B’s proposal' }, TOOL);
+    const both = await call(`/rest/v1/proposals?id=in.(${propA.id},${propB.id})&select=id`, { token: b.token });
+    check('every member reads every proposal', both.status === 200 && both.json?.length === 2, `HTTP ${both.status} ${JSON.stringify(both.json)}`);
+    const viaCore = await updateProposal(proposalStore(b), propA.id, { title: 'Hijacked' }, TOOL).then(() => '', (e) => e.message);
+    const delCore = await deleteProposal(proposalStore(b), propA.id, TOOL).then(() => '', (e) => e.message);
+    check('a member cannot change or delete another member’s proposal through core', /may change/.test(viaCore) && /may delete/.test(delCore), `${viaCore} / ${delCore}`);
+    const patch = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { title: 'Hijacked', owner_id: b.id } });
+    const del = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    const forge = await call('/rest/v1/proposals', { method: 'POST', token: b.token, body: { title: 'forged', owner_id: a.id } });
+    const stillA = (await admin(`/rest/v1/proposals?id=eq.${propA.id}&select=title,owner_id`)).json?.[0];
+    check('a member cannot change, delete or forge another member’s proposal straight at the table',
+      patch.json?.length === 0 && del.json?.length === 0 && forge.status >= 400 && stillA?.title === 'A’s proposal' && stillA?.owner_id === a.id,
+      `patch ${JSON.stringify(patch.json)}, delete ${JSON.stringify(del.json)}, forge HTTP ${forge.status}, row ${JSON.stringify(stillA)}`);
+    const takeOver = await call(`/rest/v1/proposals?id=eq.${propB.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_id: a.id } });
+    check('a member cannot hand their proposal to someone else', takeOver.status >= 400, `HTTP ${takeOver.status} ${JSON.stringify(takeOver.json)}`);
+    const changed = await updateProposal(proposalStore(a), propA.id, { title: 'A’s proposal, changed', status: 'doing', points: 5 }, TOOL);
+    check('the owner changes their own proposal through core', changed.title === 'A’s proposal, changed' && changed.status === 'doing' && changed.points === 5, JSON.stringify(changed));
+    const bad = await call('/rest/v1/proposals', { method: 'POST', token: a.token, body: [{ title: ' \n ' }] });
+    const negative = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: a.token, body: { points: -1 } });
+    const proposed = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: a.token, body: { status: 'proposed' } });
+    check('the database refuses a blank title, negative points and a status a proposal does not have', bad.status >= 400 && negative.status >= 400 && proposed.status >= 400,
+      `blank HTTP ${bad.status}, negative HTTP ${negative.status}, proposed HTTP ${proposed.status}`);
+    await deleteProposal(proposalStore(a), propA.id, TOOL);
+    const gone = (await admin(`/rest/v1/proposals?id=eq.${propA.id}&select=id`)).json;
+    check('the owner deletes their own proposal through core', Array.isArray(gone) && gone.length === 0, JSON.stringify(gone));
+    const anonProposals = await call('/rest/v1/proposals?select=id');
+    check('a signed-out visitor sees no proposals', anonProposals.status >= 400 || anonProposals.json?.length === 0, `HTTP ${anonProposals.status} ${JSON.stringify(anonProposals.json)}`);
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -955,6 +1023,26 @@ try {
   const evoWipe = await call(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
   check('a member cannot add, change or delete an Evolution row', evoForge.status >= 400 && (evoEdit.status >= 400 || evoEdit.json?.length === 0) && (evoWipe.status >= 400 || evoWipe.json?.length === 0),
     `add HTTP ${evoForge.status}, change HTTP ${evoEdit.status} ${JSON.stringify(evoEdit.json)}, delete HTTP ${evoWipe.status} ${JSON.stringify(evoWipe.json)}`);
+  // evolution_credits(): a card credits the owner of its WaveCenter task,
+  // with the task's points, the avatar, and the name only from a Public
+  // profile (A is Public, B is Private). Never the bio; never signed out.
+  const pointsA = (await admin(`/rest/v1/tasks?id=eq.${insA.id}&select=points`)).json?.[0]?.points;
+  const credit = async () => {
+    const got = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', token: b.token, body: {} });
+    return { status: got.status, row: Array.isArray(got.json) ? got.json.find((r) => r.commit_sha === evoSha) : got.json };
+  };
+  await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', body: { task_id: insA.id } });
+  const creditA = await credit();
+  check('a card credits its task’s owner and points, with the name of a Public profile and never the bio',
+    creditA.status === 200 && typeof pointsA === 'number' && creditA.row?.points === pointsA && creditA.row?.avatar === 'sun' && creditA.row?.display_name === 'A' && !('bio' in (creditA.row ?? {})),
+    `task points ${pointsA}, HTTP ${creditA.status} ${JSON.stringify(creditA.row)}`);
+  await admin(`/rest/v1/evolution_entries?commit_sha=eq.${evoSha}`, { method: 'PATCH', body: { task_id: taskB } });
+  const creditB = await credit();
+  check('a card shows a Private owner\'s points alone, never their avatar, name or privacy setting', creditB.status === 200 && creditB.row?.avatar === null && creditB.row?.display_name === null && !('visibility' in (creditB.row ?? {})),
+    `HTTP ${creditB.status} ${JSON.stringify(creditB.row)}`);
+  const creditAnon = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', body: {} });
+  check('a signed-out visitor cannot read who made each change', creditAnon.status >= 400, `HTTP ${creditAnon.status} ${JSON.stringify(creditAnon.json)}`);
+
   const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });
   check('a member can read a stored screenshot', evoObj.status === 200, `HTTP ${evoObj.status}`);
   const evoPublic = await call(`/storage/v1/object/public/${EVO_BUCKET}/${evoPath}`);

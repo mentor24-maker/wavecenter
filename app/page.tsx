@@ -40,7 +40,7 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * and the log-in form on the right, the same form `/sign-in` shows. On a
  * phone the introduction sits above the form. Signed in: Home, a dashboard
  * of boxes (Dane, 2026-10-29), laid out by Dane on 2026-11-01: a top row of
- * four equal boxes, About WaveCenter and What is a DEO (callouts to their own
+ * four equal boxes, What is WaveCenter and What is a DEO (callouts to their own
  * pages), the newest members and the leaderboard (a placeholder until it
  * works); then Evolution of WaveCenter across the full width (moved here from
  * the Tasks page, its pictures 50% taller); then the tasks being worked on
@@ -49,7 +49,7 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * own, and an empty box says why (engineering rule 7). The task list itself
  * is at `/tasks`. Home sits on the same water-drop picture, header
  * included (Dane, 2026-10-31), its boxes frosted glass with an icon each.
- * The words in About WaveCenter and What is a DEO are saved in the database
+ * The words in What is WaveCenter and What is a DEO are saved in the database
  * and a role with "Edit Home boxes" changes them from a pencil in each box
  * (Dane, 2026-11-01; core/homeBoxes.ts).
  */
@@ -112,15 +112,15 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
         <h1 className="sr-only">Home</h1>
         <div className="dashboard four">
           <section className="box level-1 callout">
-            <h2><BoxIcon name="about" />About WaveCenter</h2>
+            <h2><BoxIcon name="about" />What is WaveCenter</h2>
             <EditableWords box="about" boxes={boxes} editable={mayEditBoxes} />
-            <p><Link href="/about">Read about WaveCenter &rarr;</Link></p>
+            <p><Link href="/about">Learn more about WaveCenter &rarr;</Link></p>
           </section>
 
           <section className="box level-1 callout">
             <h2><BoxIcon name="deo" />What is a DEO</h2>
             <EditableWords box="deo" boxes={boxes} editable={mayEditBoxes} />
-            <p><Link href="/deo">Read what a DEO is &rarr;</Link></p>
+            <p><Link href="/deo">Learn more about DEOs &rarr;</Link></p>
           </section>
 
           <section className="box level-1">
@@ -137,7 +137,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
         <div className="dashboard">
           <section className="box level-1 wide" id="evolution">
             <h2><BoxIcon name="evolution" />Evolution of WaveCenter</h2>
-            <p className="note">How WaveCenter looked right after each change to a screen, from the first to today, each labeled with what Dane asked for.</p>
+            <p className="note">See the evolution of WaveCenter, from the very first instruction to it&rsquo;s current version &mdash; task by task. Then get busy helping build WaveCenter yourself!</p>
             {evolution.error !== null || evolution.value.error ? (
               <p className="error" role="alert">
                 The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
