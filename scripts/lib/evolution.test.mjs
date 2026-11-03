@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
 import { nameProblem } from './ticketName.mjs';
-import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
+import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, typedWords, createdTickets, chatWords, addChatWords, captureWords, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
 import { readFileSync } from 'node:fs';
 
 // The app's files at three real points in main's history.
@@ -290,8 +290,8 @@ test('a WaveCenter ticket gives the task\'s title and notes, verbatim, linking t
 });
 
 test('the WaveCenter task a ticket names is its card\'s task link, whatever the words, and goes on the row', () => {
-  const card = danesWords({ url: 'u', tags: [], description: `## Goal\nx\n\nWaveCenter task: ${TASK}\n`, comments: [{ text: CARD('Asked.') }] });
-  assert.deepEqual(card, { prompt: 'Asked.', threadUrl: 'u', taskId: TASK });
+  const card = danesWords({ url: 'u', tags: [], description: `## Goal\nx\n\nWaveCenter task: ${TASK}\n`, comments: [{ text: CARD('Please build this.') }] });
+  assert.deepEqual(card, { prompt: 'Please build this.', threadUrl: 'u', taskId: TASK });
   assert.deepEqual(danesWords({ url: 'u', tags: [], description: `WaveCenter task: ${TASK}`, comments: [] }), { prompt: null, threadUrl: null, taskId: TASK });
   assert.equal(entryRow({ ...BASE, state: 'no screen', taskId: TASK }).task_id, TASK);
   assert.equal(entryRow({ ...BASE, state: 'no screen' }).task_id, null);
@@ -308,7 +308,7 @@ test('any other ticket gives the first card\'s asked words, without its when lin
   });
   assert.deepEqual(words, { prompt: 'Use real data. We can always redact later.', threadUrl: 'https://app.clickup.com/t/86bcvtyhk', taskId: null });
   // Words of several paragraphs are kept whole.
-  assert.equal(danesWords({ url: 'u', tags: [], comments: [{ text: CARD('One.\n\nTwo.') }] }).prompt, 'One.\n\nTwo.');
+  assert.equal(danesWords({ url: 'u', tags: [], comments: [{ text: CARD('One thing first.\n\nThen two.') }] }).prompt, 'One thing first.\n\nThen two.');
 });
 
 test('a ticket with none of Dane\'s words on record gives none', () => {
@@ -317,7 +317,115 @@ test('a ticket with none of Dane\'s words on record gives none', () => {
   assert.deepEqual(danesWords({ url: 'u', tags: [], description: '## Goal', comments: [{ text: 'a plain note' }] }), none);
   // A from-wavecenter tag with no block falls back to the card, then to none.
   assert.deepEqual(danesWords({ url: 'u', tags: ['from-wavecenter'], description: '## Goal', comments: [] }), none);
-  assert.equal(danesWords({ url: 'u', tags: ['from-wavecenter'], description: '', comments: [{ text: CARD('Asked.') }] }).prompt, 'Asked.');
+  assert.equal(danesWords({ url: 'u', tags: ['from-wavecenter'], description: '', comments: [{ text: CARD('Please build this.') }] }).prompt, 'Please build this.');
+});
+
+test('a card that says his words are not on record, or holds only a reply, is passed over for the next one', () => {
+  const ticket = (...asked) => ({ url: 'u', tags: [], description: '## Goal', comments: asked.map((a) => ({ text: CARD(a) })) });
+  // 86bch43yw: a session wrote this, so it is never shown as his.
+  assert.equal(danesWords(ticket("Your exact words aren't recorded on this ticket. A session filed it on 2026-10-12.")).prompt, null);
+  assert.equal(danesWords(ticket('No instruction from Dane: the merge lane raised this on its own.')).prompt, null);
+  // 86bcgh5ne: "A", "added" and "allowed" answered questions; the request comes later.
+  assert.equal(danesWords(ticket('A', 'added', 'allowed', 'I have tried repeatedly to get to a valid DNS configuration.')).prompt, 'I have tried repeatedly to get to a valid DNS configuration.');
+  assert.equal(danesWords(ticket('D')).prompt, null);
+  assert.equal(danesWords(ticket('merge PR #17')).prompt, 'merge PR #17');
+});
+
+// One Claude Code transcript, as ~/.claude/projects/<folder>/<chat>.jsonl stores it.
+const typed = (content, extra = {}) => ({ type: 'user', message: { role: 'user', content }, ...extra });
+const toolOut = (text) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: text }] } });
+
+test('typedWords is what a person typed, and nothing a tool, a skill or a loop wrote', () => {
+  assert.equal(typedWords(typed('  Build the simple to-do list  ')), 'Build the simple to-do list');
+  assert.equal(typedWords(typed([{ type: 'text', text: 'Add a filter bar' }])), 'Add a filter bar');
+  // A slash command counts by what he typed after it.
+  assert.equal(typedWords(typed('<command-message>loop-spec</command-message>\n<command-name>/loop-spec</command-name>\n<command-args>Let members vote on points</command-args>')), 'Let members vote on points');
+  assert.equal(typedWords(typed('<command-message>loop-build</command-message>\n<command-name>/loop-build</command-name>')), null);
+  assert.equal(typedWords(typed('<command-name>/loop</command-name>\n<command-args>15m /loop-build</command-args>')), null);
+  assert.equal(typedWords(toolOut('Created task 86bcx0aku')), null);
+  assert.equal(typedWords(typed([{ type: 'text', text: 'Base directory for this skill: /x\n\n# Loop: Build' }])), null);
+  assert.equal(typedWords(typed('<system-reminder>a note</system-reminder>')), null);
+  assert.equal(typedWords(typed('[Request interrupted by user]')), null);
+  assert.equal(typedWords(typed('Do the thing', { isMeta: true })), null);
+  assert.equal(typedWords(typed('Write the report', { isSidechain: true })), null);
+  assert.equal(typedWords({ type: 'assistant', message: { role: 'assistant', content: 'I will build it' } }), null);
+});
+
+test('createdTickets reads the "Created task <id>" line the ClickUp script prints', () => {
+  assert.deepEqual(createdTickets(toolOut('\nCreated task 86bcgh5n9\n  https://app.clickup.com/t/86bcgh5n9\n')), ['86bcgh5n9']);
+  assert.deepEqual(createdTickets({ type: 'user', message: { content: [{ type: 'tool_result', content: [{ type: 'text', text: 'Created task 86bcaaaa1' }] }] } }), ['86bcaaaa1']);
+  // A mention is not a making.
+  assert.deepEqual(createdTickets(toolOut('id: 86bcgh5n9\nname: The first usable version')), []);
+  assert.deepEqual(createdTickets(typed('Created task 86bcgh5n9')), []);
+});
+
+test('chatWords gives the request he typed before the chat made each ticket', () => {
+  const chat = [
+    typed('Build the simple to-do list, with points on every task'),
+    toolOut('Created task 86bcone01'),
+    typed('Now let members vote on what a task is worth'),
+    typed('yes'), // a reply, not the request it answers
+    toolOut('Created task 86bctwo02\nCreated task 86bcthr03'),
+    toolOut('Created task 86bcnotme'),
+  ];
+  const got = chatWords(chat, new Set(['86bcone01', '86bctwo02', '86bcthr03', '86bcmiss4']));
+  assert.equal(got.get('86bcone01'), 'Build the simple to-do list, with points on every task');
+  assert.equal(got.get('86bctwo02'), 'Now let members vote on what a task is worth');
+  assert.equal(got.get('86bcthr03'), 'Now let members vote on what a task is worth');
+  // Not asked for, or not made in this chat: absent.
+  assert.equal(got.has('86bcnotme'), false);
+  assert.equal(got.has('86bcmiss4'), false);
+});
+
+test('a ticket a loop made in a chat nobody typed in has no words, and is said to', () => {
+  const loop = [typed('<command-message>loop-spec</command-message>\n<command-name>/loop-build</command-name>'), toolOut('Created task 86bcloop1')];
+  const got = chatWords(loop, new Set(['86bcloop1']));
+  assert.equal(got.has('86bcloop1'), true);
+  assert.equal(got.get('86bcloop1'), null);
+  assert.equal(chatWords([], new Set(['86bcloop1'])).size, 0);
+});
+
+test('the summary Claude Code writes when it compacts a chat is not his typing', () => {
+  const summary = typed('This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.', { isCompactSummary: true });
+  assert.equal(typedWords(summary), null);
+  const chat = [typed('Let members vote on points'), summary, toolOut('Created task 86bccomp1')];
+  assert.equal(chatWords(chat, new Set(['86bccomp1'])).get('86bccomp1'), 'Let members vote on points');
+});
+
+test('a null from one chat never hides a real request in another, and the first request wins', () => {
+  const found = new Map();
+  addChatWords(found, new Map([['86bcone01', null], ['86bctwo02', 'Add a filter bar']]));
+  addChatWords(found, new Map([['86bcone01', 'Build the simple to-do list'], ['86bctwo02', 'Something later']]));
+  addChatWords(found, new Map([['86bcone01', null], ['86bcthr03', null]]));
+  assert.equal(found.get('86bcone01'), 'Build the simple to-do list');
+  assert.equal(found.get('86bctwo02'), 'Add a filter bar');
+  assert.equal(found.has('86bcthr03'), true);
+  assert.equal(found.get('86bcthr03'), null);
+});
+
+test('a retake keeps the row\'s own words, so it pictures the page recapture chose from them', () => {
+  const row = { prompt: 'Fix the profile page', thread_url: 'https://app.clickup.com/t/86bcchat1', task_id: 'w1' };
+  const ticketHasNone = { prompt: null, threadUrl: null, taskId: null, noTask: null };
+  const kept = captureWords(ticketHasNone, row);
+  assert.equal(kept.prompt, row.prompt);
+  assert.equal(kept.threadUrl, row.thread_url);
+  assert.equal(kept.taskId, 'w1');
+  // His request names the page: recapture chose /profile from the row, and the
+  // retake now does too (before, it chose / from the ticket's empty words, so
+  // the row stayed due and was retaken on every run).
+  const files = ['app/page.tsx', 'app/profile/page.tsx', 'app/tasks/page.tsx'];
+  const info = { title: 'Tidy shared styles', changed: ['app/globals.css'], added: [], files };
+  assert.equal(choosePage({ ...info, prompt: row.prompt }), '/profile');
+  assert.equal(choosePage({ ...info, prompt: kept.prompt }), '/profile');
+  assert.equal(choosePage({ ...info, prompt: ticketHasNone.prompt }), '/');
+  // Ticket could not be read: the row's words still stand.
+  assert.equal(captureWords(null, row).prompt, row.prompt);
+  // A row with no words takes the ticket's, and with neither, none.
+  assert.equal(captureWords({ prompt: 'Build it', threadUrl: 'u', taskId: null }, { prompt: null, task_id: 'w2' }).prompt, 'Build it');
+  assert.deepEqual(captureWords(null, { prompt: null, task_id: 'w2' }), { prompt: null, threadUrl: null, taskId: 'w2' });
+  assert.deepEqual(captureWords(null), { prompt: null, threadUrl: null, taskId: null });
+  // A first capture uses the ticket's words as before.
+  assert.equal(captureWords(ticketHasNone), ticketHasNone);
 });
 
 test('times are shown in Mountain time', () => {

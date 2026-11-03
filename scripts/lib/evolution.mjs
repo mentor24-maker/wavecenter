@@ -290,9 +290,22 @@ function fromWaveCenter(description) {
 }
 
 /**
+ * An @@ASKED that says his words are not there: the merge lane's own cards
+ * ("No instruction from Dane: …", runAlertCard) and a session's admission
+ * ("Your exact words aren't recorded on this ticket. …", 86bch43yw). An
+ * agent wrote it, so it is never shown as his.
+ */
+const NO_WORDS = /^(No instruction from Dane\b|Your (exact )?words (aren['’]t|are not) (recorded|on record)\b)/i;
+/** Fewer words than this is a reply ("yes", "B", "merge"), not the request it answers. */
+const REQUEST_WORDS = 3;
+const isRequest = (words) => words.split(/\s+/).filter(Boolean).length >= REQUEST_WORDS;
+
+/**
  * The @@ASKED words of the first operator card in `comments` (oldest first,
- * each { text }), as ClickUp stores the card: the heading, his words, an
- * optional "(when)" line, then "WHAT'S GOING ON".
+ * each { text }) that holds a request of his, as ClickUp stores the card:
+ * the heading, his words, an optional "(when)" line, then "WHAT'S GOING ON".
+ * A card whose words are a reply ("A", "D", "added": a later card on the
+ * ticket answering a question) or say none are on record is passed over.
  */
 function firstCardWords(comments) {
   for (const c of comments || []) {
@@ -305,7 +318,7 @@ function firstCardWords(comments) {
     const paragraphs = words.slice(0, end).trim().split(/\n\s*\n/);
     if (paragraphs.length > 1 && /^\([^\n]*\)$/.test(paragraphs.at(-1).trim())) paragraphs.pop();
     words = paragraphs.join('\n\n').trim();
-    if (words) return words;
+    if (isRequest(words) && !NO_WORDS.test(words)) return words;
   }
   return null;
 }
@@ -317,8 +330,8 @@ function firstCardWords(comments) {
  * - a ticket tagged from-wavecenter: the WaveCenter task's title and notes
  *   from its "## From WaveCenter" block, linking to that task (/tasks/<id>,
  *   an address on WaveCenter itself, whatever its host);
- * - any other ticket: the @@ASKED words of its first operator card,
- *   linking to the ticket.
+ * - any other ticket: the @@ASKED words of its first operator card that
+ *   holds a request of his (firstCardWords), linking to the ticket.
  *
  * Verbatim, whitespace trimmed. { prompt: null, threadUrl: null } when the
  * ticket holds none of his words.
@@ -337,6 +350,91 @@ export function danesWords(ticket) {
   }
   const asked = firstCardWords(ticket.comments);
   return asked ? { prompt: asked, threadUrl: ticket.url ?? null, taskId } : { ...none, taskId };
+}
+
+// ------------------------------------------- his words in a Claude Code chat
+
+/** Commands that start a loop pass: what follows them is the loop's, not his. */
+const LOOP_COMMANDS = new Set(['/loop', '/loop-build', '/loop-review', '/loop-handoff']);
+function textOf(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content) || content.some((b) => b?.type === 'tool_result')) return null;
+  return content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n');
+}
+
+/**
+ * What a person typed in one Claude Code transcript entry (a line of
+ * ~/.claude/projects/<folder>/<session>.jsonl), verbatim and trimmed, or
+ * null: a tool's output, a skill's text, a system note, a loop's command,
+ * a subagent's prompt, or the summary Claude Code writes when it compacts a
+ * long chat ("This session is being continued…") is nobody's typing. A slash command counts by what
+ * was typed after it ("/loop-spec <his idea>" is his idea).
+ */
+export function typedWords(entry) {
+  if (entry?.type !== 'user' || entry.isMeta || entry.isSidechain || entry.isCompactSummary || entry.message?.role !== 'user') return null;
+  const text = String(textOf(entry.message.content) ?? '').trim();
+  if (!text) return null;
+  const command = text.match(/<command-name>([^<]*)<\/command-name>/);
+  if (command) {
+    if (LOOP_COMMANDS.has(command[1].trim())) return null;
+    const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/);
+    return args?.[1].trim() || null;
+  }
+  if (text.startsWith('<') || /^(Base directory for this skill|\[Request interrupted|Caveat:)/.test(text)) return null;
+  return text;
+}
+
+/** The ClickUp tickets an entry's tool output says were just made (`clickup.mjs task` prints "Created task <id>"). */
+export function createdTickets(entry) {
+  if (entry?.type !== 'user' || !Array.isArray(entry.message?.content)) return [];
+  const out = [];
+  for (const block of entry.message.content) {
+    if (block?.type !== 'tool_result') continue;
+    const text = typeof block.content === 'string' ? block.content : (block.content || []).map((b) => b?.text ?? '').join('\n');
+    for (const m of text.matchAll(/^Created task ([A-Za-z0-9]+)$/gm)) out.push(m[1]);
+  }
+  return out;
+}
+
+/**
+ * Dane's words behind each ticket in `wanted` (a Set of ids) that this one
+ * chat (its entries, in order) created: the last request he typed before
+ * the ticket was made, verbatim. A ticket made in a chat where nobody typed
+ * (a loop pass) maps to null. A ticket this chat did not create is absent.
+ */
+export function chatWords(entries, wanted) {
+  const found = new Map();
+  let last = null;
+  for (const e of entries || []) {
+    const said = typedWords(e);
+    if (said && isRequest(said)) last = said;
+    for (const id of createdTickets(e)) if (wanted.has(id) && !found.has(id)) found.set(id, last);
+  }
+  return found;
+}
+
+/**
+ * Adds one chat's chatWords answers to `found` (the answers so far, across
+ * chats). The first real request for a ticket wins; a null (a loop made it,
+ * or nobody typed in that chat) never hides one another chat holds.
+ */
+export function addChatWords(found, got) {
+  for (const [id, words] of got) if (!found.has(id) || (found.get(id) == null && words != null)) found.set(id, words);
+  return found;
+}
+
+/**
+ * The words a capture records, and picks its page from. `fromTicket` is
+ * ticketWords' answer (null when the ticket could not be read). A retake
+ * keeps the row's own words when it has some (they may have come from a
+ * chat, which the ticket does not hold), so the page it retakes is the one
+ * recapture chose from those same words, and the two never disagree.
+ */
+export function captureWords(fromTicket, retake = null) {
+  const none = { prompt: null, threadUrl: null, taskId: null };
+  if (retake?.prompt) return { ...none, ...fromTicket, prompt: retake.prompt, threadUrl: retake.thread_url ?? null, taskId: fromTicket?.taskId ?? retake.task_id ?? null };
+  if (fromTicket) return fromTicket;
+  return retake ? { ...none, taskId: retake.task_id ?? null } : none;
 }
 
 /**
