@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import type { TaskStatus } from "../../../core/tasks.ts";
+import { headerPoints, type HeaderPoints } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
@@ -40,14 +41,15 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
     );
   }
 
-  const [name, isAdmin, read] = await Promise.all([
+  const [name, isAdmin, points, read] = await Promise.all([
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
+    headerPoints(supabase, user.id),
     TASK_ID.test(id) ? supabase.from("tasks").select().eq("id", id).maybeSingle() : { data: null, error: null },
   ]);
   if (read.error) {
     return (
-      <Shell name={name} isAdmin={isAdmin}>
+      <Shell name={name} isAdmin={isAdmin} points={points}>
         <p className="error" role="alert">
           This task could not be loaded: {read.error.message}. Nothing has been lost; try reloading the page.
         </p>
@@ -56,7 +58,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   }
   if (!read.data) {
     return (
-      <Shell name={name} isAdmin={isAdmin}>
+      <Shell name={name} isAdmin={isAdmin} points={points}>
         <p className="error" role="alert">This task was not found. It may have been deleted, or the link may be wrong.</p>
       </Shell>
     );
@@ -78,7 +80,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   const commentFiles = files.files.filter((f) => f.commentId);
 
   return (
-    <Shell name={name} isAdmin={isAdmin} title={task.title}>
+    <Shell name={name} isAdmin={isAdmin} points={points} title={task.title}>
       {task.status === "proposed" && (
         <p className="note proposed-notice" role="status">
           {mine ? "Your task was added as Proposed." : "This task is Proposed."} An admin needs to approve it before work starts.
@@ -197,10 +199,10 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 }
 
 /** The frame every state of the page shares: header, title, and the way back. */
-function Shell({ name, isAdmin, title, children }: { name?: string; isAdmin?: boolean; title?: string; children: ReactNode }) {
+function Shell({ name, isAdmin, points, title, children }: { name?: string; isAdmin?: boolean; points?: HeaderPoints; title?: string; children: ReactNode }) {
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <p><Link href="/tasks">&larr; Back to your tasks</Link></p>
         <h1>{title ?? "Task"}</h1>

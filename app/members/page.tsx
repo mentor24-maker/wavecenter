@@ -3,6 +3,7 @@ import { STARTING_ROLE_PERMISSIONS, mayDo, mayOpenAdmin, memberActions, ROLES } 
 import { messageEnvelopeNote } from "../../core/messages.ts";
 import { resendMailer } from "../lib/mailer";
 import { serviceAddressBook } from "../lib/messageAddressBook";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -51,10 +52,11 @@ export default async function Members() {
     );
   }
 
-  const [role, lists, name] = await Promise.all([
+  const [role, lists, name, points] = await Promise.all([
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     headerName(supabase, user),
+    headerPoints(supabase, user.id),
   ]);
   // The database's grants when they could be read; the starting ones
   // otherwise, which the database's own check repeats, so nobody sees more.
@@ -64,7 +66,7 @@ export default async function Members() {
   if (!mayView) {
     return (
       <>
-        <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
+        <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} points={points} />
         <main>
           <h1>Members</h1>
           {role.error !== null ? (
@@ -85,7 +87,7 @@ export default async function Members() {
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} />
+      <SiteHeader name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} points={points} />
       <main>
         <h1>Members</h1>
         <p className="lede">

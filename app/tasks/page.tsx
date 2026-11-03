@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import { DEFAULT_MEMBER_SETTINGS } from "../../core/agents.ts";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin, myRole } from "../lib/memberRoleStore";
 import { loadComments, loadFiles } from "../lib/taskReads";
@@ -47,7 +48,7 @@ type Supabase = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
 async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: string; email?: string | null } }) {
   const userId = user.id;
-  const [{ data: tasks, error }, settings, files, comments, votes, name, role, isAdmin] = await Promise.all([
+  const [{ data: tasks, error }, settings, files, comments, votes, name, role, isAdmin, points] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
@@ -64,6 +65,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
       (err: unknown) => ({ role: null, error: err instanceof Error ? err.message : String(err) }),
     ),
     headerIsAdmin(supabase, user.id),
+    headerPoints(supabase, user.id),
   ]);
   // A member who has never touched the switch has no row yet: that is "off",
   // not an error. A failed read is an error, and the switch says so.
@@ -86,7 +88,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         {error ? (
           <>

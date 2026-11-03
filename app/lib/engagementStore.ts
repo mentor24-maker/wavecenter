@@ -134,3 +134,19 @@ export function supabaseScoringRuleStore(supabase: Client): ScoringRuleStore {
     setReasons: (kind, reasons, tool) => call("set_scoring_factor_reasons", { rule_kind: kind, ...reasonParams(reasons), tool }),
   };
 }
+
+/** The header's point total: the number, or why it could not be read. */
+export type HeaderPoints = { value: number; error: null } | { value: null; error: string };
+
+/**
+ * For the header: the signed-in member's point total, the same one My Points
+ * shows. A failed read never becomes 0; it comes back as the reason, so the
+ * header can say the total could not be loaded (engineering rule 6).
+ */
+export async function headerPoints(supabase: Client, memberId: string): Promise<HeaderPoints> {
+  try {
+    return { value: await supabaseEngagementLedger(supabase, memberId).total(), error: null };
+  } catch (err) {
+    return { value: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}

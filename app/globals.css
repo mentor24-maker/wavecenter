@@ -170,6 +170,9 @@ html, body {
    as "Name | Log out"; a long name is cut short with "…" so Log out stays on screen. */
 .who .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who .sep, .who .account form { flex: none; }
+/* The point total sits between the name and Log out ("Name · 1,234 points | Log out")
+   and links to My Points; it never wraps, so a long name gives way first. */
+.who .dot, .who .points { flex: none; white-space: nowrap; }
 .who .account a.quiet, .who .account button.quiet { font-size: 0.8rem; }
 /* Signed out, the two ways in sit side by side. */
 .way-in { display: flex; align-items: center; gap: 0.85rem; }
@@ -409,8 +412,8 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   .brand span { display: none; }
   /* The 90px rings would run into the menu; the bar stays 150px tall. */
   .mark { width: 4rem; height: 4rem; }
-  /* Profile left the menu, so the name and Log out get a little more room. */
-  .who .account { max-width: 12rem; }
+  /* Profile left the menu, so the name, points and Log out get a little more room. */
+  .who .account { max-width: 15rem; }
 }
 
 /* Handing tasks to AI agents: the switch on the heading's line, the tick-box columns. */

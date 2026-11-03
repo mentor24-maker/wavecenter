@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import type { Proposal } from "../../core/proposals.ts";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin } from "../lib/memberRoleStore";
 import { listProposals } from "../lib/proposalStore";
@@ -36,18 +37,19 @@ export default async function Proposals() {
     );
   }
 
-  const [proposals, name, isAdmin] = await Promise.all([
+  const [proposals, name, isAdmin, points] = await Promise.all([
     listProposals(supabase).then(
       (value): { value: Proposal[]; error: null } => ({ value, error: null }),
       (err: unknown) => ({ value: null, error: err instanceof Error ? err.message : String(err) }),
     ),
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
+    headerPoints(supabase, user.id),
   ]);
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Proposals</h1>
         <p className="note">

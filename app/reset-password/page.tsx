@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { setNewPassword } from "../auth/actions";
 import { MIN_PASSWORD_LENGTH } from "../auth/authErrors";
+import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import SiteHeader from "../SiteHeader";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -28,11 +29,13 @@ export default async function ResetPassword({ searchParams }: { searchParams: Pr
 
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
-  const name = supabase && user ? await headerName(supabase, user) : null;
+  const [name, points] = supabase && user
+    ? await Promise.all([headerName(supabase, user), headerPoints(supabase, user.id)])
+    : [null, undefined];
 
   return (
     <div className="landing">
-      <SiteHeader name={name} />
+      <SiteHeader name={name} points={points} />
       <main className="landing-single">
         <section className="landing-form panel" aria-labelledby="reset-heading">
           <h1 id="reset-heading">Set a new password</h1>
