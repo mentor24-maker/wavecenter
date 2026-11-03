@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — The spinning token disc and its Preview button (#141)
+
+Dane pictured a small coloured disc spinning up into a member's point
+total whenever they earn points. That animation now exists. The disc's
+size and colour come from the token sizes set on Game → Manage. It
+spins like a tossed coin as it floats up to the total in the header,
+and when it lands the number counts up. Each size on Game → Manage now
+has a Preview button, so an admin can watch it at that size and colour.
+A preview changes nobody's points: the number goes back after a moment.
+For members who have asked their device to reduce motion, there is no
+disc; the number just changes. It does not yet play when real points are
+earned. That is the next ticket.
+
 ## 2026-11-03 — Your point total in the header on every page (#139)
 
 Until now a member could see their points only on My Points. The header
