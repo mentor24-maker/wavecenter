@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Token settings on Game Manage: sizes, colours and point levels (#140)
+
+Game → Manage has a new Tokens section. A token is the small coloured disc
+that will soon float up to a member's point total when they earn points.
+Admins can now set how many sizes there are, how big each one is, what
+colour it is, and how many points it takes to get each size. It starts with
+three: Small from 1 point, Medium from 5 and Large from 20. The animation
+itself comes in a later ticket. Only an admin can change the sizes, and the
+database enforces that as well, so a non-admin cannot get around it. If a
+save fails, the page says so and keeps what was typed, for example when two
+sizes are given the same point level. If every size is removed, the page
+says why the table is empty.
+
 ## 2026-11-03 — Proposed and Change columns centred on Recalculate action points (#137)
 
 On Admin → Recalculate action points, the Change column ("1 → 3") was
