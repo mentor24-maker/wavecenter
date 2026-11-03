@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — New welcome words on the Evolution slider (#128)
+
+Dane rewrote the sentence under "Evolution of WaveCenter" on the home page.
+It now invites visitors in: "See the evolution of WaveCenter, from the very
+first instruction to it’s current version — task by task. Then get busy
+helping build WaveCenter yourself!" The line above the pictures that counted
+the changes and explained the arrows is gone, so the box opens straight onto
+the slider. The slider itself works exactly as before.
+
 ## 2026-11-02 — Members can make proposals on a new Proposals page (#127)
 
 Dane wanted a place for ideas that could become tasks once they pass
