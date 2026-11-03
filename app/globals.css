@@ -811,11 +811,12 @@ dialog.evolution-full img { display: block; max-width: 100%; max-height: calc(10
 .formula-explained ul li { margin-bottom: 0.35rem; }
 table.recalc-table { min-width: 36rem; margin: 0; }
 table.recalc-table tr.recalc-changes td { background: var(--level-2); }
-/* Every cell gets space on both sides, and the number columns are centred,
-   so Proposed and Change never run together ("3" + "1 → 3" read "31 → 3"). */
+/* Every cell gets space on both sides, and the number columns and Change
+   are centred, so Proposed and Change never run together ("3" + "1 → 3" read "31 → 3"). */
 table.recalc-table th, table.recalc-table td { padding: 0.5rem 0.75rem; }
 table.recalc-table th:first-child, table.recalc-table td:first-child { padding-left: 0; }
 table.recalc-table .num { text-align: center; padding-right: 0.75rem; }
+table.recalc-table .change { text-align: center; white-space: nowrap; }
 /* Each factor number opens the reason behind it; a wide enough target to tap. */
 table.recalc-table button.factor-score { font: inherit; min-width: 1.75rem; min-height: 1.75rem; }
 table.rule-table .col-factors { width: 11rem; }
