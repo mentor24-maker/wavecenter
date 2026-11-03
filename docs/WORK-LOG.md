@@ -7,6 +7,18 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — The Admin page explains how action points are worked out (#132)
+
+The Recalculate action points panel showed the formula in one dense line
+and labelled its columns only E, V, R and F. It now has a "How the formula
+works" section that opens on a click: what Effort, Value, Rarity and Farm
+risk each mean, how high each can go, how each one raises or lowers the
+points, and the plain test for every level. Four worked examples show the
+sum step by step, including one where rarity does not count and one where
+the total stops at 0. The wording and sums are read from the same code the
+formula uses, and a test checks every example, so the explanation cannot
+quietly fall out of step with the real scores.
+
 ## 2026-11-02 — The Recalculate action points table is readable (#130)
 
 On Admin → Recalculate action points, the Proposed number and the Change
