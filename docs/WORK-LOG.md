@@ -21,6 +21,19 @@ with no WaveCenter task linked shows no credit, and nothing on it breaks.
 
 ---
 
+## 2026-11-02 — Home's first box says what WaveCenter is in 20 words (#125)
+
+Dane asked for a compelling 20-word description in the first box on Home,
+and for its link to read "Learn more about WaveCenter". The box is now
+headed **What is WaveCenter** (his choice when asked) and reads: "The hub of
+the DEO movement: a member-owned collaboration platform where every
+contribution is tracked, valued in points, and rewarded." Every phrase comes
+from the canon or wavecenter.com, and a test keeps it at exactly 20 words.
+No member had saved their own words for the box, so the new ones show
+straight away; an admin can still change them with the pencil.
+
+---
+
 ## 2026-11-02 — The Admin page can work out every action's points by formula (#113)
 
 Dane wanted the new way of valuing game actions to run as a job he starts
