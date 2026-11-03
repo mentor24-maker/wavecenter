@@ -6,11 +6,13 @@
  * values; it saves nothing. "Put these live" saves only the rows that would
  * change, and says how many did and which did not, with the reason
  * (engineering rule 6). An action with no factor scores yet reads "not
- * scored yet" and is left alone.
+ * scored yet" and is left alone. Each factor number is a button that opens
+ * a pop-up saying why the action got that score (FactorDialog).
  */
 import { useState, useTransition } from "react";
-import { FACTOR_KEYS, FACTOR_TESTS, type GranularApplyResult, type GranularProposal } from "../../core/game.ts";
+import { FACTOR_KEYS, FACTOR_TESTS, type FactorKey, type GranularApplyResult, type GranularProposal } from "../../core/game.ts";
 import { putActionPointsLive, recalculateActionPoints } from "./actions";
+import FactorDialog from "./FactorDialog";
 
 const UNREACHABLE = "Could not reach WaveCenter. Check your connection and try again.";
 
@@ -28,6 +30,7 @@ export default function RecalculatePoints() {
   const [rows, setRows] = useState<GranularProposal[] | null>(null);
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState<{ row: GranularProposal; factor: FactorKey } | null>(null);
   const changing = rows?.filter((r) => r.changes) ?? [];
 
   function recalculate() {
@@ -83,6 +86,7 @@ export default function RecalculatePoints() {
           <p className="note">
             Proposed = 1 + E + 2 × V + R, so every action scores at least 1. F (farm risk) is scored but does not change the points. The Now column is today&apos;s value and is not part of the formula.
           </p>
+          <p className="note">Click any E, V, R or F number to see why the action got that score.</p>
           <div className="rule-table-wrap">
             <table className="game recalc-table">
               <thead>
@@ -98,7 +102,20 @@ export default function RecalculatePoints() {
                 {rows.map((r) => (
                   <tr key={r.kind} className={r.changes ? "recalc-changes" : undefined}>
                     <td>{r.name}</td>
-                    {FACTOR_KEYS.map((k) => <td key={k} className="num">{r.factors ? r.factors[k] : "–"}</td>)}
+                    {FACTOR_KEYS.map((k) => (
+                      <td key={k} className="num">
+                        {r.factors ? (
+                          <button
+                            type="button"
+                            className="link factor-score"
+                            aria-label={`${r.name}: ${FACTOR_TESTS[k].name} ${r.factors[k]}. Why?`}
+                            onClick={() => setOpen({ row: r, factor: k })}
+                          >
+                            {r.factors[k]}
+                          </button>
+                        ) : "–"}
+                      </td>
+                    ))}
                     <td className="num">{r.now}</td>
                     <td className="num">{r.proposed ?? <span className="note">not scored yet</span>}</td>
                     <td>
@@ -109,6 +126,18 @@ export default function RecalculatePoints() {
               </tbody>
             </table>
           </div>
+          {/* Keyed, and closing clears only its own choice, so a late close
+              from the last pop-up never shuts the next one. */}
+          {open && open.row.factors && (
+            <FactorDialog
+              key={`${open.row.kind}:${open.factor}`}
+              action={open.row.name}
+              factor={open.factor}
+              score={open.row.factors[open.factor]}
+              reason={open.row.reasons[open.factor]}
+              onClose={() => setOpen((now) => (now === open ? null : now))}
+            />
+          )}
           <p>
             <button type="button" onClick={putLive} disabled={pending || !changing.length}>Put these live</button>
           </p>

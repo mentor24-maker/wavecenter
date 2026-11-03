@@ -541,6 +541,12 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   them, through `set_scoring_factors` or `add_scoring_rule`. The Admin page's
   **Recalculate action points** works out every action's points from them and
   saves the changed ones only when an admin clicks **Put these live**.
+  Each row also stores one sentence per factor saying why the action got
+  that score: `effort_reason`, `value_reason`, `rarity_reason` and
+  `farm_risk_reason`, plain text, null meaning "no reason written yet".
+  Added by `20261103120000_scoring_factor_reasons.sql` under the same
+  row-level security; the Admin page shows them when a factor's number is
+  clicked. They change no points.
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
   worth. A task's `points` is one; the owner, human, AI and final scores

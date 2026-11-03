@@ -8,7 +8,7 @@ import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
   applyGranularPoints, changeScoringFactors, changeScoringRule, checkFactors, checkRuleFields, engagementKindForTask, granularPoints,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
-  totalPoints, type EngagementInput, type GameActor, type ScoringFactors,
+  totalPoints, type EngagementInput, type FactorReasons, type GameActor, type ScoringFactors,
 } from './game.ts';
 import { saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
@@ -481,10 +481,54 @@ test('the migration fills every action the document scores, with the same factor
   assert.deepEqual(filled, documentRows().map((r) => ({ kind: r.kind, factors: r.factors })));
 });
 
+/** The document's "Why each factor got its score" table: per action, each factor's score and the reason for it. */
+function documentReasons() {
+  const doc = readFileSync(new URL('../docs/GRANULAR_SCORING_ALGORITHM.md', import.meta.url), 'utf8');
+  const section = doc.slice(doc.indexOf('### Why each factor got its score'), doc.indexOf('## Scoring an action added later'));
+  const keyOf = Object.fromEntries(Object.entries(FACTOR_TESTS).map(([k, t]) => [t.name, k as keyof ScoringFactors]));
+  const byKind = new Map<string, { factors: Partial<ScoringFactors>; reasons: Partial<FactorReasons> }>();
+  for (const m of section.matchAll(/^\| ([^|]+?) \| (Effort|Value|Rarity|Farm risk) \| (\d) \| ([^|]+?) \|$/gm)) {
+    const kind = STARTING_SCORING_RULES.find((r) => r.name === m[1])?.kind ?? kindFromName(m[1]);
+    const row = byKind.get(kind) ?? { factors: {}, reasons: {} };
+    row.factors[keyOf[m[2]]] = Number(m[3]);
+    row.reasons[keyOf[m[2]]] = m[4];
+    byKind.set(kind, row);
+  }
+  return byKind;
+}
+
+test('every action the document scores has one reason per factor, given against the same score', () => {
+  const reasons = documentReasons();
+  const rows = documentRows();
+  assert.deepEqual([...reasons.keys()], rows.map((r) => r.kind));
+  for (const r of rows) {
+    assert.deepEqual(reasons.get(r.kind)?.factors, r.factors, `${r.name}: the reasons table gives the same scores`);
+    for (const k of Object.keys(FACTOR_TESTS)) assert.ok(reasons.get(r.kind)?.reasons[k as keyof ScoringFactors], `${r.name}: ${k} has a reason`);
+  }
+});
+
+test('the reasons migration stores the document\'s 96 reasons word for word, and changes nothing else', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261103120000_scoring_factor_reasons.sql', import.meta.url), 'utf8');
+  const quoted = String.raw`'((?:[^']|'')*)'`;
+  const filled = [...sql.matchAll(new RegExp(String.raw`^\s*\('([a-z_]+)',\s*${quoted},\s*${quoted},\s*${quoted},\s*${quoted}\)`, 'gm'))].map((m) => [
+    m[1], m.slice(2, 6).map((t) => t.replaceAll("''", "'")),
+  ]);
+  const reasons = documentReasons();
+  assert.deepEqual(filled, [...reasons].map(([kind, r]) => [kind, (['effort', 'value', 'rarity', 'farmRisk'] as const).map((k) => r.reasons[k])]));
+  const code = sql.replace(/--.*$/gm, '');
+  assert.doesNotMatch(code, /set[^;]*\b(points|effort|value|rarity|farm_risk)\s*=/i, 'the migration changes no points and no factor');
+  assert.doesNotMatch(code, /grant (insert|update|delete|all)[^;]*on public\.game_scoring_rules/i, 'members never write the table directly');
+});
+
 function scoredLedger() {
   const ledger = new MemoryEngagementStore();
   const rows = documentRows();
-  ledger.ruleList = ledger.ruleList.map((r) => ({ ...r, factors: rows.find((d) => d.kind === r.kind)?.factors ?? null }));
+  const reasons = documentReasons();
+  ledger.ruleList = ledger.ruleList.map((r) => ({
+    ...r,
+    factors: rows.find((d) => d.kind === r.kind)?.factors ?? null,
+    reasons: (reasons.get(r.kind)?.reasons as FactorReasons | undefined) ?? null,
+  }));
   return ledger;
 }
 
@@ -495,12 +539,28 @@ test('the batch shows now and proposed for every action and saves nothing', asyn
   const proposals = await recalculateGranularPoints(ledger, ADMIN);
   assert.deepEqual(await ledger.rules(), before, 'nothing saved');
   assert.deepEqual(proposals.find((p) => p.kind === 'finished_task'), {
-    kind: 'finished_task', name: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 }, now: 5, proposed: 11, changes: true,
+    kind: 'finished_task', name: 'Finished a task', factors: { effort: 3, value: 3, rarity: 1, farmRisk: 3 },
+    reasons: documentReasons().get('finished_task')?.reasons, now: 5, proposed: 11, changes: true,
   });
   assert.deepEqual(proposals.find((p) => p.kind === 'switched_agents')?.changes, false, '1 stays 1');
   const unscored = proposals.find((p) => p.kind === 'shared_a_link');
   assert.deepEqual([unscored?.proposed, unscored?.changes], [null, false], 'not scored yet, never 0 by accident');
   await assert.rejects(recalculateGranularPoints(ledger, { role: 'viewer' }), /Only an admin can recalculate/);
+});
+
+test('the batch passes each action\'s factor reasons through unchanged; a reason not written yet is null', async () => {
+  const ledger = scoredLedger();
+  ledger.ruleList.push({ kind: 'shared_a_link', name: 'Shared a link', description: '', criteria: '', points: 1, position: 25, factors: null });
+  ledger.ruleList.push({
+    kind: 'read_a_task', name: 'Read a task', description: '', criteria: '', points: 1, position: 26,
+    factors: { effort: 0, value: 0, rarity: 0, farmRisk: 3 }, reasons: { effort: 'One click.', value: null, rarity: null, farmRisk: null },
+  });
+  const rules = await ledger.rules();
+  const proposals = await recalculateGranularPoints(ledger, ADMIN);
+  for (const r of rules.filter((x) => x.reasons)) assert.deepEqual(proposals.find((p) => p.kind === r.kind)?.reasons, r.reasons, r.name);
+  assert.equal(proposals.find((p) => p.kind === 'made_task')?.reasons.farmRisk, 'Paired with deleting it, so make-and-delete loops.');
+  assert.deepEqual(proposals.find((p) => p.kind === 'shared_a_link')?.reasons, { effort: null, value: null, rarity: null, farmRisk: null });
+  assert.deepEqual(proposals.find((p) => p.kind === 'read_a_task')?.reasons, { effort: 'One click.', value: null, rarity: null, farmRisk: null });
 });
 
 test('putting the batch live saves only the rows that change, and only for an admin', async () => {
