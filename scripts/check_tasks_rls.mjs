@@ -28,7 +28,9 @@
  * rows and screenshots but only the service key writes them
  * (`public.evolution_entries` and the private `evolution` bucket); and that
  * every member reads the words in Home's boxes but only an admin changes
- * them (`public.home_boxes`), which are put back as they were afterwards.
+ * them (`public.home_boxes`), which are put back as they were afterwards;
+ * and that every member reads every proposal but adds, changes and deletes
+ * only their own (`public.proposals`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -51,6 +53,7 @@ import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
+import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -303,6 +306,35 @@ function homeBoxStore(member) {
       });
       if (got.status >= 300) throw new Error(`home_boxes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
       return fromRow(got.json?.[0]) ?? null;
+    },
+  };
+}
+
+/** A ProposalStore (core/proposals.ts) over REST, acting as one member. */
+function proposalStore(member) {
+  const COLUMNS = { title: 'title', notes: 'notes', status: 'status', parentProposalId: 'parent_proposal_id', points: 'points', position: 'position', priority: 'priority', tool: 'tool' };
+  const toRow = (fields) => Object.fromEntries(Object.entries(fields).map(([k, v]) => [COLUMNS[k], v]));
+  const fromRow = (r) => r && {
+    id: r.id, title: r.title, notes: r.notes, ownerId: r.owner_id, status: r.status, parentProposalId: r.parent_proposal_id,
+    points: r.points, position: r.position, priority: r.priority, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+  const mine = (id) => `/rest/v1/proposals?id=eq.${id}&owner_id=eq.${member.id}`;
+  const sure = (got, what) => {
+    if (got.status >= 300) throw new Error(`proposals ${what} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return got.json ?? [];
+  };
+  return {
+    async insert(row) {
+      return fromRow(sure(await call('/rest/v1/proposals', { method: 'POST', token: member.token, prefer: 'return=representation', body: toRow(row) }), 'insert')[0]);
+    },
+    async get(id) {
+      return fromRow(sure(await call(`${mine(id)}&select=*`, { token: member.token }), 'read')[0]) ?? null;
+    },
+    async update(id, changes) {
+      return fromRow(sure(await call(mine(id), { method: 'PATCH', token: member.token, prefer: 'return=representation', body: toRow(changes) }), 'update')[0]) ?? null;
+    },
+    async remove(id) {
+      return sure(await call(mine(id), { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'delete').length > 0;
     },
   };
 }
@@ -768,6 +800,42 @@ try {
     const restored = (await admin('/rest/v1/home_boxes?select=box,body,tool&order=box')).json;
     const want = [...homeBefore].sort((x, y) => x.box.localeCompare(y.box));
     check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
+  }
+
+  // Proposals (20261102210000_proposals.sql): every member reads every
+  // proposal; a member adds, changes and deletes only their own, through core
+  // or straight at the table. The test members' proposals go with their
+  // accounts at the end (owner_id cascades).
+  {
+    const propA = await createProposal(proposalStore(a), { title: 'A’s proposal', notes: 'why', points: 3, priority: 'high' }, TOOL);
+    check('a member adds a proposal through core, owned by them and naming the tool', propA.ownerId === a.id && propA.tool === TOOL && propA.points === 3 && propA.priority === 'high', JSON.stringify(propA));
+    const propB = await createProposal(proposalStore(b), { title: 'B’s proposal' }, TOOL);
+    const both = await call(`/rest/v1/proposals?id=in.(${propA.id},${propB.id})&select=id`, { token: b.token });
+    check('every member reads every proposal', both.status === 200 && both.json?.length === 2, `HTTP ${both.status} ${JSON.stringify(both.json)}`);
+    const viaCore = await updateProposal(proposalStore(b), propA.id, { title: 'Hijacked' }, TOOL).then(() => '', (e) => e.message);
+    const delCore = await deleteProposal(proposalStore(b), propA.id, TOOL).then(() => '', (e) => e.message);
+    check('a member cannot change or delete another member’s proposal through core', /may change/.test(viaCore) && /may delete/.test(delCore), `${viaCore} / ${delCore}`);
+    const patch = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { title: 'Hijacked', owner_id: b.id } });
+    const del = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    const forge = await call('/rest/v1/proposals', { method: 'POST', token: b.token, body: { title: 'forged', owner_id: a.id } });
+    const stillA = (await admin(`/rest/v1/proposals?id=eq.${propA.id}&select=title,owner_id`)).json?.[0];
+    check('a member cannot change, delete or forge another member’s proposal straight at the table',
+      patch.json?.length === 0 && del.json?.length === 0 && forge.status >= 400 && stillA?.title === 'A’s proposal' && stillA?.owner_id === a.id,
+      `patch ${JSON.stringify(patch.json)}, delete ${JSON.stringify(del.json)}, forge HTTP ${forge.status}, row ${JSON.stringify(stillA)}`);
+    const takeOver = await call(`/rest/v1/proposals?id=eq.${propB.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_id: a.id } });
+    check('a member cannot hand their proposal to someone else', takeOver.status >= 400, `HTTP ${takeOver.status} ${JSON.stringify(takeOver.json)}`);
+    const changed = await updateProposal(proposalStore(a), propA.id, { title: 'A’s proposal, changed', status: 'doing', points: 5 }, TOOL);
+    check('the owner changes their own proposal through core', changed.title === 'A’s proposal, changed' && changed.status === 'doing' && changed.points === 5, JSON.stringify(changed));
+    const bad = await call('/rest/v1/proposals', { method: 'POST', token: a.token, body: [{ title: ' \n ' }] });
+    const negative = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: a.token, body: { points: -1 } });
+    const proposed = await call(`/rest/v1/proposals?id=eq.${propA.id}`, { method: 'PATCH', token: a.token, body: { status: 'proposed' } });
+    check('the database refuses a blank title, negative points and a status a proposal does not have', bad.status >= 400 && negative.status >= 400 && proposed.status >= 400,
+      `blank HTTP ${bad.status}, negative HTTP ${negative.status}, proposed HTTP ${proposed.status}`);
+    await deleteProposal(proposalStore(a), propA.id, TOOL);
+    const gone = (await admin(`/rest/v1/proposals?id=eq.${propA.id}&select=id`)).json;
+    check('the owner deletes their own proposal through core', Array.isArray(gone) && gone.length === 0, JSON.stringify(gone));
+    const anonProposals = await call('/rest/v1/proposals?select=id');
+    check('a signed-out visitor sees no proposals', anonProposals.status >= 400 || anonProposals.json?.length === 0, `HTTP ${anonProposals.status} ${JSON.stringify(anonProposals.json)}`);
   }
 
   // task_files and the task-files bucket: a member's attached files are their own.
