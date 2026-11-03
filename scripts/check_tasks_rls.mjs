@@ -29,7 +29,9 @@
  * (`public.evolution_entries` and the private `evolution` bucket); and that
  * every member reads the words in Home's boxes but only an admin changes
  * them (`public.home_boxes`), which are put back as they were afterwards;
- * and that every member reads every proposal but adds, changes and deletes
+ * that every member reads the token sizes but only a role with Manage game
+ * scoring adds, changes or removes one (`public.token_sizes`), also put back
+ * afterwards; and that every member reads every proposal but adds, changes and deletes
  * only their own (`public.proposals`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
@@ -53,6 +55,7 @@ import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
 import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
+import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
@@ -306,6 +309,25 @@ function roleStore(member) {
 }
 
 /** A HomeBoxStore (core/homeBoxes.ts) over REST, acting as one member. */
+/** A TokenStore (core/tokens.ts) over REST, acting as one member. */
+function tokenStore(member) {
+  const fromRow = (r) => r && { id: r.id, name: r.name, diameter: r.diameter, color: r.color, minPoints: r.min_points, tool: r.tool, updatedAt: r.updated_at };
+  const toRow = (f, tool) => ({ name: f.name, diameter: f.diameter, color: f.color, min_points: f.minPoints, tool });
+  const write = async (path, method, body) => {
+    const got = await call(path, { method, token: member.token, prefer: 'return=representation', body });
+    if (got.status >= 300) throw new Error(`token_sizes ${method} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    return got.json ?? [];
+  };
+  return {
+    async list() {
+      return ((await call('/rest/v1/token_sizes?select=*&order=min_points', { token: member.token })).json ?? []).map(fromRow);
+    },
+    async add(fields, tool) { return fromRow((await write('/rest/v1/token_sizes', 'POST', toRow(fields, tool)))[0]) ?? null; },
+    async change(id, fields, tool) { return fromRow((await write(`/rest/v1/token_sizes?id=eq.${id}`, 'PATCH', toRow(fields, tool)))[0]) ?? null; },
+    async remove(id) { return (await write(`/rest/v1/token_sizes?id=eq.${id}`, 'DELETE')).length > 0; },
+  };
+}
+
 function homeBoxStore(member) {
   const fromRow = (r) => r && { box: r.box, body: r.body, tool: r.tool, updatedAt: r.updated_at, updatedBy: r.updated_by };
   return {
@@ -812,6 +834,61 @@ try {
     const restored = (await admin('/rest/v1/home_boxes?select=box,body,tool&order=box')).json;
     const want = [...homeBefore].sort((x, y) => x.box.localeCompare(y.box));
     check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
+  }
+
+  // Token sizes (20261103150000_token_settings.sql): every member reads them;
+  // only a role with game.edit (admin; A is one, B a viewer) adds, changes or
+  // removes one, through core or straight at the table. This may run against
+  // the live database, so the sizes are put back as they were afterwards.
+  const TOKEN_COLUMNS = 'id,name,diameter,color,min_points,tool';
+  const tokensBefore = (await admin(`/rest/v1/token_sizes?select=${TOKEN_COLUMNS}&order=min_points`)).json;
+  if (!Array.isArray(tokensBefore)) throw new Error(`could not read the token sizes before checking them: ${JSON.stringify(tokensBefore)}`);
+  try {
+    const actorA = { role: 'admin' };
+    const actorB = { role: 'viewer' };
+    const level = 900_000 + Math.floor(Math.random() * 90_000);
+    const addedA = await addTokenSize(tokenStore(a), actorA, { name: 'RLS check', diameter: 30, color: '#123456', minPoints: level }, TOOL);
+    const stampA = await admin(`/rest/v1/token_sizes?id=eq.${addedA.id}&select=updated_by,tool`);
+    check('an admin adds a token size through core, and the database stamps who and the tool',
+      addedA.minPoints === level && stampA.json?.[0]?.updated_by === a.id && stampA.json?.[0]?.tool === TOOL, `${JSON.stringify(addedA)} ${JSON.stringify(stampA.json)}`);
+    const changedA = await changeTokenSize(tokenStore(a), actorA, addedA.id, { name: 'RLS check', diameter: 31, color: '#654321', minPoints: level }, TOOL);
+    check('an admin changes a token size through core', changedA.diameter === 31 && changedA.color === '#654321', JSON.stringify(changedA));
+    const readB = await call(`/rest/v1/token_sizes?id=eq.${addedA.id}&select=color`, { token: b.token });
+    check('a viewer reads the token sizes', readB.status === 200 && readB.json?.[0]?.color === '#654321', `HTTP ${readB.status} ${JSON.stringify(readB.json)}`);
+    const viaCore = await Promise.all([
+      addTokenSize(tokenStore(b), actorB, { name: 'Hijacked', diameter: 10, color: '#000000', minPoints: level + 1 }, TOOL).then(() => '', (e) => e.message),
+      changeTokenSize(tokenStore(b), actorB, addedA.id, { name: 'Hijacked', diameter: 10, color: '#000000', minPoints: level }, TOOL).then(() => '', (e) => e.message),
+      removeTokenSize(tokenStore(b), actorB, addedA.id, TOOL).then(() => '', (e) => e.message),
+    ]);
+    check('a viewer cannot add, change or remove a token size through core', viaCore.every((m) => /Only an admin can change the token sizes/.test(m)), JSON.stringify(viaCore));
+    // B plays a hostile client that claims to be an admin to core: the database still refuses.
+    const forgedCore = await addTokenSize(tokenStore(b), actorA, { name: 'Hijacked', diameter: 10, color: '#000000', minPoints: level + 2 }, TOOL).then(() => '', (e) => e.message);
+    const insertB = await call('/rest/v1/token_sizes', { method: 'POST', token: b.token, body: { name: 'Hijacked', diameter: 10, color: '#000000', min_points: level + 3, tool: TOOL } });
+    const patchB = await call(`/rest/v1/token_sizes?id=eq.${addedA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'Hijacked' } });
+    const deleteB = await call(`/rest/v1/token_sizes?id=eq.${addedA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    const afterB = await admin(`/rest/v1/token_sizes?select=id,name`);
+    const tokensNow = afterB.json ?? [];
+    check('a viewer cannot add, change or remove a token size straight at the table',
+      /refused|failed/.test(forgedCore) && insertB.status >= 400 && (patchB.status >= 400 || patchB.json?.length === 0) && (deleteB.status >= 400 || deleteB.json?.length === 0)
+        && !tokensNow.some((r) => r.name === 'Hijacked') && tokensNow.some((r) => r.id === addedA.id),
+      `core ${forgedCore}, insert HTTP ${insertB.status}, patch HTTP ${patchB.status} ${JSON.stringify(patchB.json)}, delete HTTP ${deleteB.status} ${JSON.stringify(deleteB.json)}`);
+    const forgedBy = await call(`/rest/v1/token_sizes?id=eq.${addedA.id}`, { method: 'PATCH', token: a.token, body: { updated_by: b.id } });
+    check('nobody can record someone else as the one who changed a token size', forgedBy.status >= 400, `HTTP ${forgedBy.status} ${forgedBy.json?.message ?? ''}`);
+    const shared = await call('/rest/v1/token_sizes', { method: 'POST', token: a.token, body: { name: 'Twin', diameter: 10, color: '#000000', min_points: level, tool: TOOL } });
+    const badColour = await call('/rest/v1/token_sizes', { method: 'POST', token: a.token, body: { name: 'Bad', diameter: 10, color: 'red', min_points: level + 4, tool: TOOL } });
+    const tooBig = await call('/rest/v1/token_sizes', { method: 'POST', token: a.token, body: { name: 'Bad', diameter: 500, color: '#000000', min_points: level + 5, tool: TOOL } });
+    check('the database refuses a shared point level, a colour that is not hex, and a size out of range', shared.status >= 400 && badColour.status >= 400 && tooBig.status >= 400,
+      `shared HTTP ${shared.status}, colour HTTP ${badColour.status}, size HTTP ${tooBig.status}`);
+    await removeTokenSize(tokenStore(a), actorA, addedA.id, TOOL);
+    const gone = await admin(`/rest/v1/token_sizes?id=eq.${addedA.id}&select=id`);
+    check('an admin removes a token size through core', gone.json?.length === 0, JSON.stringify(gone.json));
+    const anonTokens = await call('/rest/v1/token_sizes?select=id');
+    check('a signed-out visitor sees no token sizes', anonTokens.status >= 400 || anonTokens.json?.length === 0, `HTTP ${anonTokens.status} ${JSON.stringify(anonTokens.json)}`);
+  } finally {
+    await admin('/rest/v1/token_sizes?id=not.is.null', { method: 'DELETE' });
+    if (tokensBefore.length) await admin('/rest/v1/token_sizes', { method: 'POST', body: tokensBefore });
+    const restored = (await admin(`/rest/v1/token_sizes?select=${TOKEN_COLUMNS}&order=min_points`)).json;
+    check('the token sizes are put back as they were', JSON.stringify(restored) === JSON.stringify(tokensBefore), `before ${JSON.stringify(tokensBefore)}, after ${JSON.stringify(restored)}`);
   }
 
   // Proposals (20261102210000_proposals.sql): every member reads every
