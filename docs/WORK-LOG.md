@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-02 — The password reset email looks like WaveCenter (#126)
+
+Dane asked for the "Forgot password" email to look nice instead of
+Supabase's plain default. It now opens with the water-drop picture, the
+gold-and-aqua rings and the WaveCenter name, all inside a box with a thin
+gold border and rounded corners, then a short message and one **Set a new
+password** button. Supabase gives every sign-in email one sender name, and
+Dane chose to keep it as "WaveCenter" for all of them, the reset included.
+A test member on the private test database asked for a reset, opened the
+email, clicked the button and set a new password that then worked for
+signing in. The live site needs the design pasted in once (step 5 of the
+email setup guide); it arrives from noreply@wavecenter.com once the Resend
+setup is switched on.
+
+---
+
 ## 2026-11-02 — The Admin page can work out every action's points by formula (#113)
 
 Dane wanted the new way of valuing game actions to run as a job he starts
