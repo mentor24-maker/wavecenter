@@ -13,7 +13,7 @@ Email comes from **`WaveCenter <noreply@wavecenter.com>`** (Dane's choice,
 sender and says to answer on Your profile in WaveCenter, so a reply reaches
 nobody's inbox and shows nobody's address (Dane's "A", 2026-11-01).
 
-Four steps, in order. Allow about 30 minutes, most of it waiting for DNS.
+Five steps, in order. Allow about 30 minutes, most of it waiting for DNS.
 Only Dane does these steps: three of them involve the secret key, and the key
 is never typed into a terminal or pasted into a chat.
 
@@ -172,6 +172,38 @@ your own address, and open it in that same window. The email should come from
 page again, turn **Enable custom SMTP** off, and click **Save changes**.
 Supabase's built-in sender takes over again at once. Then check the six
 fields above, most often the password or the port.
+
+Supabase has one sender name for every sign-in email it sends. It stays
+**`WaveCenter`** for all of them, the reset-password email included (Dane,
+2026-11-02: "Keep just WaveCenter for all of them, including password
+reset").
+
+---
+
+## Step 5. Give the reset-password email WaveCenter's look
+
+The reset email's design lives in
+[`supabase/templates/recovery.html`](../supabase/templates/recovery.html): the
+water-drop header with the rings and the WaveCenter name, in a box with a gold
+border and rounded corners. The local test stack reads it from there; the live
+project needs a pasted copy. This step does not need step 4, but until step 4
+is done the email still comes from Supabase's own address.
+
+1. Open [supabase.com/dashboard/project/dewzjgnydxwwblfuvyhb/auth/templates](https://supabase.com/dashboard/project/dewzjgnydxwwblfuvyhb/auth/templates)
+   (Authentication → Emails → **Templates**) and click **Reset password**.
+2. **Subject**: `Reset your WaveCenter password`
+3. **Message body**: select everything in the box and delete it, then paste
+   the whole of `recovery.html` (an agent session can put it on your
+   clipboard). The preview beside it should show the water-drop header and
+   the gold-edged box.
+4. Click **Save changes**.
+
+**Check it.** Open [app.wavecenter.com/forgot-password](https://app.wavecenter.com/forgot-password),
+type your own address and click the button. The email should show the new
+look, and its **Set a new password** button should open WaveCenter's
+set-a-new-password page.
+
+When `recovery.html` changes, paste it again.
 
 ---
 

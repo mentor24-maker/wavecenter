@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  WaveCenter's set-a-new-password email, sent by Supabase when a member clicks
+  "Forgot password". Plain HTML with inline styles and tables, because email
+  programs ignore style sheets and most modern layout. The box has the site
+  header on top (Dane's water-drop picture, the gold-and-aqua rings and the
+  WaveCenter name, as app/SiteHeader.tsx shows them) inside a 1px gold border
+  with 25px corners (Dane, 2026-11-02). Pictures use full addresses on
+  app.wavecenter.com: an email cannot load a path relative to the site.
+  The ConfirmationURL field is Supabase's own reset link; it lands on
+  /auth/confirm?next=reset and from there on the set-a-new-password page.
+  The live project holds a pasted copy of this file (docs/EMAIL_SETUP.md,
+  step 5): change both together.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Reset your WaveCenter password</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f2fbfe; color:#0b2533; font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2fbfe;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px; border:1px solid #9c7414; border-radius:25px; border-collapse:separate; background-color:#ffffff; overflow:hidden;">
+        <tr>
+          <td background="https://app.wavecenter.com/brand/header-drop-dark-left.jpg" bgcolor="#2c4a63" style="background-color:#2c4a63; background-image:url('https://app.wavecenter.com/brand/header-drop-dark-left.jpg'); background-position:left center; background-size:cover; background-repeat:no-repeat; border-radius:24px 24px 0 0; padding:24px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding-right:16px; vertical-align:middle;">
+                  <img src="https://app.wavecenter.com/brand/mark.png" width="60" height="60" alt="" style="display:block; width:60px; height:60px; border:0;">
+                </td>
+                <td style="vertical-align:middle; color:#ffffff; font-size:34px; line-height:1.1; font-weight:700; letter-spacing:-0.01em; text-shadow:0 0 2px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.85), 0 0 12px rgba(0,0,0,0.7);">
+                  Wave<b style="color:#ffffff; font-weight:700;">Center</b>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 28px 32px; font-size:16px; line-height:1.5; color:#0b2533;">
+            <p style="margin:0 0 16px; font-size:20px; font-weight:700;">Set a new password</p>
+            <p style="margin:0 0 16px;">Someone asked to reset the password for your WaveCenter account. Click the button below to choose a new one.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+              <tr>
+                <td bgcolor="#005f80" style="background-color:#005f80; border-radius:10px;">
+                  <a href="{{ .ConfirmationURL }}" style="display:inline-block; padding:12px 24px; color:#ffffff; font-weight:700; text-decoration:none; border-radius:10px;">Set a new password</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px; color:#30505f; font-size:14px;">If you did not ask for this, you can ignore this email. Your password stays the same.</p>
+            <p style="margin:0; color:#30505f; font-size:14px;">If the button does not work, copy this link into your browser:<br>
+              <a href="{{ .ConfirmationURL }}" style="color:#005f80; word-break:break-all;">{{ .ConfirmationURL }}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
