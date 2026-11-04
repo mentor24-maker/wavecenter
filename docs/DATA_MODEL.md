@@ -581,7 +581,8 @@ it as "Rescored Made a task".
   `make_scoring_final()` is the switch ("Manage game scoring" only, and
   only once); a trigger refuses any change back to provisional, any change
   to when or who, and deleting the row once final, even with the service
-  key. Reopening it, if ever needed, is a migration on Dane's written word.
+  key. The one change allowed is who going to nothing, when that admin's
+  account is deleted, so the row never points at an account that is gone. Reopening it, if ever needed, is a migration on Dane's written word.
   Every member reads the phase through `scoring_phase()`, which adds the
   name of who made it final if their profile is public; `/game` says
   whether points are provisional or final. Nobody writes the table

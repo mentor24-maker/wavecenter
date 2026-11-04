@@ -1549,17 +1549,28 @@ try {
         /already final/.test(againCore) && againDb.status >= 400 && /already final/.test(againDb.json?.message ?? ''), `core ${againCore}, database HTTP ${againDb.status} ${againDb.json?.message ?? ''}`);
       // Even the service key, which passes row-level security, cannot undo it: the trigger refuses.
       const reopen = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_provisional: true } });
-      const restamp = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_at: null, scoring_final_by: null } });
+      const restamp = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_at: null } });
+      const reassign = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_by: b.id } });
       const wipe = await admin('/rest/v1/game_settings?id=eq.true', { method: 'DELETE' });
       const after = await phaseStore(b).phase();
-      check('nobody can set points back to provisional, wipe who made them final, or delete the settings, even with the service key',
-        reopen.status >= 400 && /cannot be undone/.test(reopen.json?.message ?? '') && wipe.status >= 400
+      check('nobody can set points back to provisional, change when or who made them final, or delete the settings, even with the service key',
+        reopen.status >= 400 && /cannot be undone/.test(reopen.json?.message ?? '') && reassign.status >= 400 && /cannot be changed/.test(reassign.json?.message ?? '') && wipe.status >= 400
           && after.provisional === false && after.finalBy === a.id && after.finalAt === finalised.finalAt,
-        `reopen HTTP ${reopen.status} ${reopen.json?.message ?? ''}, restamp HTTP ${restamp.status} ${JSON.stringify(restamp.json)}, delete HTTP ${wipe.status}, now ${JSON.stringify(after)}`);
+        `reopen HTTP ${reopen.status} ${reopen.json?.message ?? ''}, restamp HTTP ${restamp.status} ${JSON.stringify(restamp.json)}, reassign HTTP ${reassign.status} ${reassign.json?.message ?? ''}, delete HTTP ${wipe.status}, now ${JSON.stringify(after)}`);
       const finalCore = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL).then(() => '', (e) => e.message);
       const finalDb = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
       check('once points are final, even an admin cannot rescore, through core or straight at the database',
         /Points are final/.test(finalCore) && finalDb.status >= 400 && /Points are final/.test(finalDb.json?.message ?? ''), `core ${finalCore}, database HTTP ${finalDb.status} ${finalDb.json?.message ?? ''}`);
+      // Deleting the admin who made points final clears who, and nothing else:
+      // the row must not keep pointing at an account that is gone.
+      const goneA = await admin(`/auth/v1/admin/users/${a.id}`, { method: 'DELETE' });
+      if (goneA.status < 300) users.splice(users.indexOf(a.id), 1);
+      const row = (await admin('/rest/v1/game_settings?id=eq.true&select=scoring_provisional,scoring_final_at,scoring_final_by')).json?.[0];
+      const afterGone = await phaseStore(b).phase().catch((e) => ({ error: e.message }));
+      check('deleting the admin who made points final clears who; points stay final and every member still reads the phase',
+        goneA.status < 300 && row?.scoring_final_by === null && row?.scoring_provisional === false
+          && afterGone.provisional === false && afterGone.finalBy === null && afterGone.finalAt === finalised.finalAt,
+        `delete HTTP ${goneA.status}, row ${JSON.stringify(row)}, phase ${JSON.stringify(afterGone)}`);
     } finally {
       // Points stay final on the test database: that cannot be undone, and db:test rebuilds it next run.
       await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });

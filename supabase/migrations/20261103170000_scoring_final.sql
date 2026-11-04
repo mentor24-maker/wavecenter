@@ -23,7 +23,8 @@ alter table public.game_settings add column if not exists scoring_final_at times
 alter table public.game_settings add column if not exists scoring_final_by uuid references auth.users (id) on delete set null;
 
 -- One way only. Final stays final, and keeps the date and the admin it was
--- given; provisional carries no final date. Every write is stamped.
+-- given (the admin is cleared only when their account is deleted);
+-- provisional carries no final date. Every write is stamped.
 create or replace function private.game_settings_stay_final()
 returns trigger
 language plpgsql
@@ -41,7 +42,14 @@ begin
   end if;
   if not old.scoring_provisional then
     new.scoring_final_at := old.scoring_final_at;
-    new.scoring_final_by := old.scoring_final_by;
+    -- Who made points final may only go from a name to nothing: deleting
+    -- that admin's account clears it (the foreign key's "on delete set
+    -- null" arrives as an update). Copying the old id back would leave the
+    -- row pointing at an account that no longer exists, and nothing could
+    -- repair it. Any other change to who is refused.
+    if new.scoring_final_by is not null and new.scoring_final_by is distinct from old.scoring_final_by then
+      raise exception 'Points are final for this DEO, and who made them final cannot be changed. Nothing was saved.' using errcode = '42501';
+    end if;
   elsif new.scoring_provisional then
     new.scoring_final_at := null;
     new.scoring_final_by := null;

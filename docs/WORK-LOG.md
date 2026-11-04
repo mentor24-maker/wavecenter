@@ -19,7 +19,11 @@ off, and the page says when points became final and who did it. Dane chose
 "Permanent", so the database itself refuses any attempt to switch back,
 even with the master key. If it ever had to be reopened, an agent session
 would write a migration on Dane's written word. Every member's Game page
-now says whether points are provisional or final.
+now says whether points are provisional or final. One gap the review
+caught: if the admin who made points final later deleted their account,
+the record kept pointing at an account that no longer existed, and the
+lock stopped anyone fixing it. Now that one case clears the name and
+nothing else, and the screen says "an admin whose account is gone".
 
 ## 2026-11-03 — The token now plays when a member earns points (#143)
 
