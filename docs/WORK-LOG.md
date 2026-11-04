@@ -7,6 +7,25 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — The AI rates each task, with its reasons (#149)
+
+The Admin page has a new button, "Rate tasks with AI". When an admin clicks
+it, two Claude AI models each read up to ten open tasks and rate each one on
+the four factors from the approved design: how much there is to do, how hard
+it is, how closely it serves the mission, and how much it is wanted. Every
+rating comes with a one-sentence reason. WaveCenter, not the AI, does the
+sums: it averages the two models and works out the task's AI score, 1 to 50.
+The AI reads the task's title, details, priority, parent, sub-tasks and file
+names, but never the owner's points or anyone's votes, so it gives an
+independent second opinion. Done tasks are never rated, because their points
+are locked. A task is rated again only once it has changed. If anything goes
+wrong (the AI can't be reached, or gives an answer in the wrong shape),
+nothing is saved for that task and the screen says why. The AI service key
+stays on the server, and the build fails if it ever shows up in a page.
+Nothing changes a task's points yet; that is the next ticket.
+
+---
+
 ## 2026-11-03 — A home for the AI's ratings of each task (#147)
 
 The approved design says the AI will rate every task on four things, each
