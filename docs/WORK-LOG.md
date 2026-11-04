@@ -7,6 +7,25 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — A written design for how tasks are rated (#146)
+
+Before any code, this writes down how a task's worth will be worked out,
+for Dane to approve. The AI rates each task on four things, each from 1 to
+5: how much there is to do, how hard it is, how closely it serves the
+mission, and how much it is wanted. Each level has a one-line test anyone
+can check. A simple formula turns the four ratings into one number of
+points, from 1 to 50, the same range owners use today. The task's final
+points are the average of that number and the owner's own points, as Dane
+decided; later the other members' average joins as a third part. Four
+real tasks are worked through as examples. The design also says how the
+AI is kept honest: it runs on the server, two models rate every task, every
+reason is kept for anyone to read, and an admin can overrule it. Eight
+questions are left for Dane, such as what happens to today's votes in the
+meantime. The scoring plan and wiki now follow his rule. Nothing is built
+yet.
+
+---
+
 ## 2026-11-03 — Globular scoring planned as six tickets (#144)
 
 Dane asked for a second kind of score, globular: what a task is worth,

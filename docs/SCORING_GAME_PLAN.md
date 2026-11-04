@@ -6,6 +6,15 @@ guess game: the human, AI and final scores, deviance and DQ, and the
 sub-tasks to add" (WaveCenter task "Create the Game Layer scoring guess
 game").
 
+**Updated 2026-11-03.** Dane has since changed how a task's score is made:
+the AI score and the owner's score are averaged, with no separate "human
+score" of members' votes (the other members' average joins later as a third
+part). "The scores, as Dane described them" and question 1 below are
+rewritten to his rule. Sub-tasks 1 to 5 were re-filed as tickets in his
+terms under "Scoring system for Globular scores (epic parent)"; where the
+list below still says "human score", read the owner's score. The task
+factors, scale and formula are in `docs/GLOBULAR_SCORING_ALGORITHM.md`.
+
 ## What Dane asked for
 
 Dane, 2026-11-01, in his own words:
@@ -88,31 +97,42 @@ deviance score or a DQ.
 
 ## The scores, as Dane described them
 
-For every task:
+**Updated 2026-11-03 to Dane's rule.** His first description (above, 2026-11-01)
+had a "human score": members' votes averaged with the owner's score. On
+2026-11-03 he replaced it, on the ticket "Scoring system for Globular
+scores (epic parent)":
 
-1. **Owner's score.** The owner's suggested points, as today.
-2. **Human score.** The members' votes averaged with the owner's score.
-   There are two ways to read "averaged with"; see question 1.
-3. **AI score.** What an AI assessment says the task is worth, by an
-   algorithm still to be agreed (see "The AI score" below).
-4. **Final score.** The average of the AI score and the human score. This is
-   the task's points: the number on the task list, the one a finished task
-   adds to its owner's score, and the "actual score" the guess game measures
-   against.
+> These ratings will be the AI-generated scores. We will also have a
+> human-produced score, in the form of the score the person who creates the
+> task gives it. We will average the AI score and the human score to arrive
+> at the final score. Later, we will add a third factor, which is the
+> average of all the other users' scores. Then we'll take the average of all
+> three scores: AI, owner, others.
+
+So, for every task:
+
+1. **Owner's score.** The points the member who created the task gives it,
+   as today. This is the human score.
+2. **AI score.** The AI rates the task on a set of factors, and a formula
+   turns those ratings into one number of points. The factors, scale and
+   formula are in `docs/GLOBULAR_SCORING_ALGORITHM.md`, a design for Dane
+   to approve.
+3. **Final score.** The average of the AI score and the owner's score. This
+   is the task's points: the number on the task list, the one a finished
+   task adds to its owner's score, and the "actual score" the guess game
+   measures against.
+4. **Later, not built yet: the others' score**, the average of the other
+   members' scores. Final then becomes the average of all three: AI, owner,
+   others.
 
 **This changes today's rule.** Today the members' average *replaces* the
-owner's points. Under Dane's new rule the owner's score always counts, as
-part of the human score, and the human score is only half of the final
-score. Sub-task 2 makes that change; sub-task 1 has to come first, because
-today the owner's number is overwritten and could not be averaged in.
+owner's points. Under Dane's rule the owner's score always counts, as half
+the final score. Members' votes do not count until the others' score is
+built; what happens to them meanwhile is a question in the design
+(`docs/GLOBULAR_SCORING_ALGORITHM.md`, "Questions for Dane", question 2).
 
-Until an AI score exists for a task, the plan proposes the final score is the
-human score alone, and the screen says so ("AI score: not yet"), so a task is
-never stuck at no score (question 3 asks Dane to confirm).
-
-A worked example, reading A of question 1: the owner suggests 10; three
-members vote 4, 6 and 8 (average 6). Human score = (10 + 6) ÷ 2 = 8. The AI
-says 12. Final score = (8 + 12) ÷ 2 = 10.
+A worked example: the owner gives a task 20. The AI rates it and its
+formula says 17. Final score = (20 + 17) ÷ 2 = 18.5, which rounds to 19.
 
 ## The same scoring for game behaviors
 
@@ -205,11 +225,15 @@ row-level security in the same migration that creates it (engineering rule 2).
    sub-task that ends "the votes' average replaces the owner's points".**
    The owner may set their suggestion again after votes; it is one part of
    the human score.
+   **Superseded 2026-11-03:** by Dane's rule this becomes "Factor ratings
+   do not set a task's points yet: connect them": final = average of the AI
+   score and the owner's score, with no votes in it.
 3. **"Dane and Claude agree how the AI scores a task: a written design to
    approve"**
    Goal: a design document (no code): what the AI reads, the instructions it
    is given, which models and how many, how its reasons are recorded, and
-   how a human overrides it. Dane approves it before sub-task 5.
+   how a human overrides it. Dane approves it before sub-task 5. Written:
+   `docs/GLOBULAR_SCORING_ALGORITHM.md`.
 4. **"Members can see a task's human, AI and final score, with the AI score
    marked not yet"**
    Goal: the task's page shows the four parts and how the final score was
@@ -247,14 +271,12 @@ against the final score whatever it is made of.
 
 ## Questions for Dane
 
-1. **How is the human score worked out?** "The average of all the people
-   who voted on it averaged with the owner's score" can mean two things.
-   Example: owner says 10; three members vote 4, 6 and 8.
-   - **A. Half and half.** The owner's score and the voters' average weigh
-     half each: (10 + 6) ÷ 2 = **8**. The owner always carries half, however
-     many vote.
-   - **B. The owner is one more voter.** (10 + 4 + 6 + 8) ÷ 4 = **7**. The
-     owner's weight shrinks as more members vote.
+1. **How is the human score worked out?** **Answered by Dane, 2026-11-03:**
+   the human score is the owner's own score, and final = the average of the
+   AI score and the owner's score; the other members' average joins later as
+   a third, equal part (see "The scores, as Dane described them"). Neither
+   of the two readings first offered here (owner and voters half and half,
+   or the owner as one more voter) is used.
 2. **What does "normalized" mean for DQ?**
    - **A. Relative to the item's size.** Each deviance is divided by the
      final score, so missing a 4-point task by 2 (50%) counts more than

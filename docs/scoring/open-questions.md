@@ -15,10 +15,15 @@ pointed to here:
 - **Are the granular weights right?** Value counts twice, effort and rarity
   once each, farm risk not at all (`docs/GRANULAR_SCORING_ALGORITHM.md`,
   "Questions for Dane", question 1).
-- **The eight questions of the scoring guess game**: how the human score is
-  averaged, what "normalized" means for DQ, how a human overrules the AI,
-  when a guess settles, and more (`docs/SCORING_GAME_PLAN.md`, "Questions
-  for Dane").
+- **The questions of the scoring guess game**: what "normalized" means for
+  DQ, how a human overrules the AI, when a guess settles, and more
+  (`docs/SCORING_GAME_PLAN.md`, "Questions for Dane"). The first, how the
+  human score is averaged, Dane answered on 2026-11-03: final = the average
+  of the AI score and the owner's score.
+- **The eight questions of the globular design**: what a task's final score
+  is before the AI rates it, what happens to today's votes, how a human
+  overrules the AI, and more (`docs/GLOBULAR_SCORING_ALGORITHM.md`,
+  "Questions for Dane").
 
 ## New questions
 
