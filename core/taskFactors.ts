@@ -14,10 +14,12 @@
  *
  * This file only gives the ratings a home. Nothing here calls an AI service,
  * changes a task's points or averages with the owner's score; later tickets
- * do. The table is `ai_task_ratings`
+ * do. The tables are `ai_task_ratings`, one row per rating pass, and
+ * `ai_task_model_ratings`, one row per model in it
  * (supabase/migrations/20261104120000_ai_task_factor_ratings.sql), which
- * checks the same limits; a test keeps the two in step. Every signed-in
- * member reads it; only the server, with the service key, writes it.
+ * check the same limits; a test keeps the two in step. Every signed-in
+ * member reads them; only the server, with the service key, adds a pass,
+ * and nobody changes one.
  *
  * Plain-words description: docs/DATA_MODEL.md.
  */
@@ -168,11 +170,9 @@ function rawScore(f: TaskFactors): number {
  * "Rounding happens once").
  */
 export function aiScore(ratings: TaskFactors | readonly TaskFactors[]): number {
-  const list = (Array.isArray(ratings) ? ratings : [ratings]).map(checkTaskFactors);
+  const list: readonly TaskFactors[] = Array.isArray(ratings) ? ratings : [ratings as TaskFactors];
   if (!list.length) throw new CoreError('There is no rating to work out an AI score from.');
-  const avg = (k: TaskFactorKey) => list.reduce((sum, f) => sum + f[k], 0) / list.length;
-  const averaged = { scope: avg('scope'), difficulty: avg('difficulty'), relevance: avg('relevance'), demand: avg('demand') };
-  return Math.max(AI_SCORE_MIN, roundHalfUp(rawScore(averaged)));
+  return Math.max(AI_SCORE_MIN, roundHalfUp(rawScore(averageFactors(list))));
 }
 
 /** The formula's arithmetic for one rating, written out: "3 × 3 × (3 + 4) ÷ 5 = 12.6, so 13". It ends in `aiScore`. */
@@ -191,74 +191,137 @@ export const AI_SCORE_EXAMPLES: readonly { task: string; factors: TaskFactors; a
   { task: 'Use the other version of the header background.', factors: { scope: 1, difficulty: 1, relevance: 1, demand: 2 }, aiScore: 1 },
 ];
 
-/** One row of `ai_task_ratings`: one model's rating of one task. A new rating adds a row; none is ever overwritten. */
+/** One model's part of a rating pass: its exact id, its four ratings and its four reasons. */
+export interface AiModelRating {
+  /** The model's exact id, such as "claude-opus-5-5". */
+  model: string;
+  factors: TaskFactors;
+  reasons: TaskFactorReasons;
+}
+
+/**
+ * One rating pass of one task, as the design's "How its reasons are kept"
+ * lists it: a row of `ai_task_ratings` with a row of `ai_task_model_ratings`
+ * per model. A new pass adds a record; none is ever changed.
+ */
 export interface AiTaskRating {
   id: string;
   taskId: string;
+  /** Each model's own ratings and reasons, in the order they were given. */
+  models: AiModelRating[];
+  /** Each factor the plain average of the models' ratings, not rounded. */
   factors: TaskFactors;
-  reasons: TaskFactorReasons;
-  /** Worked out by `aiScore` from `factors`, never taken from the AI. */
+  /** Worked out by `aiScore` from the models' ratings, never taken from the AI. */
   aiScore: number;
-  /** The model's exact id, such as "claude-opus-5-5". */
-  model: string;
-  /** The version of the instructions it was given. */
+  /** The version of the instructions the models were given. */
   instructionVersion: string;
+  /** A fingerprint of what the AI read (title, details and the rest), so anyone can tell whether the task has changed since. */
+  fingerprint: string;
   /** The tool that saved it. */
   tool: string;
   createdAt: string;
 }
 
-/** The fields a store writes for a new rating. Every one was checked here. */
+/** The fields a store writes for a new pass. Every one was checked here. */
 export type NewAiTaskRatingRow = Omit<AiTaskRating, 'id' | 'createdAt'>;
 
-/** What the server hands in. There is deliberately no AI score field: the formula sets it. */
+/** What the server hands in. There is deliberately no averaged rating or AI score field: the formula sets them. */
 export interface AiTaskRatingInput {
   taskId: string;
-  factors: unknown;
-  reasons: unknown;
-  model: unknown;
+  models: unknown;
   instructionVersion: unknown;
-  tool: string;
+  fingerprint: unknown;
+  tool: unknown;
 }
 
-/** What core needs to keep the ratings. An adapter decides nothing. */
+/** What core needs to keep the ratings. An adapter decides nothing; it saves a pass whole or not at all. */
 export interface AiTaskRatingStore {
   insert(row: NewAiTaskRatingRow): Promise<AiTaskRating>;
-  /** Every rating of the task, newest first. */
+  /** Every pass of the task, newest first. */
   forTask(taskId: string): Promise<AiTaskRating[]>;
 }
 
+/** The longest a fingerprint may be. The database checks the same. */
+export const FINGERPRINT_MAX = 128;
+/** The longest a tool name on a rating may be. The database checks the same. */
+export const RATING_TOOL_MAX = 100;
+
+/**
+ * Trimmed text that is not blank. `\S` is any character that is not a space,
+ * tab or line break, which is also how the database tells blank from not.
+ */
 function label(value: unknown, what: string, max: number): string {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (!text) throw new CoreError(`A rating must say ${what}, and none was given. Nothing was saved.`);
+  if (!/\S/.test(text)) throw new CoreError(`A rating must say ${what}, and none was given. Nothing was saved.`);
   if (text.length > max) throw new CoreError(`The ${what} is ${text.length} characters; the most is ${max}. Nothing was saved.`);
   return text;
 }
 
-/** A whole rating, checked, with its AI score worked out. Refuses a missing or malformed part, and any AI score it is handed. */
-export function checkAiTaskRating(input: AiTaskRatingInput): NewAiTaskRatingRow {
-  if (input && typeof input === 'object' && 'aiScore' in input) {
-    throw new CoreError('The AI score is worked out from the four ratings; it cannot be handed in. Nothing was saved.');
-  }
-  if (typeof input?.taskId !== 'string' || !input.taskId) throw new CoreError('A rating must name its task. Nothing was saved.');
-  const factors = checkTaskFactors(input.factors);
+function checkModelRating(input: unknown): AiModelRating {
+  const given = (input ?? {}) as Record<string, unknown>;
   return {
-    taskId: input.taskId,
-    factors,
-    reasons: checkTaskFactorReasons(input.reasons),
-    aiScore: aiScore(factors),
-    model: label(input.model, 'which model made it', MODEL_MAX),
-    instructionVersion: label(input.instructionVersion, 'which version of the instructions it was given', INSTRUCTION_VERSION_MAX),
-    tool: requireTool(input.tool),
+    model: label(given.model, 'which model made it', MODEL_MAX),
+    factors: checkTaskFactors(given.factors),
+    reasons: checkTaskFactorReasons(given.reasons),
   };
 }
 
-/** Check a rating and save it as a new row. A refused rating saves nothing. */
+/** The averaged ratings of several models, each factor a plain average, not rounded. */
+export function averageFactors(ratings: readonly TaskFactors[]): TaskFactors {
+  const list = ratings.map(checkTaskFactors);
+  if (!list.length) throw new CoreError('There is no rating to average.');
+  const avg = (k: TaskFactorKey) => list.reduce((sum, f) => sum + f[k], 0) / list.length;
+  return { scope: avg('scope'), difficulty: avg('difficulty'), relevance: avg('relevance'), demand: avg('demand') };
+}
+
+/** How far apart two models may be on a factor before the task is marked "the AI models disagree" (the design, "Which models"). */
+export const DISAGREEMENT_LEVELS = 2;
+
+/** The factors on which the models' ratings are 2 or more levels apart; empty when they agree. */
+export function modelsDisagreeOn(models: readonly AiModelRating[]): TaskFactorKey[] {
+  return TASK_FACTOR_KEYS.filter((k) => {
+    const values = models.map((m) => m.factors[k]);
+    return values.length > 1 && Math.max(...values) - Math.min(...values) >= DISAGREEMENT_LEVELS;
+  });
+}
+
+/**
+ * A whole rating pass, checked, with its averaged ratings and AI score
+ * worked out. Refuses a pass with no model, the same model twice, any
+ * missing or malformed part, and any averaged rating or AI score it is handed.
+ */
+export function checkAiTaskRating(input: AiTaskRatingInput): NewAiTaskRatingRow {
+  if (input && typeof input === 'object' && ('aiScore' in input || 'factors' in input)) {
+    throw new CoreError('The averaged ratings and AI score are worked out from the models’ ratings; they cannot be handed in. Nothing was saved.');
+  }
+  if (typeof input?.taskId !== 'string' || !input.taskId) throw new CoreError('A rating must name its task. Nothing was saved.');
+  if (!Array.isArray(input.models) || !input.models.length) {
+    throw new CoreError('A rating pass needs at least one model’s rating. Nothing was saved.');
+  }
+  const models = input.models.map(checkModelRating);
+  const seen = new Set<string>();
+  for (const m of models) {
+    if (seen.has(m.model)) throw new CoreError(`${m.model} rated this task twice in one pass; each model rates it once. Nothing was saved.`);
+    seen.add(m.model);
+  }
+  const ratings = models.map((m) => m.factors);
+  return {
+    taskId: input.taskId,
+    models,
+    factors: averageFactors(ratings),
+    aiScore: aiScore(ratings),
+    instructionVersion: label(input.instructionVersion, 'which version of the instructions it was given', INSTRUCTION_VERSION_MAX),
+    fingerprint: label(input.fingerprint, 'a fingerprint of what the AI read', FINGERPRINT_MAX),
+    tool: label(requireTool(input.tool), 'which tool saved it', RATING_TOOL_MAX),
+  };
+}
+
+/** Check a rating pass and save it whole as a new record. A refused pass saves nothing. */
 export async function recordAiTaskRating(store: AiTaskRatingStore, input: AiTaskRatingInput): Promise<AiTaskRating> {
   return store.insert(checkAiTaskRating(input));
 }
 
-/** The task's current AI rating: its newest row, or null if the AI has not rated it yet. */
+/** The task's current AI rating: its newest pass, or null if the AI has not rated it yet. */
 export async function currentAiTaskRating(store: AiTaskRatingStore, taskId: string): Promise<AiTaskRating | null> {
   const [latest] = await store.forTask(taskId);
   return latest ?? null;

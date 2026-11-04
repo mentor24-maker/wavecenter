@@ -6,8 +6,10 @@ import {
   AI_SCORE_EXAMPLES,
   AI_SCORE_MAX,
   AI_SCORE_MIN,
+  FINGERPRINT_MAX,
   INSTRUCTION_VERSION_MAX,
   MODEL_MAX,
+  RATING_TOOL_MAX,
   TASK_FACTOR_KEYS,
   TASK_FACTOR_MAX,
   TASK_FACTOR_MIN,
@@ -15,10 +17,12 @@ import {
   TASK_REASON_MAX,
   aiScore,
   aiScoreWorking,
+  averageFactors,
   checkAiTaskRating,
   checkTaskFactorReasons,
   checkTaskFactors,
   currentAiTaskRating,
+  modelsDisagreeOn,
   recordAiTaskRating,
   type AiTaskRatingInput,
   type TaskFactors,
@@ -32,8 +36,10 @@ const reasons = {
   relevance: 'Adds something members use.',
   demand: 'Members would notice it soon.',
 };
+const opus = { model: 'claude-opus-5-5', factors: typical, reasons };
+const sonnet = { model: 'claude-sonnet-5-5', factors: { scope: 3, difficulty: 2, relevance: 4, demand: 3 }, reasons };
 const input = (over: Partial<AiTaskRatingInput> = {}): AiTaskRatingInput => ({
-  taskId: 'task-1', factors: typical, reasons, model: 'claude-opus-5-5', instructionVersion: 'v1', tool: TOOL, ...over,
+  taskId: 'task-1', models: [opus, sonnet], instructionVersion: 'v1', fingerprint: 'sha256:abc123', tool: TOOL, ...over,
 });
 
 test('the four factors are scope, difficulty, relevance and demand, each with a test for every level 1 to 5', () => {
@@ -120,53 +126,97 @@ test('two models’ ratings are averaged unrounded, and only the AI score is rou
   assert.throws(() => aiScore([typical, { ...typical, demand: 9 }]), /Demand must be/);
 });
 
-test('a whole rating is checked, and its AI score comes from the formula', () => {
-  const row = checkAiTaskRating(input({ model: ' claude-opus-5-5 ', instructionVersion: ' v1 ' }));
-  assert.deepEqual(row, { taskId: 'task-1', factors: typical, reasons, aiScore: 11, model: 'claude-opus-5-5', instructionVersion: 'v1', tool: TOOL });
+test('a whole pass is checked: each model’s part, the averaged ratings and the AI score from the formula', () => {
+  const row = checkAiTaskRating(input({ models: [{ ...opus, model: ' claude-opus-5-5 ' }, sonnet], instructionVersion: ' v1 ' }));
+  assert.deepEqual(row, {
+    taskId: 'task-1',
+    models: [opus, sonnet],
+    factors: { scope: 3, difficulty: 2.5, relevance: 3.5, demand: 3 },
+    // 3 × 2.5 × (3.5 + 3) ÷ 5 = 9.75, so 10. Opus alone would be 11, Sonnet alone 8.4, so 8.
+    aiScore: 10,
+    instructionVersion: 'v1',
+    fingerprint: 'sha256:abc123',
+    tool: TOOL,
+  });
+  assert.equal(row.aiScore, aiScore([opus.factors, sonnet.factors]));
+  assert.deepEqual(averageFactors([opus.factors, sonnet.factors]), row.factors);
+  assert.equal(checkAiTaskRating(input({ models: [opus] })).aiScore, 11, 'one model is a pass too');
 });
 
-test('a rating without its model, instruction version, reasons, task or tool is refused', () => {
-  assert.throws(() => checkAiTaskRating(input({ model: '' })), /which model made it/);
-  assert.throws(() => checkAiTaskRating(input({ model: undefined })), /which model made it/);
-  assert.throws(() => checkAiTaskRating(input({ model: 'm'.repeat(MODEL_MAX + 1) })), /the most is 100/);
+test('a pass without a model, or with the same model twice, is refused', () => {
+  assert.throws(() => checkAiTaskRating(input({ models: [] })), /at least one model/);
+  assert.throws(() => checkAiTaskRating(input({ models: undefined })), /at least one model/);
+  assert.throws(() => checkAiTaskRating(input({ models: [opus, { ...sonnet, model: 'claude-opus-5-5' }] })), /claude-opus-5-5 rated this task twice/);
+});
+
+test('a pass without its model ids, instruction version, fingerprint, reasons, task or tool is refused', () => {
+  const withOpus = (over: object) => input({ models: [{ ...opus, ...over }, sonnet] });
+  assert.throws(() => checkAiTaskRating(withOpus({ model: '' })), /which model made it/);
+  assert.throws(() => checkAiTaskRating(withOpus({ model: undefined })), /which model made it/);
+  assert.throws(() => checkAiTaskRating(withOpus({ model: 'm'.repeat(MODEL_MAX + 1) })), /the most is 100/);
+  assert.throws(() => checkAiTaskRating(withOpus({ reasons: undefined })), /needs its reason/);
+  assert.throws(() => checkAiTaskRating(withOpus({ reasons: { ...reasons, scope: '\n\t' } })), /Scope needs a reason/);
+  assert.throws(() => checkAiTaskRating(withOpus({ factors: { ...typical, scope: 0 } })), /Scope must be/);
   assert.throws(() => checkAiTaskRating(input({ instructionVersion: '  ' })), /which version of the instructions/);
   assert.throws(() => checkAiTaskRating(input({ instructionVersion: 'v'.repeat(INSTRUCTION_VERSION_MAX + 1) })), /the most is 40/);
-  assert.throws(() => checkAiTaskRating(input({ reasons: undefined })), /needs its reason/);
+  assert.throws(() => checkAiTaskRating(input({ fingerprint: '\n\t' })), /fingerprint of what the AI read/);
+  assert.throws(() => checkAiTaskRating(input({ fingerprint: 'f'.repeat(FINGERPRINT_MAX + 1) })), /the most is 128/);
   assert.throws(() => checkAiTaskRating(input({ taskId: '' })), /name its task/);
   assert.throws(() => checkAiTaskRating(input({ tool: '' })), /must name the tool/);
-  assert.throws(() => checkAiTaskRating(input({ factors: { ...typical, scope: 0 } })), /Scope must be/);
+  assert.throws(() => checkAiTaskRating(input({ tool: 't'.repeat(RATING_TOOL_MAX + 1) })), /the most is 100/);
 });
 
-test('the AI cannot hand in its own AI score', () => {
+test('the AI cannot hand in its own AI score or averaged ratings', () => {
   assert.throws(() => checkAiTaskRating({ ...input(), aiScore: 50 } as AiTaskRatingInput), /cannot be handed in/);
+  assert.throws(() => checkAiTaskRating({ ...input(), factors: typical } as AiTaskRatingInput), /cannot be handed in/);
 });
 
-test('each rating adds a row, the newest is the current one, and a refused one saves nothing', async () => {
+test('models 2 or more levels apart on a factor are named, so a human knows to look', () => {
+  assert.deepEqual(modelsDisagreeOn([opus, sonnet]), []);
+  assert.deepEqual(modelsDisagreeOn([opus, { ...sonnet, factors: { scope: 5, difficulty: 3, relevance: 1, demand: 4 } }]), ['scope', 'relevance']);
+  assert.deepEqual(modelsDisagreeOn([opus]), []);
+});
+
+test('each pass adds a record, the newest pass is current even when two are saved at one moment, and a refused one saves nothing', async () => {
   const store = new MemoryAiTaskRatingStore();
   assert.equal(await currentAiTaskRating(store, 'task-1'), null);
   const first = await recordAiTaskRating(store, input());
-  const second = await recordAiTaskRating(store, input({ factors: { scope: 5, difficulty: 4, relevance: 5, demand: 4 }, model: 'claude-sonnet-5-5' }));
-  await assert.rejects(recordAiTaskRating(store, input({ factors: { ...typical, demand: 6 } })), /Demand must be/);
+  const big = { scope: 5, difficulty: 4, relevance: 5, demand: 4 };
+  const second = await recordAiTaskRating(store, input({ models: [{ ...opus, factors: big }, { ...sonnet, factors: big }], fingerprint: 'sha256:def456' }));
+  await assert.rejects(recordAiTaskRating(store, input({ models: [opus, { ...sonnet, factors: { ...typical, demand: 6 } }] })), /Demand must be/);
   assert.equal(store.rows.length, 2);
+  assert.equal(first.createdAt, second.createdAt, 'saved at the same moment');
   const history = await store.forTask('task-1');
   assert.deepEqual(history.map((r) => r.id), [second.id, first.id]);
   const current = await currentAiTaskRating(store, 'task-1');
   assert.equal(current?.aiScore, 36);
-  assert.equal(current?.model, 'claude-sonnet-5-5');
-  assert.equal(first.aiScore, 11, 'the older row is kept as it was');
+  assert.deepEqual(current?.models.map((m) => m.model), ['claude-opus-5-5', 'claude-sonnet-5-5'], 'the current pass holds both models');
+  assert.equal(first.aiScore, 10, 'the older pass is kept as it was');
   assert.deepEqual(await store.forTask('task-2'), []);
 });
 
 test('the migration checks the same scale, limits and formula as core', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261104120000_ai_task_factor_ratings.sql', import.meta.url), 'utf8');
+  const notBlank = (col: string, max: number) => new RegExp(`${col}\\s+text\\s+not null check \\(${col} ~ '\\\\S' and char_length\\(${col}\\) <= ${max}\\)`);
   for (const k of TASK_FACTOR_KEYS) {
+    // A model's own rating is a whole number on the scale; the pass's average need not be whole.
     assert.match(sql, new RegExp(`${k}\\s+integer\\s+not null check \\(${k} between ${TASK_FACTOR_MIN} and ${TASK_FACTOR_MAX}\\)`));
-    assert.match(sql, new RegExp(`${k}_reason\\s+text\\s+not null check \\(length\\(btrim\\(${k}_reason\\)\\) between 1 and ${TASK_REASON_MAX}\\)`));
+    assert.match(sql, new RegExp(`${k}\\s+numeric\\s+not null check \\(${k} between ${TASK_FACTOR_MIN} and ${TASK_FACTOR_MAX}\\)`));
+    assert.match(sql, notBlank(`${k}_reason`, TASK_REASON_MAX));
   }
   assert.match(sql, new RegExp(`ai_score\\s+integer\\s+not null check \\(ai_score between ${AI_SCORE_MIN} and ${AI_SCORE_MAX}\\)`));
-  assert.match(sql, new RegExp(`model\\s+text\\s+not null check \\(length\\(btrim\\(model\\)\\) between 1 and ${MODEL_MAX}\\)`));
-  assert.match(sql, new RegExp(`instruction_version text\\s+not null check \\(length\\(btrim\\(instruction_version\\)\\) between 1 and ${INSTRUCTION_VERSION_MAX}\\)`));
-  assert.match(sql, /ai_score = greatest\(1, round\(scope \* difficulty \* \(relevance \+ demand\) \/ 5\.0\)::integer\)/);
-  assert.match(sql, /alter table public\.ai_task_ratings enable row level security;/);
-  assert.match(sql, /revoke all on public\.ai_task_ratings from anon, authenticated;\ngrant select on public\.ai_task_ratings to authenticated;/);
+  assert.match(sql, notBlank('model', MODEL_MAX));
+  assert.match(sql, notBlank('instruction_version', INSTRUCTION_VERSION_MAX));
+  assert.match(sql, notBlank('fingerprint', FINGERPRINT_MAX));
+  assert.match(sql, notBlank('tool', RATING_TOOL_MAX));
+  assert.match(sql, /check \(ai_score = greatest\(1, round\(scope \* difficulty \* \(relevance \+ demand\) \/ 5\)::integer\)\)/);
+  assert.match(sql, /greatest\(1, round\(a\.s \* a\.d \* \(a\.r \+ a\.m\) \/ 5\)::integer\)/, 'the save works out the same formula from the averages');
+  assert.match(sql, /constraint ai_task_model_ratings_one_per_model unique \(rating_id, model\)/);
+  for (const table of ['ai_task_ratings', 'ai_task_model_ratings']) {
+    assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security;`));
+    assert.match(sql, new RegExp(`revoke all on public\\.${table} from anon, authenticated, service_role;`));
+    assert.match(sql, new RegExp(`grant select on public\\.${table} to authenticated, service_role;`));
+    assert.match(sql, new RegExp(`before update on public\\.${table}`));
+  }
+  assert.match(sql, /grant execute on function public\.record_ai_task_rating\(uuid, text, text, text, jsonb\) to service_role;/);
 });

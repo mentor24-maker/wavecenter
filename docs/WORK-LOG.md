@@ -15,12 +15,16 @@ the mission, and how much it is wanted. This builds the place those ratings
 are kept, before any AI is switched on. The rules live in WaveCenter's core:
 the four factors with the test for each level, a refusal for any rating that
 is missing or off the scale, a reason required for every rating, and the
-formula that turns the four into the task's AI score, from 1 to 50. The
-database has a new table for the ratings that keeps every rating ever made,
-so anyone can look back at how a task was judged. Every member can read it;
-no member can write to it, only WaveCenter's own server. The table also
-refuses a score the formula did not produce, so the AI can never make up
-its own number. Nothing on screen changes and no task's points move yet.
+formula that turns the four into the task's AI score, from 1 to 50. Two AI
+models rate each task separately, so the database keeps each rating round
+as one whole record: both models' ratings and reasons, the average of the
+two, the AI score that average makes, and a fingerprint of what the AI read,
+so anyone can tell later whether the task changed since. Every round ever
+made is kept and none can be edited or deleted, so anyone can look back at
+how a task was judged. Every member can read them; only WaveCenter's own
+server can add one. The database works out the score itself and refuses one
+the formula did not produce, so the AI can never make up its own number.
+Nothing on screen changes and no task's points move yet.
 
 ---
 
