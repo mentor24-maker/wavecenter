@@ -629,8 +629,69 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   (`20261103140000_edit_factor_reasons.sql`).
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
-  worth. A task's `points` is one; the owner, human, AI and final scores
-  for a task are planned in `docs/SCORING_GAME_PLAN.md`.
+  worth. A task's `points` is one; the owner, AI and final scores for a
+  task are designed in `docs/GLOBULAR_SCORING_ALGORITHM.md`. The AI's
+  ratings have their own tables, below.
+
+### The AI's task ratings: `ai_task_ratings` and `ai_task_model_ratings`
+
+From the globular design Dane approved (`docs/GLOBULAR_SCORING_ALGORITHM.md`,
+#146, 2026-11-03). The AI rates each task on four factors, each a whole
+number from 1 to 5: **scope** (how much there is to do), **difficulty** (how
+hard it is to get right), **relevance** (how closely it serves the mission)
+and **demand** (how much it is wanted). The formula turns the four into the
+task's **AI score**: S × D × (R + M) ÷ 5, rounded to a whole number with a
+half rounding up, and never less than 1, so it runs from 1 to 50. Members
+do not rate factors (Dane's rule, 2026-11-03).
+
+Two models rate every task, separately (the design, "Which models"). One
+**rating pass** is kept in two tables, as the design's "How its reasons are
+kept" lists it.
+
+**`ai_task_ratings`**, one row per pass:
+
+| Column | What it holds |
+|---|---|
+| `task_id` | The task rated. If the task is deleted, its ratings go with it. |
+| `scope`, `difficulty`, `relevance`, `demand` | Each the plain average of the models' ratings, not rounded (2.5 is allowed), from 1 to 5. |
+| `ai_score` | The formula's number for those averages. The table refuses any other number, so the AI can never set its own score. |
+| `instruction_version` | The version of the instructions the models were given. Required. |
+| `fingerprint` | A fingerprint of what the AI read (title, details and the rest), so anyone can tell whether the task has changed since. Required. |
+| `tool` | Which tool saved it. |
+| `created_at`, `seq` | When it was rated, and the order passes were saved in, which breaks a tie between two saved at the same moment. |
+
+**`ai_task_model_ratings`**, one row per model in a pass:
+
+| Column | What it holds |
+|---|---|
+| `rating_id` | The pass it belongs to. |
+| `model` | The AI model's exact id, such as `claude-opus-5-5`. Each model rates a task once per pass. |
+| `scope`, `difficulty`, `relevance`, `demand` | That model's four ratings, each a whole number from 1 to 5. |
+| `scope_reason`, `difficulty_reason`, `relevance_reason`, `demand_reason` | One sentence per rating saying which test the task meets and why. Every one is required, up to 300 characters. |
+
+**A pass is saved whole, by `record_ai_task_rating`, or not at all.** The
+server hands it each model's ratings and reasons; the database works out the
+averages and the AI score itself, and refuses the whole pass if any part is
+off the scale or blank (a reason of only spaces, tabs or line breaks counts
+as blank). `checkAiTaskRating` in `core/taskFactors.ts` checks the same
+limits first.
+
+**A pass is never changed.** A new rating adds a new pass, so how a task's
+AI score moved can always be read back; the newest pass, by `created_at`
+then `seq`, is the task's current rating (`currentAiTaskRating`). Nobody can
+add, change or delete a row straight at the tables, not even the server's
+service key, and a trigger refuses any change even from the database's own
+owner. Deleting the task is the one thing that removes its passes.
+
+**Nothing writes them yet, and they change no task's points yet.** The AI
+job on the server fills them, and connecting them to a task's points are
+later tickets under "Scoring system for Globular scores (epic parent)".
+
+Row-level security was on from the moment both tables were made
+(`20261104120000_ai_task_factor_ratings.sql`). Every signed-in member reads
+every pass, so anyone can audit the AI. No member saves one, even on their
+own task; only WaveCenter's server does, with the service key. Signed-out
+visitors see nothing.
 
 ### Who may change the scoring rules
 

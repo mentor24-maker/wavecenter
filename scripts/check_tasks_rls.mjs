@@ -31,8 +31,12 @@
  * them (`public.home_boxes`), which are put back as they were afterwards;
  * that every member reads the token sizes but only a role with Manage game
  * scoring adds, changes or removes one (`public.token_sizes`), also put back
- * afterwards; and that every member reads every proposal but adds, changes and deletes
- * only their own (`public.proposals`).
+ * afterwards; that every member reads every proposal but adds, changes and deletes
+ * only their own (`public.proposals`); and that every member reads the AI's
+ * task rating passes, only the service key saves one, whole, through
+ * `record_ai_task_rating`, nobody changes or deletes one, and the save refuses
+ * a pass off the scale or without its reasons (`public.ai_task_ratings`,
+ * `public.ai_task_model_ratings`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -1382,6 +1386,92 @@ try {
   await castVote(voteStore(b), taskB, { points: null, priority: null }, TOOL);
   shown = await taskOf(taskB);
   check('B can withdraw B’s own vote, and the average is A’s alone again', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+
+  // AI task ratings (20261104120000_ai_task_factor_ratings.sql): one pass is
+  // a row of ai_task_ratings with a row of ai_task_model_ratings per model,
+  // saved whole by record_ai_task_rating (the server only). Every member
+  // reads them; nobody adds, changes or deletes a row straight at the
+  // tables, not even the service key. The save refuses a pass off the 1-to-5
+  // scale or without its model, instruction version, fingerprint or reasons,
+  // and works out the averages and the AI score itself.
+  const ratingReasons = {
+    scope_reason: 'A new feature on one screen.', difficulty_reason: 'Needs real thought.',
+    relevance_reason: 'Adds something members use.', demand_reason: 'Members are held back without it.',
+  };
+  const opusPart = { model: 'claude-opus-5-5', scope: 3, difficulty: 3, relevance: 3, demand: 4, ...ratingReasons };
+  const sonnetPart = { model: 'claude-sonnet-5-5', scope: 3, difficulty: 2, relevance: 4, demand: 4, ...ratingReasons };
+  const ratingPass = (over = {}, models = [opusPart, sonnetPart]) => ({
+    task: taskB, instruction_version: 'rls-check', fingerprint: 'sha256:rls-check', tool: TOOL, models, ...over,
+  });
+  const recordRating = (body, key = SERVICE, token) => call('/rest/v1/rpc/record_ai_task_rating', { method: 'POST', key, token, body });
+  const ratedByServer = await recordRating(ratingPass());
+  const ratingId = ratedByServer.json;
+  check('the server saves a whole AI rating pass with the service key', ratedByServer.status === 200 && typeof ratingId === 'string', `HTTP ${ratedByServer.status} ${JSON.stringify(ratedByServer.json)}`);
+  const ratingSeen = await call(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id,scope,difficulty,relevance,demand,ai_score,fingerprint,ai_task_model_ratings(model,difficulty,scope_reason)`, { token: a.token });
+  const seenPass = ratingSeen.json?.[0];
+  // Averages 3, 2.5, 3.5, 4: 3 × 2.5 × (3.5 + 4) ÷ 5 = 11.25, so 11.
+  check('a member reads the AI rating pass of another member’s task: the averages, the AI score, and each model’s part',
+    ratingSeen.status === 200 && seenPass?.id === ratingId && seenPass.ai_score === 11 && Number(seenPass.difficulty) === 2.5 && Number(seenPass.relevance) === 3.5
+      && seenPass.ai_task_model_ratings?.length === 2 && seenPass.ai_task_model_ratings.every((m) => m.scope_reason === ratingReasons.scope_reason),
+    `HTTP ${ratingSeen.status} ${JSON.stringify(ratingSeen.json)}`);
+  const secondPass = await recordRating(ratingPass({ fingerprint: 'sha256:rls-check-2' }));
+  const newest = await call(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id&order=created_at.desc,seq.desc&limit=1`, { token: a.token });
+  check('a second pass adds a record, and newest first puts it on top', secondPass.status === 200 && newest.json?.[0]?.id === secondPass.json, `HTTP ${secondPass.status}, newest ${JSON.stringify(newest.json)}`);
+
+  const ratingByMember = await recordRating(ratingPass(), ANON, b.token);
+  const straightIn = await call('/rest/v1/ai_task_ratings', { method: 'POST', token: b.token, body: { task_id: taskB, scope: 1, difficulty: 1, relevance: 1, demand: 1, ai_score: 1, instruction_version: 'x', fingerprint: 'x', tool: TOOL } });
+  const ratingBumped = await call(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { fingerprint: 'Hijacked' } });
+  const partBumped = await call(`/rest/v1/ai_task_model_ratings?rating_id=eq.${ratingId}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { scope_reason: 'Hijacked' } });
+  const ratingWiped = await call(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  check('a member cannot save, add, change or delete an AI rating, even on their own task',
+    ratingByMember.status >= 400 && straightIn.status >= 400 && ratingBumped.status >= 400 && partBumped.status >= 400 && ratingWiped.status >= 400,
+    `save HTTP ${ratingByMember.status}, insert HTTP ${straightIn.status}, patch HTTP ${ratingBumped.status}/${partBumped.status}, delete HTTP ${ratingWiped.status}`);
+  const serverBumped = await admin(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'PATCH', body: { fingerprint: 'Hijacked' } });
+  const serverPartBumped = await admin(`/rest/v1/ai_task_model_ratings?rating_id=eq.${ratingId}`, { method: 'PATCH', body: { scope_reason: 'Hijacked' } });
+  const serverWiped = await admin(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'DELETE' });
+  const serverStraightIn = await admin('/rest/v1/ai_task_model_ratings', { method: 'POST', body: { rating_id: ratingId, model: 'sneaked-in', scope: 5, difficulty: 5, relevance: 5, demand: 5, ...ratingReasons } });
+  const keptPass = (await admin(`/rest/v1/ai_task_ratings?id=eq.${ratingId}&select=fingerprint,ai_task_model_ratings(model,scope_reason)`)).json?.[0];
+  check('even the service key cannot change, delete or add to a saved pass: the history is kept as it was',
+    serverBumped.status >= 400 && serverPartBumped.status >= 400 && serverWiped.status >= 400 && serverStraightIn.status >= 400
+      && keptPass?.fingerprint === 'sha256:rls-check' && keptPass.ai_task_model_ratings?.length === 2 && keptPass.ai_task_model_ratings.every((m) => m.scope_reason === ratingReasons.scope_reason),
+    `patch HTTP ${serverBumped.status}/${serverPartBumped.status}, delete HTTP ${serverWiped.status}, insert HTTP ${serverStraightIn.status}, kept ${JSON.stringify(keptPass)}`);
+  const anonRatings = await call('/rest/v1/ai_task_ratings?select=id');
+  const anonParts = await call('/rest/v1/ai_task_model_ratings?select=id');
+  check('a signed-out visitor sees no AI ratings',
+    [anonRatings, anonParts].every((r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0)), `HTTP ${anonRatings.status}/${anonParts.status}`);
+
+  const passesBefore = ((await admin(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id`)).json ?? []).length;
+  const badPasses = {
+    'a factor of 0': ratingPass({}, [{ ...opusPart, scope: 0 }, sonnetPart]),
+    'a factor of 6': ratingPass({}, [opusPart, { ...sonnetPart, demand: 6 }]),
+    'a factor of 2.5': ratingPass({}, [{ ...opusPart, scope: 2.5 }]),
+    'no model at all': ratingPass({}, []),
+    'the same model twice': ratingPass({}, [opusPart, opusPart]),
+    'no model id': ratingPass({}, [{ ...opusPart, model: null }]),
+    'a blank model id': ratingPass({}, [{ ...opusPart, model: '  ' }]),
+    'no instruction version': ratingPass({ instruction_version: null }),
+    'no fingerprint': ratingPass({ fingerprint: null }),
+    'a fingerprint of a line break and a tab': ratingPass({ fingerprint: '\n\t' }),
+    'a reason of a line break and a tab': ratingPass({}, [{ ...opusPart, relevance_reason: '\n\t' }]),
+    'no reason': ratingPass({}, [{ ...opusPart, demand_reason: null }]),
+    'a reason over 300 characters': ratingPass({}, [{ ...opusPart, scope_reason: 'x'.repeat(301) }]),
+    'a tool name over 100 characters': ratingPass({ tool: 't'.repeat(101) }),
+  };
+  const badResults = await Promise.all(Object.entries(badPasses).map(async ([what, body]) => [what, (await recordRating(body)).status]));
+  const notRefused = badResults.filter(([, status]) => status < 400).map(([what]) => what);
+  const passesAfter = ((await admin(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id`)).json ?? []).length;
+  check('the save refuses, even from the server, a pass off the scale, with no model or one twice, or without its model id, instruction version, fingerprint or reasons, and saves no part of it',
+    notRefused.length === 0 && passesAfter === passesBefore, `not refused: ${JSON.stringify(notRefused)}, passes ${passesBefore} then ${passesAfter}`);
+
+  // Deleting the task takes its ratings with it, despite the rows being kept.
+  const ratedTask = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'rated, then deleted' } });
+  const ratedTaskId = ratedTask.json?.[0]?.id;
+  const ratedPassId = (await recordRating(ratingPass({ task: ratedTaskId }))).json;
+  const ratedTaskGone = await admin(`/rest/v1/tasks?id=eq.${ratedTaskId}`, { method: 'DELETE' });
+  const leftPasses = (await admin(`/rest/v1/ai_task_ratings?id=eq.${ratedPassId}&select=id`)).json ?? [];
+  const leftParts = (await admin(`/rest/v1/ai_task_model_ratings?rating_id=eq.${ratedPassId}&select=id`)).json ?? [];
+  check('deleting a task deletes its AI rating passes and their model parts', typeof ratedPassId === 'string' && ratedTaskGone.status < 300 && leftPasses.length === 0 && leftParts.length === 0,
+    `task HTTP ${ratedTask.status}, delete HTTP ${ratedTaskGone.status}, left ${leftPasses.length} pass(es), ${leftParts.length} part(s)`);
 
   await castVote(voteStore(a), insA.id, { points: 50 }, TOOL);
   shown = await taskOf(insA.id);

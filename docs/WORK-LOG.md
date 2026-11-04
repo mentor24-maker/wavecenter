@@ -7,6 +7,27 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — A home for the AI's ratings of each task (#147)
+
+The approved design says the AI will rate every task on four things, each
+from 1 to 5: how much there is to do, how hard it is, how closely it serves
+the mission, and how much it is wanted. This builds the place those ratings
+are kept, before any AI is switched on. The rules live in WaveCenter's core:
+the four factors with the test for each level, a refusal for any rating that
+is missing or off the scale, a reason required for every rating, and the
+formula that turns the four into the task's AI score, from 1 to 50. Two AI
+models rate each task separately, so the database keeps each rating round
+as one whole record: both models' ratings and reasons, the average of the
+two, the AI score that average makes, and a fingerprint of what the AI read,
+so anyone can tell later whether the task changed since. Every round ever
+made is kept and none can be edited or deleted, so anyone can look back at
+how a task was judged. Every member can read them; only WaveCenter's own
+server can add one. The database works out the score itself and refuses one
+the formula did not produce, so the AI can never make up its own number.
+Nothing on screen changes and no task's points move yet.
+
+---
+
 ## 2026-11-03 — Admins can make a DEO's points final, for good (#145)
 
 While a DEO's point values are still guesswork, an admin can rescore
