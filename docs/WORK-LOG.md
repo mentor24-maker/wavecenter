@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Admins can rescore past points while scoring is provisional (#142)
+
+Early on, nobody knows what each action is worth, so the first points were
+guesswork: most actions at 1, some cut by the old farm-risk weight. The
+Admin page now has **Rescore past points**. It brings every member's past
+points for an action up (or down) to what the action is worth today. Preview
+shows what would change, action by action and member by member, before
+anything is saved. Nothing already in anyone's history is rewritten: the
+rescore adds one correction line per member and action, which My Points
+shows as "Rescored Made a task". Running it twice in a row changes nothing.
+It only works while scoring is still provisional. Once Dane declares a DEO's
+points final (a separate ticket), the database refuses it for good.
+
 ## 2026-11-03 — Your point total in the header on every page (#139)
 
 Until now a member could see their points only on My Points. The header
