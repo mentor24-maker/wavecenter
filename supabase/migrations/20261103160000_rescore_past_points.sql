@@ -131,7 +131,10 @@ begin
     raise exception 'Tick at least one action to rescore. Nothing was saved.' using errcode = '22023';
   end if;
   select s.scoring_provisional into v_provisional from public.game_settings s where s.id for update;
-  if not coalesce(v_provisional, false) then
+  if not found then
+    raise exception 'The game settings are missing, so WaveCenter cannot tell whether points are final. Nothing was saved.' using errcode = 'P0002';
+  end if;
+  if not v_provisional then
     raise exception 'Points are final for this DEO, so past points can no longer be rescored. Nothing was saved.' using errcode = '42501';
   end if;
 

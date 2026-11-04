@@ -71,24 +71,37 @@ export default function RescorePastPoints({
     if (!chosen.length) return;
     setMessage(null);
     startTransition(async () => {
+      let result: Awaited<ReturnType<typeof rescoreAction>>;
       try {
-        const result = await rescoreAction(chosen);
-        if (!result.ok) {
-          setMessage({ ok: false, text: result.error });
+        result = await rescoreAction(chosen);
+      } catch {
+        // The reply was lost, so the rescore may or may not have saved: say that, not "nothing changed".
+        setPreview(null);
+        setTicked([]);
+        setMessage({ ok: false, text: `${UNREACHABLE} WaveCenter cannot tell whether the rescore saved. Reload the page and click Preview to see what saved.` });
+        return;
+      }
+      if (!result.ok) {
+        setMessage({ ok: false, text: result.error });
+        return;
+      }
+      const done = rescored(result.value)!.text;
+      setMessage({ ok: true, text: done });
+      // The rescore saved; a failed re-preview must not unsay that. The old table is out of date either way.
+      let failure: string;
+      try {
+        const again = await previewRescoreAction();
+        if (again.ok) {
+          show(again.value);
           return;
         }
-        setMessage(rescored(result.value));
-        const again = await previewRescoreAction();
-        if (again.ok) show(again.value);
-        else {
-          // The old table's ticks and differences are out of date now: take it away and say why.
-          setPreview(null);
-          setTicked([]);
-          setMessage({ ok: true, text: `${rescored(result.value)!.text} The new preview could not be worked out: ${again.error} Click Preview to try again.` });
-        }
+        failure = again.error;
       } catch {
-        setMessage({ ok: false, text: `${UNREACHABLE} No points changed.` });
+        failure = UNREACHABLE;
       }
+      setPreview(null);
+      setTicked([]);
+      setMessage({ ok: true, text: `${done} The new preview could not be worked out: ${failure} Click Preview to try again.` });
     });
   }
 
