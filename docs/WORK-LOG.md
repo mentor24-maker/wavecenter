@@ -7,6 +7,22 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — The owner's own points are kept, even after members vote (#148)
+
+Dane's rule says a task's final score will be the average of two numbers:
+the AI's score and the owner's score, the points the person who made the
+task gives it. Until now the owner's number did not survive: once members
+voted, their average overwrote it. Each task now keeps the owner's score in
+a place of its own. When the owner sets a task's points it follows along;
+a member's vote never touches it; and nobody can type it in directly, the
+database keeps it itself. Following Dane's answers ("7A, 8A"), tasks that
+already existed got their points as they stand today, and a task at 0
+points counts as "not set", since most of those owners simply never gave a
+number. Nothing on screen changes and no task's points move; the next step
+uses this number to work out the final score.
+
+---
+
 ## 2026-11-03 — A home for the AI's ratings of each task (#147)
 
 The approved design says the AI will rate every task on four things, each
