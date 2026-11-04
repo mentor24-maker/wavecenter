@@ -11,6 +11,8 @@ import { loadComments, loadFiles } from "../../lib/taskReads";
 import { fromRow } from "../../lib/taskStore";
 import SiteHeader from "../../SiteHeader";
 import { fullDate, PRIORITY_LABEL } from "../listView.ts";
+import { ratingFromRow, type AiRatingRow } from "../scoreView.ts";
+import TaskScore from "../TaskScore";
 import TaskDiscussion from "./TaskDiscussion";
 
 const STATUS_LABEL: Record<TaskStatus, string> = { proposed: "Proposed", todo: "To do", doing: "Doing", done: "Done" };
@@ -75,7 +77,9 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
     loadFiles(supabase, task.id),
     mine ? loadComments(supabase, task.id) : Promise.resolve(null),
     // The parts of its points (core/taskScore.ts): the newest AI rating and every member's votes.
-    supabase.from("ai_task_ratings").select("ai_score").eq("task_id", task.id)
+    supabase.from("ai_task_ratings")
+      .select("scope, difficulty, relevance, demand, ai_score, instruction_version, created_at, ai_task_model_ratings(model, scope, difficulty, relevance, demand, scope_reason, difficulty_reason, relevance_reason, demand_reason)")
+      .eq("task_id", task.id)
       .order("created_at", { ascending: false }).order("seq", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("task_votes").select("member_id, points").eq("task_id", task.id),
   ]);
@@ -83,6 +87,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   const score = scoreError
     ? null
     : taskScore(task, rating.data?.ai_score ?? null, (votes.data ?? []).map((v) => ({ memberId: v.member_id, points: v.points })));
+  const aiRating = !scoreError && rating.data ? ratingFromRow(rating.data as unknown as AiRatingRow) : null;
   const done = task.status === "done";
   // A comment's files show in its Discussion, not in the task's own list.
   const taskFiles = files.files.filter((f) => !f.commentId);
@@ -107,7 +112,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
           {score ? (
             <span className="note">{taskScoreLine(score)}</span>
           ) : (
-            <span className="error" role="alert">How these points were worked out could not be loaded: {scoreError}. Try reloading the page.</span>
+            <span className="note">How they were worked out could not be loaded; see "How this task is scored" below.</span>
           )}
         </dd>
         <dt>Made by</dt>
@@ -137,6 +142,8 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 
       <h2>Details</h2>
       {task.notes ? <p className="task-notes">{task.notes}</p> : <p className="note">No details written.</p>}
+
+      <TaskScore score={score} rating={aiRating} error={scoreError} />
 
       <h2>Parent task</h2>
       {!task.parentTaskId ? (

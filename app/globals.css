@@ -875,3 +875,16 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 /* The total brightens while it counts up. */
 .who .points.counting { color: #ffe9a8; }
 @media (prefers-reduced-motion: reduce) { .token-disc { display: none; } }
+
+/* "How this task is scored" on a task's page: each factor opens to the
+   models' ratings and reasons; then the parts and the final score's sum. */
+.task-score { margin: var(--space) 0; }
+.task-score .factor-list { list-style: none; padding-left: 0; margin: 0.5rem 0 var(--space); }
+.task-score .factor-list > li { margin-bottom: 0.35rem; }
+.task-score summary { cursor: pointer; }
+.task-score .factor-name { font-weight: 600; color: var(--accent); }
+.task-score .model-reasons { padding-left: 1.25rem; margin: 0.25rem 0 0.5rem; }
+.task-score .model-reasons li { margin-bottom: 0.25rem; overflow-wrap: anywhere; }
+.task-score .score-parts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1.25rem; margin: 0; }
+.task-score .score-parts dt { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+.task-score .score-parts dd { margin: 0; overflow-wrap: anywhere; }
