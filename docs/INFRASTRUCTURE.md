@@ -278,8 +278,8 @@ feature so it uses the monthly Anthropic account instead of API quota", then
 tool switched off, in an empty scratch folder, with a bare environment
 (`scripts/lib/claudeCodeRater.mjs`). Doppler gives the pass only
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (`--only-secrets`).
-**There is no AI key anywhere**: `ANTHROPIC_API_KEY` is in neither Doppler nor
-Vercel, and the pass refuses to start if one is in its environment, because
+**Nothing uses an AI key**: no code reads `ANTHROPIC_API_KEY`, the lane
+unsets it, and the pass refuses to start if one is in its environment, because
 Claude Code would then bill the API account instead of Dane's plan. Each pass
 logs which sign-in it used (for example `claude.ai (max plan)`) to
 `~/loop-logs/wavecenter-ai-rating.log` and leaves a report the Admin page

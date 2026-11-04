@@ -94,7 +94,7 @@ checkout_state() {
 
 status() { checkout_state; for s in "${LANES[@]}"; do status_one "$s"; done; }
 
-uninstall_interval_lane() {
+install_interval_lane() {
   local lane="$1" script="$2" local_label local_plist local_llog
   local_label="$(label_of "$lane")"; local_plist="$(plist_of "$lane")"
   local_llog="$HOME/Library/Logs/$local_label.launchd.log"
@@ -134,7 +134,7 @@ PLIST_BODY
   echo "Installed $local_label — one pass every $(interval_of "$lane")s from $REPO."
 }
 
-install() {
+uninstall() {
   for s in "${LANES[@]}"; do
     launchctl bootout "gui/$(id -u)/$(label_of "$s")" 2>/dev/null || true
     rm -f "$(plist_of "$s")"

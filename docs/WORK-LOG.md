@@ -26,6 +26,11 @@ report of the Mini's last pass: when it ran, how many tasks it rated, which
 it could not and why, and how many still wait. If the Mini has not run a
 pass for over an hour, the report says plainly that it has stopped.
 
+On review, the Mini's installer had two of its steps under the wrong
+names, so the rating lane would never have switched on. They are fixed,
+and a new check reads every Mini script and fails if one calls a step
+that does not exist, so the same slip cannot ship again.
+
 ---
 
 ## 2026-11-04 — A task's points become its final score (#150)

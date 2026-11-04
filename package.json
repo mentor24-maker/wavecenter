@@ -2,7 +2,7 @@
   "name": "wavecenter",
   "version": "0.0.1",
   "private": true,
-  "description": "WaveCenter \u2014 the hub of the DEO movement, and the original DEO.",
+  "description": "WaveCenter — the hub of the DEO movement, and the original DEO.",
   "type": "module",
   "engines": {
     "node": ">=22"
