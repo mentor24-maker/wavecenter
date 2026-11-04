@@ -338,6 +338,26 @@ never files it a second time. When the ticket goes `Live`, the sync marks the
 task done like any other. The Evolution capture names, in its run output,
 any change whose ticket has no WaveCenter task behind it.
 
+### The AI rating lane
+
+A fifth launchd agent, `com.wavecenter.ai-rating`, runs
+`scripts/rating_lane.sh` every **30 minutes** (your decision, 2026-11-04:
+"go with the Mini"). It is not a loop skill and touches no ticket: it rates
+up to 10 open WaveCenter tasks that need an AI rating (`npm run rate-tasks`),
+each by two models through headless Claude Code under your plan, with every
+tool off and no repository access, and saves the ratings and reasons. Each
+pass has a 15-minute time limit, leaves a report on the Admin page ("AI task
+ratings"), and logs to `~/loop-logs/wavecenter-ai-rating.log`. A pass that
+cannot sign in to Claude says so in the log and on the Admin page; it starts
+working again on its own once someone runs `claude login` on the Mini.
+Doppler gives it only the two Supabase secrets, so no API key can reach
+Claude Code; it refuses to start if one is set.
+
+```bash
+ssh mac-mini 'tail -30 ~/loop-logs/wavecenter-ai-rating.log'   # what the last rating pass did
+bash scripts/rating_lane.sh --once                              # one pass now, its report printed here
+```
+
 ### Starting one by hand — only when the Mini's agents are unloaded
 
 Two commands, each in **its own session**, from any folder in the repo (the
@@ -351,11 +371,11 @@ loop makes its own worktree per task):
 ### Installing or moving the runner
 
 `./scripts/install_loop_runner.sh` on the machine that will own the loops,
-from its **main checkout** (never a worktree). It installs all four lanes and
+from its **main checkout** (never a worktree). It installs all five lanes and
 refuses if `npm`, `node`, `doppler`, `claude`, `git` or `gh` is missing, or if
 `gh` is not signed in to GitHub. It also installs the headless browser the Evolution
 pictures need (`npx playwright install chromium-headless-shell`), and refuses if
-that fails. `--uninstall` removes all four agents. Before
+that fails. `--uninstall` removes all five agents. Before
 installing on a second machine, uninstall on the first: two machines claiming
 is the collision the lock exists to prevent.
 
@@ -430,3 +450,6 @@ work, confirm the value, then widen.
 8. ⬜ The hand-off lane on the Mac Mini: after its pull request merges, run
    `./scripts/install_loop_runner.sh` again from the main checkout;
    `--status` then shows four lanes.
+9. ⬜ The AI rating lane on the Mac Mini: after its pull request merges, run
+   `./scripts/install_loop_runner.sh` again from the main checkout;
+   `--status` then shows five lanes.

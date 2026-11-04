@@ -732,8 +732,33 @@ pass lands, its AI score is a part of the task's final score (above).
 Row-level security was on from the moment both tables were made
 (`20261104120000_ai_task_factor_ratings.sql`). Every signed-in member reads
 every pass, so anyone can audit the AI. No member saves one, even on their
-own task; only WaveCenter's server does, with the service key. Signed-out
+own task; only the AI rating lane on the Mac Mini does, with the service key. Signed-out
 visitors see nothing.
+
+### The AI rating lane's reports: `ai_rating_passes`
+
+The AI rating lane on the Mac Mini (`scripts/rate_tasks.mjs`, every 30
+minutes, through Claude Code under Dane's plan; Dane, 2026-11-04: "go with
+the Mini") leaves one row per pass, which the Admin page's "AI task ratings"
+reads:
+
+| Column | What it holds |
+|---|---|
+| `started_at`, `finished_at` | When the pass ran. |
+| `signed_in_with` | Which Claude sign-in it used, such as `claude.ai (max plan)`. Never a key or an email. |
+| `rated` | How many tasks it rated and saved. |
+| `failed` | Each task it could not rate, as a list of `task_id`, `title` and `reason`; nothing was saved for those. |
+| `waiting` | Open tasks still needing a rating after it (each pass rates at most 10). |
+| `up_to_date` | Open tasks whose rating was already up to date. |
+| `error` | Set when the whole pass failed (for example Claude Code was not signed in, or an API key was in its environment), so it rated nothing. |
+| `tool`, `seq` | Which tool saved it, and the order rows were saved in. |
+
+Row-level security was on from the moment the table was made
+(`20261104150000_ai_rating_passes.sql`). Every signed-in member reads the
+reports; only the server's service key adds one (or deletes one: the
+database check clears its own); nobody changes one. Signed-out visitors see
+nothing. When the newest report is over an hour old, or there is none, the
+Admin page says plainly that the lane has stopped.
 
 ### Who may change the scoring rules
 

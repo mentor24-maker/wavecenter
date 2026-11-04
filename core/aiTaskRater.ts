@@ -5,9 +5,12 @@
  * From docs/GLOBULAR_SCORING_ALGORITHM.md, "How the AI rates", which Dane
  * approved by merging it (#146, 2026-11-03).
  *
- * Core never calls the AI service itself. The app hands in a `TaskRater`
- * (app/lib/aiTaskRating.ts, server only) that sends the instructions and one
- * task to one model and returns the model's raw answer. Everything that
+ * Core never calls the AI itself. The caller hands in a `TaskRater` that
+ * sends the instructions and one task to one model and returns the model's
+ * raw answer. Today the one caller is the AI rating lane on the Mac Mini
+ * (scripts/rate_tasks.mjs), whose rater is Claude Code signed in with
+ * Dane's plan, every tool switched off (scripts/lib/claudeCodeRater.mjs;
+ * Dane, 2026-11-04: "go with the Mini"). No website code calls it. Everything that
  * decides anything is here: the instructions, the cap on what is read, the
  * check of the answer (an answer that fails it saves nothing), and the
  * arithmetic (the server's formula, never the AI's own number).
@@ -22,7 +25,6 @@
  * rated when it has no rating yet, or when what the AI would read, or the
  * instructions, have changed since its last rating.
  */
-import { mayManageScoring, type GameActor } from './game.ts';
 import type { Task, TaskPriority } from './tasks.ts';
 import {
   TASK_FACTOR_KEYS,
@@ -53,7 +55,7 @@ export const RATING_MODELS: readonly string[] = ['claude-opus-5-5', 'claude-sonn
 /** The tool name every saved pass carries. */
 export const AI_RATING_TOOL = 'wavecenter-ai-rating';
 
-/** The most tasks one run rates. Each costs one call per model, so a click has a known, small cost. */
+/** The most tasks one pass rates. Each costs one call per model, so a pass has a known, small share of Dane's plan. */
 export const RATING_RUN_MAX_TASKS = 10;
 
 /** The caps on what the AI reads of one task. Anything cut is marked as cut in what it reads. */
@@ -249,7 +251,6 @@ export interface RatingRunResult {
 }
 
 export interface RatingRunInput {
-  actor: GameActor;
   tasks: readonly Task[];
   /** Each task's attached files' names, by task id. */
   fileNames: ReadonlyMap<string, readonly string[]>;
@@ -269,13 +270,11 @@ const NEED_ORDER: Record<RatingNeed, number> = { unrated: 0, changed: 1, 'new-in
  * then changed, then those rated under older instructions, oldest task first
  * within each. Each task is rated by every model in RATING_MODELS; if any
  * model fails or its answer is refused, nothing is saved for that task and it
- * is listed under `failed` with the reason. Only an admin who may manage the
- * game scoring may run it.
+ * is listed under `failed` with the reason. No member runs it: the one
+ * caller is the lane on the Mini, and its saves need the service key, which
+ * `record_ai_task_rating` accepts and nothing else does.
  */
 export async function rateTasks(input: RatingRunInput): Promise<RatingRunResult> {
-  if (!mayManageScoring(input.actor)) {
-    throw new CoreError('Only a role that may manage the game scoring can run the AI rating. Nothing was rated.');
-  }
   const tool = requireTool(input.tool);
   const limit = input.limit ?? RATING_RUN_MAX_TASKS;
   const instructions = ratingInstructions();
@@ -318,4 +317,27 @@ export async function rateTasks(input: RatingRunInput): Promise<RatingRunResult>
   const rated = outcomes.flatMap((o) => ('rated' in o ? [o.rated] : []));
   const failed = outcomes.flatMap((o) => ('failed' in o ? [o.failed] : []));
   return { rated, failed, upToDate, remaining: candidates.length - now.length, done: input.tasks.length - open.length };
+}
+
+/** How often the lane on the Mini runs a pass, and how long without one before the Admin page says it has stopped. */
+export const RATING_LANE_INTERVAL_MINUTES = 30;
+export const RATING_LANE_STOPPED_AFTER_MINUTES = 60;
+
+/** The newest pass report, as far as the Admin page's health line needs it. */
+export interface RatingPassSeen {
+  finishedAt: string;
+  error: string | null;
+}
+
+export type RatingLaneState =
+  | { state: 'never' }
+  | { state: 'stopped'; minutesAgo: number }
+  | { state: 'running'; minutesAgo: number; passFailed: boolean };
+
+/** Whether the lane is running: no pass ever, none for over an hour (stopped), or a recent one, which may itself have failed. */
+export function ratingLaneState(newest: RatingPassSeen | null | undefined, now: Date): RatingLaneState {
+  if (!newest) return { state: 'never' };
+  const minutesAgo = Math.max(0, Math.floor((now.getTime() - new Date(newest.finishedAt).getTime()) / 60_000));
+  if (!(minutesAgo <= RATING_LANE_STOPPED_AFTER_MINUTES)) return { state: 'stopped', minutesAgo };
+  return { state: 'running', minutesAgo, passFailed: newest.error != null };
 }

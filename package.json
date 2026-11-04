@@ -2,7 +2,7 @@
   "name": "wavecenter",
   "version": "0.0.1",
   "private": true,
-  "description": "WaveCenter — the hub of the DEO movement, and the original DEO.",
+  "description": "WaveCenter \u2014 the hub of the DEO movement, and the original DEO.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -24,10 +24,10 @@
     "db:test": "node scripts/db_test.mjs",
     "email:test": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/email_test.mjs",
     "evolution": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_capture.mjs",
-    "evolution:tasks": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_backfill_tasks.mjs"
+    "evolution:tasks": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_backfill_tasks.mjs",
+    "rate-tasks": "doppler run --project wavecenter --config dev --no-check-version --only-secrets SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY -- node scripts/rate_tasks.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "1.4.0",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.117.3",
     "next": "16.4.3",

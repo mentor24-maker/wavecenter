@@ -4,11 +4,13 @@
 # agents: loop-build, loop-review and loop-handoff (each keeps the committed
 # runner alive; loop-handoff files the tasks members tick for AI agents as
 # Loop Queue tickets), and merge-on-comment (a plain node pass every 10 minutes that carries out
-# Dane's written "merge"; no Claude session).
+# Dane's written "merge"; no Claude session), and ai-rating (one pass every
+# 30 minutes that rates the tasks that need it through Claude Code under
+# Dane's plan, every tool off; scripts/rating_lane.sh).
 #
-#   ./scripts/install_loop_runner.sh              # install all four lanes here
+#   ./scripts/install_loop_runner.sh              # install all five lanes here
 #   ./scripts/install_loop_runner.sh --status     # installed? running? locks? last pass?
-#   ./scripts/install_loop_runner.sh --uninstall  # remove all four from here
+#   ./scripts/install_loop_runner.sh --uninstall  # remove all five from here
 #
 # Copied from StarCaster's installer. launchd starts the runner at load,
 # restarts it if it dies, and survives a reboot; a screen session does none of
@@ -22,7 +24,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS=(loop-build loop-review loop-handoff)
 MERGE_LANE=merge-on-comment
-LANES=("${SKILLS[@]}" "$MERGE_LANE")
+RATING_LANE=ai-rating
+LANES=("${SKILLS[@]}" "$MERGE_LANE" "$RATING_LANE")
 
 interval_of() {
   case "$1" in
@@ -30,6 +33,7 @@ interval_of() {
     loop-review) echo 900 ;;
     loop-handoff) echo 600 ;;
     merge-on-comment) echo 600 ;;
+    ai-rating)   echo 1800 ;;
     *)           echo 3600 ;;
   esac
 }
@@ -90,7 +94,47 @@ checkout_state() {
 
 status() { checkout_state; for s in "${LANES[@]}"; do status_one "$s"; done; }
 
-uninstall() {
+uninstall_interval_lane() {
+  local lane="$1" script="$2" local_label local_plist local_llog
+  local_label="$(label_of "$lane")"; local_plist="$(plist_of "$lane")"
+  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
+  cat > "$local_plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$local_label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REPO/scripts/$script</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartInterval</key>
+    <integer>$(interval_of "$lane")</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$LAUNCHD_PATH</string>
+        <key>HOME</key>
+        <string>$HOME</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>$local_llog</string>
+    <key>StandardErrorPath</key>
+    <string>$local_llog</string>
+</dict>
+</plist>
+PLIST_BODY
+  launchctl bootout "gui/$(id -u)/$local_label" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$local_plist"
+  echo "Installed $local_label — one pass every $(interval_of "$lane")s from $REPO."
+}
+
+install() {
   for s in "${LANES[@]}"; do
     launchctl bootout "gui/$(id -u)/$(label_of "$s")" 2>/dev/null || true
     rm -f "$(plist_of "$s")"
@@ -116,7 +160,7 @@ install() {
     echo "         anything but a clean main, so it will run this branch's code until" >&2
     echo "         the checkout is put back on main." >&2
   fi
-  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/merge_lane.sh"
+  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/merge_lane.sh" "$REPO/scripts/rating_lane.sh"
   if ! (PATH="$LAUNCHD_PATH" gh auth status >/dev/null 2>&1); then
     echo "gh is not signed in to GitHub on this machine — the merge lane would read every \"merge\" and fail to act." >&2
     echo "A person signs in once with: gh auth login" >&2
@@ -178,44 +222,11 @@ PLIST_BODY
     echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s)."
   done
 
-  # The merge lane: one short pass every 10 minutes (StartInterval), not a
-  # kept-alive loop. launchd never runs two copies of one job at once.
-  local_label="$(label_of "$MERGE_LANE")"; local_plist="$(plist_of "$MERGE_LANE")"
-  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
-  cat > "$local_plist" <<PLIST_BODY
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$local_label</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$REPO/scripts/merge_lane.sh</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$REPO</string>
-    <key>StartInterval</key>
-    <integer>$(interval_of "$MERGE_LANE")</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>$LAUNCHD_PATH</string>
-        <key>HOME</key>
-        <string>$HOME</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>$local_llog</string>
-    <key>StandardErrorPath</key>
-    <string>$local_llog</string>
-</dict>
-</plist>
-PLIST_BODY
-  launchctl bootout "gui/$(id -u)/$local_label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$local_plist"
-  echo "Installed $local_label — one pass every $(interval_of "$MERGE_LANE")s from $REPO."
+  # The merge lane (every 10 minutes) and the AI rating lane (every 30) are
+  # one short pass each on a timer (StartInterval), not a kept-alive loop.
+  # launchd never runs two copies of one job at once.
+  install_interval_lane "$MERGE_LANE" merge_lane.sh
+  install_interval_lane "$RATING_LANE" rating_lane.sh
   echo
   status
 }

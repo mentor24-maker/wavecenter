@@ -1518,6 +1518,40 @@ try {
   check('deleting a task deletes its AI rating passes and their model parts', typeof ratedPassId === 'string' && ratedTaskGone.status < 300 && leftPasses.length === 0 && leftParts.length === 0,
     `task HTTP ${ratedTask.status}, delete HTTP ${ratedTaskGone.status}, left ${leftPasses.length} pass(es), ${leftParts.length} part(s)`);
 
+  // The AI rating lane's pass reports (20261104150000_ai_rating_passes.sql):
+  // the lane adds one per pass with the service key; every member reads
+  // them for the Admin page; no member adds, changes or deletes one, and not
+  // even the server changes one. This check's own report is dated long ago,
+  // so the Admin page never shows it as the newest, and is deleted at once.
+  const testPass = { started_at: '2000-01-01T00:00:00Z', finished_at: '2000-01-01T00:01:00Z', signed_in_with: 'claude.ai (rls check)', rated: 1,
+    failed: [{ task_id: taskB, title: 'rls check', reason: 'a test failure' }], waiting: 2, up_to_date: 3, tool: TOOL };
+  const passSaved = await admin('/rest/v1/ai_rating_passes', { method: 'POST', prefer: 'return=representation', body: testPass });
+  const passId = passSaved.json?.[0]?.id;
+  check('the server saves an AI rating pass report with the service key', passSaved.status < 300 && typeof passId === 'string', `HTTP ${passSaved.status} ${JSON.stringify(passSaved.json)}`);
+  const passRead = await call(`/rest/v1/ai_rating_passes?id=eq.${passId}&select=rated,failed,waiting`, { token: b.token });
+  check('a member reads the pass report, failures and all', passRead.status === 200 && passRead.json?.[0]?.rated === 1 && passRead.json[0].failed?.[0]?.reason === 'a test failure',
+    `HTTP ${passRead.status} ${JSON.stringify(passRead.json)}`);
+  const passByMember = await call('/rest/v1/ai_rating_passes', { method: 'POST', token: b.token, body: { ...testPass, rated: 99 } });
+  const passBumped = await call(`/rest/v1/ai_rating_passes?id=eq.${passId}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { rated: 99 } });
+  const passWiped = await call(`/rest/v1/ai_rating_passes?id=eq.${passId}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  const passServerBumped = await admin(`/rest/v1/ai_rating_passes?id=eq.${passId}`, { method: 'PATCH', body: { rated: 99 } });
+  const passKept = (await admin(`/rest/v1/ai_rating_passes?id=eq.${passId}&select=rated`)).json?.[0];
+  check('no member adds, changes or deletes a pass report, and not even the server changes one',
+    passByMember.status >= 400 && (passBumped.status >= 400 || (passBumped.json ?? []).length === 0) && (passWiped.status >= 400 || (passWiped.json ?? []).length === 0)
+      && passServerBumped.status >= 400 && passKept?.rated === 1,
+    `insert HTTP ${passByMember.status}, patch HTTP ${passBumped.status}, delete HTTP ${passWiped.status}, server patch HTTP ${passServerBumped.status}, kept ${JSON.stringify(passKept)}`);
+  const anonPasses = await call('/rest/v1/ai_rating_passes?select=id');
+  check('a signed-out visitor sees no pass reports', anonPasses.status >= 400 || (Array.isArray(anonPasses.json) && anonPasses.json.length === 0), `HTTP ${anonPasses.status}`);
+  const passBad = await admin('/rest/v1/ai_rating_passes', { method: 'POST', body: { ...testPass, rated: -1 } });
+  const passBadFailed = await admin('/rest/v1/ai_rating_passes', { method: 'POST', body: { ...testPass, failed: { not: 'a list' } } });
+  check('the database refuses a pass report with a negative count or failures that are not a list', passBad.status >= 400 && passBadFailed.status >= 400,
+    `HTTP ${passBad.status}/${passBadFailed.status}`);
+  const passGone = await admin(`/rest/v1/ai_rating_passes?id=eq.${passId}`, { method: 'DELETE' });
+  if (passGone.status >= 300) {
+    failures += 1;
+    console.error(`could not delete the test AI rating pass report ${passId}: HTTP ${passGone.status} — delete it by hand in the Supabase dashboard`);
+  }
+
   await castVote(voteStore(a), insA.id, { points: 50 }, TOOL);
   shown = await taskOf(insA.id);
   check('a vote on a done task is kept but its points stay locked', shown?.points === 3 && (await voteStore(a).mine(insA.id))?.points === 50, JSON.stringify(shown));

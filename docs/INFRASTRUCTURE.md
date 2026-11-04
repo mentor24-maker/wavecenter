@@ -268,21 +268,27 @@ sending-only key, put it in Doppler `dev` and `prd` and in Vercel, redeploy).
 `npm run email:test -- --to <address>` sends one test email and says plainly
 whether it went; `npm run doctor` shows whether the key is in Doppler.
 
-**The AI that rates tasks.** The Admin page's "AI task ratings" button asks
-two Claude models (`claude-opus-5-5` and `claude-sonnet-5-5`) to rate each
-open task (docs/GLOBULAR_SCORING_ALGORITHM.md, "How the AI rates";
-`app/lib/aiTaskRating.ts`). It calls Anthropic's API with the official
-`@anthropic-ai/sdk` from WaveCenter's own server code, so it works on any
-host. The key, **`ANTHROPIC_API_KEY`**, is in Doppler `dev` and `prd`; the
-live site also needs it in Vercel, then a redeploy (rule 4). It is read on
-the server only, never logged, and `check:browser-secrets` fails the build
-if its name appears in browser code. Saving a rating also needs
-`SUPABASE_SERVICE_ROLE_KEY`. Without either, the Admin page says which is
-missing and the button is off. **Cost:** each click rates at most 10 tasks,
-one call per model per task, roughly 5 to 10 US cents a task at Anthropic's
-listed prices. The account is billed in advance with credits: when they run
-out, every rating fails with "Your credit balance is too low", shown on the
-Admin page, and nothing is saved.
+**The AI that rates tasks.** Not the website: a lane on the **Mac Mini**,
+under Dane's monthly Claude plan (Dane, 2026-11-04: "We need to adjust this
+feature so it uses the monthly Anthropic account instead of API quota", then
+"go with the Mini"). Every 30 minutes the launchd agent
+`com.wavecenter.ai-rating` runs `scripts/rating_lane.sh`, which runs
+`npm run rate-tasks`: up to 10 open tasks, each rated by `claude-opus-5-5` and
+`claude-sonnet-5-5` through headless Claude Code (`claude -p`) with every
+tool switched off, in an empty scratch folder, with a bare environment
+(`scripts/lib/claudeCodeRater.mjs`). Doppler gives the pass only
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (`--only-secrets`).
+**There is no AI key anywhere**: `ANTHROPIC_API_KEY` is in neither Doppler nor
+Vercel, and the pass refuses to start if one is in its environment, because
+Claude Code would then bill the API account instead of Dane's plan. Each pass
+logs which sign-in it used (for example `claude.ai (max plan)`) to
+`~/loop-logs/wavecenter-ai-rating.log` and leaves a report the Admin page
+shows. **Limits:** ratings share Dane's plan's usage with the build and
+review lanes (10 tasks a pass is the control); they pause when the Mini is
+off or its Claude sign-in expires (the Admin page then says the lane has
+stopped). Before inviting other members, re-check Anthropic's terms on using
+a personal plan to rate other people's tasks; moving to an API key is one
+`TaskRater` swap.
 
 ## The core is separate from the framework
 

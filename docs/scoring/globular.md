@@ -81,10 +81,10 @@ How the AI rates (on the server, two models, with every reason kept, and a
 human able to overrule it) is in the design, "How the AI rates".
 
 **Built so far:** the ratings' home (`core/taskFactors.ts`, the
-`ai_task_ratings` tables) and the AI rating run (`core/aiTaskRater.ts`,
-the Admin page's "AI task ratings" button), which rates open tasks and
-keeps every reason. The AI score does not yet change a task's points; the
-final-score rule is its own ticket.
+`ai_task_ratings` tables), the final-score rule, and the AI rating lane
+(`core/aiTaskRater.ts`, run every 30 minutes on the Mac Mini through Claude
+Code under Dane's plan, every tool off), which rates open tasks, keeps every
+reason, and reports each pass on the Admin page's "AI task ratings".
 
 ### Around it
 

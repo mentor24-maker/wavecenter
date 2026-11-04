@@ -12,6 +12,7 @@ import {
   ratingRequest,
   ratingSubject,
   rateTasks,
+  ratingLaneState,
   readModelAnswer,
   type LatestRating,
   type TaskRater,
@@ -19,9 +20,6 @@ import {
 import { MemoryAiTaskRatingStore } from './memoryAiTaskRatingStore.ts';
 import { INSTRUCTION_VERSION_MAX, TASK_FACTOR_KEYS, TASK_FACTOR_TESTS, aiScore, type TaskFactors } from './taskFactors.ts';
 import type { Task } from './tasks.ts';
-
-const admin = { role: 'admin' as const };
-const member = { role: 'contributor' as const };
 
 function task(id: string, over: Partial<Task> = {}): Task {
   return {
@@ -32,6 +30,7 @@ function task(id: string, over: Partial<Task> = {}): Task {
     status: 'todo',
     parentTaskId: null,
     points: 50,
+    ownerPoints: null,
     position: 0,
     priority: 'normal',
     agentSelected: false,
@@ -66,7 +65,6 @@ function rater(byModel: Record<string, string | Error> = {}): TaskRater & { call
 
 function run(over: Partial<Parameters<typeof rateTasks>[0]> = {}) {
   return rateTasks({
-    actor: admin,
     tasks: [task('a')],
     fileNames: new Map(),
     latest: new Map(),
@@ -204,9 +202,17 @@ test('a run skips done and up-to-date tasks, takes unrated first, and stops at t
   assert.ok(!r.calls.some((c) => c.request.includes('Task done')));
 });
 
-test('only a role that may manage the game scoring may run it, and nothing is asked of the AI otherwise', async () => {
+test('a pass must name its tool, and nothing is asked of the AI otherwise', async () => {
   const r = rater();
-  await assert.rejects(run({ actor: member, rater: r }), /Only a role that may manage the game scoring/);
+  await assert.rejects(run({ tool: '', rater: r }), /must name the tool/);
   assert.equal(r.calls.length, 0);
-  await assert.rejects(run({ tool: '' }), /must name the tool/);
+});
+
+test('the lane health line: never, running, a failed recent pass, and stopped after an hour', () => {
+  const now = new Date('2026-11-04T12:00:00.000Z');
+  assert.deepEqual(ratingLaneState(null, now), { state: 'never' });
+  assert.deepEqual(ratingLaneState({ finishedAt: '2026-11-04T11:31:00.000Z', error: null }, now), { state: 'running', minutesAgo: 29, passFailed: false });
+  assert.deepEqual(ratingLaneState({ finishedAt: '2026-11-04T11:00:00.000Z', error: 'Could not sign in.' }, now), { state: 'running', minutesAgo: 60, passFailed: true });
+  assert.deepEqual(ratingLaneState({ finishedAt: '2026-11-04T10:59:00.000Z', error: null }, now), { state: 'stopped', minutesAgo: 61 });
+  assert.equal(ratingLaneState({ finishedAt: 'not a date', error: null }, now).state, 'stopped', 'an unreadable time counts as stopped, never as running');
 });
