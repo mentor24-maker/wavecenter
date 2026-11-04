@@ -19,7 +19,11 @@ exists today"):
 - **Members' votes replace it.** Any signed-in member may vote on what a
   task is worth (`core/votes.ts`, the `task_votes` table). The task's points
   become the plain average of the votes, a half rounding up. From the first
-  vote on, the owner's own number no longer counts.
+  vote on, the owner's own number no longer counts in the points.
+- **The owner's score is kept apart** (since 2026-11-04,
+  `tasks.owner_points`): the owner's own number survives the votes, ready
+  for the final score to average with the AI score. An owner's 0 is "not
+  set". Nothing reads it yet.
 - **A member's finished-task score** adds up the points of their finished
   tasks (`core/score.ts`), shown on the Game page (`/game`).
 

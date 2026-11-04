@@ -66,6 +66,7 @@ import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } f
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
 import { approveTask, createTask, deleteTask, updateTask } from '../core/tasks.ts';
+import { setPoints } from '../core/points.ts';
 import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
 import { isLocalUrl } from './lib/migrations.mjs';
@@ -1359,13 +1360,20 @@ try {
 
   // task_votes: any member votes on any task, only ever through their own
   // vote, and the database makes the average the task's points and priority.
-  const taskOf = async (id) => (await admin(`/rest/v1/tasks?id=eq.${id}&select=points,priority`)).json?.[0];
+  // The owner's score (20261104130000_task_owner_score.sql) is B's own 5
+  // throughout: the votes' average never overwrites it.
+  const taskOf = async (id) => (await admin(`/rest/v1/tasks?id=eq.${id}&select=points,priority,owner_points`)).json?.[0];
+  check('a new task’s owner’s score is the points its owner made it with', (await taskOf(taskB))?.owner_points === 5, JSON.stringify(await taskOf(taskB)));
   await castVote(voteStore(a), taskB, { points: 8, priority: 'high' }, TOOL);
   let shown = await taskOf(taskB);
   check('A can vote on B’s task, and one vote becomes its points and priority', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
   await castVote(voteStore(b), taskB, { points: 4, priority: 'low' }, TOOL);
   shown = await taskOf(taskB);
   check('two votes average: 8 and 4 make 6 points, High and Low make Normal', shown?.points === 6 && shown?.priority === 'normal', JSON.stringify(shown));
+  check('the votes leave B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
+  const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
+  check('even its owner cannot write the owner’s score straight to the column', forgeOwnerScore.status === 200 && (await taskOf(taskB))?.owner_points === 5,
+    `HTTP ${forgeOwnerScore.status} ${JSON.stringify(await taskOf(taskB))}`);
 
   const votesSeen = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&select=member_id,points`, { token: a.token });
   check('A can read every vote on B’s task', votesSeen.status === 200 && votesSeen.json.length === 2, JSON.stringify(votesSeen.json));
@@ -1386,6 +1394,18 @@ try {
   await castVote(voteStore(b), taskB, { points: null, priority: null }, TOOL);
   shown = await taskOf(taskB);
   check('B can withdraw B’s own vote, and the average is A’s alone again', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+  check('withdrawing a vote leaves B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
+
+  // The owner's own change moves the owner's score, and an owner's 0 is "not set".
+  const zeroTask = await createTask(a.store, { title: 'A’s unscored task', points: 0 }, TOOL);
+  check('a task made at 0 points has no owner’s score yet', (await taskOf(zeroTask.id))?.owner_points === null, JSON.stringify(await taskOf(zeroTask.id)));
+  const setByOwner = await setPoints(a.store, zeroTask.id, 10, TOOL);
+  check('the owner setting 10 points through core makes the owner’s score 10, in core and the database alike',
+    setByOwner.task.ownerPoints === 10 && (await taskOf(zeroTask.id))?.owner_points === 10, JSON.stringify(await taskOf(zeroTask.id)));
+  const clearedByOwner = await setPoints(a.store, zeroTask.id, 0, TOOL);
+  check('the owner setting 0 makes the owner’s score "not set" again', clearedByOwner.task.ownerPoints === null && (await taskOf(zeroTask.id))?.owner_points === null,
+    JSON.stringify(await taskOf(zeroTask.id)));
+  await deleteTask(a.store, zeroTask.id, TOOL);
 
   // AI task ratings (20261104120000_ai_task_factor_ratings.sql): one pass is
   // a row of ai_task_ratings with a row of ai_task_model_ratings per model,

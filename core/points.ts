@@ -14,6 +14,10 @@
  *   unlocks them, just as it clears the task's ticket.
  * - The member who adds a task sets its suggested value. The owner-only rule
  *   on the table already ensures that; voting on values is a later table.
+ *
+ * The owner's score (Dane, 2026-11-03) is that suggested value, kept apart
+ * from the task's points so members' votes can never overwrite it. It follows
+ * every change made here; see `ownerScore`.
  */
 import { CoreError, requireTool } from './tool.ts';
 import type { Task, TaskStore } from './tasks.ts';
@@ -41,6 +45,18 @@ export function requirePointsValue(points: unknown): number {
   if (points < 0) throw new CoreError(`Points can't be negative; got ${points}.`);
   if (points > MAX_POINTS) throw new CoreError(`Points must be between 0 and ${MAX_POINTS}; got ${points}.`);
   return points;
+}
+
+/**
+ * The owner's score a task's points give it when its owner sets them, or
+ * null for "not set". An owner's 0 is "not set" (Dane, 2026-11-04, "8A" on
+ * the design's question 8), because many owners never gave a number. The
+ * database's `tasks_owner_points` trigger applies exactly this whenever the
+ * owner's own change moves a task's points; a vote never does
+ * (supabase/migrations/20261104130000_task_owner_score.sql).
+ */
+export function ownerScore(points: number): number | null {
+  return requirePointsValue(points) === 0 ? null : points;
 }
 
 async function changePoints(

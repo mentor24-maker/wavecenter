@@ -61,6 +61,17 @@ test('the average of every member’s votes becomes the task’s points and prio
   assert.equal(stored?.priority, 'normal');
 });
 
+test('votes never change the owner’s score, even while their average is the task’s points', async () => {
+  const { tasks, task, dane, second } = await setup();
+  await castVote(dane, task.id, { points: 8 }, 'wavecenter');
+  await castVote(second, task.id, { points: 4 }, 'wavecenter');
+  let stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.ownerPoints], [6, 3]);
+  await castVote(second, task.id, { points: null }, 'wavecenter');
+  stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.ownerPoints], [8, 3]);
+});
+
 test('voting again replaces the member’s vote; leaving a part out keeps it', async () => {
   const { task, dane } = await setup();
   await castVote(dane, task.id, { points: 8, priority: 'high' }, 'wavecenter');

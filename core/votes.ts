@@ -24,6 +24,9 @@
  *   value stands.
  * - A done task's points are locked (core/points.ts), so votes on it are kept
  *   and shown, but they do not change it.
+ * - Votes never change the task's owner's score (`ownerPoints`, Dane's rule
+ *   of 2026-11-03): the owner's own number is kept even while the average
+ *   stands in the task's points.
  *
  * The database applies the average itself, in the same save as the vote
  * (supabase/migrations/20261028140000_task_votes.sql), because a member

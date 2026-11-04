@@ -48,6 +48,7 @@ One row is one task: something a member means to do, is doing, or has done.
 | `status` | **Where the task stands:** `proposed`, `todo`, `doing` or `done`. An admin's new task starts at `todo`; anyone else's starts at `proposed` and waits for an admin to approve it (`approve_task`), which makes it `todo`. A proposed task's status cannot change any other way, and it cannot be ticked for or handed to AI agents. No other values are accepted. |
 | `parent_task_id` | **The bigger task this one is part of**, if any. Empty for a top-level task. |
 | `points` | **What the task is worth**: its suggested value, as a whole number. Starts at 0, is never empty and never below zero. Locked once the task is done. |
+| `owner_points` | **The owner's score**: the points the task's owner gave it, kept apart so members' votes can never overwrite it (Dane, 2026-11-03: the owner's score is one half of the final score). Empty means "not set": an owner's 0 counts as not set (Dane, 2026-11-04, "8A"). The database keeps it (`tasks_owner_points`): it follows every change the owner makes to `points`, a vote never touches it, and nobody writes it directly. Tasks that existed before it got their points as they stood, votes' average included (Dane, "7A"). Today it is kept and nothing reads it yet; next, the task's points become the average of the AI score and this. |
 | `position` | Where the task sits in its list, so members can put tasks in their own order. |
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
@@ -109,6 +110,8 @@ questions this document used to leave open.
    2026-10-27; see "Votes on a task" below).
 4. **Who sets points, once votes exist.** The average of the members' votes.
    The owner's own value stands only until the first points vote.
+   The owner's own number is still kept, as the task's **owner's score**
+   (`owner_points`, above), so the AI score can be averaged with it later.
 
 The game layer's scoring rules (what each recorded action earns) are a
 separate thing from a task's points: an admin sets those on the Game
