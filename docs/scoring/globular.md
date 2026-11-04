@@ -80,6 +80,12 @@ averaged with the owner's score first) is no longer the plan.
 How the AI rates (on the server, two models, with every reason kept, and a
 human able to overrule it) is in the design, "How the AI rates".
 
+**Built so far:** the ratings' home (`core/taskFactors.ts`, the
+`ai_task_ratings` tables), the final-score rule, and the AI rating lane
+(`core/aiTaskRater.ts`, run every 30 minutes on the Mac Mini through Claude
+Code under Dane's plan, every tool off), which rates open tasks, keeps every
+reason, and reports each pass on the Admin page's "AI task ratings".
+
 ### Around it
 
 The same parts can apply to each kind of game action, with the admin's

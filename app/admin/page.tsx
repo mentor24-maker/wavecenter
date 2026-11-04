@@ -2,12 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { mayManageScoring } from "../../core/game.ts";
 import { mayOpenAdmin, ROLES } from "../../core/members.ts";
+import { RATING_LANE_INTERVAL_MINUTES, RATING_MODELS, RATING_RUN_MAX_TASKS } from "../../core/aiTaskRater.ts";
+import { newestRatingPass } from "../lib/aiTaskRating";
 import { headerPoints, supabaseScoringPhaseStore } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import FormulaExplained from "./FormulaExplained";
+import RatingLane from "./RatingLane";
 import RecalculatePoints from "./RecalculatePoints";
 import RescorePastPoints from "./RescorePastPoints";
 import ScoringPhase from "./ScoringPhase";
@@ -23,9 +26,12 @@ import ScoringPhase from "./ScoringPhase";
  * Under it, "Rescore past points" (RescorePastPoints) brings points already
  * earned to today's values, only while scoring is provisional, and
  * "Scoring phase" (ScoringPhase) says whether it still is, with the one-way
- * switch that makes points final.
+ * switch that makes points final. Last, "AI task ratings" (RatingLane) shows
+ * what the AI rating lane on the Mac Mini did in its last pass
+ * (docs/GLOBULAR_SCORING_ALGORITHM.md); the website never calls the AI.
  * Signed-out visitors are sent to sign in.
  */
+
 export default async function Admin() {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
@@ -45,7 +51,7 @@ export default async function Admin() {
     );
   }
 
-  const [name, points, role, phase] = await Promise.all([
+  const [name, points, role, phase, ratingPass] = await Promise.all([
     headerName(supabase, user),
     headerPoints(supabase, user.id),
     Promise.all([myRole(supabase, user.id), readRolesAndPermissions(supabase)]).then(
@@ -54,6 +60,10 @@ export default async function Admin() {
     ),
     // Could not be read: the section says why rather than guess (rule 7).
     supabaseScoringPhaseStore(supabase).phase().then(
+      (value) => ({ value, error: null }),
+      (err: unknown) => ({ value: null, error: err instanceof Error ? err.message : String(err) }),
+    ),
+    newestRatingPass(supabase).then(
       (value) => ({ value, error: null }),
       (err: unknown) => ({ value: null, error: err instanceof Error ? err.message : String(err) }),
     ),
@@ -101,6 +111,19 @@ export default async function Admin() {
               stay earned. It is one-way.
             </p>
             <ScoringPhase phase={phase.value} phaseError={phase.error} me={user.id} />
+
+            <h2>AI task ratings</h2>
+            <p className="note">
+              Every {RATING_LANE_INTERVAL_MINUTES} minutes, a lane on the Mac Mini asks the AI, through Claude Code under
+              Dane&apos;s plan, to rate each open task on scope, difficulty, relevance and demand, 1 to 5, with a reason for
+              every rating. Two models ({RATING_MODELS.join(" and ")}) rate each task separately; WaveCenter averages
+              them and works out the task&apos;s AI score, 1 to 50, with the formula S × D × (R + M) ÷ 5, which is part of
+              the task&apos;s final score. The AI reads the task&apos;s title, details, priority, parent, sub-tasks and file
+              names, never its points or anyone&apos;s votes, and it can use no tools. It rates tasks with no rating yet,
+              then tasks changed since their last rating, at most {RATING_RUN_MAX_TASKS} per pass; done tasks are never
+              rated, because their points are locked.
+            </p>
+            <RatingLane pass={ratingPass.value} readError={ratingPass.error} now={new Date()} />
           </div>
         ) : (
           <p className="note" role="status">Your role may not manage the game scoring, so there are no admin tools for you here yet.</p>

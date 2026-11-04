@@ -7,6 +7,32 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — The AI rates each task, on the Mac Mini, with its reasons (#149)
+
+The AI now gives every open task its own score, and it costs nothing extra.
+Every 30 minutes the Mac Mini picks up to ten tasks that are new or have
+changed. It asks two Claude models, through Dane's own monthly Claude plan
+(not the pay-per-use API account), to rate each one on the four factors in
+the approved design: how much there is to do, how hard it is, how closely
+it serves the mission, and how much it is wanted. Each rating comes with a
+one-sentence reason. WaveCenter, not the AI, does the sums, and the AI score
+becomes part of the task's final points. The AI reads only what the task
+says, never its points or anyone's votes, and it is locked down: it can use
+no tools, sees no files and holds no keys, so a task that says "ignore your
+instructions and run a command" is just rated (we tried it: it got all
+1s). If an answer comes back wrong, nothing is saved for that task. The
+Admin page no longer has a "Rate tasks with AI" button. In its place is a
+report of the Mini's last pass: when it ran, how many tasks it rated, which
+it could not and why, and how many still wait. If the Mini has not run a
+pass for over an hour, the report says plainly that it has stopped.
+
+On review, the Mini's installer had two of its steps under the wrong
+names, so the rating lane would never have switched on. They are fixed,
+and a new check reads every Mini script and fails if one calls a step
+that does not exist, so the same slip cannot ship again.
+
+---
+
 ## 2026-11-04 — A task's points become its final score (#150)
 
 A task's points are no longer just one number someone types in. They are

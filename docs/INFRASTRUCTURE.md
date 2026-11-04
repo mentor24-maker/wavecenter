@@ -268,6 +268,28 @@ sending-only key, put it in Doppler `dev` and `prd` and in Vercel, redeploy).
 `npm run email:test -- --to <address>` sends one test email and says plainly
 whether it went; `npm run doctor` shows whether the key is in Doppler.
 
+**The AI that rates tasks.** Not the website: a lane on the **Mac Mini**,
+under Dane's monthly Claude plan (Dane, 2026-11-04: "We need to adjust this
+feature so it uses the monthly Anthropic account instead of API quota", then
+"go with the Mini"). Every 30 minutes the launchd agent
+`com.wavecenter.ai-rating` runs `scripts/rating_lane.sh`, which runs
+`npm run rate-tasks`: up to 10 open tasks, each rated by `claude-opus-5-5` and
+`claude-sonnet-5-5` through headless Claude Code (`claude -p`) with every
+tool switched off, in an empty scratch folder, with a bare environment
+(`scripts/lib/claudeCodeRater.mjs`). Doppler gives the pass only
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (`--only-secrets`).
+**Nothing uses an AI key**: no code reads `ANTHROPIC_API_KEY`, the lane
+unsets it, and the pass refuses to start if one is in its environment, because
+Claude Code would then bill the API account instead of Dane's plan. Each pass
+logs which sign-in it used (for example `claude.ai (max plan)`) to
+`~/loop-logs/wavecenter-ai-rating.log` and leaves a report the Admin page
+shows. **Limits:** ratings share Dane's plan's usage with the build and
+review lanes (10 tasks a pass is the control); they pause when the Mini is
+off or its Claude sign-in expires (the Admin page then says the lane has
+stopped). Before inviting other members, re-check Anthropic's terms on using
+a personal plan to rate other people's tasks; moving to an API key is one
+`TaskRater` swap.
+
 ## The core is separate from the framework
 
 `core/` holds the task record, the points rules and the who-may-do-what
