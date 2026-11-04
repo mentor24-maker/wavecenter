@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — Globular scoring planned as six tickets (#144)
+
+Dane asked for a second kind of score, globular: what a task is worth,
+judged on a set of factors such as scope, difficulty, relevance and
+demand, each on a small scale, rated by members and by an AI. This
+ticket was the plan, not the build. It filed six tickets, in order.
+First a written design for Dane to approve: the factors, the scale, the
+formula from ratings to points, and how the AI rates. Nothing else is
+built until he approves it. Then a place in the database for ratings, a
+form for members to rate a task, the step where ratings set a task's
+points (which waits on Dane's choice of how they meet today's vote), the
+AI rating tasks on the server with its reasons (which needs an AI
+service key from Dane), and the AI's ratings shown beside the members'.
+
 ## 2026-11-03 — The spinning token disc and its Preview button (#141)
 
 Dane pictured a small coloured disc spinning up into a member's point
