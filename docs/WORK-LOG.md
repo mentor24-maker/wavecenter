@@ -7,6 +7,20 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-03 — The token now plays when a member earns points (#143)
+
+Until now the spinning token only played from the Preview button on
+Game → Manage. Now it plays for real: the next time a member opens any
+page after earning points, one token floats up into their header total
+for each thing they earned, oldest first, sized by what it was worth, and
+the total counts up to the true figure. Dane chose "next page load"
+rather than live. The member's own browser remembers the last earning it
+showed, so a reload plays nothing new, a first visit on a new browser does
+not replay their whole history, and a busy day plays at most five tokens.
+If the earnings cannot be read, nothing plays and the plain total shows.
+
+---
+
 ## 2026-11-03 — The spinning token disc and its Preview button (#141)
 
 Dane pictured a small coloured disc spinning up into a member's point
