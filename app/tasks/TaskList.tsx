@@ -38,6 +38,7 @@ import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type
 import { agentOrder } from "../../core/agents.ts";
 import type { TaskComment } from "../../core/comments.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
+import { othersScore } from "../../core/taskScore.ts";
 import { summarizeVotes } from "../../core/votes.ts";
 import {
   addTask,
@@ -701,6 +702,8 @@ function TaskRow({
   const done = task.status === "done";
   const proposed = task.status === "proposed";
   const summary = summarizeVotes(votes);
+  // The tally's points are the others' score, the same number the task page shows: the owner's own points vote is left out (core/taskScore.ts).
+  const others = othersScore(task.ownerId, votes);
   // Once members vote on the priority, the average decides it and the owner's box gives way (core/votes.ts).
   const priorityByVote = summary.priorityVotes > 0;
 
@@ -965,17 +968,19 @@ function TaskRow({
             : summary.voters === 0
             ? "No votes yet"
             : [
-                summary.points === null ? "No points votes" : `Average ${summary.points} pts`,
+                others.score === null ? "No points votes from other members" : `Others' average ${others.score} pts (${others.votes} vote${others.votes === 1 ? "" : "s"})`,
                 summary.priority === null ? "no priority votes" : PRIORITY_LABEL[summary.priority],
                 `${summary.voters} vote${summary.voters === 1 ? "" : "s"}`,
               ].join(" · ")}
-          {done && summary.pointsVotes > 0 && summary.points !== task.points && " (done, so its points stay locked at the value it finished with)"}
+          {done && others.votes > 0 && " (done, so its points stay locked at the value it finished with)"}
         </span>
         {votesError ? (
           <span className="note">Voting is off until the page is reloaded.</span>
         ) : (
           <form className="my-vote" aria-label={`Your vote on "${task.title}"`} onSubmit={saveVotePoints}>
-            <span className="note">Your vote:</span>
+            {/* On their own task the owner's points come from their own score box, so a points vote would count for nothing (core/taskScore.ts). */}
+            <span className="note">{mine ? "Your points come from your own score box. Your priority vote:" : "Your vote:"}</span>
+            {!mine && (
             <input
               aria-label={`Your points vote on "${task.title}"`}
               className="points"
@@ -989,6 +994,7 @@ function TaskRow({
               onChange={(e) => setVotePoints(e.target.value)}
               onBlur={() => saveVotePoints()}
             />
+            )}
             <select
               aria-label={`Your priority vote on "${task.title}"`}
               value={myVote?.priority ?? ""}

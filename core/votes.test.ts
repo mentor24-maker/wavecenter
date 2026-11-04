@@ -150,9 +150,8 @@ test('a vote whose engagement cannot be written is not saved', async () => {
   assert.equal(await dane.mine(task.id), null);
 });
 
-test('once members vote on a part, the owner cannot type over it', () => {
-  assert.doesNotThrow(() => requireNotVotedOn([], 'points'));
-  assert.doesNotThrow(() => requireNotVotedOn([{ points: null, priority: 'high' }], 'points'));
-  assert.throws(() => requireNotVotedOn([{ points: 4, priority: null }], 'points'), /average of their votes/);
-  assert.throws(() => requireNotVotedOn([{ points: null, priority: 'low' }], 'priority'), /its priority is the average/);
+test('once members vote on the priority, the owner cannot type over it', () => {
+  assert.doesNotThrow(() => requireNotVotedOn([], 'priority'));
+  assert.doesNotThrow(() => requireNotVotedOn([{ priority: null }], 'priority'));
+  assert.throws(() => requireNotVotedOn([{ priority: 'low' }], 'priority'), /its priority is the average/);
 });

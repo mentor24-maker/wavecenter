@@ -20,7 +20,10 @@ can now change their own score at any time, even after others have voted.
 A finished task's points stay locked. Each task's page has a new line
 showing the working, such as "AI 12, owner 10, final 11". When this goes
 live, the only tasks that move are open ones that other members have voted
-on.
+on. On their own task, an owner is no longer offered a points vote (it
+would count for nothing; their score box is their say), and the vote count
+on the task list shows the other members' average, the same number as the
+task's page.
 
 ---
 

@@ -43,6 +43,20 @@ test('awardPoints adds to what the task already has', async () => {
   assert.equal((await store.get(task.id))?.points, 8);
 });
 
+test('awardPoints adds to the owner\'s score, not to the final score', async () => {
+  const { store, task } = await oneTask(10);
+  // An AI score of 30 makes the final score average(30, 10) = 20.
+  store.aiScoreFor = () => 30;
+  await setPoints(store, task.id, 10, 'wavecenter');
+  assert.equal((await store.get(task.id))?.points, 20);
+  const change = await awardPoints(store, task.id, 5, 'wavecenter');
+  const stored = await store.get(task.id);
+  assert.equal(stored?.ownerPoints, 15);
+  // average(30, 15) = 22.5, a half rounding up.
+  assert.deepEqual([change.before, change.after, change.delta], [20, 23, 3]);
+  assert.equal(stored?.points, 23);
+});
+
 for (const tool of [undefined, '', '   ']) {
   test(`a points change with no tool name (${JSON.stringify(tool)}) is refused and nothing changes`, async () => {
     const { store, task } = await oneTask(4);

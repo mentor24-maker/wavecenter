@@ -179,10 +179,8 @@ export async function castVote(store: VoteStore, taskId: string, choice: VoteCho
  * on it: from then on the average decides (Dane, 2026-10-27). Points are no
  * longer refused: the owner's score is always the owner's (core/taskScore.ts).
  */
-export function requireNotVotedOn(votes: readonly Pick<Vote, 'points' | 'priority'>[], part: 'points' | 'priority'): void {
+export function requireNotVotedOn(votes: readonly Pick<Vote, 'priority'>[], part: 'priority'): void {
   if (votes.some((v) => v[part] !== null)) {
-    throw new CoreError(
-      `Members have voted on this task's ${part}, so ${part === 'points' ? 'its points are' : 'its priority is'} the average of their votes. Cast your own vote instead.`,
-    );
+    throw new CoreError("Members have voted on this task's priority, so its priority is the average of their votes. Cast your own vote instead.");
   }
 }

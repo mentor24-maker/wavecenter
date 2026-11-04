@@ -53,9 +53,10 @@ export function requirePointsValue(points: unknown): number {
  * The owner's score a task's points give it when its owner sets them, or
  * null for "not set". An owner's 0 is "not set" (Dane, 2026-11-04, "8A" on
  * the design's question 8), because many owners never gave a number. The
- * database's `tasks_owner_points` trigger applies exactly this whenever the
- * owner's own change moves a task's points; a vote never does
- * (supabase/migrations/20261104130000_task_owner_score.sql).
+ * database's `tasks_owner_points_set` trigger applies exactly this whenever
+ * the owner's own change names the task's points, even to the number already
+ * there; a vote never does
+ * (supabase/migrations/20261104140000_final_task_score.sql).
  */
 export function ownerScore(points: number): number | null {
   return requirePointsValue(points) === 0 ? null : points;
@@ -65,7 +66,7 @@ async function changePoints(
   store: TaskStore,
   taskId: string,
   tool: string,
-  next: (before: number) => number,
+  next: (current: Task) => number,
 ): Promise<PointsChange> {
   const named = requireTool(tool);
   const current = await store.get(taskId);
@@ -73,7 +74,7 @@ async function changePoints(
   if (current.status === 'done') {
     throw new CoreError('This task is done, so its points are locked. Reopen it to change them.');
   }
-  const after = requirePointsValue(next(current.points));
+  const after = requirePointsValue(next(current));
   // Only write if nobody changed the points or the status since we read
   // them, so two changes at once can never silently lose one, and a task
   // finished in the meantime keeps its points locked.
@@ -91,12 +92,14 @@ export async function setPoints(store: TaskStore, taskId: string, points: number
   return changePoints(store, taskId, tool, () => value);
 }
 
-/** Add `amount` points (a whole number above zero) to a task on behalf of `tool`. */
+/** Add `amount` points (a whole number above zero) to a task's owner's score on behalf of `tool`. */
 export async function awardPoints(store: TaskStore, taskId: string, amount: number, tool: string): Promise<PointsChange> {
   requireTool(tool);
   if (amount <= 0) {
     throw new CoreError(`An award must be more than zero points; got ${amount}. Use setPoints to lower a task's points.`);
   }
   requirePointsValue(amount);
-  return changePoints(store, taskId, tool, (before) => before + amount);
+    // The award adds to the owner's score, the part the owner sets, not to the
+  // final score, which the store works out from every part (core/taskScore.ts).
+  return changePoints(store, taskId, tool, (current) => (current.ownerPoints ?? 0) + amount);
 }
