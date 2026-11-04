@@ -4,7 +4,8 @@
  * Game Manager's Tokens section: one row per token size (the coloured discs
  * the earned-points animation will use), each with its colour swatch, its
  * size in pixels and its point level, and Edit and Remove. The last row adds
- * a size.
+ * a size. Preview plays the earned-points animation at that size and colour
+ * in the header (app/TokenAnimation.tsx); it changes nobody's points.
  *
  * Every save goes through the server (saveTokenSize, deleteTokenSize, then
  * core's rules in core/tokens.ts) and says "Saved" only when the database
@@ -13,6 +14,7 @@
  */
 import { useState, useTransition, type FormEvent } from "react";
 import { TOKEN_DIAMETER_MAX, TOKEN_DIAMETER_MIN, TOKEN_NAME_MAX, type TokenSize } from "../../../core/tokens.ts";
+import { playToken } from "../../TokenAnimation";
 import { deleteTokenSize, saveTokenSize, type TokenForm } from "./actions";
 
 const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again.";
@@ -140,6 +142,10 @@ function SizeRow({ size }: { size: TokenSize }) {
           <td>{size.diameter} px</td>
           <td>{size.minPoints}+ points</td>
           <td className="token-buttons">
+            <button type="button" className="quiet" aria-label={`Preview ${size.name}`} onClick={(e) => {
+              const box = e.currentTarget.getBoundingClientRect();
+              playToken({ points: size.minPoints, sizes: [size], from: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, preview: true });
+            }}>Preview</button>
             <button type="button" className="quiet" onClick={() => { setForm(formOf(size)); setMessage(null); }} disabled={pending}>Edit</button>
             <button type="button" className="quiet" onClick={remove} disabled={pending}>{pending ? "Removing…" : "Remove"}</button>
           </td>

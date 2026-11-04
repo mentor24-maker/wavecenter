@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { signOut } from "./auth/actions";
 import type { HeaderPoints } from "./lib/engagementStore";
+import TokenAnimation from "./TokenAnimation";
 
 /**
  * The bar across the top of every page, over Dane's water-drop picture: the
@@ -21,7 +22,9 @@ import type { HeaderPoints } from "./lib/engagementStore";
  * The bar's content is as wide as every page's main body, so the two line up.
  * `points` is the member's point total (app/lib/engagementStore.ts
  * `headerPoints`), shown beside the name as a link to My Points
- * (`Name · 1,234 points | Log out`); a failed read says so, never 0.
+ * (`Name · 1,234 points | Log out`); a failed read says so, never 0. The
+ * total is drawn by TokenAnimation, which floats a spinning disc up to it and
+ * counts it up when `playToken` is called.
  * `onPicture` (Home only) drops the bar's own picture and fades its darkening
  * out toward the bottom, so the page's picture behind it shows through unbroken.
  */
@@ -55,15 +58,7 @@ export default function SiteHeader({
               {points && (
                 <>
                   <span className="dot" aria-hidden="true">·</span>
-                  {points.error === null ? (
-                    <Link href="/game" className="quiet points" title="Your points: open My Points">
-                      {points.value.toLocaleString("en-US")} {points.value === 1 ? "point" : "points"}
-                    </Link>
-                  ) : (
-                    <Link href="/game" className="quiet points unavailable" title={`Your points total could not be loaded: ${points.error}`}>
-                      points unavailable
-                    </Link>
-                  )}
+                  <TokenAnimation points={points} />
                 </>
               )}
               <span className="sep" aria-hidden="true">|</span>
