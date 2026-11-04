@@ -12,6 +12,8 @@ import {
   checkTokenSize,
   removeTokenSize,
   tokenSizeFor,
+  tokensToPlay,
+  type Earning,
 } from './tokens.ts';
 
 const TOOL = 'wavecenter';
@@ -137,4 +139,38 @@ test('the migration turns on row-level security and checks the same limits core 
   const seeds = [...sql.matchAll(/\('(\w+)',\s*(\d+), '(#[0-9a-f]{6})',\s*(\d+)\)/g)];
   assert.equal(seeds.length, 3);
   for (const [, name, diameter, color, minPoints] of seeds) checkTokenSize({ name, diameter, color, minPoints });
+});
+
+const at = (minute: number) => `2026-11-03T18:${String(minute).padStart(2, '0')}:00.000+00:00`;
+const earning = (id: string, points: number, minute: number): Earning => ({ id, points, createdAt: at(minute) });
+
+test('tokensToPlay plays nothing on a first visit and remembers the newest', () => {
+  const recent = [earning('b', 3, 2), earning('a', 1, 1)];
+  assert.deepEqual(tokensToPlay(recent, null), { plays: [], newest: { id: 'b', createdAt: at(2) } });
+});
+
+test('tokensToPlay plays each earning since the seen one, oldest first, and skips 0 points', () => {
+  const recent = [earning('d', 5, 4), earning('c', 0, 3), earning('b', 2, 2), earning('a', 1, 1)];
+  const { plays, newest } = tokensToPlay(recent, { id: 'a', createdAt: at(1) });
+  assert.deepEqual(plays, [2, 5]);
+  assert.deepEqual(newest, { id: 'd', createdAt: at(4) });
+  // Reloading with the new mark plays nothing more.
+  assert.deepEqual(tokensToPlay(recent, newest!).plays, []);
+});
+
+test('tokensToPlay orders earnings from one save by id, so a shared time is not lost or replayed', () => {
+  const recent = [earning('y', 2, 1), earning('x', 1, 1), earning('z', 4, 1)];
+  assert.deepEqual(tokensToPlay(recent, { id: 'x', createdAt: at(1) }).plays, [2, 4]);
+});
+
+test('tokensToPlay caps the tokens and plays the rest as one last token', () => {
+  const recent = Array.from({ length: 8 }, (_, i) => earning(`e${i}`, i + 1, i + 1));
+  const { plays } = tokensToPlay(recent, { id: 'old', createdAt: at(0) }, 5);
+  assert.deepEqual(plays, [1, 2, 3, 4, 5 + 6 + 7 + 8]);
+});
+
+test('tokensToPlay keeps the seen mark when there are no earnings at all', () => {
+  const seen = { id: 'a', createdAt: at(1) };
+  assert.deepEqual(tokensToPlay([], seen), { plays: [], newest: seen });
+  assert.deepEqual(tokensToPlay([], null), { plays: [], newest: null });
 });
