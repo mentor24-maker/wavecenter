@@ -25,6 +25,51 @@ the record kept pointing at an account that no longer existed, and the
 lock stopped anyone fixing it. Now that one case clears the name and
 nothing else, and the screen says "an admin whose account is gone".
 
+---
+
+## 2026-11-03 — A written design for how tasks are rated (#146)
+
+Before any code, this writes down how a task's worth will be worked out,
+for Dane to approve. The AI rates each task on four things, each from 1 to
+5: how much there is to do, how hard it is, how closely it serves the
+mission, and how much it is wanted. Each level has a one-line test anyone
+can check. A simple formula turns the four ratings into one number of
+points, from 1 to 50, the same range owners use today. The task's final
+points are the average of that number and the owner's own points, as Dane
+decided; later the other members' average joins as a third part. Four
+real tasks are worked through as examples. The design also says how the
+AI is kept honest: it runs on the server, two models rate every task, every
+reason is kept for anyone to read, and an admin can overrule it. Eight
+questions are left for Dane, such as what happens to today's votes in the
+meantime. The scoring plan and wiki now follow his rule. Nothing is built
+yet.
+
+---
+
+## 2026-11-03 — Globular scoring planned as six tickets (#144)
+
+Dane asked for a second kind of score, globular: what a task is worth,
+judged on a set of factors such as scope, difficulty, relevance and
+demand, each on a small scale. This ticket was the plan, not the build.
+Dane then settled the key rule: the AI rates the factors, and that is
+the task's AI score; the owner's own points are the human score; the
+task's final score is the average of the two. Later, the average of the
+other members' scores joins as a third part. The six tickets follow that
+rule, in order. First a written design for Dane to approve: the
+factors, the scale, the formula and how the AI rates; nothing else is
+built until he approves it. Then a place in the database for the AI's
+ratings and reasons, keeping the owner's points safe from being
+overwritten by votes, the step where the final score becomes the task's
+points, the AI rating tasks on the server (which needs an AI service key
+from Dane), and the task page showing the AI's ratings beside the
+owner's score. Two earlier tickets that had members rating factors were
+closed. Their tasks were ticked for AI agents again and filed a second
+time; Dane answered "A" on both (close them), and added that the AI uses
+the factors to reach one point value, and that value is what is averaged
+with the human scores.
+
+---
+
 ## 2026-11-03 — The token now plays when a member earns points (#143)
 
 Until now the spinning token only played from the Preview button on

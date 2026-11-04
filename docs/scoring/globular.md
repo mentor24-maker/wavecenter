@@ -30,24 +30,57 @@ what a member has earned in the ledger are not added together anywhere
 
 ## What is planned
 
-Dane, 2026-11-01, described four scores for every task
-(`docs/SCORING_GAME_PLAN.md`, "The scores, as Dane described them"):
+**The design:** [GLOBULAR_SCORING_ALGORITHM.md](../GLOBULAR_SCORING_ALGORITHM.md),
+a proposal for Dane to approve. Nothing in it is built.
 
-1. **Owner's score**: the owner's suggested points.
-2. **Human score**: the members' votes averaged with the owner's score.
-3. **AI score**: what an AI assessment says, by an algorithm "that we will
-   determine together".
-4. **Final score**: the average of the AI score and the human score.
+### Dane's rule
 
-The same four can apply to each kind of game action, with the admin's value
-as the owner's score and the granular formula as the AI score
+Dane, 2026-11-03, on the ticket "Scoring system for Globular scores (epic
+parent)":
+
+> These ratings will be the AI-generated scores. We will also have a
+> human-produced score, in the form of the score the person who creates the
+> task gives it. We will average the AI score and the human score to arrive
+> at the final score. Later, we will add a third factor, which is the
+> average of all the other users' scores. Then we'll take the average of all
+> three scores: AI, owner, others.
+
+And: "the factors are used by AI to derive their final point value for the
+score. It is that final point value that is being averaged with the human
+scores."
+
+So for every task:
+
+1. **AI score.** The AI rates the task on four factors, scope, difficulty,
+   relevance and demand, each 1 to 5. A formula turns the four ratings into
+   one number of points, 1 to 50. Members do not rate factors.
+2. **Owner's score.** The points the task's creator gives it.
+3. **Final score** = the average of the AI score and the owner's score,
+   a whole number, a half rounding up. This is the task's points.
+4. **Later, not built yet:** the **others' score**, the average of the other
+   members' scores, joins; final becomes the average of AI, owner and
+   others.
+
+**This replaces two earlier ideas.** Today members' votes replace the
+owner's points; under Dane's rule they do not count until the others'
+score is built. And the "human score" of `docs/SCORING_GAME_PLAN.md`
+(votes averaged with the owner's score) is no longer the plan.
+
+How the AI rates (on the server, two models, with every reason kept, and a
+human able to overrule it) is in the design, "How the AI rates".
+
+### Around it
+
+The same parts can apply to each kind of game action, with the admin's
+value as the owner's score and the granular formula as the AI score
 (`docs/SCORING_GAME_PLAN.md`, "The same scoring for game behaviors").
 
-Around these, Dane described a **guess game**: a member guesses what
+Dane also described a **guess game**: a member guesses what
 something is worth; the gap between the guess and the final score is their
 **deviance score**, and the normalised average of those is their
 **deviance quotient (DQ)** (`docs/SCORING_GAME_PLAN.md`, "The guess game").
 
-None of this is built. The plan lists ten sub-tasks in build order and
-eight questions for Dane (`docs/SCORING_GAME_PLAN.md`, "Sub-tasks, in build
-order" and "Questions for Dane"). See [Open questions](open-questions.md).
+None of this is built. The design has eight questions for Dane
+(`docs/GLOBULAR_SCORING_ALGORITHM.md`, "Questions for Dane"), and the guess
+game plan has its own (`docs/SCORING_GAME_PLAN.md`, "Questions for Dane").
+See [Open questions](open-questions.md).
