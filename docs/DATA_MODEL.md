@@ -524,7 +524,9 @@ scored." This is the first piece of that, modelled on Normie's game layer.
   saying who is credited, which kind it was, the points it earned, the tool
   that did it and the task it was about, with the time. The points are copied
   from the rule at that moment, so changing a rule later never rewrites what
-  someone already earned. A row about a deleted task stays.
+  someone already earned. A row about a deleted task stays. The one way past
+  points move is a **rescore** (below), and even that never edits a row: it
+  adds correction rows.
 
 **The database writes the ledger itself.** Every time a task, an attached
 file, the AI agents switch, a profile or a message is saved, the database records the engagement
@@ -552,6 +554,36 @@ Row-level security was on from the moment each table was made.
 
 The `/game` page shows the rules, the member's total and their latest
 engagements, with times in Mountain time.
+
+**Rescoring past points while scoring is provisional**
+(`20261103160000_rescore_past_points.sql`). Early in a DEO nobody knows yet
+what actions are worth, so early points are guesswork (Dane, 2026-11-03). The
+Admin page's **Rescore past points** brings points already earned to what
+each action is worth today. For each member and each ticked action, what it
+should have credited is the times they really did it × its points today; the
+difference from everything already credited for it is added as **one
+correction row** in `engagements`: the same kind, `points` = the difference
+(negative when a value went down), tool `rescore`, and a `rescore_id`. A real
+action's `rescore_id` is empty. Because earlier corrections are counted, a
+second rescore straight after changes nothing. A correction is not an action:
+counts of actions (the `engagements` count in `engagement_totals`) leave it
+out, while the points total still adds it in. The `/game` activity list shows
+it as "Rescored Made a task".
+
+- **`rescores`**: one row per rescore that changed something: who ran it,
+  when, with which tool, how many correction rows and how many points (net).
+  Only a role with "Manage game scoring" reads it; only `apply_rescore`
+  writes it.
+- **`game_settings`**: a single row. `scoring_provisional` is true until the
+  DEO's points are declared final, which is meant to be permanent (Dane,
+  2026-11-03, "Permanent"; the switch is its own ticket). Every member reads
+  it; nobody writes it through the API yet.
+- `rescore_tallies()` gives the preview its figures (every member's points,
+  added up per action) and `apply_rescore()` adds the corrections in one
+  step. Both refuse anyone without "Manage game scoring", and
+  `apply_rescore` also refuses once scoring is no longer provisional.
+
+Row-level security was on from the moment both new tables were made.
 
 This does not yet change a task's own `points`: what a task is worth and what
 a member has earned are kept separate for now. Levels, rewards and a
