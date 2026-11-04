@@ -31,8 +31,10 @@
  * them (`public.home_boxes`), which are put back as they were afterwards;
  * that every member reads the token sizes but only a role with Manage game
  * scoring adds, changes or removes one (`public.token_sizes`), also put back
- * afterwards; and that every member reads every proposal but adds, changes and deletes
- * only their own (`public.proposals`).
+ * afterwards; that every member reads every proposal but adds, changes and deletes
+ * only their own (`public.proposals`); and that every member reads the AI's
+ * task ratings but only the service key writes them, and the table refuses a
+ * rating off the scale or without its reasons (`public.ai_task_ratings`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -1382,6 +1384,49 @@ try {
   await castVote(voteStore(b), taskB, { points: null, priority: null }, TOOL);
   shown = await taskOf(taskB);
   check('B can withdraw B’s own vote, and the average is A’s alone again', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+
+  // AI task ratings (20261104120000_ai_task_factor_ratings.sql): every member
+  // reads them, nobody but the server (the service key) writes them, and the
+  // table refuses a rating off the 1-to-5 scale, an AI score that is not the
+  // formula's, and one without its model, instruction version or reasons.
+  // Deleted with taskB at the end.
+  const ratingRow = (over = {}) => ({
+    task_id: taskB, scope: 3, difficulty: 3, relevance: 3, demand: 4,
+    scope_reason: 'A new feature on one screen.', difficulty_reason: 'Needs real thought.',
+    relevance_reason: 'Adds something members use.', demand_reason: 'Members are held back without it.',
+    ai_score: 13, model: 'claude-opus-5-5', instruction_version: 'rls-check', tool: TOOL, ...over,
+  });
+  const ratedByServer = await admin('/rest/v1/ai_task_ratings', { method: 'POST', prefer: 'return=representation', body: ratingRow() });
+  const ratingId = ratedByServer.json?.[0]?.id;
+  check('the server saves an AI rating with the service key', ratedByServer.status === 201 && !!ratingId, `HTTP ${ratedByServer.status} ${JSON.stringify(ratedByServer.json)}`);
+  const ratingSeen = await call(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id,ai_score,scope_reason,model`, { token: a.token });
+  check('a member reads the AI ratings of another member’s task', ratingSeen.status === 200 && ratingSeen.json?.[0]?.id === ratingId && ratingSeen.json?.[0]?.ai_score === 13, `HTTP ${ratingSeen.status} ${JSON.stringify(ratingSeen.json)}`);
+  const ratingByMember = await call('/rest/v1/ai_task_ratings', { method: 'POST', token: b.token, body: ratingRow({ ai_score: 13 }) });
+  const ratingBumped = await call(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { scope_reason: 'Hijacked' } });
+  const ratingWiped = await call(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  const ratingAfter = (await admin(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id,scope_reason`)).json ?? [];
+  check('a member cannot add, change or delete an AI rating, even on their own task',
+    ratingByMember.status >= 400 && (ratingBumped.status >= 400 || ratingBumped.json?.length === 0) && (ratingWiped.status >= 400 || ratingWiped.json?.length === 0)
+      && ratingAfter.length === 1 && ratingAfter[0].scope_reason === 'A new feature on one screen.',
+    `insert HTTP ${ratingByMember.status}, patch HTTP ${ratingBumped.status} ${JSON.stringify(ratingBumped.json)}, delete HTTP ${ratingWiped.status} ${JSON.stringify(ratingWiped.json)}, rows ${JSON.stringify(ratingAfter)}`);
+  const anonRatings = await call('/rest/v1/ai_task_ratings?select=id');
+  check('a signed-out visitor sees no AI ratings', anonRatings.status >= 400 || (Array.isArray(anonRatings.json) && anonRatings.json.length === 0), `HTTP ${anonRatings.status}`);
+  const badRatings = {
+    'a factor of 0': ratingRow({ scope: 0 }),
+    'a factor of 6': ratingRow({ demand: 6, ai_score: 16 }),
+    'an AI score that is not the formula’s': ratingRow({ ai_score: 50 }),
+    'no model': ratingRow({ model: null }),
+    'a blank model': ratingRow({ model: '  ' }),
+    'no instruction version': ratingRow({ instruction_version: null }),
+    'a blank reason': ratingRow({ relevance_reason: ' ' }),
+    'no reason': ratingRow({ demand_reason: null }),
+    'a reason over 300 characters': ratingRow({ scope_reason: 'x'.repeat(301) }),
+  };
+  const badResults = await Promise.all(Object.entries(badRatings).map(async ([what, body]) => [what, (await admin('/rest/v1/ai_task_ratings', { method: 'POST', body })).status]));
+  const notRefused = badResults.filter(([, status]) => status < 400).map(([what]) => what);
+  check('the table refuses, even from the server, a rating off the scale, a made-up AI score, or one without its model, instruction version or reasons',
+    notRefused.length === 0 && ((await admin(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id`)).json ?? []).length === 1, `not refused: ${JSON.stringify(notRefused)}`);
+  await admin(`/rest/v1/ai_task_ratings?id=eq.${ratingId}`, { method: 'DELETE' });
 
   await castVote(voteStore(a), insA.id, { points: 50 }, TOOL);
   shown = await taskOf(insA.id);

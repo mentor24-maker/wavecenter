@@ -620,8 +620,47 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   (`20261103140000_edit_factor_reasons.sql`).
 - **Globular scores** are values that need thought to assess accurately and
   defensibly against other globular scores, such as what a given task is
-  worth. A task's `points` is one; the owner, human, AI and final scores
-  for a task are planned in `docs/SCORING_GAME_PLAN.md`.
+  worth. A task's `points` is one; the owner, AI and final scores for a
+  task are designed in `docs/GLOBULAR_SCORING_ALGORITHM.md`. The AI's
+  ratings have their own table, below.
+
+### The AI's task ratings: `ai_task_ratings`
+
+From the globular design Dane approved (`docs/GLOBULAR_SCORING_ALGORITHM.md`,
+#146, 2026-11-03). The AI rates each task on four factors, each a whole
+number from 1 to 5: **scope** (how much there is to do), **difficulty** (how
+hard it is to get right), **relevance** (how closely it serves the mission)
+and **demand** (how much it is wanted). The formula turns the four into the
+task's **AI score**: S × D × (R + M) ÷ 5, rounded to a whole number with a
+half rounding up, and never less than 1, so it runs from 1 to 50. Members
+do not rate factors (Dane's rule, 2026-11-03).
+
+| Column | What it holds |
+|---|---|
+| `task_id` | The task rated. If the task is deleted, its ratings go with it. |
+| `scope`, `difficulty`, `relevance`, `demand` | The four ratings, each 1 to 5. |
+| `scope_reason`, `difficulty_reason`, `relevance_reason`, `demand_reason` | One sentence per rating saying which test the task meets and why. Every one is required, up to 300 characters. |
+| `ai_score` | The formula's number for these four ratings. The table refuses any other number, so the AI can never set its own score. |
+| `model` | The AI model's exact id, such as `claude-opus-5-5`. Required. |
+| `instruction_version` | The version of the instructions the AI was given. Required. |
+| `tool` | Which tool saved it. |
+| `created_at` | When it was rated. |
+
+**One row is one model's rating at one moment.** A new rating adds a row and
+never overwrites one, so how a task's AI score moved can always be read
+back; the newest row is the task's current rating (`currentAiTaskRating`).
+When two models rate a task, their ratings are averaged without rounding
+and only the AI score is rounded (`aiScore` in `core/taskFactors.ts`).
+
+**Nothing writes it yet, and it changes no task's points yet.** The AI job
+on the server fills it, and connecting it to a task's points are later
+tickets under "Scoring system for Globular scores (epic parent)".
+
+Row-level security was on from the moment `ai_task_ratings` was made
+(`20261104120000_ai_task_factor_ratings.sql`). Every signed-in member reads
+every rating, so anyone can audit the AI. No member adds, changes or deletes
+one, even on their own task; only WaveCenter's server writes them, with the
+service key. Signed-out visitors see nothing.
 
 ### Who may change the scoring rules
 
