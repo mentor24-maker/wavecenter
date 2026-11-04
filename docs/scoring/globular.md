@@ -13,17 +13,20 @@ member's total.
 As read from the code on 2026-11-01 (`docs/SCORING_GAME_PLAN.md`, "What
 exists today"):
 
-- **The owner suggests a value.** The member who adds a task sets its
-  points, a whole number from zero up, through `core/points.ts`. A finished
-  task's points are locked until it is reopened.
-- **Members' votes replace it.** Any signed-in member may vote on what a
-  task is worth (`core/votes.ts`, the `task_votes` table). The task's points
-  become the plain average of the votes, a half rounding up. From the first
-  vote on, the owner's own number no longer counts in the points.
-- **The owner's score is kept apart** (since 2026-11-04,
-  `tasks.owner_points`): the owner's own number survives the votes, ready
-  for the final score to average with the AI score. An owner's 0 is "not
-  set". Nothing reads it yet.
+- **The owner sets their own score.** The member who adds a task gives it
+  points, a whole number from zero up, through `core/points.ts`; that number
+  is the task's **owner's score** (`tasks.owner_points`). An owner's 0 is
+  "not set". A finished task's points are locked until it is reopened.
+- **The task's points are its final score** (since 2026-11-04,
+  `core/taskScore.ts`): the plain average of the owner's score, the AI
+  score (the newest AI rating) and the **others' score** (the average of
+  the points votes of every member other than the owner), a half rounding
+  up. A part a task does not have yet is left out. Before the AI has rated
+  a task, its points are provisional, and its page says "AI: not yet".
+  Example: AI 12, owner 10, no votes: final 11.
+- **Members' votes** (`core/votes.ts`, the `task_votes` table) are the
+  others' score. They no longer replace the owner's number. The average of
+  priority votes is still the task's priority.
 - **A member's finished-task score** adds up the points of their finished
   tasks (`core/score.ts`), shown on the Game page (`/game`).
 
@@ -35,7 +38,9 @@ what a member has earned in the ledger are not added together anywhere
 ## What is planned
 
 **The design:** [GLOBULAR_SCORING_ALGORITHM.md](../GLOBULAR_SCORING_ALGORITHM.md),
-a proposal for Dane to approve. Nothing in it is built.
+approved by Dane's merge of #146. Built so far: the ratings' home (#147), the
+owner's score kept (#148), and the final score above. Not built yet: the AI
+rating on the server, and the per-factor display on the task page.
 
 ### Dane's rule
 
@@ -61,14 +66,16 @@ So for every task:
 2. **Owner's score.** The points the task's creator gives it.
 3. **Final score** = the average of the AI score and the owner's score,
    a whole number, a half rounding up. This is the task's points.
-4. **Later, not built yet:** the **others' score**, the average of the other
-   members' scores, joins; final becomes the average of AI, owner and
-   others.
+4. **The others' score**, the average of the other members' scores, joins;
+   final becomes the average of AI, owner and others. Dane brought this
+   forward on 2026-11-04: "Since the voting is working, the final score is
+   going to be the average of three scores: Owner's score, AI score,
+   Average of other users' scores". Today's votes are the others' score.
 
-**This replaces two earlier ideas.** Today members' votes replace the
-owner's points; under Dane's rule they do not count until the others'
-score is built. And the "human score" of `docs/SCORING_GAME_PLAN.md`
-(votes averaged with the owner's score) is no longer the plan.
+**This replaces two earlier ideas.** Until 2026-11-04 members' votes
+replaced the owner's points; now they are the others' score, one of three
+equal parts. And the "human score" of `docs/SCORING_GAME_PLAN.md` (votes
+averaged with the owner's score first) is no longer the plan.
 
 How the AI rates (on the server, two models, with every reason kept, and a
 human able to overrule it) is in the design, "How the AI rates".

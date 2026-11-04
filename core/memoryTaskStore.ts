@@ -11,10 +11,17 @@
  * changes nothing records nothing, and a task earns "Finished a task" once. Approving a
  * proposed task is also scored for `signedIn`, the admin the database would
  * see as signed in, as `tasks_score_approval` does.
+ *
+ * Like the table's `tasks_points_final` trigger, every change to a task that
+ * is not done keeps its points at the final score (core/taskScore.ts),
+ * reading its AI score and votes from the rating and vote stores built on
+ * this one (`aiScoreFor`, `votesFor`).
  */
 import { engagementKindForTask, recordEngagement, taskChanged, type EngagementStore } from './game.ts';
 import { ownerScore } from './points.ts';
+import { finalScore, othersScore } from './taskScore.ts';
 import type { NewTaskRow, Task, TaskRowChanges, TaskStore, UpdateGuard } from './tasks.ts';
+import type { Vote } from './votes.ts';
 
 export class MemoryTaskStore implements TaskStore {
   readonly rows = new Map<string, Task>();
@@ -24,6 +31,28 @@ export class MemoryTaskStore implements TaskStore {
   signedIn: string | null = null;
 
   private readonly engagements: EngagementStore | null;
+
+  /** The task's current AI score, or null; MemoryAiTaskRatingStore sets it. */
+  aiScoreFor: (taskId: string) => number | null = () => null;
+  /** Every member's votes on the task; MemoryVoteStore sets it. */
+  votesFor: (taskId: string) => readonly Vote[] = () => [];
+
+  /** The final score the task's parts give it now. */
+  finalFor(task: Task): number {
+    return finalScore({ ai: this.aiScoreFor(task.id), owner: task.ownerPoints, others: othersScore(task.ownerId, this.votesFor(task.id)).score });
+  }
+
+  /**
+   * As the database does when a vote or an AI rating lands: a task that is
+   * not done takes its final score, on behalf of `tool`, and nobody is
+   * scored for it (it is not the owner's doing).
+   */
+  refreshPoints(id: string, tool: string): void {
+    const task = this.rows.get(id);
+    if (!task || task.status === 'done') return;
+    const points = this.finalFor(task);
+    if (points !== task.points) this.rows.set(id, { ...task, points, tool, updatedAt: new Date().toISOString() });
+  }
 
   constructor(ownerId = 'member-1', engagements: EngagementStore | null = null) {
     this.ownerId = ownerId;
@@ -72,8 +101,12 @@ export class MemoryTaskStore implements TaskStore {
     if (guard.agentTicketUrl !== undefined && task.agentTicketUrl !== guard.agentTicketUrl) return null;
     const now = new Date().toISOString();
     const updated: Task = { ...task, ...changes, updatedAt: now };
-    // As tasks_owner_points: the owner's score follows the owner's own change to the points.
-    if (updated.points !== task.points) updated.ownerPoints = ownerScore(updated.points);
+    const stillDone = task.status === 'done' && updated.status === 'done';
+    // As tasks_owner_points_set: the owner's own change to the points, even to
+    // the number already there, is the owner's score.
+    if (changes.points !== undefined && !stillDone) updated.ownerPoints = ownerScore(changes.points);
+    // As tasks_points_final: the points are the final score, unless the task stays done.
+    if (!stillDone) updated.points = this.finalFor(updated);
     if (updated.status === 'done' && task.status !== 'done') updated.completedAt = now;
     if (updated.status !== 'done') updated.completedAt = null;
     await this.score(task, updated, changes.tool);

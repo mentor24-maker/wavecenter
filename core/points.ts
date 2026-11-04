@@ -16,8 +16,10 @@
  *   on the table already ensures that; voting on values is a later table.
  *
  * The owner's score (Dane, 2026-11-03) is that suggested value, kept apart
- * from the task's points so members' votes can never overwrite it. It follows
- * every change made here; see `ownerScore`.
+ * from the task's points so members' votes can never overwrite it. Every
+ * change made here sets it; see `ownerScore`. The task's points are then
+ * its final score (core/taskScore.ts), which the store works out, so a
+ * `PointsChange`'s `after` is the final score, not always the number given.
  */
 import { CoreError, requireTool } from './tool.ts';
 import type { Task, TaskStore } from './tasks.ts';
