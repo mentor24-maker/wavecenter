@@ -91,6 +91,12 @@ export interface Engagement {
   tool: string;
   /** The task it was about, if any. Kept after the task is deleted. */
   taskId: string | null;
+  /**
+   * Set only on a correction row a rescore added (`applyRescore`): the
+   * rescore it belongs to. Such a row is not an action, so counts of actions
+   * leave it out; its points still count towards the total.
+   */
+  rescoreId?: string | null;
   createdAt: string;
 }
 
@@ -809,4 +815,164 @@ export async function applyGranularPoints(
     }
   }
   return result;
+}
+
+/**
+ * Rescoring past points (Dane, 2026-11-03: "I'd like to have the ability to
+ * retroactively readjust during the development phase when you aren't sure
+ * how many points anything is worth"). While a DEO's scoring is
+ * provisional, an admin may bring every member's past points for an action
+ * up (or down) to what the action is worth today.
+ *
+ * The ledger is never rewritten. A rescore adds correction rows: for each
+ * member and action whose credit changes, one row of the same kind whose
+ * points are the difference (it may be negative), with the tool `rescore`
+ * and the rescore's id. The total stays a plain sum (`totalPoints`).
+ *
+ * What an action should have credited a member = the times they really did
+ * it (rows with no rescore id) × its points today. The difference is that
+ * minus everything already credited for it, earlier corrections included,
+ * so running a rescore twice in a row changes nothing. The database's
+ * `apply_rescore` (supabase/migrations/20261103160000_rescore_past_points.sql)
+ * works it out the same way.
+ */
+
+/** The tool named on every correction row. */
+export const RESCORE_TOOL = 'rescore';
+
+/** One member's ledger for one action, added up: what the rescore reads. */
+export interface RescoreTally {
+  memberId: string;
+  /** Their name if their profile is public, else null. */
+  memberName: string | null;
+  kind: string;
+  /** How many times they did it: rows with no rescore id. */
+  actions: number;
+  /** Every point credited for it so far, corrections included. */
+  credited: number;
+}
+
+/** One correction row a rescore would add. */
+export interface RescoreCorrection {
+  memberId: string;
+  kind: string;
+  points: number;
+}
+
+/** What one rescore saved. `rescoreId` is null when it changed nothing. */
+export interface RescoreResult {
+  rescoreId: string | null;
+  rows: number;
+  /** The points it added in all, net (negative when it took more away than it gave). */
+  points: number;
+}
+
+/** What core needs from storage to rescore. The store works the corrections out itself, the way `rescoreCorrections` does. */
+export interface RescoreStore {
+  rules(): Promise<ScoringRule[]>;
+  /** Is scoring still provisional? Only then may anything be rescored. */
+  provisional(): Promise<boolean>;
+  /** Every member's ledger, added up per action. */
+  tallies(): Promise<RescoreTally[]>;
+  /** Add the corrections for these actions in one step. Returns what was saved, or null if nothing was written. */
+  apply(kinds: readonly string[], tool: string): Promise<RescoreResult | null>;
+}
+
+/** One action in the preview, across every member. */
+export interface RescoreActionRow {
+  kind: string;
+  name: string;
+  timesDone: number;
+  creditedNow: number;
+  /** Times done × its points today. */
+  wouldBe: number;
+  difference: number;
+}
+
+/** One member in the preview. */
+export interface RescoreMemberRow {
+  memberId: string;
+  memberName: string | null;
+  /** Their whole points total today. */
+  now: number;
+  /** What each action would add to it (only the actions that change). */
+  changes: Record<string, number>;
+}
+
+/** The preview: nothing in it has been saved. */
+export interface RescorePreview {
+  provisional: boolean;
+  actions: RescoreActionRow[];
+  members: RescoreMemberRow[];
+}
+
+/** The correction rows a rescore of `kinds` would add: one per member and action whose credit changes. */
+export function rescoreCorrections(rules: readonly ScoringRule[], tallies: readonly RescoreTally[], kinds?: readonly string[]): RescoreCorrection[] {
+  const worth = new Map(rules.map((r) => [r.kind, r.points]));
+  return tallies.flatMap((t) => {
+    const points = worth.get(t.kind);
+    if (points === undefined || (kinds && !kinds.includes(t.kind))) return [];
+    const difference = t.actions * points - t.credited;
+    return difference === 0 ? [] : [{ memberId: t.memberId, kind: t.kind, points: difference }];
+  });
+}
+
+/** Work out the preview: every action anyone has done, and every member's total now and what would change. Saves nothing. */
+export function proposeRescore(rules: readonly ScoringRule[], tallies: readonly RescoreTally[], provisional: boolean): RescorePreview {
+  const corrections = rescoreCorrections(rules, tallies);
+  const actions = [...rules]
+    .sort((a, b) => a.position - b.position)
+    .flatMap((r) => {
+      const mine = tallies.filter((t) => t.kind === r.kind);
+      if (!mine.length) return [];
+      const timesDone = mine.reduce((n, t) => n + t.actions, 0);
+      const creditedNow = mine.reduce((n, t) => n + t.credited, 0);
+      const wouldBe = timesDone * r.points;
+      return [{ kind: r.kind, name: r.name, timesDone, creditedNow, wouldBe, difference: wouldBe - creditedNow }];
+    });
+  const members = new Map<string, RescoreMemberRow>();
+  for (const t of tallies) {
+    const m = members.get(t.memberId) ?? { memberId: t.memberId, memberName: t.memberName, now: 0, changes: {} };
+    m.now += t.credited;
+    members.set(t.memberId, m);
+  }
+  for (const c of corrections) {
+    const m = members.get(c.memberId);
+    if (m) m.changes[c.kind] = c.points;
+  }
+  return { provisional, actions, members: [...members.values()].sort((a, b) => b.now - a.now) };
+}
+
+/** A member's total after rescoring only the ticked actions. */
+export function totalAfterRescore(member: RescoreMemberRow, kinds: readonly string[]): number {
+  return member.now + kinds.reduce((sum, k) => sum + (member.changes[k] ?? 0), 0);
+}
+
+const FINAL_MESSAGE = 'Points are final for this DEO, so past points can no longer be rescored. Nothing was saved.';
+
+/** The preview, for an admin. Refused for anyone else, though it saves nothing. */
+export async function previewRescore(store: Pick<RescoreStore, 'rules' | 'provisional' | 'tallies'>, actor: GameActor): Promise<RescorePreview> {
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can rescore past points.');
+  const [rules, tallies, provisional] = await Promise.all([store.rules(), store.tallies(), store.provisional()]);
+  return proposeRescore(rules, tallies, provisional);
+}
+
+/**
+ * Rescore the ticked actions: add their correction rows. Only an admin may,
+ * and only while scoring is provisional. Nothing to change saves nothing and
+ * says so (`rows` 0). The store works the corrections out afresh in the same
+ * step it writes them, so a point earned since the preview is counted too.
+ */
+export async function applyRescore(store: RescoreStore, actor: GameActor, kinds: unknown, tool: string): Promise<RescoreResult> {
+  const named = requireTool(tool);
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can rescore past points. Nothing was saved.');
+  if (!Array.isArray(kinds) || !kinds.length || kinds.some((k) => typeof k !== 'string' || !k)) {
+    throw new CoreError('Tick at least one action to rescore. Nothing was saved.');
+  }
+  if (!(await store.provisional())) throw new CoreError(FINAL_MESSAGE);
+  const [rules, tallies] = await Promise.all([store.rules(), store.tallies()]);
+  if (!rescoreCorrections(rules, tallies, kinds).length) return { rescoreId: null, rows: 0, points: 0 };
+  const saved = await store.apply(kinds, named);
+  if (!saved) throw new CoreError('The rescore did not save. No points changed; try again.');
+  return saved;
 }

@@ -2,13 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { mayManageScoring } from "../../core/game.ts";
 import { mayOpenAdmin, ROLES } from "../../core/members.ts";
-import { headerPoints } from "../lib/engagementStore";
+import { headerPoints, supabaseRescoreStore } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import FormulaExplained from "./FormulaExplained";
 import RecalculatePoints from "./RecalculatePoints";
+import RescorePastPoints from "./RescorePastPoints";
 
 /**
  * Admin: the home for admins' tools. The first is "Recalculate action
@@ -18,6 +19,8 @@ import RecalculatePoints from "./RecalculatePoints";
  * menu link does not stop someone typing `/admin`, so the page checks the
  * role itself (core/members.ts `mayOpenAdmin`): another role is told it may
  * not open the Admin area, and a role that could not be read says so.
+ * Under it, "Rescore past points" (RescorePastPoints) brings points already
+ * earned to today's values, only while scoring is provisional.
  * Signed-out visitors are sent to sign in.
  */
 export default async function Admin() {
@@ -39,13 +42,15 @@ export default async function Admin() {
     );
   }
 
-  const [name, points, role] = await Promise.all([
+  const [name, points, role, provisional] = await Promise.all([
     headerName(supabase, user),
     headerPoints(supabase, user.id),
     Promise.all([myRole(supabase, user.id), readRolesAndPermissions(supabase)]).then(
       ([value, lists]) => ({ value, grants: lists.grants, error: null }),
       (err: unknown) => ({ value: null, grants: undefined, error: err instanceof Error ? err.message : String(err) }),
     ),
+    // Null when it could not be read: the section says so rather than guess.
+    supabaseRescoreStore(supabase).provisional().catch(() => null),
   ]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
   const mayScore = isAdmin && mayManageScoring({ role: role.value, grants: role.grants });
@@ -73,6 +78,15 @@ export default async function Admin() {
             </p>
             <FormulaExplained />
             <RecalculatePoints />
+
+            <h2>Rescore past points</h2>
+            <p className="note">
+              While this DEO&apos;s scoring is provisional, brings points already earned to what each action is worth
+              today. Nothing already in anyone&apos;s history is changed: for each member and action whose credit
+              changes, one correction is added (it can take points away when a value went down). Preview first; nothing
+              is saved until you click “Rescore these”. Running it again straight after changes nothing.
+            </p>
+            <RescorePastPoints provisional={provisional} me={user.id} />
           </div>
         ) : (
           <p className="note" role="status">Your role may not manage the game scoring, so there are no admin tools for you here yet.</p>

@@ -18,8 +18,16 @@
  * (supabase/migrations/20261103120000_scoring_factor_reasons.sql), which
  * `set_scoring_factor_reasons` changes and `add_scoring_rule` also takes
  * (supabase/migrations/20261103140000_edit_factor_reasons.sql).
+ *
+ * `supabaseRescoreStore` is the `RescoreStore` the Admin page's "Rescore
+ * past points" uses. Its preview reads `rescore_tallies` and its rescore
+ * calls `apply_rescore`; both refuse any role without "Manage game scoring",
+ * and `apply_rescore` refuses once scoring is no longer provisional
+ * (supabase/migrations/20261103160000_rescore_past_points.sql).
  */
-import type { Engagement, EngagementLedger, FactorReasons, ScoringFactors, ScoringRule, ScoringRuleStore } from "../../core/game.ts";
+import type {
+  Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringRule, ScoringRuleStore,
+} from "../../core/game.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -74,6 +82,7 @@ export function engagementFromRow(row: any): Engagement {
     points: row.points,
     tool: row.tool,
     taskId: row.task_id,
+    rescoreId: row.rescore_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -132,6 +141,41 @@ export function supabaseScoringRuleStore(supabase: Client): ScoringRuleStore {
       call("add_scoring_rule", { new_kind: kind, ...wording(fields, tool), ...factorParams(factors), ...reasonParams(reasons) }),
     setFactors: (kind, factors, tool) => call("set_scoring_factors", { rule_kind: kind, ...factorParams(factors), tool }),
     setReasons: (kind, reasons, tool) => call("set_scoring_factor_reasons", { rule_kind: kind, ...reasonParams(reasons), tool }),
+  };
+}
+
+export function supabaseRescoreStore(supabase: Client): RescoreStore {
+  return {
+    async rules() {
+      const { data, error } = await supabase.from("game_scoring_rules").select().order("position");
+      if (error) failed("the scoring rules", error);
+      return (data ?? []).map(ruleFromRow);
+    },
+    async provisional() {
+      const { data, error } = await supabase.from("game_settings").select("scoring_provisional").maybeSingle();
+      if (error) failed("whether scoring is provisional", error);
+      // No settings row means the rescore migration has not been applied: say so, never guess.
+      if (!data) throw new Error("The game settings are missing, so WaveCenter cannot tell whether points are final. The rescore migration has not been applied.");
+      return data.scoring_provisional === true;
+    },
+    async tallies() {
+      const { data, error } = await supabase.rpc("rescore_tallies");
+      if (error) failed("every member's points", error);
+      return ((data ?? []) as any[]).map((r) => ({
+        memberId: r.member_id,
+        memberName: r.member_name ?? null,
+        kind: r.kind,
+        actions: Number(r.actions),
+        credited: Number(r.credited),
+      }));
+    },
+    async apply(kinds, tool) {
+      const { data, error } = await supabase.rpc("apply_rescore", { rescore_kinds: kinds, tool });
+      if (error) throw new Error(`The database refused to rescore: ${error.message}`);
+      if (!data || typeof data !== "object" || !("rows" in data)) return null;
+      const saved = data as { rescore_id: string | null; rows: number; points: number };
+      return { rescoreId: saved.rescore_id, rows: Number(saved.rows), points: Number(saved.points) };
+    },
   };
 }
 

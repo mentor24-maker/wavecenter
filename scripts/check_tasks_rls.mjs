@@ -53,7 +53,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS, addScoringRule, applyGranularPoints, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, applyGranularPoints, applyRescore, previewRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
@@ -64,6 +64,7 @@ import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeComme
 import { approveTask, createTask, deleteTask, updateTask } from '../core/tasks.ts';
 import { castVote } from '../core/votes.ts';
 import { restTaskStore, TOOL_HEADER } from './lib/restTaskStore.mjs';
+import { isLocalUrl } from './lib/migrations.mjs';
 
 const TOOL = 'check-tasks-rls';
 
@@ -1422,6 +1423,91 @@ try {
   check('a member who has voted can have their account deleted', goneC.status < 300, `HTTP ${goneC.status} ${JSON.stringify(goneC.json)}`);
   check('their vote leaves the average with them', withC?.points === 5 && withC?.priority === 'normal' && shown?.points === 8 && shown?.priority === 'high', `with C ${JSON.stringify(withC)}, after ${JSON.stringify(shown)}`);
   check('and the owner earns nothing for it', bBeforeC === await countOf(b), `B had ${bBeforeC} engagements`);
+
+  // Rescoring past points (20261103160000_rescore_past_points.sql): only a
+  // role with game.edit (A is an admin, B a viewer) previews or rescores,
+  // and only while game_settings says scoring is provisional; a rescore adds
+  // correction rows and never changes one already there. Every member reads
+  // the settings; nobody writes them, the rescore history or a correction
+  // row through the API. A real rescore changes every member's points, so it
+  // runs only on the private test database, never the live one.
+  const rescoreStore = (member) => ({
+    rules: async () => ((await call('/rest/v1/game_scoring_rules?select=kind,name,points,position&order=position', { token: member.token })).json ?? []),
+    provisional: async () => (await call('/rest/v1/game_settings?select=scoring_provisional', { token: member.token })).json?.[0]?.scoring_provisional === true,
+    tallies: async () => {
+      const r = await call('/rest/v1/rpc/rescore_tallies', { method: 'POST', token: member.token, body: {} });
+      if (r.status >= 300) throw new Error(`rescore_tallies refused: ${r.json?.message ?? r.status}`);
+      return r.json.map((t) => ({ memberId: t.member_id, memberName: t.member_name, kind: t.kind, actions: Number(t.actions), credited: Number(t.credited) }));
+    },
+    apply: async (kinds, tool) => {
+      const r = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: member.token, body: { rescore_kinds: kinds, tool } });
+      if (r.status >= 300) throw new Error(`apply_rescore refused: ${r.json?.message ?? r.status}`);
+      return { rescoreId: r.json.rescore_id, rows: Number(r.json.rows), points: Number(r.json.points) };
+    },
+  });
+  const settingsB = await call('/rest/v1/game_settings?select=scoring_provisional', { token: b.token });
+  check('every member reads whether scoring is provisional', settingsB.status === 200 && typeof settingsB.json?.[0]?.scoring_provisional === 'boolean', `HTTP ${settingsB.status} ${JSON.stringify(settingsB.json)}`);
+  const tallyB = await call('/rest/v1/rpc/rescore_tallies', { method: 'POST', token: b.token, body: {} });
+  const applyB = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: b.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
+  const applyAnon = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', body: { rescore_kinds: ['made_task'], tool: TOOL } });
+  const viaCoreB = await applyRescore(rescoreStore(b), { role: 'viewer' }, ['made_task'], TOOL).then(() => '', (e) => e.message);
+  // B plays a hostile client that claims to be an admin to core: the database still refuses.
+  const forgedCoreB = await previewRescore(rescoreStore(b), { role: 'admin' }).then(() => '', (e) => e.message);
+  check('a viewer or a signed-out visitor cannot preview or rescore, through core or straight at the database',
+    tallyB.status >= 400 && applyB.status >= 400 && applyAnon.status >= 400 && /Only an admin can rescore/.test(viaCoreB) && /refused/.test(forgedCoreB),
+    `tallies HTTP ${tallyB.status}, apply HTTP ${applyB.status} / signed out ${applyAnon.status}, core ${viaCoreB} / ${forgedCoreB}`);
+  const flipA = await call('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { scoring_provisional: false } });
+  const historyB = await call('/rest/v1/rescores?select=id', { token: b.token });
+  const forgeHistory = await call('/rest/v1/rescores', { method: 'POST', token: a.token, body: { tool: TOOL, rows_changed: 1, points_changed: 1000 } });
+  const forgeCorrection = await call('/rest/v1/engagements', { method: 'POST', token: a.token, body: { member_id: a.id, kind: 'made_task', points: 1000, tool: RESCORE_TOOL, rescore_id: randomUUID() } });
+  check('nobody writes the game settings, the rescore history or a correction row through the API, and a viewer reads no history',
+    (flipA.status >= 400 || flipA.json?.length === 0) && forgeHistory.status >= 400 && forgeCorrection.status >= 400 && historyB.status === 200 && historyB.json.length === 0,
+    `settings HTTP ${flipA.status} ${JSON.stringify(flipA.json)}, history POST ${forgeHistory.status}, correction POST ${forgeCorrection.status}, history read ${JSON.stringify(historyB.json)}`);
+
+  if (!isLocalUrl(URL_)) {
+    console.log('SKIP  a real rescore: this is not the private test database, and a rescore would change members\u2019 points.');
+  } else {
+    const madeRule = (await admin('/rest/v1/game_scoring_rules?kind=eq.made_task&select=points')).json?.[0]?.points;
+    const totalOf = async (member) => Number((await admin(`/rest/v1/engagement_totals?member_id=eq.${member.id}&select=points`)).json?.[0]?.points ?? 0);
+    const ledgerOf = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&select=id,points,rescore_id&order=id`)).json ?? [];
+    try {
+      // Set the value with the service key, as a migration would: that scores nobody.
+      await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule + 3 } });
+      const preview = await previewRescore(rescoreStore(a), { role: 'admin' });
+      const made = preview.actions.find((r) => r.kind === 'made_task');
+      const mine = preview.members.find((m) => m.memberId === a.id);
+      const aTotal = await totalOf(a);
+      const aBefore = await ledgerOf(a);
+      check('an admin previews a rescore: today\u2019s value times the times done, and their own total now; nothing is saved',
+        made?.wouldBe === made.timesDone * (madeRule + 3) && made.difference !== 0 && mine?.now === aTotal && JSON.stringify(await ledgerOf(a)) === JSON.stringify(aBefore),
+        `${JSON.stringify(made)} ${JSON.stringify(mine)} total ${aTotal}`);
+      const saved = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL);
+      const aAfter = await ledgerOf(a);
+      const corrections = (await admin(`/rest/v1/engagements?rescore_id=eq.${saved.rescoreId}&select=member_id,kind,points,tool,task_id`)).json ?? [];
+      const history = (await call(`/rest/v1/rescores?id=eq.${saved.rescoreId}&select=run_by,tool,rows_changed,points_changed`, { token: a.token })).json?.[0];
+      check('a rescore adds correction rows only, naming the rescore tool and the rescore, and records who ran it',
+        saved.rows > 0 && corrections.length === saved.rows && corrections.every((e) => e.kind === 'made_task' && e.tool === RESCORE_TOOL && e.task_id === null)
+          && aBefore.every((e) => aAfter.some((x) => x.id === e.id && x.points === e.points && x.rescore_id === null))
+          && history?.run_by === a.id && history?.tool === TOOL && history?.rows_changed === saved.rows && history?.points_changed === saved.points,
+        `${JSON.stringify(saved)} ${JSON.stringify(corrections)} ${JSON.stringify(history)}`);
+      const aMade = (await rescoreStore(a).tallies()).find((t) => t.memberId === a.id && t.kind === 'made_task');
+      check('afterwards A is credited today\u2019s value for every task they made, and their total says so',
+        aMade?.credited === aMade.actions * (madeRule + 3) && await totalOf(a) === aTotal + (mine?.changes.made_task ?? 0), `${JSON.stringify(aMade)} total ${await totalOf(a)}`);
+      const again = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL);
+      const direct = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
+      check('rescoring again straight after changes nothing, through core or straight at the database', again.rows === 0 && again.rescoreId === null && direct.json?.rows === 0,
+        `${JSON.stringify(again)} ${JSON.stringify(direct.json)}`);
+      await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', body: { scoring_provisional: false } });
+      await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });
+      const finalCore = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL).then(() => '', (e) => e.message);
+      const finalDb = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
+      check('once points are final, even an admin cannot rescore, through core or straight at the database',
+        /Points are final/.test(finalCore) && finalDb.status >= 400 && /Points are final/.test(finalDb.json?.message ?? ''), `core ${finalCore}, database HTTP ${finalDb.status} ${finalDb.json?.message ?? ''}`);
+    } finally {
+      await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', body: { scoring_provisional: true } });
+      await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });
+    }
+  }
 } catch (err) {
   failures += 1;
   console.error(`check_tasks_rls broke: ${err.message}`);

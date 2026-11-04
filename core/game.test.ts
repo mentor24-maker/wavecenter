@@ -6,7 +6,7 @@ import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
-  applyGranularPoints, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
+  RESCORE_TOOL, applyGranularPoints, applyRescore, previewRescore, rescoreCorrections, totalAfterRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type FactorReasons, type GameActor, type ScoringFactors,
 } from './game.ts';
@@ -710,4 +710,119 @@ test('a new action is added with its reasons, or with none written yet', async (
   assert.deepEqual(plain.reasons, { effort: null, value: null, rarity: null, farmRisk: null });
   await assert.rejects(addScoringRule(ledger, ADMIN, { name: 'Wrote a poem', points: 1, reasons: { value: 'x'.repeat(301) } }, 'wavecenter'), /Value reason can be at most 300/);
   assert.equal((await ledger.rules()).some((r) => r.kind === 'wrote_a_poem'), false, 'nothing was saved');
+});
+
+/** A ledger where Dane made 3 tasks and finished 1, and Sam made 1, all at the starting values (1 and 5). */
+async function earlyLedger() {
+  const ledger = new MemoryEngagementStore();
+  ledger.memberNames.set('dane', 'Dane');
+  for (const [memberId, kind] of [['dane', 'made_task'], ['dane', 'made_task'], ['dane', 'made_task'], ['dane', 'finished_task'], ['sam', 'made_task']] as const) {
+    await recordEngagement(ledger, { memberId, kind, tool: 'wavecenter' });
+  }
+  return ledger;
+}
+
+function setPointsOf(ledger: MemoryEngagementStore, kind: string, points: number) {
+  ledger.ruleList = ledger.ruleList.map((r) => (r.kind === kind ? { ...r, points } : r));
+}
+
+test('the rescore preview shows each action and each member now and after, and saves nothing', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  const before = ledger.rows.length;
+  const preview = await previewRescore(ledger, ADMIN);
+  assert.equal(ledger.rows.length, before, 'nothing saved');
+  assert.equal(preview.provisional, true);
+  assert.deepEqual(preview.actions, [
+    { kind: 'made_task', name: 'Made a task', timesDone: 4, creditedNow: 4, wouldBe: 16, difference: 12 },
+    { kind: 'finished_task', name: 'Finished a task', timesDone: 1, creditedNow: 5, wouldBe: 5, difference: 0 },
+  ]);
+  const dane = preview.members.find((m) => m.memberId === 'dane')!;
+  assert.equal(dane.memberName, 'Dane');
+  assert.equal(dane.now, 8);
+  assert.equal(totalAfterRescore(dane, ['made_task', 'finished_task']), 17);
+  assert.equal(totalAfterRescore(dane, []), 8, 'an unticked action changes nothing');
+  const sam = preview.members.find((m) => m.memberId === 'sam')!;
+  assert.equal(sam.memberName, null);
+  assert.equal(totalAfterRescore(sam, ['made_task']), 4);
+  await assert.rejects(previewRescore(ledger, { role: 'viewer' }), /Only an admin can rescore past points/);
+});
+
+test('a rescore adds correction rows only, never changing a row already there, and the totals come out right', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  const earlier = ledger.rows.map((e) => ({ ...e }));
+  const result = await applyRescore(ledger, ADMIN, ['made_task', 'finished_task'], 'wavecenter');
+  assert.deepEqual(ledger.rows.slice(0, earlier.length), earlier, 'every earlier row is just as it was');
+  const added = ledger.rows.slice(earlier.length);
+  assert.deepEqual(added.map((e) => [e.memberId, e.kind, e.points, e.tool, e.taskId]), [['dane', 'made_task', 9, RESCORE_TOOL, null], ['sam', 'made_task', 3, RESCORE_TOOL, null]]);
+  assert.ok(added.every((e) => e.rescoreId === result.rescoreId && result.rescoreId));
+  assert.deepEqual({ rows: result.rows, points: result.points }, { rows: 2, points: 12 });
+  assert.deepEqual(ledger.rescores, [{ id: result.rescoreId, tool: 'wavecenter', rows: 2, points: 12 }]);
+  assert.equal(await ledger.ledgerFor('dane').total(), 17);
+  assert.equal(await ledger.ledgerFor('sam').total(), 4);
+  // A correction is not an action: the times done stay 4.
+  assert.equal((await previewRescore(ledger, ADMIN)).actions[0].timesDone, 4);
+});
+
+test('a second rescore in a row changes nothing and says so', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  await applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter');
+  const rows = ledger.rows.length;
+  const again = await applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter');
+  assert.deepEqual(again, { rescoreId: null, rows: 0, points: 0 });
+  assert.equal(ledger.rows.length, rows);
+  assert.equal(ledger.rescores.length, 1, 'no empty rescore is recorded');
+  assert.ok((await previewRescore(ledger, ADMIN)).actions.every((a) => a.difference === 0));
+});
+
+test('a value that went down gives a negative correction, and later changes count from the last correction', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'finished_task', 2);
+  const down = await applyRescore(ledger, ADMIN, ['finished_task'], 'wavecenter');
+  assert.deepEqual({ rows: down.rows, points: down.points }, { rows: 1, points: -3 });
+  assert.equal(await ledger.ledgerFor('dane').total(), 5);
+  setPointsOf(ledger, 'finished_task', 7);
+  assert.deepEqual(rescoreCorrections(await ledger.rules(), await ledger.tallies()), [{ memberId: 'dane', kind: 'finished_task', points: 5 }]);
+  await applyRescore(ledger, ADMIN, ['finished_task'], 'wavecenter');
+  assert.equal(await ledger.ledgerFor('dane').total(), 3 + 7);
+});
+
+test('only the ticked actions are rescored', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  setPointsOf(ledger, 'finished_task', 2);
+  await applyRescore(ledger, ADMIN, ['finished_task'], 'wavecenter');
+  assert.deepEqual(ledger.rows.filter((e) => e.rescoreId).map((e) => e.kind), ['finished_task']);
+});
+
+test('a rescore is refused for a non-admin, once points are final, with nothing ticked, or when the save fails', async () => {
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  const rows = ledger.rows.length;
+  await assert.rejects(applyRescore(ledger, { role: 'viewer' }, ['made_task'], 'wavecenter'), /Only an admin can rescore past points. Nothing was saved/);
+  await assert.rejects(applyRescore(ledger, ADMIN, [], 'wavecenter'), /Tick at least one action/);
+  await assert.rejects(applyRescore(ledger, ADMIN, 'made_task', 'wavecenter'), /Tick at least one action/);
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], ''), /tool/);
+  ledger.failNextRescore = true;
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter'), /The rescore did not save/);
+  ledger.scoringProvisional = false;
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter'), /Points are final for this DEO/);
+  // The store refuses too, as the database's apply_rescore does, even past core.
+  await assert.rejects(ledger.apply(['made_task'], 'wavecenter'), /Points are final for this DEO/);
+  assert.equal((await previewRescore(ledger, ADMIN)).provisional, false, 'the preview still opens, and says points are final');
+  assert.equal(ledger.rows.length, rows, 'nothing was saved by any of them');
+});
+
+test('the rescore migration works the difference out the way core does, and its tables have row-level security from the start', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261103160000_rescore_past_points.sql', import.meta.url), 'utf8');
+  for (const table of ['rescores', 'game_settings']) {
+    const made = sql.indexOf(`create table if not exists public.${table}`);
+    const secured = sql.indexOf(`alter table public.${table} enable row level security`);
+    assert.ok(made >= 0 && secured > made, `${table} turns on row-level security when it is made`);
+  }
+  assert.match(sql, /count\(\*\) filter \(where e\.rescore_id is null\) \* r\.points - sum\(e\.points\)/, 'times done x points today, minus everything credited');
+  assert.match(sql, new RegExp(`'${RESCORE_TOOL}'`), 'correction rows name the rescore tool');
+  assert.match(sql, /scoring_provisional/);
 });
