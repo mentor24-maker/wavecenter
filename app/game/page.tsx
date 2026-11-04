@@ -226,10 +226,11 @@ function History({ latest, rules }: { latest: Read<Engagement[]>; rules: Scoring
         <tbody>
           {latest.value.map((e) => (
             <tr key={e.id}>
-              <td>{names.get(e.kind) ?? e.kind}</td>
+              {/* A correction a rescore added is not an action: it says what it corrected. */}
+              <td>{e.rescoreId ? `Rescored ${names.get(e.kind) ?? e.kind}` : names.get(e.kind) ?? e.kind}</td>
               <td className="note">{WHEN.format(new Date(e.createdAt))}</td>
               <td className="note">{e.tool}</td>
-              <td className="num">+{e.points}</td>
+              <td className="num">{e.points < 0 ? e.points : `+${e.points}`}</td>
             </tr>
           ))}
         </tbody>
