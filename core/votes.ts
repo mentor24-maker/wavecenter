@@ -19,20 +19,28 @@
  * - **Priority:** each word counts as a number, urgent 4, high 3, normal 2,
  *   low 1; the average is rounded the same way and turned back into a word
  *   (high and low make normal; high and normal make high).
- * - Once a task has a points vote, its points are the average, and the owner
- *   cannot type over it; the same for priority. With no votes, the owner's own
- *   value stands.
+ * - **Points (since 2026-11-04):** the votes of every member other than the
+ *   owner make the task's others' score, one of the three parts its final
+ *   score averages (core/taskScore.ts). Dane, 2026-11-04: "Since the voting
+ *   is working, the final score is going to be the average of three scores:
+ *   Owner's score, AI score, Average of other users' scores". So votes no
+ *   longer replace the owner's points, and the owner may always change their
+ *   own score.
+ * - **Priority:** once a task has a priority vote, its priority is the
+ *   average, and the owner cannot type over it. With no votes, the owner's
+ *   own value stands.
  * - A done task's points are locked (core/points.ts), so votes on it are kept
  *   and shown, but they do not change it.
  * - Votes never change the task's owner's score (`ownerPoints`, Dane's rule
- *   of 2026-11-03): the owner's own number is kept even while the average
- *   stands in the task's points.
+ *   of 2026-11-03).
  *
- * The database applies the average itself, in the same save as the vote
- * (supabase/migrations/20261028140000_task_votes.sql), because a member
+ * The database applies both itself, in the same save as the vote
+ * (`task_votes_apply`, last replaced in
+ * supabase/migrations/20261104140000_final_task_score.sql), because a member
  * voting on someone else's task may not write that task. It follows exactly
- * `votedValues` below; core's in-memory store (memoryVoteStore.ts) applies it
- * through the same function, so the tests prove the rule.
+ * `votedValues` below and core/taskScore.ts; core's in-memory store
+ * (memoryVoteStore.ts) applies them through the same functions, so the tests
+ * prove the rule.
  */
 import { CoreError, requireTool } from './tool.ts';
 import { requirePointsValue } from './points.ts';
@@ -127,19 +135,19 @@ export function summarizeVotes(votes: readonly Pick<Vote, 'points' | 'priority'>
 }
 
 /**
- * What a task's points and priority become from its votes, or null when the
- * votes change nothing: the task is done (its points are locked), or nobody
- * has voted. A part nobody has voted on keeps the task's own value. The
- * database's vote trigger applies exactly this.
+ * What a task's priority becomes from its votes, or null when the votes
+ * change nothing: the task is done, or nobody has voted. With no priority
+ * vote the task keeps its own. Its points are the final score instead
+ * (core/taskScore.ts). The database's vote trigger applies exactly this.
  */
 export function votedValues(
-  task: Pick<Task, 'status' | 'points' | 'priority'>,
+  task: Pick<Task, 'status' | 'priority'>,
   votes: readonly Pick<Vote, 'points' | 'priority'>[],
-): { points: number; priority: TaskPriority } | null {
+): { priority: TaskPriority } | null {
   if (task.status === 'done') return null;
   const summary = summarizeVotes(votes);
   if (!summary.voters) return null;
-  return { points: summary.points ?? task.points, priority: summary.priority ?? task.priority };
+  return { priority: summary.priority ?? task.priority };
 }
 
 /**
@@ -167,13 +175,12 @@ export async function castVote(store: VoteStore, taskId: string, choice: VoteCho
 }
 
 /**
- * Refuse an owner's own change to a task's points or priority once members
- * have voted on it: from then on the average decides (Dane, 2026-10-27).
+ * Refuse an owner's own change to a task's priority once members have voted
+ * on it: from then on the average decides (Dane, 2026-10-27). Points are no
+ * longer refused: the owner's score is always the owner's (core/taskScore.ts).
  */
-export function requireNotVotedOn(votes: readonly Pick<Vote, 'points' | 'priority'>[], part: 'points' | 'priority'): void {
+export function requireNotVotedOn(votes: readonly Pick<Vote, 'priority'>[], part: 'priority'): void {
   if (votes.some((v) => v[part] !== null)) {
-    throw new CoreError(
-      `Members have voted on this task's ${part}, so ${part === 'points' ? 'its points are' : 'its priority is'} the average of their votes. Cast your own vote instead.`,
-    );
+    throw new CoreError("Members have voted on this task's priority, so its priority is the average of their votes. Cast your own vote instead.");
   }
 }

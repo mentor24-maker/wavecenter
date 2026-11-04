@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import type { TaskStatus } from "../../../core/tasks.ts";
+import { taskScore, taskScoreLine } from "../../../core/taskScore.ts";
 import { headerPoints, type HeaderPoints } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
@@ -66,14 +67,22 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 
   const task = fromRow(read.data);
   const mine = task.ownerId === user.id;
-  const [parent, subTasks, files, comments] = await Promise.all([
+  const [parent, subTasks, files, comments, rating, votes] = await Promise.all([
     task.parentTaskId
       ? supabase.from("tasks").select("id, title").eq("id", task.parentTaskId).maybeSingle()
       : Promise.resolve(null),
     supabase.from("tasks").select("id, title, status").eq("parent_task_id", task.id).order("position").order("created_at"),
     loadFiles(supabase, task.id),
     mine ? loadComments(supabase, task.id) : Promise.resolve(null),
+    // The parts of its points (core/taskScore.ts): the newest AI rating and every member's votes.
+    supabase.from("ai_task_ratings").select("ai_score").eq("task_id", task.id)
+      .order("created_at", { ascending: false }).order("seq", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("task_votes").select("member_id, points").eq("task_id", task.id),
   ]);
+  const scoreError = rating.error?.message ?? votes.error?.message ?? null;
+  const score = scoreError
+    ? null
+    : taskScore(task, rating.data?.ai_score ?? null, (votes.data ?? []).map((v) => ({ memberId: v.member_id, points: v.points })));
   const done = task.status === "done";
   // A comment's files show in its Discussion, not in the task's own list.
   const taskFiles = files.files.filter((f) => !f.commentId);
@@ -92,7 +101,15 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         <dt>Priority</dt>
         <dd>{PRIORITY_LABEL[task.priority] ?? task.priority}</dd>
         <dt>Points</dt>
-        <dd>{task.points ?? 0}</dd>
+        <dd>
+          {task.points ?? 0}
+          <br />
+          {score ? (
+            <span className="note">{taskScoreLine(score)}</span>
+          ) : (
+            <span className="error" role="alert">How these points were worked out could not be loaded: {scoreError}. Try reloading the page.</span>
+          )}
+        </dd>
         <dt>Made by</dt>
         <dd>{mine ? "You" : `Member ${task.ownerId.slice(0, 8)}`}</dd>
         <dt>Created</dt>

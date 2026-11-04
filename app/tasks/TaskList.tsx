@@ -23,8 +23,11 @@
  * Every member's tasks are listed, each saying whose it is (Dane,
  * 2026-10-27). A member changes only their own; on anyone's task they can
  * vote on its points and priority, and see the average and how many have
- * voted (core/votes.ts). Once a task has votes, the average is its points
- * and priority, so its owner's boxes give way to the average.
+ * voted (core/votes.ts). Once a task has priority votes, their average is its
+ * priority, so its owner's priority box gives way. Its points are its final
+ * score (core/taskScore.ts): the average of the owner's own score, the AI
+ * score and the other members' votes. The owner's box holds the owner's own
+ * score, which is always theirs to change, with the final score beside it.
  *
  * A task added by anyone but an admin is Proposed (core/tasks.ts): it says
  * so, cannot be ticked off or handed to AI agents, and waits for an admin,
@@ -35,6 +38,7 @@ import { useRef, useState, useTransition, type ChangeEvent, type FormEvent, type
 import { agentOrder } from "../../core/agents.ts";
 import type { TaskComment } from "../../core/comments.ts";
 import { TASK_PRIORITIES, type TaskPriority } from "../../core/tasks.ts";
+import { othersScore } from "../../core/taskScore.ts";
 import { summarizeVotes } from "../../core/votes.ts";
 import {
   addTask,
@@ -76,7 +80,10 @@ export interface ListTask {
   title: string;
   notes: string | null;
   status: string;
+  /** Its final score (core/taskScore.ts). */
   points: number;
+  /** The owner's own score, or null when not set. */
+  ownerPoints: number | null;
   parentTaskId: string | null;
   priority: TaskPriority;
   agentSelected: boolean;
@@ -97,6 +104,9 @@ export interface ListFile {
   image: boolean;
   url: string | null;
 }
+
+/** What a task's points are, on hover (core/taskScore.ts). */
+const FINAL_SCORE_TITLE = "The final score: the average of the owner's score, the AI score and other members' votes. Open the task to see how.";
 
 /** One member's vote on a task; either part may be missing. */
 export interface ListVote {
@@ -684,14 +694,17 @@ function TaskRow({
   const [notes, setNotes] = useState(task.notes ?? "");
   const [expanded, setExpanded] = useState(false);
   const [discussing, setDiscussing] = useState(false);
-  const [points, setPointsText] = useState(String(task.points));
+  // The owner's box holds their own score (an owner's 0 is "not set"), not the final score.
+  const ownScore = String(task.ownerPoints ?? 0);
+  const [points, setPointsText] = useState(ownScore);
   const [votePoints, setVotePoints] = useState(myVote?.points == null ? "" : String(myVote.points));
   const attachBox = useRef<HTMLInputElement>(null);
   const done = task.status === "done";
   const proposed = task.status === "proposed";
   const summary = summarizeVotes(votes);
-  // Once members vote on a part, the average decides it and the owner's box gives way (core/votes.ts).
-  const pointsByVote = summary.pointsVotes > 0;
+  // The tally's points are the others' score, the same number the task page shows: the owner's own points vote is left out (core/taskScore.ts).
+  const others = othersScore(task.ownerId, votes);
+  // Once members vote on the priority, the average decides it and the owner's box gives way (core/votes.ts).
   const priorityByVote = summary.priorityVotes > 0;
 
   async function saveEdit(e: FormEvent) {
@@ -710,14 +723,14 @@ function TaskRow({
 
   async function savePoints(e?: FormEvent) {
     e?.preventDefault();
-    if (points.trim() === String(task.points)) return;
+    if (points.trim() === ownScore) return;
     const value = Number(points);
     const saved = await run(async () =>
       points.trim() === "" || !Number.isInteger(value)
         ? { ok: false, error: `Points must be a whole number, like 0, 3 or 10; "${points}" is not one.` }
         : changePoints(task.id, value));
     // A refused number goes back to what is stored; the message says why.
-    if (!saved) setPointsText(String(task.points));
+    if (!saved) setPointsText(ownScore);
   }
 
   /** Save the member's points vote; an emptied box withdraws it. */
@@ -809,17 +822,18 @@ function TaskRow({
           <span title={priorityByVote ? "The average of members' votes" : undefined}>{PRIORITY_LABEL[task.priority]}</span>
         )}
       </span>
-      {/* A done task's points are locked (core/points.ts), voted points are the average, and only the
-          owner may set their own: otherwise the column shows the number, with no box to change it. */}
-      {done || !mine || pointsByVote ? (
-        <span className="col-points" role="cell" title={pointsByVote && !done ? "The average of members' votes" : undefined}>
+      {/* A done task's points are locked (core/points.ts), and only the owner may set their own score:
+          otherwise the column shows the task's points, its final score, with no box to change it. */}
+      {done || !mine ? (
+        <span className="col-points" role="cell" title={done ? undefined : FINAL_SCORE_TITLE}>
           <span className="points">{task.points}</span>
           <span className="unit note">pts</span>
         </span>
       ) : (
         <form className="col-points" role="cell" onSubmit={savePoints}>
           <input
-            aria-label={`Points for "${task.title}"`}
+            aria-label={`Your score for "${task.title}"`}
+            title="Your own score for this task"
             className="points"
             type="number"
             min="0"
@@ -830,6 +844,9 @@ function TaskRow({
             onBlur={() => savePoints()}
           />
           <span className="unit note">pts</span>
+          {String(task.points) !== ownScore && (
+            <span className="note" title={FINAL_SCORE_TITLE}> final {task.points}</span>
+          )}
         </form>
       )}
       <span className="col-created note" role="cell">
@@ -951,17 +968,19 @@ function TaskRow({
             : summary.voters === 0
             ? "No votes yet"
             : [
-                summary.points === null ? "No points votes" : `Average ${summary.points} pts`,
+                others.score === null ? "No points votes from other members" : `Others' average ${others.score} pts (${others.votes} vote${others.votes === 1 ? "" : "s"})`,
                 summary.priority === null ? "no priority votes" : PRIORITY_LABEL[summary.priority],
                 `${summary.voters} vote${summary.voters === 1 ? "" : "s"}`,
               ].join(" · ")}
-          {done && summary.pointsVotes > 0 && summary.points !== task.points && " (done, so its points stay locked at the value it finished with)"}
+          {done && others.votes > 0 && " (done, so its points stay locked at the value it finished with)"}
         </span>
         {votesError ? (
           <span className="note">Voting is off until the page is reloaded.</span>
         ) : (
           <form className="my-vote" aria-label={`Your vote on "${task.title}"`} onSubmit={saveVotePoints}>
-            <span className="note">Your vote:</span>
+            {/* On their own task the owner's points come from their own score box, so a points vote would count for nothing (core/taskScore.ts). */}
+            <span className="note">{mine ? "Your points come from your own score box. Your priority vote:" : "Your vote:"}</span>
+            {!mine && (
             <input
               aria-label={`Your points vote on "${task.title}"`}
               className="points"
@@ -975,6 +994,7 @@ function TaskRow({
               onChange={(e) => setVotePoints(e.target.value)}
               onBlur={() => saveVotePoints()}
             />
+            )}
             <select
               aria-label={`Your priority vote on "${task.title}"`}
               value={myVote?.priority ?? ""}

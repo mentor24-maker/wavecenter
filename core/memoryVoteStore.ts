@@ -5,8 +5,9 @@
  * member's own.
  *
  * Given the task store, it also does what the table's vote trigger does:
- * after every vote it sets the task's points and priority from the votes
- * (`votedValues`), and a vote on a task that does not exist is refused.
+ * after every vote it sets the task's priority from the votes
+ * (`votedValues`) and its points to the final score (core/taskScore.ts),
+ * and a vote on a task that does not exist is refused.
  * Given an engagement store, every vote is recorded and scored for the voter.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
@@ -21,6 +22,7 @@ export class MemoryVoteStore {
   constructor(tasks: MemoryTaskStore | null = null, engagements: EngagementStore | null = null) {
     this.tasks = tasks;
     this.engagements = engagements;
+    if (tasks) tasks.votesFor = (taskId) => [...this.rows.values()].filter((v) => v.taskId === taskId);
   }
 
   /** Score the vote first: if that fails, the vote is not saved either. */
@@ -33,6 +35,7 @@ export class MemoryVoteStore {
     if (!task) return;
     const values = votedValues(task, [...this.rows.values()].filter((v) => v.taskId === taskId));
     if (values) this.tasks!.rows.set(taskId, { ...task, ...values, tool, updatedAt: new Date().toISOString() });
+    this.tasks!.refreshPoints(taskId, tool);
   }
 
   /** One member's view: everyone's votes to read, only their own to write. */

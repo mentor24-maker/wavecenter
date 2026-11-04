@@ -1359,17 +1359,20 @@ try {
   }
 
   // task_votes: any member votes on any task, only ever through their own
-  // vote, and the database makes the average the task's points and priority.
-  // The owner's score (20261104130000_task_owner_score.sql) is B's own 5
-  // throughout: the votes' average never overwrites it.
+  // vote. The database makes the priority votes' average the task's
+  // priority, and the other members' points votes its others' score: its
+  // points are the final score, the average of the owner's score, the AI
+  // score and the others' score (20261104140000_final_task_score.sql). The
+  // owner's score (20261104130000_task_owner_score.sql) is B's own 5
+  // throughout: votes never overwrite it.
   const taskOf = async (id) => (await admin(`/rest/v1/tasks?id=eq.${id}&select=points,priority,owner_points`)).json?.[0];
   check('a new task’s owner’s score is the points its owner made it with', (await taskOf(taskB))?.owner_points === 5, JSON.stringify(await taskOf(taskB)));
   await castVote(voteStore(a), taskB, { points: 8, priority: 'high' }, TOOL);
   let shown = await taskOf(taskB);
-  check('A can vote on B’s task, and one vote becomes its points and priority', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+  check('A can vote on B’s task: its priority is the vote, its points the average of B’s 5 and A’s 8, so 7', shown?.points === 7 && shown?.priority === 'high', JSON.stringify(shown));
   await castVote(voteStore(b), taskB, { points: 4, priority: 'low' }, TOOL);
   shown = await taskOf(taskB);
-  check('two votes average: 8 and 4 make 6 points, High and Low make Normal', shown?.points === 6 && shown?.priority === 'normal', JSON.stringify(shown));
+  check('the owner’s own points vote is not an other member’s score (still 7), but High and Low make Normal', shown?.points === 7 && shown?.priority === 'normal', JSON.stringify(shown));
   check('the votes leave B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
   const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
   check('even its owner cannot write the owner’s score straight to the column', forgeOwnerScore.status === 200 && (await taskOf(taskB))?.owner_points === 5,
@@ -1389,11 +1392,11 @@ try {
   const anonVotes = await call('/rest/v1/task_votes?select=points');
   check('a signed-out visitor sees no votes', anonVotes.status >= 400 || (Array.isArray(anonVotes.json) && anonVotes.json.length === 0), `HTTP ${anonVotes.status}`);
   shown = await taskOf(taskB);
-  check('B’s task is still at the average afterwards', shown?.points === 6 && shown?.priority === 'normal', JSON.stringify(shown));
+  check('B’s task is still at its final score afterwards', shown?.points === 7 && shown?.priority === 'normal', JSON.stringify(shown));
 
   await castVote(voteStore(b), taskB, { points: null, priority: null }, TOOL);
   shown = await taskOf(taskB);
-  check('B can withdraw B’s own vote, and the average is A’s alone again', shown?.points === 8 && shown?.priority === 'high', JSON.stringify(shown));
+  check('B can withdraw B’s own vote, and the priority is A’s alone again', shown?.points === 7 && shown?.priority === 'high', JSON.stringify(shown));
   check('withdrawing a vote leaves B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
 
   // The owner's own change moves the owner's score, and an owner's 0 is "not set".
@@ -1434,6 +1437,9 @@ try {
     ratingSeen.status === 200 && seenPass?.id === ratingId && seenPass.ai_score === 11 && Number(seenPass.difficulty) === 2.5 && Number(seenPass.relevance) === 3.5
       && seenPass.ai_task_model_ratings?.length === 2 && seenPass.ai_task_model_ratings.every((m) => m.scope_reason === ratingReasons.scope_reason),
     `HTTP ${ratingSeen.status} ${JSON.stringify(ratingSeen.json)}`);
+  shown = await taskOf(taskB);
+  check('an AI rating sets the task’s points to the final score: owner 5, AI 11, others 8 make 8, and leaves the owner’s score alone',
+    shown?.points === 8 && shown?.owner_points === 5, JSON.stringify(shown));
   const secondPass = await recordRating(ratingPass({ fingerprint: 'sha256:rls-check-2' }));
   const newest = await call(`/rest/v1/ai_task_ratings?task_id=eq.${taskB}&select=id&order=created_at.desc,seq.desc&limit=1`, { token: a.token });
   check('a second pass adds a record, and newest first puts it on top', secondPass.status === 200 && newest.json?.[0]?.id === secondPass.json, `HTTP ${secondPass.status}, newest ${JSON.stringify(newest.json)}`);
@@ -1483,6 +1489,25 @@ try {
   check('the save refuses, even from the server, a pass off the scale, with no model or one twice, or without its model id, instruction version, fingerprint or reasons, and saves no part of it',
     notRefused.length === 0 && passesAfter === passesBefore, `not refused: ${JSON.stringify(notRefused)}, passes ${passesBefore} then ${passesAfter}`);
 
+  // The final score on a task of A's own: the owner typing the number the
+  // task already shows still sets their score; a done task's points stay
+  // locked when the AI rates it again; reopening gives it its final score.
+  const scored = await createTask(a.store, { title: 'A’s task the AI rates', points: 6 }, TOOL, 'admin');
+  await recordRating(ratingPass({ task: scored.id, fingerprint: 'sha256:rls-final' }));
+  check('owner 6 and AI 11 make 8.5, so 9 points: the same rule as core', (await taskOf(scored.id))?.points === 9, JSON.stringify(await taskOf(scored.id)));
+  const sameNumber = await setPoints(a.store, scored.id, 9, TOOL);
+  check('the owner typing the 9 already shown makes their score 9, and the final score 10',
+    sameNumber.task.ownerPoints === 9 && sameNumber.task.points === 10 && (await taskOf(scored.id))?.owner_points === 9, JSON.stringify(await taskOf(scored.id)));
+  await updateTask(a.store, scored.id, { status: 'done' }, TOOL);
+  const fives = { scope: 5, difficulty: 5, relevance: 5, demand: 5 };
+  await recordRating(ratingPass({ task: scored.id, fingerprint: 'sha256:rls-final-2' }, [{ ...opusPart, ...fives }]));
+  await castVote(voteStore(b), scored.id, { points: 40 }, TOOL);
+  check('a done task’s points stay locked when the AI rates it again and a member votes', (await taskOf(scored.id))?.points === 10, JSON.stringify(await taskOf(scored.id)));
+  await updateTask(a.store, scored.id, { status: 'todo' }, TOOL);
+  check('reopened, it takes its final score: owner 9, AI 50, others 40 make 33',
+    (await taskOf(scored.id))?.points === 33, JSON.stringify(await taskOf(scored.id)));
+  await deleteTask(a.store, scored.id, TOOL);
+
   // Deleting the task takes its ratings with it, despite the rows being kept.
   const ratedTask = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'rated, then deleted' } });
   const ratedTaskId = ratedTask.json?.[0]?.id;
@@ -1500,8 +1525,9 @@ try {
   const votedA = await call(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.voted_on_task&select=task_id`, { token: a.token });
   const votedB = await call(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.voted_on_task&select=task_id`, { token: b.token });
   const bChanged = await call(`/rest/v1/engagements?member_id=eq.${b.id}&task_id=eq.${taskB}&kind=eq.changed_task&select=kind`, { token: b.token });
-  check('every vote is scored once, for the voter', votedA.json?.length === 2 && votedB.json?.length === 2, `A ${JSON.stringify(votedA.json)}, B ${JSON.stringify(votedB.json)}`);
-  check('the average landing on B’s task is not scored as B changing it', bChanged.json?.length === 0, JSON.stringify(bChanged.json));
+  // B's three: a vote and its withdrawal on B's task, and the vote on A's task the AI rated.
+  check('every vote is scored once, for the voter', votedA.json?.length === 2 && votedB.json?.length === 3, `A ${JSON.stringify(votedA.json)}, B ${JSON.stringify(votedB.json)}`);
+  check('the votes and AI ratings landing on B’s task are not scored as B changing it', bChanged.json?.length === 0, JSON.stringify(bChanged.json));
 
   // A vote is the voter's engagement: the owner earns nothing for it, a task
   // deleted with votes on it scores no votes, and a voter's account can be
@@ -1531,7 +1557,8 @@ try {
   if (goneC.status < 300) users.splice(users.indexOf(c.id), 1);
   shown = await taskOf(taskB);
   check('a member who has voted can have their account deleted', goneC.status < 300, `HTTP ${goneC.status} ${JSON.stringify(goneC.json)}`);
-  check('their vote leaves the average with them', withC?.points === 5 && withC?.priority === 'normal' && shown?.points === 8 && shown?.priority === 'high', `with C ${JSON.stringify(withC)}, after ${JSON.stringify(shown)}`);
+  // With C: others 8 and 2 make 5; owner 5, AI 11, others 5 make 7. Without: 8.
+  check('their vote leaves the final score with them', withC?.points === 7 && withC?.priority === 'normal' && shown?.points === 8 && shown?.priority === 'high', `with C ${JSON.stringify(withC)}, after ${JSON.stringify(shown)}`);
   check('and the owner earns nothing for it', bBeforeC === await countOf(b), `B had ${bBeforeC} engagements`);
 
   // Rescoring past points (20261103160000_rescore_past_points.sql): only a

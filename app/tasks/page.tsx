@@ -51,7 +51,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
   const [{ data: tasks, error }, settings, files, comments, votes, name, role, isAdmin, points] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, notes, status, points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
+      .select("id, title, notes, status, points, owner_points, parent_task_id, priority, agent_selected, agent_ticket_url, owner_id, created_at")
       .order("position")
       .order("created_at"),
     supabase.from("member_settings").select("agents_on").eq("owner_id", userId).maybeSingle(),
@@ -114,6 +114,7 @@ async function YourTasks({ supabase, user }: { supabase: Supabase; user: { id: s
               notes: t.notes,
               status: t.status,
               points: t.points ?? 0,
+              ownerPoints: t.owner_points ?? null,
               parentTaskId: t.parent_task_id,
               priority: t.priority,
               agentSelected: t.agent_selected,
