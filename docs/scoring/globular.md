@@ -69,6 +69,12 @@ score is built. And the "human score" of `docs/SCORING_GAME_PLAN.md`
 How the AI rates (on the server, two models, with every reason kept, and a
 human able to overrule it) is in the design, "How the AI rates".
 
+**Built so far:** the ratings' home (`core/taskFactors.ts`, the
+`ai_task_ratings` tables) and the AI rating run (`core/aiTaskRater.ts`,
+the Admin page's "AI task ratings" button), which rates open tasks and
+keeps every reason. The AI score does not yet change a task's points; the
+final-score rule is its own ticket.
+
 ### Around it
 
 The same parts can apply to each kind of game action, with the admin's

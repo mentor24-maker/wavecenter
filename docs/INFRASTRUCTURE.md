@@ -268,6 +268,22 @@ sending-only key, put it in Doppler `dev` and `prd` and in Vercel, redeploy).
 `npm run email:test -- --to <address>` sends one test email and says plainly
 whether it went; `npm run doctor` shows whether the key is in Doppler.
 
+**The AI that rates tasks.** The Admin page's "AI task ratings" button asks
+two Claude models (`claude-opus-5-5` and `claude-sonnet-5-5`) to rate each
+open task (docs/GLOBULAR_SCORING_ALGORITHM.md, "How the AI rates";
+`app/lib/aiTaskRating.ts`). It calls Anthropic's API with the official
+`@anthropic-ai/sdk` from WaveCenter's own server code, so it works on any
+host. The key, **`ANTHROPIC_API_KEY`**, is in Doppler `dev` and `prd`; the
+live site also needs it in Vercel, then a redeploy (rule 4). It is read on
+the server only, never logged, and `check:browser-secrets` fails the build
+if its name appears in browser code. Saving a rating also needs
+`SUPABASE_SERVICE_ROLE_KEY`. Without either, the Admin page says which is
+missing and the button is off. **Cost:** each click rates at most 10 tasks,
+one call per model per task, roughly 5 to 10 US cents a task at Anthropic's
+listed prices. The account is billed in advance with credits: when they run
+out, every rating fails with "Your credit balance is too low", shown on the
+Admin page, and nothing is saved.
+
 ## The core is separate from the framework
 
 `core/` holds the task record, the points rules and the who-may-do-what

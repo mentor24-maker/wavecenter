@@ -27,6 +27,7 @@
     "evolution:tasks": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/evolution_backfill_tasks.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.4.0",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.117.3",
     "next": "16.4.3",

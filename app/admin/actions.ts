@@ -23,6 +23,12 @@
  * for good (core/game.ts `makeScoringFinal`, with FINAL typed to confirm);
  * the database's `make_scoring_final` checks the permission again, and its
  * trigger refuses any change back.
+ *
+ * "AI task ratings" (`rateTasksAction`) asks the AI to rate the open tasks
+ * that need it (core/aiTaskRater.ts `rateTasks`, which refuses anyone without
+ * "Manage game scoring"), and saves each pass with the service key. It says
+ * which tasks it rated and which it could not, and why; a task it could not
+ * rate has nothing saved.
  */
 import { revalidatePath } from "next/cache";
 import {
@@ -39,7 +45,9 @@ import {
   type RescoreResult,
   type ScoringPhase,
 } from "../../core/game.ts";
+import { AI_RATING_TOOL, rateTasks, type RatingRunResult } from "../../core/aiTaskRater.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
+import { claudeTaskRater, missingRatingSettings, readRatingInputs, supabaseAiTaskRatingStore } from "../lib/aiTaskRating";
 import { supabaseRescoreStore, supabaseScoringPhaseStore, supabaseScoringRuleStore } from "../lib/engagementStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
@@ -110,6 +118,25 @@ export async function makeScoringFinalAction(confirmation: string): Promise<Resu
   if (result.ok) {
     revalidatePath("/admin");
     revalidatePath("/game");
+  }
+  return result;
+}
+
+/** Ask the AI to rate the open tasks that need it, up to the per-run cap. Each task saves whole or not at all. */
+export async function rateTasksAction(): Promise<Result<RatingRunResult>> {
+  const missing = missingRatingSettings();
+  if (missing.length) {
+    return { ok: false, error: `This copy of WaveCenter is missing ${missing.join(" and ")}, so nothing was rated.` };
+  }
+  const rater = claudeTaskRater();
+  if (!rater) return { ok: false, error: "This copy of WaveCenter has no AI key, so nothing was rated." };
+  const result = await asAdmin("nothing was rated", async (supabase, actor) => {
+    const inputs = await readRatingInputs(supabase);
+    return rateTasks({ actor, ...inputs, store: supabaseAiTaskRatingStore(supabase), rater, tool: AI_RATING_TOOL });
+  });
+  if (result.ok) {
+    for (const f of result.value.failed) console.error(`ai-rating: task ${f.taskId} was not rated: ${f.reason}`);
+    if (result.value.rated.length) revalidatePath("/tasks", "layout");
   }
   return result;
 }

@@ -683,9 +683,13 @@ add, change or delete a row straight at the tables, not even the server's
 service key, and a trigger refuses any change even from the database's own
 owner. Deleting the task is the one thing that removes its passes.
 
-**Nothing writes them yet, and they change no task's points yet.** The AI
-job on the server fills them, and connecting them to a task's points are
-later tickets under "Scoring system for Globular scores (epic parent)".
+**The AI rating run fills them** (`core/aiTaskRater.ts`, started from the
+Admin page's "AI task ratings"): it rates open tasks that have no rating,
+or whose fingerprint or instruction version has changed since their newest
+pass, and saves each pass with the service key, tool
+`wavecenter-ai-rating`. **They change no task's points yet**; connecting
+them is a later ticket under "Scoring system for Globular scores (epic
+parent)".
 
 Row-level security was on from the moment both tables were made
 (`20261104120000_ai_task_factor_ratings.sql`). Every signed-in member reads

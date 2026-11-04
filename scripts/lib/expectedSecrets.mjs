@@ -14,6 +14,7 @@ export const EXPECTED_SECRETS = [
   { name: 'DATABASE_URL', configs: ['dev', 'prd'], what: 'the Postgres connection string' },
   { name: 'CLICKUP_API_TOKEN', configs: ['dev'], what: 'the ClickUp token, for scripts only' },
   { name: 'RESEND_API_KEY', configs: ['dev', 'prd'], what: 'the Resend key that sends email (server only)' },
+  { name: 'ANTHROPIC_API_KEY', configs: ['dev', 'prd'], what: 'the AI service key that rates tasks (server only)' },
 ];
 
 /**
