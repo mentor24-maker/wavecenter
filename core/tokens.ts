@@ -138,3 +138,49 @@ export async function removeTokenSize(store: TokenStore, actor: GameActor, id: s
   mayManage(actor);
   if (!(await store.remove(id))) throw new CoreError('The token size was not removed. Reload the page and try again.');
 }
+
+/** One earning, as the header's catch-up needs it: an engagement's id, points and when it happened. */
+export interface Earning {
+  id: string;
+  points: number;
+  createdAt: string;
+}
+
+/** The newest earning a member has already been shown, remembered by their browser. */
+export type SeenMark = Pick<Earning, 'id' | 'createdAt'>;
+
+/** At most this many tokens play on one page load; anything past it plays as one last token for the rest. */
+export const TOKEN_CATCH_UP_CAP = 5;
+
+/** Oldest first; earnings made in the same save share a time, so the id settles the order. */
+function compareEarnings(a: SeenMark, b: SeenMark): number {
+  const at = Date.parse(a.createdAt);
+  const bt = Date.parse(b.createdAt);
+  if (at !== bt && Number.isFinite(at) && Number.isFinite(bt)) return at - bt;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Which tokens to play when a page loads (Dane, 2026-11-03, on 86bcxke03:
+ * the token plays the next time a page loads after the points were earned).
+ * `recent` is the member's newest earnings in any order; `seen` is the newest
+ * one their browser has already shown, or null on a browser's first visit.
+ *
+ * Returns the points of each token to play, oldest first, and the mark to
+ * remember next. A first visit plays nothing and just remembers the newest,
+ * so nobody is shown their whole history. An earning worth 0 or less plays
+ * nothing. More than `cap` new earnings play as `cap - 1` tokens and one last
+ * token for the rest, so a busy day never plays for a minute.
+ */
+export function tokensToPlay(recent: readonly Earning[], seen: SeenMark | null, cap = TOKEN_CATCH_UP_CAP): { plays: number[]; newest: SeenMark | null } {
+  const sorted = [...recent].sort(compareEarnings);
+  const last = sorted[sorted.length - 1];
+  const newest = last ? { id: last.id, createdAt: last.createdAt } : seen;
+  if (!seen) return { plays: [], newest };
+  const points = sorted.filter((e) => compareEarnings(e, seen) > 0 && e.points > 0).map((e) => e.points);
+  const limit = Math.max(1, Math.floor(cap));
+  if (points.length <= limit) return { plays: points, newest };
+  const rest = points.slice(limit - 1).reduce((sum, p) => sum + p, 0);
+  return { plays: [...points.slice(0, limit - 1), rest], newest };
+}
