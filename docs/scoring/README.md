@@ -26,7 +26,8 @@ works in one place: start a scoring wiki that can grow as the system does".
   of action, the four factors and the formula, and rescoring past points
   while scoring is provisional.
 - [Globular scoring](globular.md): values that need thought, such as what a
-  task is worth. What exists today and what is planned.
+  task is worth. What exists today, and Dane's rule: final = the average of
+  the AI score and the owner's score.
 
 ### Keeping scores honest
 
@@ -44,8 +45,11 @@ The wiki links to these rather than copying them:
 
 - [GRANULAR_SCORING_ALGORITHM.md](../GRANULAR_SCORING_ALGORITHM.md): the
   factor tables and every action's scores.
-- [SCORING_GAME_PLAN.md](../SCORING_GAME_PLAN.md): the plan for owner,
-  human, AI and final scores, and the guess game.
+- [GLOBULAR_SCORING_ALGORITHM.md](../GLOBULAR_SCORING_ALGORITHM.md): the
+  task factors, the scale, the formula and how the AI rates, for Dane to
+  approve.
+- [SCORING_GAME_PLAN.md](../SCORING_GAME_PLAN.md): the plan for owner, AI
+  and final scores, and the guess game.
 - [DATA_MODEL.md](../DATA_MODEL.md): the tables, in particular "The game
   layer" and "Granular and globular scores".
 - [canon/deo-whitepaper.md](../canon/deo-whitepaper.md): the DEO
@@ -59,7 +63,8 @@ Add a page here when its subject is built or planned, not before.
   voted valuation repository"), once that is built.
 - **The guess game, deviance and DQ**, once Dane answers the plan's
   questions (`docs/SCORING_GAME_PLAN.md`).
-- **The AI score**: what it reads and how a human overrules it.
+- **The AI score**: what it reads and how a human overrules it, once
+  Dane approves the design (`docs/GLOBULAR_SCORING_ALGORITHM.md`).
 - **Negative scores for behaviour**: Dane's later "anti-farming behavior
   negative scores".
 - **Reputation and voting weight**: earned tokens multiplied by
