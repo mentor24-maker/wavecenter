@@ -139,12 +139,12 @@ export async function markDone(id: string, done: boolean): Promise<SaveResult> {
     updateTask(store, id, { status: done ? "done" : "todo" }, WAVECENTER_TOOL));
 }
 
-/** Once members have voted on a task's points, the average decides them and the owner's box is refused. */
+/**
+ * The owner sets their own score. It is always theirs to change, votes or no
+ * votes; the task's points are then the final score (core/taskScore.ts).
+ */
 export async function changePoints(id: string, points: number): Promise<SaveResult> {
-  return save("change the points", async (store, supabase, memberId) => {
-    requireNotVotedOn(await supabaseVoteStore(supabase, memberId).forTask(id), "points");
-    await setPoints(store, id, points, WAVECENTER_TOOL);
-  });
+  return save("change your score", (store) => setPoints(store, id, points, WAVECENTER_TOOL));
 }
 
 export async function moveUnder(id: string, parentTaskId: string | null): Promise<SaveResult> {

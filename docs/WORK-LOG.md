@@ -7,22 +7,39 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
-## 2026-11-04 — The AI rates each task, with its reasons (#149)
+## 2026-11-04 — A task's points become its final score (#150)
 
-The Admin page has a new button, "Rate tasks with AI". When an admin clicks
-it, two Claude AI models each read up to ten open tasks and rate each one on
-the four factors from the approved design: how much there is to do, how hard
-it is, how closely it serves the mission, and how much it is wanted. Every
-rating comes with a one-sentence reason. WaveCenter, not the AI, does the
-sums: it averages the two models and works out the task's AI score, 1 to 50.
-The AI reads the task's title, details, priority, parent, sub-tasks and file
-names, but never the owner's points or anyone's votes, so it gives an
-independent second opinion. Done tasks are never rated, because their points
-are locked. A task is rated again only once it has changed. If anything goes
-wrong (the AI can't be reached, or gives an answer in the wrong shape),
-nothing is saved for that task and the screen says why. The AI service key
-stays on the server, and the build fails if it ever shows up in a page.
-Nothing changes a task's points yet; that is the next ticket.
+A task's points are no longer just one number someone types in. They are
+now its final score, the average of up to three parts, as Dane decided: the
+owner's own score, the AI's score, and the average of what the other
+members voted. The database works it out again every time one of those
+changes. Until the AI has rated a task (none has yet), its points count as
+provisional, and the task's page says so: "AI: not yet". Members' votes no
+longer replace the owner's number. They count as the third part. The owner
+can now change their own score at any time, even after others have voted.
+A finished task's points stay locked. Each task's page has a new line
+showing the working, such as "AI 12, owner 10, final 11". When this goes
+live, the only tasks that move are open ones that other members have voted
+on. On their own task, an owner is no longer offered a points vote (it
+would count for nothing; their score box is their say), and the vote count
+on the task list shows the other members' average, the same number as the
+task's page.
+
+---
+
+## 2026-11-04 — The owner's own points are kept, even after members vote (#148)
+
+Dane's rule says a task's final score will be the average of two numbers:
+the AI's score and the owner's score, the points the person who made the
+task gives it. Until now the owner's number did not survive: once members
+voted, their average overwrote it. Each task now keeps the owner's score in
+a place of its own. When the owner sets a task's points it follows along;
+a member's vote never touches it; and nobody can type it in directly, the
+database keeps it itself. Following Dane's answers ("7A, 8A"), tasks that
+already existed got their points as they stand today, and a task at 0
+points counts as "not set", since most of those owners simply never gave a
+number. Nothing on screen changes and no task's points move; the next step
+uses this number to work out the final score.
 
 ---
 

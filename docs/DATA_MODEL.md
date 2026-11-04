@@ -47,7 +47,8 @@ One row is one task: something a member means to do, is doing, or has done.
 | `owner_id` | **The member the task belongs to.** Filled in automatically with whoever is signed in. |
 | `status` | **Where the task stands:** `proposed`, `todo`, `doing` or `done`. An admin's new task starts at `todo`; anyone else's starts at `proposed` and waits for an admin to approve it (`approve_task`), which makes it `todo`. A proposed task's status cannot change any other way, and it cannot be ticked for or handed to AI agents. No other values are accepted. |
 | `parent_task_id` | **The bigger task this one is part of**, if any. Empty for a top-level task. |
-| `points` | **What the task is worth**: its suggested value, as a whole number. Starts at 0, is never empty and never below zero. Locked once the task is done. |
+| `points` | **What the task is worth**: its **final score**, a whole number, never empty and never below zero. The database sets it (see "A task's final score" below): the average of the owner's score, the AI score and the other members' votes. Locked once the task is done. |
+| `owner_points` | **The owner's score**: the points the task's owner gave it, kept apart so members' votes can never overwrite it (Dane, 2026-11-03: the owner's score is one half of the final score). Empty means "not set": an owner's 0 counts as not set (Dane, 2026-11-04, "8A"). The database keeps it (`tasks_owner_points`, `tasks_owner_points_set`): whenever the owner's own change names the points, even the number already shown, that number is the owner's score; a vote or an AI rating never touches it, and nobody writes it directly. Tasks that existed before it got their points as they stood, votes' average included (Dane, "7A"). It is one of the three parts of the final score. |
 | `position` | Where the task sits in its list, so members can put tasks in their own order. |
 | `created_at` | When the task was made. |
 | `updated_at` | When it last changed. Kept current automatically on every change. |
@@ -105,10 +106,46 @@ questions this document used to leave open.
    adds a 'proposal', which is what these ToDo list items are gets to set a
    suggested value. Others can vote on the value separately." Only a task's
    owner, the member who added it, can change it directly (row-level
-   security). **Once members have voted, the average replaces it** (Dane,
-   2026-10-27; see "Votes on a task" below).
-4. **Who sets points, once votes exist.** The average of the members' votes.
-   The owner's own value stands only until the first points vote.
+   security). That number is the task's **owner's score** (`owner_points`,
+   above), always the owner's to change.
+4. **Who sets points (since 2026-11-04).** Nobody types them: they are the
+   task's final score, below. Until then the members' votes' average
+   replaced the owner's number (Dane, 2026-10-27).
+
+### A task's final score
+
+Dane, 2026-11-03: "We will average the AI score and the human score to
+arrive at the final score. Later, we will add a third factor, which is the
+average of all the other users' scores." On 2026-11-04, answering "B" and
+"A" on "Factor ratings do not set a task's points yet: connect them": "Since
+the voting is working, the final score is going to be the average of three
+scores: Owner's score, AI score, Average of other users' scores".
+
+A task's `points` are the plain average of the parts it has, a whole number
+with a half rounding up:
+
+- **the owner's score** (`owner_points`; empty is "not set" and left out);
+- **the AI score**: the newest AI rating's `ai_score` (below);
+- **the others' score**: the average of the points votes of every member
+  *other than the owner*, a half rounding up. The owner's own points vote
+  does not count here (it still counts for priority).
+
+A part the task does not have is left out, so a task is never stuck; with
+none at all it is 0. Before the AI has rated a task its points are
+**provisional**, and the task page says so ("AI: not yet"). Worked example:
+AI 12 and owner 10, with no votes, make 11.
+
+The database applies the rule itself in the same save as every change to a
+part (`20261104140000_final_task_score.sql`): `tasks_points_final` on every
+change to a task, `ai_task_ratings_apply` when a rating lands, and
+`task_votes_apply` when a vote is cast or withdrawn. `private.task_final_points`
+is the rule; `finalScore` and `othersScore` in `core/taskScore.ts` are the
+same rule. A change made by the rule is not scored as the owner's.
+
+**A done task's points stay locked**: a new rating, a vote or an owner's
+change leaves them as they were. Reopening the task gives it its final score
+again. Each task's page shows the working in one line, such as
+"AI 12, owner 10, final 11".
 
 The game layer's scoring rules (what each recorded action earns) are a
 separate thing from a task's points: an admin sets those on the Game
@@ -124,7 +161,9 @@ and point values ... The actual value will be the average of all users'
 votes. (for now)" On the ticket he settled three questions: the votes go on
 the task list for now (a Game Layer page later), every member sees every
 task including its details and files, and once there are votes the average
-replaces the owner's own points and priority.
+replaces the owner's own points and priority. **Since 2026-11-04 that holds
+for priority only**: other members' points votes are the others' score, one
+part of the task's final score (above), and never replace the owner's.
 
 | Column | What it holds |
 |---|---|
@@ -683,13 +722,12 @@ add, change or delete a row straight at the tables, not even the server's
 service key, and a trigger refuses any change even from the database's own
 owner. Deleting the task is the one thing that removes its passes.
 
-**The AI rating run fills them** (`core/aiTaskRater.ts`, started from the
-Admin page's "AI task ratings"): it rates open tasks that have no rating,
-or whose fingerprint or instruction version has changed since their newest
-pass, and saves each pass with the service key, tool
-`wavecenter-ai-rating`. **They change no task's points yet**; connecting
-them is a later ticket under "Scoring system for Globular scores (epic
-parent)".
+**The AI rating lane fills them** (`core/aiTaskRater.ts`, run every 30
+minutes on the Mac Mini by `npm run rate-tasks`, through Claude Code signed
+in with Dane's plan): it rates open tasks that have no rating, or whose
+fingerprint or instruction version has changed since their newest pass, and
+saves each pass with the service key, tool `wavecenter-ai-rating`. Once a
+pass lands, its AI score is a part of the task's final score (above).
 
 Row-level security was on from the moment both tables were made
 (`20261104120000_ai_task_factor_ratings.sql`). Every signed-in member reads

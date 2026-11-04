@@ -46,6 +46,13 @@ export interface Task {
   status: TaskStatus;
   parentTaskId: string | null;
   points: number;
+  /**
+   * The owner's score: the points the task's owner gave it, or null when not
+   * set. The database keeps it in step with the owner's own changes to
+   * `points` (core/points.ts `ownerScore`); members' votes never change it.
+   * Nothing writes it directly.
+   */
+  ownerPoints: number | null;
   position: number;
   priority: TaskPriority;
   /** The member has ticked this task for AI agents to work on. */

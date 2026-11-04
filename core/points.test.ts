@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { awardPoints, requirePointsValue, setPoints } from './points.ts';
+import { awardPoints, ownerScore, requirePointsValue, setPoints } from './points.ts';
 import { createTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
@@ -24,11 +24,37 @@ test('setPoints changes the points, names the tool, and reports the change', asy
   assert.equal(stored?.tool, 'planner');
 });
 
+test('the owner’s score is the points the owner gives, and an owner’s 0 is "not set"', async () => {
+  assert.equal(ownerScore(10), 10);
+  assert.equal(ownerScore(0), null);
+  assert.throws(() => ownerScore(-1), /can't be negative/);
+  const { store, task } = await oneTask(10);
+  assert.equal(task.ownerPoints, 10);
+  assert.equal((await oneTask(0)).task.ownerPoints, null);
+  assert.equal((await setPoints(store, task.id, 7, 'wavecenter')).task.ownerPoints, 7);
+  assert.equal((await setPoints(store, task.id, 0, 'wavecenter')).task.ownerPoints, null);
+  assert.equal((await awardPoints(store, task.id, 4, 'wavecenter')).task.ownerPoints, 4);
+});
+
 test('awardPoints adds to what the task already has', async () => {
   const { store, task } = await oneTask(5);
   const change = await awardPoints(store, task.id, 3, 'wavecenter');
   assert.deepEqual([change.before, change.after, change.delta], [5, 8, 3]);
   assert.equal((await store.get(task.id))?.points, 8);
+});
+
+test('awardPoints adds to the owner\'s score, not to the final score', async () => {
+  const { store, task } = await oneTask(10);
+  // An AI score of 30 makes the final score average(30, 10) = 20.
+  store.aiScoreFor = () => 30;
+  await setPoints(store, task.id, 10, 'wavecenter');
+  assert.equal((await store.get(task.id))?.points, 20);
+  const change = await awardPoints(store, task.id, 5, 'wavecenter');
+  const stored = await store.get(task.id);
+  assert.equal(stored?.ownerPoints, 15);
+  // average(30, 15) = 22.5, a half rounding up.
+  assert.deepEqual([change.before, change.after, change.delta], [20, 23, 3]);
+  assert.equal(stored?.points, 23);
 });
 
 for (const tool of [undefined, '', '   ']) {

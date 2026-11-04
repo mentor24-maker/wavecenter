@@ -12,7 +12,7 @@ async function setup() {
   const tasks = new MemoryTaskStore('dane');
   const task = await createTask(tasks, { title: 'Plan the launch', points: 3, priority: 'normal' }, 'wavecenter', 'admin');
   const votes = new MemoryVoteStore(tasks, ledger);
-  return { ledger, tasks, task, votes, dane: votes.as('dane'), second: votes.as('second') };
+  return { ledger, tasks, task, votes, dane: votes.as('dane'), second: votes.as('second'), third: votes.as('third') };
 }
 
 test('points average to the nearest whole number, a half rounding up', () => {
@@ -47,18 +47,39 @@ test('votes change nothing on a done task, or when there are none', () => {
   const open = { status: 'todo' as const, points: 3, priority: 'normal' as const };
   assert.equal(votedValues(open, []), null);
   assert.equal(votedValues({ ...open, status: 'done' }, [{ points: 9, priority: 'urgent' }]), null);
-  assert.deepEqual(votedValues(open, [{ points: 9, priority: null }]), { points: 9, priority: 'normal' }, 'an unvoted part keeps its value');
+  assert.deepEqual(votedValues(open, [{ points: 9, priority: null }]), { priority: 'normal' }, 'an unvoted priority keeps its value');
+  assert.deepEqual(votedValues(open, [{ points: null, priority: 'high' }]), { priority: 'high' });
 });
 
-test('the average of every member’s votes becomes the task’s points and priority', async () => {
-  const { tasks, task, dane, second } = await setup();
-  await castVote(dane, task.id, { points: 8, priority: 'high' }, 'wavecenter');
-  assert.deepEqual(summarizeVotes(await dane.forTask(task.id)), { voters: 1, points: 8, pointsVotes: 1, priority: 'high', priorityVotes: 1 });
-  assert.equal((await tasks.get(task.id))?.points, 8);
-  await castVote(second, task.id, { points: 4, priority: 'low' }, 'wavecenter');
+test('other members’ votes are the others’ score, averaged with the owner’s; priority is the votes’ average', async () => {
+  const { tasks, task, second, third } = await setup();
+  await castVote(second, task.id, { points: 8, priority: 'high' }, 'wavecenter');
+  assert.deepEqual(summarizeVotes(await second.forTask(task.id)), { voters: 1, points: 8, pointsVotes: 1, priority: 'high', priorityVotes: 1 });
+  let stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.priority], [6, 'high'], 'owner 3 and others 8 make 5.5, so 6');
+  await castVote(third, task.id, { points: 4, priority: 'low' }, 'wavecenter');
+  stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.priority], [5, 'normal'], 'others 8 and 4 make 6; owner 3 and 6 make 4.5, so 5');
+});
+
+test('the owner’s own points vote is not an other member’s score', async () => {
+  const { tasks, task, dane } = await setup();
+  await castVote(dane, task.id, { points: 40, priority: 'urgent' }, 'wavecenter');
   const stored = await tasks.get(task.id);
-  assert.equal(stored?.points, 6);
-  assert.equal(stored?.priority, 'normal');
+  assert.deepEqual([stored?.points, stored?.priority], [3, 'urgent'], 'the points stay the owner’s 3; the priority vote counts');
+});
+
+test('votes never change the owner’s score', async () => {
+  const { tasks, task, second, third } = await setup();
+  await castVote(second, task.id, { points: 8 }, 'wavecenter');
+  await castVote(third, task.id, { points: 4 }, 'wavecenter');
+  let stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.ownerPoints], [5, 3]);
+  await castVote(third, task.id, { points: null }, 'wavecenter');
+  stored = await tasks.get(task.id);
+  assert.deepEqual([stored?.points, stored?.ownerPoints], [6, 3]);
+  await castVote(second, task.id, { points: null }, 'wavecenter');
+  assert.equal((await tasks.get(task.id))?.points, 3, 'with every vote withdrawn the owner’s score stands alone');
 });
 
 test('voting again replaces the member’s vote; leaving a part out keeps it', async () => {
@@ -76,7 +97,7 @@ test('a member can withdraw one part, or the whole vote', async () => {
   await castVote(second, task.id, { points: 4 }, 'wavecenter');
   const left = await castVote(dane, task.id, { points: null }, 'wavecenter');
   assert.deepEqual([left?.points, left?.priority], [null, 'high']);
-  assert.equal((await tasks.get(task.id))?.points, 4, 'the average is now the one points vote left');
+  assert.equal((await tasks.get(task.id))?.points, 4, 'owner 3 and the one other points vote, 4, make 3.5, so 4');
   assert.equal(await castVote(dane, task.id, { priority: null }, 'wavecenter'), null);
   assert.equal(await dane.mine(task.id), null, 'nothing of the vote is left');
   assert.equal((await dane.forTask(task.id)).length, 1);
@@ -129,9 +150,8 @@ test('a vote whose engagement cannot be written is not saved', async () => {
   assert.equal(await dane.mine(task.id), null);
 });
 
-test('once members vote on a part, the owner cannot type over it', () => {
-  assert.doesNotThrow(() => requireNotVotedOn([], 'points'));
-  assert.doesNotThrow(() => requireNotVotedOn([{ points: null, priority: 'high' }], 'points'));
-  assert.throws(() => requireNotVotedOn([{ points: 4, priority: null }], 'points'), /average of their votes/);
-  assert.throws(() => requireNotVotedOn([{ points: null, priority: 'low' }], 'priority'), /its priority is the average/);
+test('once members vote on the priority, the owner cannot type over it', () => {
+  assert.doesNotThrow(() => requireNotVotedOn([], 'priority'));
+  assert.doesNotThrow(() => requireNotVotedOn([{ priority: null }], 'priority'));
+  assert.throws(() => requireNotVotedOn([{ priority: 'low' }], 'priority'), /its priority is the average/);
 });
