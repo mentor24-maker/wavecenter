@@ -8,7 +8,7 @@ import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
   RESCORE_TOOL, applyGranularPoints, applyRescore, previewRescore, rescoreCorrections, totalAfterRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
-  totalPoints, type EngagementInput, type FactorReasons, type GameActor, type ScoringFactors,
+  totalPoints, type EngagementInput, type FactorReasons, type GameActor, type RescoreStore, type ScoringFactors,
 } from './game.ts';
 import { profileChanged, saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
 import { setPoints } from './points.ts';
@@ -734,8 +734,8 @@ test('the rescore preview shows each action and each member now and after, and s
   assert.equal(ledger.rows.length, before, 'nothing saved');
   assert.equal(preview.provisional, true);
   assert.deepEqual(preview.actions, [
-    { kind: 'made_task', name: 'Made a task', timesDone: 4, creditedNow: 4, wouldBe: 16, difference: 12 },
-    { kind: 'finished_task', name: 'Finished a task', timesDone: 1, creditedNow: 5, wouldBe: 5, difference: 0 },
+    { kind: 'made_task', name: 'Made a task', timesDone: 4, creditedNow: 4, wouldBe: 16, difference: 12, membersChanging: 2 },
+    { kind: 'finished_task', name: 'Finished a task', timesDone: 1, creditedNow: 5, wouldBe: 5, difference: 0, membersChanging: 0 },
   ]);
   const dane = preview.members.find((m) => m.memberId === 'dane')!;
   assert.equal(dane.memberName, 'Dane');
@@ -774,7 +774,39 @@ test('a second rescore in a row changes nothing and says so', async () => {
   assert.deepEqual(again, { rescoreId: null, rows: 0, points: 0 });
   assert.equal(ledger.rows.length, rows);
   assert.equal(ledger.rescores.length, 1, 'no empty rescore is recorded');
-  assert.ok((await previewRescore(ledger, ADMIN)).actions.every((a) => a.difference === 0));
+  assert.ok((await previewRescore(ledger, ADMIN)).actions.every((a) => a.difference === 0 && a.membersChanging === 0));
+});
+
+test('an action whose members\' corrections cancel out still needs rescoring, and is rescored', async () => {
+  // Now worth 2: A did it 3 times at 1 (credited 3, should be 6: +3), B once at 5 (credited 5, should be 2: -3).
+  const ledger = new MemoryEngagementStore();
+  setPointsOf(ledger, 'made_task', 2);
+  for (const _ of [1, 2, 3]) await ledger.insert({ memberId: 'a', kind: 'made_task', points: 1, tool: 'wavecenter', taskId: null });
+  await ledger.insert({ memberId: 'b', kind: 'made_task', points: 5, tool: 'wavecenter', taskId: null });
+  const preview = await previewRescore(ledger, ADMIN);
+  const made = preview.actions.find((a) => a.kind === 'made_task')!;
+  assert.deepEqual({ difference: made.difference, membersChanging: made.membersChanging }, { difference: 0, membersChanging: 2 }, 'net 0, but two members change');
+  assert.equal(totalAfterRescore(preview.members.find((m) => m.memberId === 'a')!, ['made_task']), 6);
+  assert.equal(totalAfterRescore(preview.members.find((m) => m.memberId === 'b')!, ['made_task']), 2);
+  const saved = await applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter');
+  assert.deepEqual({ rows: saved.rows, points: saved.points }, { rows: 2, points: 0 });
+  assert.equal(await ledger.ledgerFor('a').total(), 6);
+  assert.equal(await ledger.ledgerFor('b').total(), 2);
+  assert.equal((await previewRescore(ledger, ADMIN)).actions.find((a) => a.kind === 'made_task')!.membersChanging, 0);
+});
+
+test('a rescore is the store\'s own answer: a short read of the tallies cannot make it skip the save', async () => {
+  // The database's API returns at most 1,000 rows; core must not decide "nothing to change" from a read like that.
+  const ledger = await earlyLedger();
+  setPointsOf(ledger, 'made_task', 4);
+  const shortRead: RescoreStore = {
+    rules: () => ledger.rules(),
+    provisional: () => ledger.provisional(),
+    tallies: async () => [],
+    apply: (kinds, tool) => ledger.apply(kinds, tool),
+  };
+  const saved = await applyRescore(shortRead, ADMIN, ['made_task'], 'wavecenter');
+  assert.deepEqual({ rows: saved.rows, points: saved.points }, { rows: 2, points: 12 });
 });
 
 test('a value that went down gives a negative correction, and later changes count from the last correction', async () => {

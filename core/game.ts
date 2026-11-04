@@ -874,8 +874,12 @@ export interface RescoreStore {
   provisional(): Promise<boolean>;
   /** Every member's ledger, added up per action. */
   tallies(): Promise<RescoreTally[]>;
-  /** Add the corrections for these actions in one step. Returns what was saved, or null if nothing was written. */
-  apply(kinds: readonly string[], tool: string): Promise<RescoreResult | null>;
+  /**
+   * Add the corrections for these actions in one step, worked out afresh
+   * inside it. Returns what was saved (`rows` 0 when nothing needed to
+   * change); throws when it failed or its answer could not be read.
+   */
+  apply(kinds: readonly string[], tool: string): Promise<RescoreResult>;
 }
 
 /** One action in the preview, across every member. */
@@ -886,7 +890,10 @@ export interface RescoreActionRow {
   creditedNow: number;
   /** Times done × its points today. */
   wouldBe: number;
+  /** The net change across every member. It can be 0 while members still change: one up, another down. */
   difference: number;
+  /** How many members' credit for it would change. The action needs rescoring when this is above 0. */
+  membersChanging: number;
 }
 
 /** One member in the preview. */
@@ -928,7 +935,8 @@ export function proposeRescore(rules: readonly ScoringRule[], tallies: readonly 
       const timesDone = mine.reduce((n, t) => n + t.actions, 0);
       const creditedNow = mine.reduce((n, t) => n + t.credited, 0);
       const wouldBe = timesDone * r.points;
-      return [{ kind: r.kind, name: r.name, timesDone, creditedNow, wouldBe, difference: wouldBe - creditedNow }];
+      const membersChanging = corrections.filter((c) => c.kind === r.kind).length;
+      return [{ kind: r.kind, name: r.name, timesDone, creditedNow, wouldBe, difference: wouldBe - creditedNow, membersChanging }];
     });
   const members = new Map<string, RescoreMemberRow>();
   for (const t of tallies) {
@@ -961,7 +969,8 @@ export async function previewRescore(store: Pick<RescoreStore, 'rules' | 'provis
  * Rescore the ticked actions: add their correction rows. Only an admin may,
  * and only while scoring is provisional. Nothing to change saves nothing and
  * says so (`rows` 0). The store works the corrections out afresh in the same
- * step it writes them, so a point earned since the preview is counted too.
+ * step it writes them, so a point earned since the preview is counted too;
+ * core does not work them out first, so its answer is the store's own.
  */
 export async function applyRescore(store: RescoreStore, actor: GameActor, kinds: unknown, tool: string): Promise<RescoreResult> {
   const named = requireTool(tool);
@@ -970,9 +979,5 @@ export async function applyRescore(store: RescoreStore, actor: GameActor, kinds:
     throw new CoreError('Tick at least one action to rescore. Nothing was saved.');
   }
   if (!(await store.provisional())) throw new CoreError(FINAL_MESSAGE);
-  const [rules, tallies] = await Promise.all([store.rules(), store.tallies()]);
-  if (!rescoreCorrections(rules, tallies, kinds).length) return { rescoreId: null, rows: 0, points: 0 };
-  const saved = await store.apply(kinds, named);
-  if (!saved) throw new CoreError('The rescore did not save. No points changed; try again.');
-  return saved;
+  return store.apply(kinds, named);
 }

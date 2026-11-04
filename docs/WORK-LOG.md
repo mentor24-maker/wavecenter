@@ -19,6 +19,10 @@ rescore adds one correction line per member and action, which My Points
 shows as "Rescored Made a task". Running it twice in a row changes nothing.
 It only works while scoring is still provisional. Once Dane declares a DEO's
 points final (a separate ticket), the database refuses it for good.
+An action still counts as needing a rescore when one member is owed points
+and another was over-credited by the same amount, even though the action's
+total looks unchanged. A large DEO's preview reads every member, not just
+the first thousand rows.
 
 ## 2026-11-03 — Your point total in the header on every page (#139)
 

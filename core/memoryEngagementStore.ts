@@ -31,7 +31,7 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
   signedIn: string | null = null;
   /** `game_settings.scoring_provisional`. */
   scoringProvisional = true;
-  /** Set to make the next rescore write nothing. */
+  /** Set to make the next rescore fail, writing nothing. */
   failNextRescore = false;
   /** Members' public names, as the preview shows them. */
   readonly memberNames = new Map<string, string>();
@@ -121,10 +121,10 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
     return [...byKey.values()];
   }
 
-  async apply(kinds: readonly string[], tool: string): Promise<RescoreResult | null> {
+  async apply(kinds: readonly string[], tool: string): Promise<RescoreResult> {
     if (this.failNextRescore) {
       this.failNextRescore = false;
-      return null;
+      throw new Error('The rescore did not save. No points changed; try again.');
     }
     if (!this.scoringProvisional) throw new Error('Points are final for this DEO, so past points can no longer be rescored. Nothing was saved.');
     const corrections = rescoreCorrections(await this.rules(), await this.tallies(), kinds);

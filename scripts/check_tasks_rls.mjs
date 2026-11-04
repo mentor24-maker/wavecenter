@@ -1434,10 +1434,18 @@ try {
   const rescoreStore = (member) => ({
     rules: async () => ((await call('/rest/v1/game_scoring_rules?select=kind,name,points,position&order=position', { token: member.token })).json ?? []),
     provisional: async () => (await call('/rest/v1/game_settings?select=scoring_provisional', { token: member.token })).json?.[0]?.scoring_provisional === true,
+    // Paged the way app/lib/engagementStore.ts reads it (ordered, then
+    // offset and limit, until a page is empty), one row a page so even a
+    // small test ledger takes several pages.
     tallies: async () => {
-      const r = await call('/rest/v1/rpc/rescore_tallies', { method: 'POST', token: member.token, body: {} });
-      if (r.status >= 300) throw new Error(`rescore_tallies refused: ${r.json?.message ?? r.status}`);
-      return r.json.map((t) => ({ memberId: t.member_id, memberName: t.member_name, kind: t.kind, actions: Number(t.actions), credited: Number(t.credited) }));
+      const rows = [];
+      for (;;) {
+        const r = await call(`/rest/v1/rpc/rescore_tallies?order=member_id.asc,kind.asc&offset=${rows.length}&limit=1`, { method: 'POST', token: member.token, body: {} });
+        if (r.status >= 300) throw new Error(`rescore_tallies refused: ${r.json?.message ?? r.status}`);
+        if (!r.json?.length) break;
+        rows.push(...r.json);
+      }
+      return rows.map((t) => ({ memberId: t.member_id, memberName: t.member_name, kind: t.kind, actions: Number(t.actions), credited: Number(t.credited) }));
     },
     apply: async (kinds, tool) => {
       const r = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: member.token, body: { rescore_kinds: kinds, tool } });

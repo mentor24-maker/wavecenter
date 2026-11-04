@@ -28,6 +28,7 @@
 import type {
   Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
+import { CoreError } from "../../core/tool.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -159,9 +160,21 @@ export function supabaseRescoreStore(supabase: Client): RescoreStore {
       return data.scoring_provisional === true;
     },
     async tallies() {
-      const { data, error } = await supabase.rpc("rescore_tallies");
-      if (error) failed("every member's points", error);
-      return ((data ?? []) as any[]).map((r) => ({
+      // One row per member per action, and the API hands back at most 1,000
+      // rows a call (supabase/config.toml max_rows): page until a page comes
+      // back empty, so a large DEO is never cut short silently.
+      const rows: any[] = [];
+      for (;;) {
+        const { data, error } = await supabase
+          .rpc("rescore_tallies")
+          .order("member_id")
+          .order("kind")
+          .range(rows.length, rows.length + 999);
+        if (error) failed("every member's points", error);
+        if (!data?.length) break;
+        rows.push(...(data as any[]));
+      }
+      return rows.map((r) => ({
         memberId: r.member_id,
         memberName: r.member_name ?? null,
         kind: r.kind,
@@ -172,7 +185,10 @@ export function supabaseRescoreStore(supabase: Client): RescoreStore {
     async apply(kinds, tool) {
       const { data, error } = await supabase.rpc("apply_rescore", { rescore_kinds: kinds, tool });
       if (error) throw new Error(`The database refused to rescore: ${error.message}`);
-      if (!data || typeof data !== "object" || !("rows" in data)) return null;
+      // It may have saved: never say it did not (engineering rule 6).
+      if (!data || typeof data !== "object" || !("rows" in data)) {
+        throw new CoreError("The database's reply could not be read, so WaveCenter cannot tell whether the rescore saved. Reload the page and click Preview to see what saved.");
+      }
       const saved = data as { rescore_id: string | null; rows: number; points: number };
       return { rescoreId: saved.rescore_id, rows: Number(saved.rows), points: Number(saved.points) };
     },

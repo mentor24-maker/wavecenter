@@ -31,18 +31,27 @@ function rescored(result: RescoreResult): Message {
   return { ok: true, text: `Rescored. ${rows} added, ${signed(result.points)} points in all. No earlier entry was changed.` };
 }
 
-export default function RescorePastPoints({ provisional, me }: { provisional: boolean | null; me: string }) {
+export default function RescorePastPoints({
+  provisional,
+  provisionalError,
+  me,
+}: {
+  provisional: boolean | null;
+  provisionalError: string | null;
+  me: string;
+}) {
   const [preview, setPreview] = useState<RescorePreview | null>(null);
   const [ticked, setTicked] = useState<string[]>([]);
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
   const isFinal = preview ? !preview.provisional : provisional === false;
-  const changing = preview?.actions.filter((a) => a.difference !== 0) ?? [];
+  // An action changes when any member's credit does, even if the net is 0 (one up, another down).
+  const changing = preview?.actions.filter((a) => a.membersChanging > 0) ?? [];
   const chosen = ticked.filter((k) => changing.some((a) => a.kind === k));
 
   function show(next: RescorePreview) {
     setPreview(next);
-    setTicked(next.actions.filter((a) => a.difference !== 0).map((a) => a.kind));
+    setTicked(next.actions.filter((a) => a.membersChanging > 0).map((a) => a.kind));
   }
 
   function load() {
@@ -71,6 +80,12 @@ export default function RescorePastPoints({ provisional, me }: { provisional: bo
         setMessage(rescored(result.value));
         const again = await previewRescoreAction();
         if (again.ok) show(again.value);
+        else {
+          // The old table's ticks and differences are out of date now: take it away and say why.
+          setPreview(null);
+          setTicked([]);
+          setMessage({ ok: true, text: `${rescored(result.value)!.text} The new preview could not be worked out: ${again.error} Click Preview to try again.` });
+        }
       } catch {
         setMessage({ ok: false, text: `${UNREACHABLE} No points changed.` });
       }
@@ -89,7 +104,9 @@ export default function RescorePastPoints({ provisional, me }: { provisional: bo
         </p>
       )}
       {provisional === null && !preview && (
-        <p className="error" role="alert">WaveCenter could not tell whether points are still provisional. Click Preview to try again.</p>
+        <p className="error" role="alert">
+          WaveCenter could not tell whether points are still provisional{provisionalError ? `: ${provisionalError}` : "."} Click Preview to try again.
+        </p>
       )}
       <p>
         <button type="button" onClick={load} disabled={pending || isFinal}>Preview</button>
@@ -120,9 +137,9 @@ export default function RescorePastPoints({ provisional, me }: { provisional: bo
               </thead>
               <tbody>
                 {preview.actions.map((a) => (
-                  <tr key={a.kind} className={a.difference ? "recalc-changes" : undefined}>
+                  <tr key={a.kind} className={a.membersChanging ? "recalc-changes" : undefined}>
                     <td>
-                      {a.difference ? (
+                      {a.membersChanging ? (
                         <input
                           type="checkbox"
                           aria-label={`Rescore ${a.name}`}
@@ -137,7 +154,12 @@ export default function RescorePastPoints({ provisional, me }: { provisional: bo
                     <td className="num">{a.timesDone}</td>
                     <td className="num">{a.creditedNow}</td>
                     <td className="num">{a.wouldBe}</td>
-                    <td className="num">{a.difference ? <b>{signed(a.difference)}</b> : 0}</td>
+                    <td className="num">
+                      {a.difference ? <b>{signed(a.difference)}</b> : 0}
+                      {a.membersChanging > 0 && !a.difference && (
+                        <span className="note"> ({a.membersChanging} members change; ups and downs cancel out)</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -49,8 +49,11 @@ export default async function Admin() {
       ([value, lists]) => ({ value, grants: lists.grants, error: null }),
       (err: unknown) => ({ value: null, grants: undefined, error: err instanceof Error ? err.message : String(err) }),
     ),
-    // Null when it could not be read: the section says so rather than guess.
-    supabaseRescoreStore(supabase).provisional().catch(() => null),
+    // Could not be read: the section says why rather than guess (rule 7).
+    supabaseRescoreStore(supabase).provisional().then(
+      (value) => ({ value, error: null }),
+      (err: unknown) => ({ value: null, error: err instanceof Error ? err.message : String(err) }),
+    ),
   ]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
   const mayScore = isAdmin && mayManageScoring({ role: role.value, grants: role.grants });
@@ -86,7 +89,7 @@ export default async function Admin() {
               changes, one correction is added (it can take points away when a value went down). Preview first; nothing
               is saved until you click “Rescore these”. Running it again straight after changes nothing.
             </p>
-            <RescorePastPoints provisional={provisional} me={user.id} />
+            <RescorePastPoints provisional={provisional.value} provisionalError={provisional.error} me={user.id} />
           </div>
         ) : (
           <p className="note" role="status">Your role may not manage the game scoring, so there are no admin tools for you here yet.</p>
