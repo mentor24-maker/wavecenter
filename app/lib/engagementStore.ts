@@ -28,8 +28,10 @@
 import type {
   Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
+import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
 import type { supabaseForRequest } from "./supabase";
+import { listTokenSizes } from "./tokenStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -195,18 +197,47 @@ export function supabaseRescoreStore(supabase: Client): RescoreStore {
   };
 }
 
-/** The header's point total: the number, or why it could not be read. */
-export type HeaderPoints = { value: number; error: null } | { value: null; error: string };
+/**
+ * What the header needs to play the tokens a member has earned since their
+ * browser last showed them (core/tokens.ts `tokensToPlay`): who they are (the
+ * browser remembers per member), their newest earnings, and the token sizes.
+ * Null when either could not be read: then nothing plays and the plain total
+ * shows, so a failed read never breaks the page.
+ */
+export type HeaderCatchUp = { memberId: string; recent: Earning[]; sizes: Pick<TokenSize, "diameter" | "color" | "minPoints">[] } | null;
+
+/** The header's point total: the number, or why it could not be read, and what to play since the last visit. */
+export type HeaderPoints = ({ value: number; error: null } | { value: null; error: string }) & { catchUp?: HeaderCatchUp };
+
+/** How many of the newest engagements the header reads to find what is new. */
+const CATCH_UP_READ = 50;
+
+/** For the header: the member's newest earnings and the token sizes, or null if either could not be read. */
+export async function headerCatchUp(supabase: Client, memberId: string): Promise<HeaderCatchUp> {
+  try {
+    const [latest, sizes] = await Promise.all([supabaseEngagementLedger(supabase, memberId).latest(CATCH_UP_READ), listTokenSizes(supabase)]);
+    return {
+      memberId,
+      recent: latest.map((e) => ({ id: e.id, points: e.points, createdAt: e.createdAt })),
+      sizes: sizes.map((s) => ({ diameter: s.diameter, color: s.color, minPoints: s.minPoints })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * For the header: the signed-in member's point total, the same one My Points
- * shows. A failed read never becomes 0; it comes back as the reason, so the
- * header can say the total could not be loaded (engineering rule 6).
+ * shows, and what to play since their last visit. A failed read never becomes
+ * 0; it comes back as the reason, so the header can say the total could not
+ * be loaded (engineering rule 6).
  */
 export async function headerPoints(supabase: Client, memberId: string): Promise<HeaderPoints> {
+  const catchUp = headerCatchUp(supabase, memberId);
   try {
-    return { value: await supabaseEngagementLedger(supabase, memberId).total(), error: null };
+    return { value: await supabaseEngagementLedger(supabase, memberId).total(), error: null, catchUp: await catchUp };
   } catch (err) {
-    return { value: null, error: err instanceof Error ? err.message : String(err) };
+    await catchUp;
+    return { value: null, error: err instanceof Error ? err.message : String(err), catchUp: null };
   }
 }

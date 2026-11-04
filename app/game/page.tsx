@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { isWired, mayManageScoring, type Engagement, type ScoringRule } from "../../core/game.ts";
 import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
-import { supabaseEngagementLedger } from "../lib/engagementStore";
+import { headerCatchUp, supabaseEngagementLedger } from "../lib/engagementStore";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
@@ -77,7 +77,7 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, isAdmin, rules, total, latest, finished, role, lists] = await Promise.all([
+  const [name, isAdmin, rules, total, latest, finished, role, lists, catchUp] = await Promise.all([
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
     read(() => ledger.rules()),
@@ -86,13 +86,14 @@ export default async function Game() {
     read(() => readFinishedTasks(supabase, user.id)),
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
+    headerCatchUp(supabase, user.id),
   ]);
   // The menu's Manage item shows only when the role and grants were read and allow it.
   const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
 
   return (
     <>
-      <SiteHeader name={name} isAdmin={isAdmin} points={total} />
+      <SiteHeader name={name} isAdmin={isAdmin} points={{ ...total, catchUp }} />
       <main>
         <h1>Game</h1>
         <GameMenu current="points" mayManage={mayManage} />
