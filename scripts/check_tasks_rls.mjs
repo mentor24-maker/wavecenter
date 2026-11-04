@@ -57,7 +57,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, applyGranularPoints, applyRescore, previewRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, applyGranularPoints, applyRescore, makeScoringFinal, previewRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
@@ -1562,8 +1562,21 @@ try {
     (flipA.status >= 400 || flipA.json?.length === 0) && forgeHistory.status >= 400 && forgeCorrection.status >= 400 && historyB.status === 200 && historyB.json.length === 0,
     `settings HTTP ${flipA.status} ${JSON.stringify(flipA.json)}, history POST ${forgeHistory.status}, correction POST ${forgeCorrection.status}, history read ${JSON.stringify(historyB.json)}`);
 
+  const phaseB = await call('/rest/v1/rpc/scoring_phase', { method: 'POST', token: b.token, body: {} });
+  const phaseAnon = await call('/rest/v1/rpc/scoring_phase', { method: 'POST', body: {} });
+  check('every member reads the scoring phase; a signed-out visitor cannot',
+    phaseB.status === 200 && typeof phaseB.json?.[0]?.provisional === 'boolean' && phaseAnon.status >= 400,
+    `member HTTP ${phaseB.status} ${JSON.stringify(phaseB.json)}, signed out HTTP ${phaseAnon.status}`);
+
+  // Making points final (20261103170000_scoring_final.sql) cannot be undone,
+  // so every call to it runs only on the private test database, which
+  // db:test rebuilds from nothing on every run.
+  const testDbFinal = isLocalUrl(URL_) && phaseB.json?.[0]?.provisional === false;
   if (!isLocalUrl(URL_)) {
-    console.log('SKIP  a real rescore: this is not the private test database, and a rescore would change members\u2019 points.');
+    console.log('SKIP  a real rescore and making points final: this is not the private test database; a rescore would change members\u2019 points, and final cannot be undone.');
+  } else if (testDbFinal) {
+    failures += 1;
+    console.error('FAIL  points are already final on the test database, so a rescore cannot be tested. Run npm run db:test, which rebuilds it.');
   } else {
     const madeRule = (await admin('/rest/v1/game_scoring_rules?kind=eq.made_task&select=points')).json?.[0]?.points;
     const totalOf = async (member) => Number((await admin(`/rest/v1/engagement_totals?member_id=eq.${member.id}&select=points`)).json?.[0]?.points ?? 0);
@@ -1595,14 +1608,61 @@ try {
       const direct = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
       check('rescoring again straight after changes nothing, through core or straight at the database', again.rows === 0 && again.rescoreId === null && direct.json?.rows === 0,
         `${JSON.stringify(again)} ${JSON.stringify(direct.json)}`);
-      await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', body: { scoring_provisional: false } });
       await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });
+      const phaseStore = (member) => ({
+        phase: async () => {
+          const r = await call('/rest/v1/rpc/scoring_phase', { method: 'POST', token: member.token, body: {} });
+          if (r.status >= 300 || !r.json?.[0]) throw new Error(`scoring_phase refused: ${r.json?.message ?? r.status}`);
+          const p = r.json[0];
+          return { provisional: p.provisional, finalAt: p.final_at, finalBy: p.final_by, finalByName: p.final_by_name };
+        },
+        makeFinal: async (tool) => {
+          const r = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: member.token, body: { tool } });
+          if (r.status >= 300) throw new Error(`make_scoring_final refused: ${r.json?.message ?? r.status}`);
+          return { provisional: r.json.provisional, finalAt: r.json.final_at, finalBy: r.json.final_by, finalByName: null };
+        },
+      });
+      const finalB = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: b.token, body: { tool: TOOL } });
+      const finalAnon = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', body: { tool: TOOL } });
+      const forgedFinalB = await makeScoringFinal(phaseStore(b), { role: 'admin' }, 'FINAL', TOOL).then(() => '', (e) => e.message);
+      check('a viewer or a signed-out visitor cannot make points final, through core or straight at the database',
+        finalB.status >= 400 && finalAnon.status >= 400 && /refused/.test(forgedFinalB) && (await phaseStore(a).phase()).provisional === true,
+        `viewer HTTP ${finalB.status}, signed out HTTP ${finalAnon.status}, core ${forgedFinalB}`);
+      const finalised = await makeScoringFinal(phaseStore(a), { role: 'admin' }, 'FINAL', TOOL);
+      const shownB = await phaseStore(b).phase();
+      check('an admin makes points final: every member sees since when and by whom',
+        finalised.provisional === false && finalised.finalBy === a.id && shownB.provisional === false && shownB.finalBy === a.id && shownB.finalAt === finalised.finalAt,
+        `${JSON.stringify(finalised)} ${JSON.stringify(shownB)}`);
+      const againCore = await makeScoringFinal(phaseStore(a), { role: 'admin' }, 'FINAL', TOOL).then(() => '', (e) => e.message);
+      const againDb = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: a.token, body: { tool: TOOL } });
+      check('making points final a second time is refused, through core or straight at the database',
+        /already final/.test(againCore) && againDb.status >= 400 && /already final/.test(againDb.json?.message ?? ''), `core ${againCore}, database HTTP ${againDb.status} ${againDb.json?.message ?? ''}`);
+      // Even the service key, which passes row-level security, cannot undo it: the trigger refuses.
+      const reopen = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_provisional: true } });
+      const restamp = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_at: null } });
+      const reassign = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_by: b.id } });
+      const wipe = await admin('/rest/v1/game_settings?id=eq.true', { method: 'DELETE' });
+      const after = await phaseStore(b).phase();
+      check('nobody can set points back to provisional, change when or who made them final, or delete the settings, even with the service key',
+        reopen.status >= 400 && /cannot be undone/.test(reopen.json?.message ?? '') && reassign.status >= 400 && /cannot be changed/.test(reassign.json?.message ?? '') && wipe.status >= 400
+          && after.provisional === false && after.finalBy === a.id && after.finalAt === finalised.finalAt,
+        `reopen HTTP ${reopen.status} ${reopen.json?.message ?? ''}, restamp HTTP ${restamp.status} ${JSON.stringify(restamp.json)}, reassign HTTP ${reassign.status} ${reassign.json?.message ?? ''}, delete HTTP ${wipe.status}, now ${JSON.stringify(after)}`);
       const finalCore = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL).then(() => '', (e) => e.message);
       const finalDb = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
       check('once points are final, even an admin cannot rescore, through core or straight at the database',
         /Points are final/.test(finalCore) && finalDb.status >= 400 && /Points are final/.test(finalDb.json?.message ?? ''), `core ${finalCore}, database HTTP ${finalDb.status} ${finalDb.json?.message ?? ''}`);
+      // Deleting the admin who made points final clears who, and nothing else:
+      // the row must not keep pointing at an account that is gone.
+      const goneA = await admin(`/auth/v1/admin/users/${a.id}`, { method: 'DELETE' });
+      if (goneA.status < 300) users.splice(users.indexOf(a.id), 1);
+      const row = (await admin('/rest/v1/game_settings?id=eq.true&select=scoring_provisional,scoring_final_at,scoring_final_by')).json?.[0];
+      const afterGone = await phaseStore(b).phase().catch((e) => ({ error: e.message }));
+      check('deleting the admin who made points final clears who; points stay final and every member still reads the phase',
+        goneA.status < 300 && row?.scoring_final_by === null && row?.scoring_provisional === false
+          && afterGone.provisional === false && afterGone.finalBy === null && afterGone.finalAt === finalised.finalAt,
+        `delete HTTP ${goneA.status}, row ${JSON.stringify(row)}, phase ${JSON.stringify(afterGone)}`);
     } finally {
-      await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', body: { scoring_provisional: true } });
+      // Points stay final on the test database: that cannot be undone, and db:test rebuilds it next run.
       await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });
     }
   }

@@ -10,15 +10,17 @@
  * the member the database would see as signed in. It is also a
  * `RescoreStore`: like the database's `apply_rescore`, it works the
  * corrections out itself (`rescoreCorrections`) and adds them all at once,
- * refusing when scoring is no longer provisional.
+ * refusing when scoring is no longer provisional. And it is a
+ * `ScoringPhaseStore`: like the database's `make_scoring_final`, it ends the
+ * provisional phase once, for `signedIn`, and refuses a second time.
  */
 import {
   NO_REASONS, RESCORE_TOOL, STARTING_SCORING_RULES, recordEngagement, rescoreCorrections, totalPoints, type Engagement, type EngagementLedger, type EngagementStore,
-  type NewEngagementRow, type FactorReasons, type RescoreResult, type RescoreStore, type RescoreTally, type RuleFields, type ScoringFactors, type ScoringRule,
+  type NewEngagementRow, type FactorReasons, type RescoreResult, type RescoreStore, type RescoreTally, type RuleFields, type ScoringPhase, type ScoringPhaseStore, type ScoringFactors, type ScoringRule,
   type ScoringRuleStore,
 } from './game.ts';
 
-export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore, RescoreStore {
+export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore, RescoreStore, ScoringPhaseStore {
   readonly rows: Engagement[] = [];
   ruleList: ScoringRule[] = STARTING_SCORING_RULES.map((r) => ({ ...r }));
   /** Set to make every insert fail. */
@@ -31,6 +33,9 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
   signedIn: string | null = null;
   /** `game_settings.scoring_provisional`. */
   scoringProvisional = true;
+  /** `game_settings.scoring_final_at` and `scoring_final_by`. */
+  scoringFinalAt: string | null = null;
+  scoringFinalBy: string | null = null;
   /** Set to make the next rescore fail, writing nothing. */
   failNextRescore = false;
   /** Members' public names, as the preview shows them. */
@@ -107,6 +112,18 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
 
   async provisional(): Promise<boolean> {
     return this.scoringProvisional;
+  }
+
+  async phase(): Promise<ScoringPhase> {
+    return { provisional: this.scoringProvisional, finalAt: this.scoringFinalAt, finalBy: this.scoringFinalBy, finalByName: null };
+  }
+
+  async makeFinal(_tool: string): Promise<ScoringPhase> {
+    if (!this.scoringProvisional) throw new Error('Points are already final for this DEO. That cannot be undone, and nothing was changed.');
+    this.scoringProvisional = false;
+    this.scoringFinalAt = new Date().toISOString();
+    this.scoringFinalBy = this.signedIn;
+    return this.phase();
   }
 
   async tallies(): Promise<RescoreTally[]> {

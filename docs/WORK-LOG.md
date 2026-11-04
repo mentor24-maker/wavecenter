@@ -28,6 +28,26 @@ Nothing on screen changes and no task's points move yet.
 
 ---
 
+## 2026-11-03 — Admins can make a DEO's points final, for good (#145)
+
+While a DEO's point values are still guesswork, an admin can rescore
+points members already earned. Once the values settle, that power should
+end, so members can trust their points stay earned. The Admin page now has
+a "Scoring phase" section: it says whether scoring is provisional, and an
+admin can click "Make points final". A warning says this cannot be undone,
+and the admin must type FINAL to confirm. After that, rescoring is switched
+off, and the page says when points became final and who did it. Dane chose
+"Permanent", so the database itself refuses any attempt to switch back,
+even with the master key. If it ever had to be reopened, an agent session
+would write a migration on Dane's written word. Every member's Game page
+now says whether points are provisional or final. One gap the review
+caught: if the admin who made points final later deleted their account,
+the record kept pointing at an account that no longer existed, and the
+lock stopped anyone fixing it. Now that one case clears the name and
+nothing else, and the screen says "an admin whose account is gone".
+
+---
+
 ## 2026-11-03 — A written design for how tasks are rated (#146)
 
 Before any code, this writes down how a task's worth will be worked out,

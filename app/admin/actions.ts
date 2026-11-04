@@ -18,11 +18,17 @@
  * nothing, and `rescoreAction` adds the correction rows (core/game.ts
  * `applyRescore`), which the database's `apply_rescore` checks again: an
  * admin only, and only while scoring is provisional.
+ *
+ * "Make points final" (`makeScoringFinalAction`) ends the provisional phase
+ * for good (core/game.ts `makeScoringFinal`, with FINAL typed to confirm);
+ * the database's `make_scoring_final` checks the permission again, and its
+ * trigger refuses any change back.
  */
 import { revalidatePath } from "next/cache";
 import {
   applyGranularPoints,
   applyRescore,
+  makeScoringFinal,
   previewRescore,
   recalculateGranularPoints,
   type AcceptedProposal,
@@ -31,9 +37,10 @@ import {
   type GranularProposal,
   type RescorePreview,
   type RescoreResult,
+  type ScoringPhase,
 } from "../../core/game.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
-import { supabaseRescoreStore, supabaseScoringRuleStore } from "../lib/engagementStore";
+import { supabaseRescoreStore, supabaseScoringPhaseStore, supabaseScoringRuleStore } from "../lib/engagementStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
@@ -91,6 +98,18 @@ export async function rescoreAction(kinds: string[]): Promise<Result<RescoreResu
   if (result.ok && result.value.rows) {
     revalidatePath("/game");
     revalidatePath("/", "layout");
+  }
+  return result;
+}
+
+/** End the provisional phase, for good. Refused without FINAL typed, for anyone but an admin, and a second time. */
+export async function makeScoringFinalAction(confirmation: string): Promise<Result<ScoringPhase>> {
+  const result = await asAdmin("nothing was changed", (supabase, actor) =>
+    makeScoringFinal(supabaseScoringPhaseStore(supabase), actor, confirmation, WAVECENTER_TOOL),
+  );
+  if (result.ok) {
+    revalidatePath("/admin");
+    revalidatePath("/game");
   }
   return result;
 }
