@@ -42,6 +42,7 @@ export function fromRow(row: any): Task {
     status: row.status,
     parentTaskId: row.parent_task_id,
     points: row.points,
+    ownerPoints: row.owner_points ?? null,
     position: row.position,
     priority: row.priority,
     agentSelected: row.agent_selected,

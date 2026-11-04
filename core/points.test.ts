@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { awardPoints, requirePointsValue, setPoints } from './points.ts';
+import { awardPoints, ownerScore, requirePointsValue, setPoints } from './points.ts';
 import { createTask, updateTask } from './tasks.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
@@ -22,6 +22,18 @@ test('setPoints changes the points, names the tool, and reports the change', asy
   const stored = await store.get(task.id);
   assert.equal(stored?.points, 8);
   assert.equal(stored?.tool, 'planner');
+});
+
+test('the owner’s score is the points the owner gives, and an owner’s 0 is "not set"', async () => {
+  assert.equal(ownerScore(10), 10);
+  assert.equal(ownerScore(0), null);
+  assert.throws(() => ownerScore(-1), /can't be negative/);
+  const { store, task } = await oneTask(10);
+  assert.equal(task.ownerPoints, 10);
+  assert.equal((await oneTask(0)).task.ownerPoints, null);
+  assert.equal((await setPoints(store, task.id, 7, 'wavecenter')).task.ownerPoints, 7);
+  assert.equal((await setPoints(store, task.id, 0, 'wavecenter')).task.ownerPoints, null);
+  assert.equal((await awardPoints(store, task.id, 4, 'wavecenter')).task.ownerPoints, 4);
 });
 
 test('awardPoints adds to what the task already has', async () => {

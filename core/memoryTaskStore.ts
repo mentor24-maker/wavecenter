@@ -1,8 +1,9 @@
 /**
  * A `TaskStore` that keeps tasks in memory. Core's tests use it so the rules
  * can be checked without a database; it behaves like the real table on the
- * points it matters to (owner set for you, timestamps kept, the update guards,
- * sub-tasks kept as top-level when their parent is deleted).
+ * points it matters to (owner set for you, timestamps kept, the owner's score
+ * kept, the update guards, sub-tasks kept as top-level when their parent is
+ * deleted).
  *
  * Given an engagement store, it also does what the table's game-layer trigger
  * does: every insert, update and delete records one engagement for the owner,
@@ -12,6 +13,7 @@
  * see as signed in, as `tasks_score_approval` does.
  */
 import { engagementKindForTask, recordEngagement, taskChanged, type EngagementStore } from './game.ts';
+import { ownerScore } from './points.ts';
 import type { NewTaskRow, Task, TaskRowChanges, TaskStore, UpdateGuard } from './tasks.ts';
 
 export class MemoryTaskStore implements TaskStore {
@@ -47,6 +49,7 @@ export class MemoryTaskStore implements TaskStore {
       ...row,
       id: `task-${this.next++}`,
       ownerId: this.ownerId,
+      ownerPoints: ownerScore(row.points),
       createdAt: now,
       updatedAt: now,
       completedAt: row.status === 'done' ? now : null,
@@ -69,6 +72,8 @@ export class MemoryTaskStore implements TaskStore {
     if (guard.agentTicketUrl !== undefined && task.agentTicketUrl !== guard.agentTicketUrl) return null;
     const now = new Date().toISOString();
     const updated: Task = { ...task, ...changes, updatedAt: now };
+    // As tasks_owner_points: the owner's score follows the owner's own change to the points.
+    if (updated.points !== task.points) updated.ownerPoints = ownerScore(updated.points);
     if (updated.status === 'done' && task.status !== 'done') updated.completedAt = now;
     if (updated.status !== 'done') updated.completedAt = null;
     await this.score(task, updated, changes.tool);
