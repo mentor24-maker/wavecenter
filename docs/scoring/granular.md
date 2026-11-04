@@ -15,11 +15,29 @@ what exactly counts, and its points. Every time a member does one, the
 database writes a row in the ledger (`engagements`) in the same step as the
 save, copying the points from the rule at that moment. Changing a rule
 later never rewrites what someone already earned (`docs/DATA_MODEL.md`,
-"The game layer").
+"The game layer"). The one way past points move is a rescore, which adds
+correction rows instead ([Rescoring past points](#rescoring-past-points)).
 
 24 actions are listed. Ten earn points today; the other fourteen show "Not
 active yet" on Game → Manage until each is wired up
 (`docs/GRANULAR_SCORING_ALGORITHM.md`, "The table").
+
+## Rescoring past points
+
+While a DEO's scoring is still **provisional** (`game_settings`), an admin
+can bring points already earned up or down to what each action is worth
+today: Admin → "Rescore past points". It shows a preview first and saves
+nothing until the admin clicks "Rescore these". The ledger is still never
+rewritten: a rescore **adds** correction rows (`tool` = `rescore`, with a
+`rescore_id`), one per member per action whose credit changes, and a
+correction can be negative. To work out what is owed, the rescore counts
+only real actions, never earlier corrections, so running it twice changes
+nothing the second time. Once points are declared final, the database
+refuses any rescore (`apply_rescore` in
+`supabase/migrations/20261103160000_rescore_past_points.sql`;
+`docs/DATA_MODEL.md`, "Rescoring past points while scoring is
+provisional"). Dane asked for this on 2026-11-03, so that a new DEO's
+early guesswork values can be corrected later.
 
 ## The four factors
 

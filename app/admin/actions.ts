@@ -13,27 +13,35 @@
  * A failure comes back as `{ ok: false, error }` in plain words; putting the
  * values live reports each row that saved and each that did not, and why
  * (engineering rule 6).
+ *
+ * "Rescore past points" works the same way: `previewRescoreAction` saves
+ * nothing, and `rescoreAction` adds the correction rows (core/game.ts
+ * `applyRescore`), which the database's `apply_rescore` checks again: an
+ * admin only, and only while scoring is provisional.
  */
 import { revalidatePath } from "next/cache";
 import {
   applyGranularPoints,
+  applyRescore,
+  previewRescore,
   recalculateGranularPoints,
   type AcceptedProposal,
   type GameActor,
   type GranularApplyResult,
   type GranularProposal,
+  type RescorePreview,
+  type RescoreResult,
 } from "../../core/game.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
-import { supabaseScoringRuleStore } from "../lib/engagementStore";
+import { supabaseRescoreStore, supabaseScoringRuleStore } from "../lib/engagementStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
-async function asAdmin<T>(
-  what: string,
-  act: (store: ReturnType<typeof supabaseScoringRuleStore>, actor: GameActor) => Promise<T>,
-): Promise<Result<T>> {
+type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
+
+async function asAdmin<T>(what: string, act: (supabase: Client, actor: GameActor) => Promise<T>): Promise<Result<T>> {
   try {
     const supabase = await supabaseForRequest();
     if (!supabase) return { ok: false, error: `This copy of WaveCenter has no database settings, so ${what}.` };
@@ -47,7 +55,7 @@ async function asAdmin<T>(
       };
     }
     const [role, lists] = await Promise.all([myRole(supabase, user.id), readRolesAndPermissions(supabase)]);
-    return { ok: true, value: await act(supabaseScoringRuleStore(supabase), { role, grants: lists.grants }) };
+    return { ok: true, value: await act(supabase, { role, grants: lists.grants }) };
   } catch (err) {
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error(`admin: ${what}:`, err);
@@ -57,15 +65,32 @@ async function asAdmin<T>(
 
 /** Work out every action's points by formula. Saves nothing. */
 export async function recalculateActionPoints(): Promise<Result<GranularProposal[]>> {
-  return asAdmin("nothing was recalculated", (store, actor) => recalculateGranularPoints(store, actor));
+  return asAdmin("nothing was recalculated", (supabase, actor) => recalculateGranularPoints(supabaseScoringRuleStore(supabase), actor));
 }
 
 /** Save the rows the admin was shown and accepted. Each row saves or fails on its own. */
 export async function putActionPointsLive(accepted: AcceptedProposal[]): Promise<Result<GranularApplyResult>> {
-  const result = await asAdmin("nothing was saved", (store, actor) => applyGranularPoints(store, actor, accepted, WAVECENTER_TOOL));
+  const result = await asAdmin("nothing was saved", (supabase, actor) =>
+    applyGranularPoints(supabaseScoringRuleStore(supabase), actor, accepted, WAVECENTER_TOOL),
+  );
   if (result.ok && result.value.saved.length) {
     revalidatePath("/game");
     revalidatePath("/game/manage");
+  }
+  return result;
+}
+
+/** Show what rescoring past points to today's values would do. Saves nothing. */
+export async function previewRescoreAction(): Promise<Result<RescorePreview>> {
+  return asAdmin("nothing was worked out", (supabase, actor) => previewRescore(supabaseRescoreStore(supabase), actor));
+}
+
+/** Rescore the ticked actions' past points. All of them save together, or none do. */
+export async function rescoreAction(kinds: string[]): Promise<Result<RescoreResult>> {
+  const result = await asAdmin("no points changed", (supabase, actor) => applyRescore(supabaseRescoreStore(supabase), actor, kinds, WAVECENTER_TOOL));
+  if (result.ok && result.value.rows) {
+    revalidatePath("/game");
+    revalidatePath("/", "layout");
   }
   return result;
 }

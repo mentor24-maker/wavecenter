@@ -23,7 +23,8 @@ works in one place: start a scoring wiki that can grow as the system does".
 ### How scores are worked out
 
 - [Granular scoring](granular.md): the small automatic points for each kind
-  of action, the four factors and the formula.
+  of action, the four factors and the formula, and rescoring past points
+  while scoring is provisional.
 - [Globular scoring](globular.md): values that need thought, such as what a
   task is worth. What exists today and what is planned.
 
