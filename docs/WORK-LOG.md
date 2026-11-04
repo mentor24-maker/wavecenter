@@ -7,6 +7,24 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — Every task's page shows how its points were reached (#151)
+
+A task's page now has a section called "How this task is scored". It lists
+the four things the AI rates (how much there is to do, how hard it is, how
+closely it serves the mission, and how much it is wanted), each with the
+AI's rating out of 5. Click one to read what each of the two AI models said
+and why. If the two models disagree by a lot, the page says so, so a person
+knows to look. Below that are the AI's score, with the sum that gives it and
+when the AI rated the task; the owner's score; the other members' score, if
+any have voted; and the final score, with the sum written out, such as
+"(13 + 10) ÷ 2 = 11.5, so 12". So any member can check a task's points by
+hand. A task the AI has not rated yet says so, and its points are marked
+provisional until it does. If the ratings cannot be read, the page says why
+instead of showing a blank or zeros. This only shows the numbers; it does
+not change how any of them are worked out.
+
+---
+
 ## 2026-11-04 — The AI rates each task, on the Mac Mini, with its reasons (#149)
 
 The AI now gives every open task its own score, and it costs nothing extra.
