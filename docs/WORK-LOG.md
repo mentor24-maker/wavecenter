@@ -7,6 +7,23 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — A task's points become its final score (#150)
+
+A task's points are no longer just one number someone types in. They are
+now its final score, the average of up to three parts, as Dane decided: the
+owner's own score, the AI's score, and the average of what the other
+members voted. The database works it out again every time one of those
+changes. Until the AI has rated a task (none has yet), its points count as
+provisional, and the task's page says so: "AI: not yet". Members' votes no
+longer replace the owner's number. They count as the third part. The owner
+can now change their own score at any time, even after others have voted.
+A finished task's points stay locked. Each task's page has a new line
+showing the working, such as "AI 12, owner 10, final 11". When this goes
+live, the only tasks that move are open ones that other members have voted
+on.
+
+---
+
 ## 2026-11-04 — The owner's own points are kept, even after members vote (#148)
 
 Dane's rule says a task's final score will be the average of two numbers:
