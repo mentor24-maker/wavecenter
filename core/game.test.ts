@@ -6,7 +6,7 @@ import { handOffTask, setAgentsOn, type MemberSettings, type MemberSettingsStore
 import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.ts';
 import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
-  RESCORE_TOOL, applyGranularPoints, applyRescore, previewRescore, rescoreCorrections, totalAfterRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
+  FINAL_CONFIRMATION, RESCORE_TOOL, applyGranularPoints, makeScoringFinal, applyRescore, previewRescore, rescoreCorrections, totalAfterRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
   isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type FactorReasons, type GameActor, type RescoreStore, type ScoringFactors,
 } from './game.ts';
@@ -857,4 +857,40 @@ test('the rescore migration works the difference out the way core does, and its 
   assert.match(sql, /count\(\*\) filter \(where e\.rescore_id is null\) \* r\.points - sum\(e\.points\)/, 'times done x points today, minus everything credited');
   assert.match(sql, new RegExp(`'${RESCORE_TOOL}'`), 'correction rows name the rescore tool');
   assert.match(sql, /scoring_provisional/);
+});
+
+test('an admin makes points final once, with FINAL typed, and then nothing can be rescored', async () => {
+  const ledger = await earlyLedger();
+  ledger.signedIn = 'dane';
+  setPointsOf(ledger, 'made_task', 4);
+  await assert.rejects(makeScoringFinal(ledger, { role: 'viewer' }, FINAL_CONFIRMATION, 'wavecenter'), /Only an admin can make points final. Nothing was changed/);
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, '', 'wavecenter'), /Type FINAL in capitals to confirm/);
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, 'final', 'wavecenter'), /Type FINAL in capitals to confirm/);
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, ''), /tool/);
+  assert.equal((await ledger.phase()).provisional, true, 'none of those changed anything');
+
+  const saved = await makeScoringFinal(ledger, ADMIN, ' FINAL ', 'wavecenter');
+  assert.equal(saved.provisional, false);
+  assert.equal(saved.finalBy, 'dane');
+  assert.ok(saved.finalAt && !Number.isNaN(Date.parse(saved.finalAt)), 'it records when');
+
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, 'wavecenter'), /Points are already final for this DEO. That cannot be undone/);
+  // The store refuses a second time too, as the database's make_scoring_final does, even past core.
+  await assert.rejects(ledger.makeFinal('wavecenter'), /already final/);
+  assert.deepEqual(await ledger.phase(), saved, 'the second try changed nothing');
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter'), /Points are final for this DEO/);
+});
+
+test('making points final reports a save that did not stick, never success', async () => {
+  const ledger = new MemoryEngagementStore();
+  const stuck = { phase: () => ledger.phase(), makeFinal: () => ledger.phase() };
+  await assert.rejects(makeScoringFinal(stuck, ADMIN, FINAL_CONFIRMATION, 'wavecenter'), /did not make points final/);
+});
+
+test('the final switch migration is one-way in the database itself', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261103170000_scoring_final.sql', import.meta.url), 'utf8');
+  assert.match(sql, /not old\.scoring_provisional and new\.scoring_provisional then\s+raise exception/, 'a change back to provisional is refused');
+  assert.match(sql, /before update or delete on public\.game_settings/, 'the trigger guards updates and deletes');
+  assert.match(sql, /create or replace function public\.make_scoring_final[\s\S]*private\.require_game_edit\(tool\)/, 'only game.edit may make points final');
+  assert.match(sql, /revoke execute on function public\.make_scoring_final\(text\) from public, anon/);
 });

@@ -44,7 +44,8 @@ export default function RescorePastPoints({
   const [ticked, setTicked] = useState<string[]>([]);
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
-  const isFinal = preview ? !preview.provisional : provisional === false;
+  // Final from either: the page (after "Make points final" reloads it) or a preview read since.
+  const isFinal = provisional === false || (preview !== null && !preview.provisional);
   // An action changes when any member's credit does, even if the net is 0 (one up, another down).
   const changing = preview?.actions.filter((a) => a.membersChanging > 0) ?? [];
   const chosen = ticked.filter((k) => changing.some((a) => a.kind === k));
