@@ -574,10 +574,18 @@ it as "Rescored Made a task".
   when, with which tool, how many correction rows and how many points (net).
   Only a role with "Manage game scoring" reads it; only `apply_rescore`
   writes it.
-- **`game_settings`**: a single row. `scoring_provisional` is true until the
-  DEO's points are declared final, which is meant to be permanent (Dane,
-  2026-11-03, "Permanent"; the switch is its own ticket). Every member reads
-  it; nobody writes it through the API yet.
+- **`game_settings`**: a single row. `scoring_provisional` is true until an
+  admin makes the DEO's points final on the Admin page ("Scoring phase",
+  with FINAL typed to confirm), and that is permanent (Dane, 2026-11-03,
+  "Permanent"). `scoring_final_at` and `scoring_final_by` say when and who.
+  `make_scoring_final()` is the switch ("Manage game scoring" only, and
+  only once); a trigger refuses any change back to provisional, any change
+  to when or who, and deleting the row once final, even with the service
+  key. Reopening it, if ever needed, is a migration on Dane's written word.
+  Every member reads the phase through `scoring_phase()`, which adds the
+  name of who made it final if their profile is public; `/game` says
+  whether points are provisional or final. Nobody writes the table
+  directly through the API.
 - `rescore_tallies()` gives the preview its figures (every member's points,
   added up per action) and `apply_rescore()` adds the corrections in one
   step. Both refuse anyone without "Manage game scoring", and

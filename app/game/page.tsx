@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { isWired, mayManageScoring, type Engagement, type ScoringRule } from "../../core/game.ts";
+import { isWired, mayManageScoring, type Engagement, type ScoringPhase, type ScoringRule } from "../../core/game.ts";
 import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
-import { headerCatchUp, supabaseEngagementLedger } from "../lib/engagementStore";
+import { headerCatchUp, supabaseEngagementLedger, supabaseScoringPhaseStore } from "../lib/engagementStore";
+import { finalWhen } from "../lib/scoringPhaseText";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
@@ -77,7 +78,7 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, isAdmin, rules, total, latest, finished, role, lists, catchUp] = await Promise.all([
+  const [name, isAdmin, rules, total, latest, finished, role, lists, catchUp, phase] = await Promise.all([
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
     read(() => ledger.rules()),
@@ -87,6 +88,7 @@ export default async function Game() {
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     headerCatchUp(supabase, user.id),
+    read(() => supabaseScoringPhaseStore(supabase).phase()),
   ]);
   // The menu's Manage item shows only when the role and grants were read and allow it.
   const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
@@ -111,6 +113,7 @@ export default async function Game() {
               <b>{total.value.toLocaleString("en-US")}</b> {total.value === 1 ? "point" : "points"}
             </p>
           )}
+          <PhaseLine phase={phase} />
 
           <h2>Your finished tasks</h2>
           <FinishedTasks finished={finished} />
@@ -123,6 +126,23 @@ export default async function Game() {
         </div>
       </main>
     </>
+  );
+}
+
+/** Every member sees whether their points may still be rescored, or are final. */
+function PhaseLine({ phase }: { phase: Read<ScoringPhase> }) {
+  if (phase.error !== null) {
+    return <p className="error" role="alert">Whether points are final could not be loaded: {phase.error}. Try reloading the page.</p>;
+  }
+  return phase.value.provisional ? (
+    <p className="note">
+      Points are <b>provisional</b>: while this DEO&apos;s values settle, an admin may rescore past points to what each action
+      is worth today.
+    </p>
+  ) : (
+    <p className="note">
+      Points are <b>final</b> since {finalWhen(phase.value)}: what you have earned stays earned.
+    </p>
   );
 }
 

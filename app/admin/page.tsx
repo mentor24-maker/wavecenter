@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { mayManageScoring } from "../../core/game.ts";
 import { mayOpenAdmin, ROLES } from "../../core/members.ts";
-import { headerPoints, supabaseRescoreStore } from "../lib/engagementStore";
+import { headerPoints, supabaseScoringPhaseStore } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
@@ -10,6 +10,7 @@ import SiteHeader from "../SiteHeader";
 import FormulaExplained from "./FormulaExplained";
 import RecalculatePoints from "./RecalculatePoints";
 import RescorePastPoints from "./RescorePastPoints";
+import ScoringPhase from "./ScoringPhase";
 
 /**
  * Admin: the home for admins' tools. The first is "Recalculate action
@@ -20,7 +21,9 @@ import RescorePastPoints from "./RescorePastPoints";
  * role itself (core/members.ts `mayOpenAdmin`): another role is told it may
  * not open the Admin area, and a role that could not be read says so.
  * Under it, "Rescore past points" (RescorePastPoints) brings points already
- * earned to today's values, only while scoring is provisional.
+ * earned to today's values, only while scoring is provisional, and
+ * "Scoring phase" (ScoringPhase) says whether it still is, with the one-way
+ * switch that makes points final.
  * Signed-out visitors are sent to sign in.
  */
 export default async function Admin() {
@@ -42,7 +45,7 @@ export default async function Admin() {
     );
   }
 
-  const [name, points, role, provisional] = await Promise.all([
+  const [name, points, role, phase] = await Promise.all([
     headerName(supabase, user),
     headerPoints(supabase, user.id),
     Promise.all([myRole(supabase, user.id), readRolesAndPermissions(supabase)]).then(
@@ -50,7 +53,7 @@ export default async function Admin() {
       (err: unknown) => ({ value: null, grants: undefined, error: err instanceof Error ? err.message : String(err) }),
     ),
     // Could not be read: the section says why rather than guess (rule 7).
-    supabaseRescoreStore(supabase).provisional().then(
+    supabaseScoringPhaseStore(supabase).phase().then(
       (value) => ({ value, error: null }),
       (err: unknown) => ({ value: null, error: err instanceof Error ? err.message : String(err) }),
     ),
@@ -89,7 +92,15 @@ export default async function Admin() {
               changes, one correction is added (it can take points away when a value went down). Preview first; nothing
               is saved until you click “Rescore these”. Running it again straight after changes nothing.
             </p>
-            <RescorePastPoints provisional={provisional.value} provisionalError={provisional.error} me={user.id} />
+            <RescorePastPoints provisional={phase.value?.provisional ?? null} provisionalError={phase.error} me={user.id} />
+
+            <h2>Scoring phase</h2>
+            <p className="note">
+              While scoring is provisional, an admin can rescore past points as the values settle. Once they have, make
+              the points final: from then on nobody can rescore history, so members can trust that points they have earned
+              stay earned. It is one-way.
+            </p>
+            <ScoringPhase phase={phase.value} phaseError={phase.error} me={user.id} />
           </div>
         ) : (
           <p className="note" role="status">Your role may not manage the game scoring, so there are no admin tools for you here yet.</p>

@@ -26,7 +26,7 @@
  * (supabase/migrations/20261103160000_rescore_past_points.sql).
  */
 import type {
-  Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringRule, ScoringRuleStore,
+  Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringPhase, ScoringPhaseStore, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
 import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
@@ -193,6 +193,37 @@ export function supabaseRescoreStore(supabase: Client): RescoreStore {
       }
       const saved = data as { rescore_id: string | null; rows: number; points: number };
       return { rescoreId: saved.rescore_id, rows: Number(saved.rows), points: Number(saved.points) };
+    },
+  };
+}
+
+function phaseFromRow(row: any): ScoringPhase {
+  return {
+    provisional: row.provisional === true,
+    finalAt: row.final_at ?? null,
+    finalBy: row.final_by ?? null,
+    finalByName: row.final_by_name ?? null,
+  };
+}
+
+/** Whether points are provisional or final (core/game.ts `makeScoringFinal`), and the switch that ends the provisional phase. */
+export function supabaseScoringPhaseStore(supabase: Client): ScoringPhaseStore {
+  return {
+    async phase() {
+      const { data, error } = await supabase.rpc("scoring_phase").maybeSingle();
+      if (error) failed("whether points are final", error);
+      // No row means a migration has not been applied: say so, never guess.
+      if (!data) throw new Error("The game settings are missing, so WaveCenter cannot tell whether points are final. The scoring migrations have not been applied.");
+      return phaseFromRow(data);
+    },
+    async makeFinal(tool) {
+      const { data, error } = await supabase.rpc("make_scoring_final", { tool });
+      if (error) throw new Error(`The database refused to make points final: ${error.message}`);
+      // It may have saved: never say it did not (engineering rule 6).
+      if (!data || typeof data !== "object" || !("provisional" in data)) {
+        throw new CoreError("The database's reply could not be read, so WaveCenter cannot tell whether points are final now. Reload the page to see.");
+      }
+      return phaseFromRow(data);
     },
   };
 }

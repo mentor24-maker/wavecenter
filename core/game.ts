@@ -981,3 +981,50 @@ export async function applyRescore(store: RescoreStore, actor: GameActor, kinds:
   if (!(await store.provisional())) throw new CoreError(FINAL_MESSAGE);
   return store.apply(kinds, named);
 }
+
+/**
+ * Making points final (Dane, 2026-11-03, asked whether ending the
+ * provisional phase should be permanent: "Permanent (Recommended)"). Once a
+ * DEO's values have settled, an admin declares its points final, and from
+ * then on nobody can rescore history. It is one-way: the database's trigger
+ * (supabase/migrations/20261103170000_scoring_final.sql) refuses any change
+ * back, and the app has no way to ask for one.
+ */
+
+/** The word the admin types to confirm. */
+export const FINAL_CONFIRMATION = 'FINAL';
+
+/** Whether points are still provisional, or final since when and by whom. */
+export interface ScoringPhase {
+  provisional: boolean;
+  /** When points were made final; null while provisional. */
+  finalAt: string | null;
+  /** The member who made them final; null while provisional, or if their account was deleted. */
+  finalBy: string | null;
+  /** Their name if their profile is public, else null. */
+  finalByName: string | null;
+}
+
+/** What core needs from storage to read the phase and end it. */
+export interface ScoringPhaseStore {
+  phase(): Promise<ScoringPhase>;
+  /** End the provisional phase, for good. Returns the phase as stored; throws when it failed or was refused. */
+  makeFinal(tool: string): Promise<ScoringPhase>;
+}
+
+/**
+ * Make points final: an admin only, only with FINAL typed to confirm, and
+ * only once. A second call is refused and says when it already happened.
+ */
+export async function makeScoringFinal(store: ScoringPhaseStore, actor: GameActor, confirmation: unknown, tool: string): Promise<ScoringPhase> {
+  const named = requireTool(tool);
+  if (!mayManageScoring(actor)) throw new CoreError('Only an admin can make points final. Nothing was changed.');
+  if (typeof confirmation !== 'string' || confirmation.trim() !== FINAL_CONFIRMATION) {
+    throw new CoreError(`Type ${FINAL_CONFIRMATION} in capitals to confirm. Nothing was changed.`);
+  }
+  const now = await store.phase();
+  if (!now.provisional) throw new CoreError('Points are already final for this DEO. That cannot be undone, and nothing was changed.');
+  const saved = await store.makeFinal(named);
+  if (saved.provisional) throw new CoreError('The database did not make points final. Nothing was changed; try again.');
+  return saved;
+}
