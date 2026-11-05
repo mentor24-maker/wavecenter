@@ -7,6 +7,15 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-05 — Admin moves up beside Log out (#153)
+
+For an admin, the Admin link used to sit at the end of the main menu, among
+the places every member goes. It now sits on the small line at the top right,
+just before Log out (`Name · points | Admin | Log out`), so the main menu
+holds only what every member uses. Nothing changes for members who are not
+admins, and who counts as an admin is the same as before. On a phone, a long
+name is shortened with "…" so Admin and Log out always stay on screen.
+
 ## 2026-11-04 — The main menu has a Forum (#152)
 
 Signed-in members now see Forum in the main menu, between Home and
