@@ -14,8 +14,8 @@ import TokenAnimation from "./TokenAnimation";
  * discuss ideas on the way to proposals, at `/forum`), then Proposals (ideas
  * for a change that could become a task, at `/proposals`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
- * points are, Members (`/members`) and Teams (`/teams`, the
- * Team Manager: the groups members work in). Every member gets Members and Teams; each page itself
+ * points are, then Teams (`/teams`, the Team Manager: the groups members
+ * work in), then Members (`/members`). Every member gets Teams and Members; each page itself
  * decides what the member's role may see and do there. An admin also gets
  * Admin (`/admin`); the page says `isAdmin`, from the same rule
  * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
@@ -73,8 +73,8 @@ export default function SiteHeader({
               <Link href="/proposals" className="quiet">Proposals</Link>
               <Link href="/tasks" className="quiet">Tasks</Link>
               <Link href="/game" className="quiet">Game</Link>
-              <Link href="/members" className="quiet">Members</Link>
               <Link href="/teams" className="quiet">Teams</Link>
+              <Link href="/members" className="quiet">Members</Link>
               {isAdmin && <Link href="/admin" className="quiet">Admin</Link>}
             </nav>
           </div>
