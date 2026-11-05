@@ -164,7 +164,9 @@ html, body {
    the top in small text, the menu along the bottom. */
 .who { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between;
   align-items: flex-end; gap: 0.35rem; min-width: 0; }
-.who .menu { display: flex; align-items: center; gap: 0.85rem; }
+/* Too many items for one line (a phone), the menu wraps onto a second line,
+   right-aligned, instead of running off the left edge. */
+.who .menu { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.25rem 0.85rem; }
 .who .account { display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; max-width: 100%; line-height: 1.25; font-size: 0.8rem; }
 /* The member's name (a link to their Profile) and Log out share one line,
    as "Name | Log out"; a long name is cut short with "…" so Log out stays on screen. */
@@ -182,7 +184,7 @@ html, body {
 .site button.quiet { text-shadow: inherit; }
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
 /* Bold is wider: on a phone, tighter gaps keep Log out on screen. */
-@media (max-width: 30rem) { .site-inner, .who .menu { gap: 0.5rem; } }
+@media (max-width: 30rem) { .site-inner { gap: 0.5rem; } .who .menu { gap: 0.25rem 0.5rem; } }
 
 /* Every page has the same 1440px main body, and the header bar above lines up with it. */
 main {
@@ -407,7 +409,7 @@ button.icon-button.danger:hover:not(:disabled) { color: var(--error); background
   .tasks { --pad-x: 0.75rem; }
   .task.sub .col-title { padding-left: 0.75rem; }
   .task .col-priority { margin-left: 0; }
-  /* Five menu items leave no room for the name on a phone: the logo alone
+  /* Seven menu items leave no room for the name on a phone: the logo alone
      still leads home, and its link keeps the "WaveCenter home" label. */
   .brand span { display: none; }
   /* The 90px rings would run into the menu; the bar stays 150px tall. */

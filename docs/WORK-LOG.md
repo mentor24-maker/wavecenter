@@ -7,6 +7,19 @@ Each entry is written INSIDE the pull request it describes, so it lands on
 
 ---
 
+## 2026-11-04 — The main menu has a Forum (#152)
+
+Signed-in members now see Forum in the main menu, between Home and
+Proposals. Clicking it opens a Forum page that says what the Forum is for:
+the place where members curate topics, tags and threads to discuss ideas,
+with the aim of turning that discussion into proposals for the Proposals
+page. The Forum itself is not built yet, and the page says so plainly, so
+it never looks blank or broken. Topics, tags and threads come in later
+tickets. With seven items, the menu used to run off the left edge of a
+phone screen; it now wraps neatly onto a second line instead.
+
+---
+
 ## 2026-11-04 — Every task's page shows how its points were reached (#151)
 
 A task's page now has a section called "How this task is scored". It lists
