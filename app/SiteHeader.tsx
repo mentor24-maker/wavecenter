@@ -16,10 +16,12 @@ import TokenAnimation from "./TokenAnimation";
  * `/tasks`), then the Game page, where their
  * points are, then Teams (`/teams`, the Team Manager: the groups members
  * work in), then Members (`/members`). Every member gets Teams and Members; each page itself
- * decides what the member's role may see and do there. An admin also gets
- * Admin (`/admin`); the page says `isAdmin`, from the same rule
- * (core/members.ts `mayOpenAdmin`), and leaves it off when unsure. The menu
- * runs along the bottom of the bar, under the name and Log out.
+ * decides what the member's role may see and do there. The menu holds only
+ * the places every member goes, and runs along the bottom of the bar, under
+ * the name and Log out. An admin also gets an Admin link (`/admin`), not in
+ * the menu but on the account line just before Log out
+ * (`Name · 1,234 points | Admin | Log out`); the page says `isAdmin`, from the
+ * same rule (core/members.ts `mayOpenAdmin`), and leaves it off when unsure.
  * The bar's content is as wide as every page's main body, so the two line up.
  * `points` is the member's point total (app/lib/engagementStore.ts
  * `headerPoints`), shown beside the name as a link to My Points
@@ -62,6 +64,12 @@ export default function SiteHeader({
                   <TokenAnimation points={points} />
                 </>
               )}
+              {isAdmin && (
+                <>
+                  <span className="sep" aria-hidden="true">|</span>
+                  <Link href="/admin" className="quiet admin">Admin</Link>
+                </>
+              )}
               <span className="sep" aria-hidden="true">|</span>
               <form action={signOut}>
                 <button type="submit" className="quiet">Log out</button>
@@ -75,7 +83,6 @@ export default function SiteHeader({
               <Link href="/game" className="quiet">Game</Link>
               <Link href="/teams" className="quiet">Teams</Link>
               <Link href="/members" className="quiet">Members</Link>
-              {isAdmin && <Link href="/admin" className="quiet">Admin</Link>}
             </nav>
           </div>
         ) : (

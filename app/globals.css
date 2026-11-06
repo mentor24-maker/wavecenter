@@ -171,10 +171,12 @@ html, body {
 /* The member's name (a link to their Profile) and Log out share one line,
    as "Name | Log out"; a long name is cut short with "…" so Log out stays on screen. */
 .who .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who .sep, .who .account form { flex: none; }
+/* An admin's Admin link sits on this line too, just before Log out
+   ("Name · 1,234 points | Admin | Log out"), and never gives way to the name. */
+.who .sep, .who .account form, .who .account .admin { flex: none; }
 /* The point total sits between the name and Log out ("Name · 1,234 points | Log out")
    and links to My Points; it never wraps, so a long name gives way first. */
-.who .dot, .who .points { flex: none; white-space: nowrap; }
+.who .dot, .who .points, .who .account .admin { flex: none; white-space: nowrap; }
 .who .account a.quiet, .who .account button.quiet { font-size: 0.8rem; }
 /* Signed out, the two ways in sit side by side. */
 .way-in { display: flex; align-items: center; gap: 0.85rem; }
