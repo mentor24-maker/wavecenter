@@ -16,6 +16,13 @@ holds only what every member uses. Nothing changes for members who are not
 admins, and who counts as an admin is the same as before. On a phone, a long
 name is shortened with "…" so Admin and Log out always stay on screen.
 
+## 2026-11-05 — Teams comes before Members in the main menu (#154)
+
+The main menu now lists Teams before Members, as Dane asked. A signed-in
+member sees Home, Forum, Proposals, Tasks, Game, Teams, Members (and Admin
+last, for an admin). Nothing else moved: both links open the same pages as
+before, and the same members see them.
+
 ## 2026-11-04 — The main menu has a Forum (#152)
 
 Signed-in members now see Forum in the main menu, between Home and
