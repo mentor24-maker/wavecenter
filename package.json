@@ -12,8 +12,6 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "clickup": "doppler run --project wavecenter --config dev --no-check-version -- node scripts/clickup.mjs",
-    "doctor": "node scripts/doctor.mjs",
     "check:syntax": "node scripts/check_syntax.mjs",
     "check:secrets": "node scripts/check_secrets.mjs",
     "check:core-boundary": "node scripts/check_core_boundary.mjs",
