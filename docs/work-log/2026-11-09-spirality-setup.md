@@ -47,3 +47,21 @@ lost WaveCenter's own steps. This round puts them back:
   no secret in the browser, an empty screen says why) are back in the skills,
   and the old ClickUp door points at the new commands instead of running a
   broken copy of them.
+
+Review sent it back a third time, for two things this round fixes:
+
+- **The Evolution pictures on Home would stop after this merges.** The old
+  merge step took a picture of each merged change; Spirality's relay does
+  not, and the new installer no longer installs the headless browser the
+  pictures need. The capture code also still asks the old ClickUp door for
+  Dane's words. New ticket WC-165, "Merged changes get no Evolution picture:
+  run the capture after merges" (Queued, high, waits on this one), brings it
+  back; it started as Dane's task, like every ticket. Until it is Live,
+  merged changes get no picture.
+- **CLAUDE.md now says where tickets really live:** in WaveCenter's queue in
+  the tracker (`WC-<n>`), with `npm run clickup` as the tracker's door. The
+  ClickUp list is named only as history.
+- Two smaller notes from review (the hand-off lane's 15-minute time limit,
+  and a sync that should carry on past one failed sign-in) are added to
+  WC-163, and Spirality ticket SP-181 asks its installer to check that
+  GitHub is signed in before installing the relay that merges with it.
