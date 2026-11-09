@@ -65,3 +65,16 @@ Review sent it back a third time, for two things this round fixes:
   and a sync that should carry on past one failed sign-in) are added to
   WC-163, and Spirality ticket SP-181 asks its installer to check that
   GitHub is signed in before installing the relay that merges with it.
+
+Review's fourth look found one more gap, and Dane chose to fix it in one
+more small round ("A"):
+
+- **The automatic check on every pull request now runs the loop's own
+  tests.** `npm run verify`, the one check CI runs, skipped the 151 tests
+  for the copied loop, including the relay that merges Dane's pull
+  requests. A later change could have broken the relay with nothing to
+  catch it. `verify` now runs `npm run test:loop` too, so CI, the build
+  lane and the review lane all run them.
+- For the record: the build and review lanes now wake every 30 minutes,
+  not every 15. That is Spirality's standard timing, which this setup
+  copies.

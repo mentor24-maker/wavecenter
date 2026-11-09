@@ -198,7 +198,7 @@ Your day:
 
 ### What the `verify` gate is
 
-`npm run verify` is the definition of done. It is WaveCenter's own `verify` script (`npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build && npm run check:browser-secrets`). CI's `verify` check runs `npm run verify`, then the copied loop tests (`npm run test:loop`) on
+`npm run verify` is the definition of done. It is WaveCenter's own `verify` script (`npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run test:loop && npm run typecheck && npm run build && npm run check:browser-secrets`), and it includes the copied loop's own tests (`npm run test:loop`: the relay, the ticket door). CI's `verify` check runs `npm run verify` on
 every pull request, and `main` cannot merge without it green. The build loop
 runs it before opening a PR; the review loop runs it again.
 
