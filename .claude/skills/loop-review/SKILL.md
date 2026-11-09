@@ -82,9 +82,12 @@ refuses to set `Ready to launch` or `Needs your input` and points at `ask`:
 ### A `Ready to launch` card must carry a link he can click
 
 If the work has **any visible surface**, the card names a URL he can open and
-says what he should see there. WaveCenter's surface is usually a command: give the exact command to paste
-and the output it prints. If there is a page, give its URL. Then two or three lines of **what to look
-for**, in his words.
+says what he should see there. In order of preference (WaveCenter's own
+rule, kept from its loop before the move to Spirality's): the **Vercel
+preview URL** for the PR, naming the exact page; a published page; or the
+exact localhost URL with the command that starts the server. For a change
+whose surface is a command, the exact command to paste and the output it
+prints. Then two or three lines of **what to look for**, in his words.
 
 **No link, on work with a visible surface, is a review FAILURE** — send it
 back. Work with genuinely no visible surface says so in one line (*"nothing to
@@ -114,10 +117,17 @@ look at; this is a check that runs in CI"*).
    - Run `/code-review` on the branch diff for correctness and quality.
    - **Actually exercise it.** Open the affected screen and walk the task's
      "How to test" steps. A green test suite is not proof the feature works.
+   - **A PR that touches `supabase/migrations/`** (WaveCenter's own rule,
+     kept from its loop before the move): run `npm run db:test` (the private
+     test database on the Mac Mini, rebuilt from the branch's migrations).
+     **Never apply a migration to the live database.** A PR whose description
+     says it applied its migration to live, or a migration that edits an
+     older migration file instead of adding a new one, is a send-back.
    - Check the ticket: are all acceptance criteria met? Any Non-goals
-     violated? Every `CLAUDE.md` loop rule kept (`main` never
-     changed unchecked, no secret in the repository or a log, every tracker
-     write read back, a failed step says so)?
+     violated? Every `CLAUDE.md` engineering rule kept (`main` never changed
+     unchecked, row-level security on any new table, no secret in browser
+     code, the repository or a log, no runtime file writes, a failed save
+     says so, an empty screen says why, every tracker write read back)?
    - Check the premise: a defect ticket must cite its mechanism, and where the
      build found the premise wrong, the correction must be on the ticket.
    - **This repository is public.** Grep the diff for anything that looks
@@ -141,6 +151,18 @@ look at; this is a check that runs in CI"*).
    `--body-file -` takes your one-line reason on stdin — what you ran, what
    you walked through, what convinced you. Then:
 
+   - **Pass on a PR that adds a migration, while WC-164 is not Live** →
+     not `Ready to launch`. Since the move to Spirality's loop the relay
+     merges without applying migrations to live (WC-164, "Merged database
+     changes will not reach the live database: apply them", brings that
+     back), so a merge now would put code on `main` that the live database
+     cannot serve. Record the PASS verdict, then `ask --status "Needs your
+     input"` with named options: **A** (recommended) wait until WC-164 is
+     Live, then a review pass moves it to `Ready to launch`; **B** merge now
+     and have a session apply the migration to live by hand right after.
+     End with `Your move: Reply`. "Apply the migration" is a costly phrase,
+     so the card needs `@@EVIDENCE` (the `npm run db:test` output in a
+     fence and a `@@MEASURED` line). Once WC-164 is Live, delete this bullet.
    - **Pass** → `ask --status "Ready to launch"`. `@@ASKED` carries the
      instruction the ticket came from; `@@CONTEXT` says in 50-100 words what
      changed and what he will see; `@@NEEDED` is the merge approval, with the

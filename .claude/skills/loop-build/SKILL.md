@@ -176,9 +176,29 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 
 3. **Build to the acceptance criteria.** Implement exactly what the task's
    Scope and Acceptance criteria describe. Respect the Non-goals. Keep every
-   rule in `CLAUDE.md` → "Loop rules": `main` never changes unchecked;
-   secret keys never reach the repository or a log; every tracker write read
-   back; a failed step says so; one topic, one folder.
+   rule in `CLAUDE.md` → "Engineering rules": `main` never changes
+   unchecked; a new table turns on row-level security when it is created; no
+   secret reaches the browser, the repository or a log; never write files at
+   runtime on Vercel; a failed save says so; an empty screen says why; one
+   topic, one folder. Every tracker write is read back. Keep room for the
+   roadmap: a task record carries an owner, a status, a parent task and a
+   points value.
+
+   **Never apply a migration to the live database** (WaveCenter's own rule,
+   kept from its loop before the move to Spirality's). Not to test it, not
+   "just this once". On 2026-10-29 a build applied PR #44's migration to live
+   before Dane's `merge`, and the live member list failed for five minutes. A
+   change to `supabase/migrations/` is tested only on the private test
+   database: `npm run db:test` (Docker on the Mac Mini) rebuilds it from every
+   migration in your worktree and runs `check_tasks_rls` there. The PR's
+   description says "Database: tested on the test database (`npm run
+   db:test`)", or, on a machine without Docker, says it was not tested and
+   why. Never run `npm run check:tasks-rls` or `supabase db push` with the
+   live keys to test an unmerged migration. Note: since the move, the relay
+   merges and does **not** apply migrations to live; WC-164 ("Merged database
+   changes will not reach the live database: apply them") brings that back,
+   and until it ships loop-review holds a migration PR out of
+   `Ready to launch`. Say so in the PR body.
 
    **Read the ticket's files first.** When `get` prints `attachments:` lines
    (anything but `attachments: (none)`), they are part of the spec. Save them
@@ -319,6 +339,10 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
   `ask` before building and offer named slices, smallest-and-safest first.
   Then build only the slice he names, narrowing the description with
   `describe` first.
-- **Ticket titles say in plain words what breaks and who feels it.** Fix a
-  cryptic name on the ticket first, then copy it to the PR.
+- **Ticket names** (WaveCenter's rule, CLAUDE.md): Dane's own title word for
+  word when the ticket came from him, unless it is over 12 words, then
+  condensed to 12 or fewer; any other name is 6-12 plain words. Never rewrite
+  a name that came from Dane's list (tag `from-wavecenter`); a cryptic name of
+  anyone else's is fixed on the ticket first, within 6-12 words, then copied
+  to the PR.
 - Leave the worktree in place until the PR merges; `loop-review` may reuse it.

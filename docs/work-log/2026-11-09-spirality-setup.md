@@ -26,3 +26,24 @@ have stopped. This round fixes them:
   sign-in, and WaveCenter ticket WC-163 installs the hand-off lane once
   SP-180 and this pull request are in. Until then, tasks members tick for
   AI agents wait.
+
+Review sent it back a second time: the loop skills copied from Spirality had
+lost WaveCenter's own steps. This round puts them back:
+
+- **Every ticket starts as Dane's task again.** The spec skill makes his
+  WaveCenter task (`npm run wavecenter -- chat-task`) before filing a
+  ticket and records the ticket on it (`chat-record`), as he asked on
+  2026-11-01 ("Yes, always a task").
+- **Database changes are tested safely again.** The build and review skills
+  once more say a change to the database is tested only on the private test
+  database (`npm run db:test`), never on the live one before Dane's
+  `merge`.
+- **A gap this round found:** the old merge step put a pull request's
+  database change on the live database when Dane wrote `merge`. Spirality's
+  relay, which merges now, does not. New ticket WC-164 brings it back. Until
+  then, review holds any pull request with a database change and asks Dane
+  first, so code never lands without the database it needs.
+- WaveCenter's ticket-name rule and its standing rules (row-level security,
+  no secret in the browser, an empty screen says why) are back in the skills,
+  and the old ClickUp door points at the new commands instead of running a
+  broken copy of them.
