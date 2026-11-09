@@ -21,5 +21,8 @@ have stopped. This round fixes them:
   merge.
 - **The hand-off lane is not installed yet.** Spirality's runner signs each
   lane in to the tracker under that lane's own name, and there is no
-  tracker sign-in for the hand-off lane. Dane is deciding how to bring it
-  back.
+  tracker sign-in for the hand-off lane. Dane chose to go ahead without it
+  for now ("A"). Spirality ticket SP-180 gives extra lanes their own
+  sign-in, and WaveCenter ticket WC-163 installs the hand-off lane once
+  SP-180 and this pull request are in. Until then, tasks members tick for
+  AI agents wait.
