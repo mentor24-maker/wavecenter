@@ -1,57 +1,43 @@
 # Loop Engineering on WaveCenter
 
-How WaveCenter is built: a **spec → build → review** loop, the same process
-StarCaster runs, pointed at WaveCenter's own ClickUp queue. Dane specs work in
-plain language; agent sessions build it into pull requests and independently
-review them; Dane writes `merge` on the ticket and a lane carries it out.
-Nothing reaches `main` without a passing CI check and his written word.
+How WaveCenter is built: a **spec → build → review** loop, the one
+[Spirality](https://github.com/mentor24-maker/spirality) defines and runs for
+every project, pointed at WaveCenter's own queue on the tracker. Dane specs work
+in plain language; agent sessions build it into pull requests and
+independently review them; Dane merges. Nothing reaches `main` without a
+passing CI check and his word.
 
-This is the seed version. StarCaster grew a bus relay, auto-merge lanes,
-pacing curves and a heartbeat over three months of incidents; WaveCenter
-starts with the parts that were right from day one and adds the rest only
-when a real cost shows up. The first such cost: on 2026-10-11 three written
-`merge`s sat unread for up to three hours, so the merge lane came over. Where a rule here was learned on StarCaster, its
-guide (`~/WebApps/starcaster/docs/LOOP_ENGINEERING.md`) has the incident.
+This file was written for WaveCenter by Spirality's setup wizard at
+Spirality commit `2aa0382`, from the project guide WaveCenter's setup
+produced. The rules are Spirality's; where one was learned the hard way,
+Spirality's copy and its contract,
+[`docs/LOOP_CONTRACT.md`](https://github.com/mentor24-maker/spirality/blob/main/docs/LOOP_CONTRACT.md),
+have the history. A change to how the loop works is made in Spirality first.
 
 ## The three steps
 
 | Step | Skill | Who runs it | What it does |
 |---|---|---|---|
 | 1 | `loop-spec` | a session, with Dane | interviews him, files small tasks with acceptance criteria and test steps |
+| 1 | `loop-intake` | a loop | takes the oldest request he filed from the tracker page (`Requested`), writes it up in `loop-spec`'s shape with his words kept verbatim, slices it if it is more than one PR, and hands each ticket to him (`Needs your input`); his "go" queues it |
 | 2 | `loop-build` | a loop | claims the next task, builds it in its own worktree, passes `npm run verify`, opens a PR, hands it to review |
 | 3 | `loop-review` | a loop | independently re-verifies the PR, then hands it to Dane (`Ready to launch`) or back to build (`Rework`) |
 
 The skills live in `.claude/skills/`; Claude Code discovers them nowhere else.
 
-## ClickUp access — the ids, written down once
+## Where WaveCenter's tickets are
 
-Every ClickUp touch goes through **`npm run clickup -- <command>`**
-(`scripts/clickup.mjs`, wrapped in Doppler by `package.json`, so the token is
-supplied without any agent or human handling it). The claude.ai connector's
-shared budget starves under loop traffic; ClickUp's own API allows about 100
-requests a minute. Use the connector only when the script itself is broken,
-and say so.
+WaveCenter's tickets are the **WaveCenter** project on **the tracker**, the ticket
+system that runs on the Mac Mini (http://mac-mini.local:4180, ids like
+`WC-12`). Every ticket touch goes through **`npm run clickup -- <command>`**
+(the name stayed from ClickUp days; it talks to whichever tracker
+`spirality.project.json` names). The command is Spirality's ticket door,
+copied into `loop/` and wrapped in Doppler (project `wavecenter`), so the token is
+supplied without any agent or human handling it. `loop/` is never edited
+here: a change is made in Spirality and copied in (`loop/README.md`).
 
-| Thing | Id |
-|---|---|
-| Workspace ("Alphire AI Agency") | `90141423066` |
-| WaveCenter **space** | `90146476554` |
-| **Loop Queue list** (WaveCenter) | `901422159126` |
-| Dane's inbox — his **developer** seat, dane@alphire.agency | `48012725` |
-| The machine — **Pulse** / mentor24, holds the token; **never assign it** | `54254347` |
-| StarCaster's Loop Queue — a different project; **never file WaveCenter work there** | `901418546619` |
-
-**Id trap:** a space id where a list id belongs earns ClickUp's misleading
-"Team not authorized" 401. `npm run clickup -- lists` resolves list ids by
-name.
-
-**Whose seat the token is.** Dane is two members of this workspace: his own
-developer seat (`48012725`) and Pulse, the workspace's service account
-(`54254347`). The API token in Doppler acts as **his own seat** — `npm run
-clickup -- whoami` says "Acting as: Dane" — exactly as StarCaster's does. So
-every comment the script posts ends with a `[machine]` marker line, stamped
-at the one place comments are sent, and every reader that asks "did Dane
-speak last?" skips stamped comments. Never assign Pulse.
+On the Mini the door reaches the tracker at `127.0.0.1`. Anywhere else, put
+`TRACKER_API_URL=http://mac-mini.local:4180` in front of each command.
 
 The everyday commands (`npm run clickup` bare prints the full list):
 
@@ -71,18 +57,22 @@ npm run clickup -- verdict --task <id> --pass|--fail --if-status "In review" --b
 npm run clickup -- describe --task <id> --body-file -           # REPLACE the description (left column)
 npm run clickup -- comment --task <id> --body-file -            # a plain note
 npm run clickup -- tag --task <id> --add wont-do                # kill or park (see below)
+npm run clickup -- relay [--dry-run]                            # act on Dane's merge phrase and his answers
+npm run doctor                                                  # every expected key in Doppler; tracker and repo agree
 ```
 
-Every write reads itself back. A 200 from ClickUp proves a request landed,
-not that the right thing did: statuses are per-list (a bare PUT returns 200
-for a status the list does not have), descriptions can save empty, and
-ClickUp **deletes `> ` blockquote lines** from comments and descriptions
-without saying so. The script refuses a blockquote before sending.
+Every write reads itself back, and a step that fails says so. The script
+refuses a `> ` blockquote before sending.
 
-## The seven statuses — and the two that are yours
+**Who it signs in as.** Each loop lane has its own sign-in (`loop-build`,
+`loop-review`, `loop-intake`, `relay`, each a `TRACKER_TOKEN_*` key in
+Doppler). A session started by hand signs in as `hand-run`, never as Dane.
+
+## The eight statuses — and the two that are yours
 
 | Status | What it means | Whose move |
 |---|---|---|
+| `Requested` | you asked for it from the tracker page; nobody has specced it yet | machine (spec pass) |
 | `Rework` | review sent it back — a branch and a PR already exist | machine |
 | `Queued` | waiting for a build loop to pick it up | machine |
 | `Building` | a loop is writing the code | machine |
@@ -94,36 +84,37 @@ without saying so. The script refuses a blockquote before sending.
 The two human statuses ask different things. `Needs your input` wants an
 **answer**: a loop stopped and wrote you a plain-language question. `Ready to
 launch` wants a **yes**: nothing is wrong, it is finished and waiting on the
-merge only you authorize. On a normal day you can ignore the other five.
+merge only you authorize. On a normal day you can ignore the other six.
+
+**`Requested` exists** so you can file work from the tracker page
+("New request" in its header, or http://mac-mini.local:4180/new) without
+opening Claude Code, and so the build loop never builds from your unspecced
+words: no loop claims a `Requested` ticket, and a spec pass turns it into
+`Queued` tickets for you to approve.
 
 **`Rework` exists** so a half-built ticket is never mistaken for one nobody
 has started. loop-build drains every `Rework` ticket before any `Queued` one,
 oldest first, priority ignored: priority says what to *start*; rework is not
-started, it is finished. Between the two it takes any `Ready to launch`
-ticket whose approved PR the merge lane could not merge because of a
-conflict (see "When the PR conflicts with main" below), without moving it.
+started, it is finished.
 
 Two rules keep it honest:
 
-- **Nothing puts a ticket into `Live` but a merge**, and only you authorize a
-  merge: by writing `merge` on the ticket (see "The merge lane" below).
-- **No build or review loop ever takes a ticket out of `Needs your input` or
-  `Ready to launch`.** Once handed to you it stays yours until you act. Your
-  own comment is the act: the merge lane carries out a `merge` on `Ready to
-  launch`, and moves a `Needs your input` ticket back to `Queued` once your
-  plain answer is the newest comment on it, so you never have to drag it.
-
-`Live` is a **closed**-type status in ClickUp. That is what makes finished
-work disappear from the open view. The click-by-click setup of this status
-set is `docs/CLICKUP_SETUP.md`.
+- **No loop ever puts a ticket into `Live`.** Only a merge does, and only you
+  authorize a merge.
+- **No loop ever takes a ticket out of `Needs your input` or `Ready to
+  launch`.** Once handed to you it stays yours until you act. Your merge
+  phrase on a `Ready to launch` ticket is you acting: the relay reads it,
+  re-checks every gate, merges and moves the ticket. Your reply to the
+  question card on a `Needs your input` ticket is you acting too: the same
+  relay moves the ticket to `Queued`, `Rework` or `Live` by the contract's
+  table, and notes on your reply that it did.
 
 ### Assignment is the handoff
 
-Your "what needs me" is ClickUp's own **Assigned to me**, which spans every
-space. Loops assign you when a ticket enters one of your two statuses and
-clear assignees when it returns to a machine status; the `status` command
-enforces both and verifies they stuck. A ticket in a machine status with you
-still assigned is a bug.
+Your "what needs me" is the tracker's **Waiting on you** page. Loops assign
+you when a ticket enters one of your two statuses and clear assignees when it
+returns to a machine status; the `status` command enforces both and verifies
+they stuck. A ticket in a machine status with you still assigned is a bug.
 
 ### The operator card
 
@@ -147,11 +138,9 @@ setting the status back to `Queued`.
 
 ### Titles
 
-Ticket names: Dane's own title word for word when the ticket came from him,
-unless it is over 12 words, then condensed to 12 or fewer; any other name is
-6-12 plain words. What breaks and who feels it goes in the Goal, not the name.
-The filing script (`task --name`) refuses a name over 12 words, or under 6
-unless `--name-is-danes` says the words are yours.
+A ticket's name says in plain words **what breaks and who feels it**, or what
+you will be able to do once it ships. The diagnostic sentence goes in the
+description.
 
 ## The two traces a ticket must carry
 
@@ -168,262 +157,75 @@ three reasons listed and named options (respec / split / drop).
 
 ## How to run it
 
-**They run on the Mac Mini.** Since 2026-10-11 both lanes run unattended on
-the Mac Mini (account `daneofearth`, checkout `~/WebApps/wavecenter`) as
-launchd agents, `com.wavecenter.loop-build` and `com.wavecenter.loop-review`,
-beside StarCaster's. Each keeps the committed `scripts/loop_runner.sh` alive
-across crashes and reboots; each pass is a fresh headless Claude Code session
-that pulls `main`, runs one skill, and sleeps 15 minutes. A pass has a
-two-hour time limit (the hand-off lane's is 15 minutes; see below). Nobody starts a loop by hand while those are loaded: a
-second claimant makes the check-then-act claim unsound.
+**On the Mini, on a timer.** Four launchd jobs, named from `launchdPrefix` in
+`spirality.project.json`, run from the main checkout at `/Users/daneofearth/WebApps/wavecenter`:
 
-So the question is never "shall I start one", it is "what is it doing":
+| Job | What it runs | How often |
+|---|---|---|
+| `com.wavecenter.loop-build` | a Claude pass of `loop-build` | every 30 minutes |
+| `com.wavecenter.loop-review` | a Claude pass of `loop-review` | every 30 minutes |
+| `com.wavecenter.loop-intake` | a Claude pass of `loop-intake` | every 30 minutes |
+| `com.wavecenter.relay` | `npm run clickup -- relay`, no Claude | every 10 minutes |
 
-```bash
-ssh mac-mini 'cd ~/WebApps/wavecenter && ./scripts/install_loop_runner.sh --status'   # installed? alive? lock? last pass?
-ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-build.log'                          # what the last build pass said
-ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-review.log'
-```
-
-Three things the log can say that need a person:
-
-- **"THIS PASS COULD NOT SIGN IN TO CLAUDE."** The Mini's Claude sign-in
-  expired. Only Dane can sign in, at the Mini's own screen or Screen Sharing
-  (an ssh sign-in does not reach launchd). Then restart the jobs:
-  `launchctl kickstart -k gui/$(id -u)/com.wavecenter.loop-build` and the same
-  for `loop-review`.
-- **"hit the time limit"** twice on one ticket: a gate that will not go green.
-  Read the ticket and hand it back or `ask`.
-- **Nothing written for hours** while the queue has work: `--status` says
-  whether the runner is alive. A stale lock clears itself on the next start.
-
-### The merge lane
-
-A third launchd agent, `com.wavecenter.merge-on-comment`, runs
-`scripts/merge_lane.sh` every **10 minutes** (StarCaster's interval for the
-same lane: a `merge` is the one thing you wait on with the app open). It is a
-plain `node` script under Doppler (`npm run clickup -- merge-on-comment`), not
-a Claude session, so it costs no model usage. Its log is
-`~/loop-logs/wavecenter-merge-on-comment.log`.
-
-**What counts as your `merge`.** On a `Ready to launch` ticket, your newest
-own comment (your user id, without the `[machine]` stamp the loops put on
-theirs) must be, **as the whole message**, one of: `merge`, `merge it`,
-`ship it`, `approve`. Case and a trailing `!` or `.` do not matter, and the
-code fence or bold ClickUp adds to a pasted word is stripped first. "do not
-merge this yet" is not a merge. A later plain comment from you ("wait")
-cancels it. It must also be newer than the newest review PASS: a `merge`
-written for an earlier round does not release a rebuilt PR. The rules are
-`scripts/lib/mergeWords.mjs`, every one of them a test.
-
-**What it does with it**, in this order: reads the recorded PR from GitHub;
-if `main` has moved on, merges `main` into the branch and waits for `verify`
-to pass again on the combined code; when the PR is open, conflict-free and
-`verify` is green, squash-merges it and deletes the branch; reads GitHub back
-until it says MERGED; only then comments the merge commit on the ticket and
-sets it `Live`. A PR you merged by hand gets one truthful comment and `Live`.
-After the merges, each pass runs `npm run evolution -- missing` (at most 6 minutes), which takes the Evolution screenshot of every change on `main` that has none yet; a failed picture leaves the merge and the status alone and puts one comment on its ticket. When that run itself breaks (no headless browser, test database down, a missing key) three passes in a row for the same reason, the lane files one ticket, `Evolution pictures have stopped: the Mac Mini cannot take them`, with a card for you, and adds one "works again" note to it on the first clean pass after. The count lives on the Mini in `~/loop-logs/wavecenter-evolution-run-failures.json`.
-After a clean `missing`, when a merge changed the picture rules (`scripts/lib/evolution.mjs`, which chooses each card's page), it runs `npm run evolution -- recapture --if-rules-changed` (at most 3 minutes), which retakes the old cards those rules now picture differently; nobody has to remember to. Unchanged rules retake nothing. The fingerprint of the rules last retaken lives on the Mini in `~/loop-logs/wavecenter-evolution-recapture.json`; a failed retake keeps the old cards, is tried again every pass, and the rules change's ticket hears once when it fails and once when it works.
-
-**Database changes go live here, and only here.** When the PR adds a file to
-`supabase/migrations/`, the lane applies it to the live database from the
-exact commit it is about to merge, just **before** the squash-merge, then reads
-the database's own migration list back. The merge comment ends with a
-`Database:` line saying what was applied. If the apply fails, the PR is **not**
-merged, the live database is as it was (each migration file is
-all-or-nothing), and the ticket stays in `Ready to launch` with a
-`MERGE NOT DONE (… reason migration-failed)` note. Before your `merge`,
-migrations are only ever tested on the private test database
-(`npm run db:test`, see `docs/INFRASTRUCTURE.md`): on 2026-10-29 a build
-applied one to live early and the member list failed for five minutes.
-
-**When it will not merge** (a red check, a conflict, no check at all), it
-posts **one** comment saying exactly why and what has to happen, and does not
-repeat it. Your `merge` still stands: every pass checks again and merges the
-moment the reason is gone.
-
-**When the PR conflicts with main** (reason `conflict`, or `catch-up-failed`
-when GitHub could not merge `main` in by itself), you have nothing to do.
-On 2026-10-12 a PR sat twelve hours after your `merge` because the note
-asked you to move the ticket. Now the next build pass takes the ticket where
-it stands: merges `main` into the branch, keeps both sides, runs `verify`,
-pushes, and posts `CONFLICT SETTLED` saying what conflicted. It never
-changes the status, so your `merge` still stands and this lane merges once
-`verify` is green on the combined code. If the two sides changed the same
-behaviour and a real choice is needed, it posts `CONFLICT NOT SETTLED` with
-a question for you instead of guessing; the card ends by asking you to
-reply with your choice and then write `merge` again, because your answer
-alone does not count as a merge. (`npm run clickup -- settle`,
-`settled` and `settle-blocked`; the rules are `conflictToSettle` in
-`scripts/lib/mergeWords.mjs`.)
-
-**Answers.** On a `Needs your input` ticket, when your plain answer is the
-newest comment, the same pass comments "Dane answered; back in the queue" and
-moves it to `Queued`, so the build loop reads your answer on its next pass.
+Each lane pulls a clean `main` before every pass and signs in to the tracker
+as itself (`loop-build`, `loop-review`, `loop-intake`, `relay`). The scripts
+are in `scripts/` (`install_loop_runner.sh`, `loop_runner.sh`, `run_relay.sh`
+and their helpers), copied from Spirality (`loop/README.md`).
 
 ```bash
-ssh mac-mini 'tail -30 ~/loop-logs/wavecenter-merge-on-comment.log'     # what the last merge pass did
-npm run clickup -- merge-on-comment --dry-run                            # what it WOULD do now, writing nothing
+/Users/daneofearth/WebApps/wavecenter/scripts/install_loop_runner.sh --status     # loaded? running? last pass?
+/Users/daneofearth/WebApps/wavecenter/scripts/install_loop_runner.sh              # install, or reinstall after a change
+/Users/daneofearth/WebApps/wavecenter/scripts/install_loop_runner.sh --uninstall  # remove all four
 ```
 
-### The hand-off lane
-
-A fourth launchd agent, `com.wavecenter.loop-handoff`, is how the tasks you
-tick on your WaveCenter to-do list reach the agents. It runs the
-`loop-handoff` skill (`.claude/skills/loop-handoff/SKILL.md`) every 10
-minutes, through the same `scripts/loop_runner.sh` as build and review. Your
-words (2026-10-12): "If I turn on the Launch AI Agents toggle, they will begin
-working on tasks in priority, then chronological order." You chose the same
-day to route that work through this Loop Queue, so nothing ships without
-review and your written `merge`.
-
-Each pass does two things:
-
-1. **Sync back.** Every task already handed off is checked against its
-   ticket. A ticket that went `Live` marks its task done. One closed `Live`
-   with the `wont-do` or `deferred` tag puts its task back to todo, unticked,
-   with a note on the task saying why. Anything else is still being worked.
-2. **At most one hand-off.** If your "Launch AI Agents" switch is on, the
-   first ticked task in line (Urgent, High, Normal, Low, then oldest first:
-   `agentOrder` in `core/agents.ts`) becomes a Queued ticket here, tagged
-   `from-wavecenter`, with a spec in the `loop-spec` shape written from its
-   title and notes, named with your title word for word (condensed only if
-   it is over 12 words), and the line `WaveCenter task: <id>`. Its priority
-   is the task's own; Urgent only carries over when you set it yourself. If the
-   title is too thin to build without guessing, the ticket is still filed and
-   you get one question on it in `Needs your input`. The task then shows
-   **With AI agents** and a link to its ticket.
-
-Turning the switch off stops new hand-offs. Tickets already filed carry on.
-
-**A task the lane gets stuck on is skipped, not waited on.** On 2026-10-30
-three passes in a row froze on the same first task, and the ten tasks behind
-it waited about five hours. Now each pass's `handoff-next --take` writes down
-which task it took, in `~/loop-logs/wavecenter-handoff-takes.json` on the
-Mini. Once two passes have taken a task and neither recorded a ticket, later
-passes skip it and take the next one in line. Every skip is named by its
-title, in the pass report and in the lane log
-(`~/loop-logs/wavecenter-loop-handoff.log`, lines starting `[handoff-next]`),
-so you can see which task is stuck. It stops being skipped as soon as it gets
-a ticket, or you edit it, or untick and tick it again. A plain
-`handoff-next` (no `--take`) only shows what the next pass would take and
-never counts as a take. A hand-off pass also has a 15-minute time limit
-instead of two hours (a working one takes 1 to 2 minutes), so a frozen pass
-costs minutes. A running lane keeps its old limit until it is restarted:
-`./scripts/install_loop_runner.sh` from the main checkout.
-
-Safety: the lane reads every member's tasks with the Supabase service key,
-which lives in Doppler on the Mini and never reaches the website or a browser.
-It changes a task only through core, as the tool `loop-handoff`
-(`npm run clickup -- handoff-record` and `handoff-sync`). Recording a ticket
-only lands if the task has none yet, so a task is never handed off twice, and
-a ticket is only recorded after it is read back from ClickUp. One hand-off per
-pass limits how far a mistake can spread.
-
-```bash
-ssh mac-mini 'tail -40 ~/loop-logs/wavecenter-loop-handoff.log'   # what the last hand-off pass did
-npm run clickup -- handoff-next                                     # which task is next in line, writing nothing
-bash scripts/loop_runner.sh loop-handoff --once                     # one pass now, its report printed here
-```
-
-**Work you ask for in a chat comes the same way.** Your words (2026-11-01):
-"Yes, always a task". Before `loop-spec` files a ticket, it makes your
-WaveCenter task for it (`npm run clickup -- chat-task`: owned by you, your
-words as its notes, 0 points unless you gave a number, as the tool
-`loop-spec`), files the ticket in the same shape as a hand-off (tagged
-`from-wavecenter`, the `## From WaveCenter` block, the `WaveCenter task:`
-line), then records it (`chat-record`). The task is unticked until that
-last step, which ticks it and records the ticket in one write, so this lane
-never files it a second time. When the ticket goes `Live`, the sync marks the
-task done like any other. The Evolution capture names, in its run output,
-any change whose ticket has no WaveCenter task behind it.
-
-### The AI rating lane
-
-A fifth launchd agent, `com.wavecenter.ai-rating`, runs
-`scripts/rating_lane.sh` every **30 minutes** (your decision, 2026-11-04:
-"go with the Mini"). It is not a loop skill and touches no ticket: it rates
-up to 10 open WaveCenter tasks that need an AI rating (`npm run rate-tasks`),
-each by two models through headless Claude Code under your plan, with every
-tool off and no repository access, and saves the ratings and reasons. Each
-pass has a 15-minute time limit, leaves a report on the Admin page ("AI task
-ratings"), and logs to `~/loop-logs/wavecenter-ai-rating.log`. A pass that
-cannot sign in to Claude says so in the log and on the Admin page; it starts
-working again on its own once someone runs `claude login` on the Mini.
-Doppler gives it only the two Supabase secrets, so no API key can reach
-Claude Code; it refuses to start if one is set.
-
-```bash
-ssh mac-mini 'tail -30 ~/loop-logs/wavecenter-ai-rating.log'   # what the last rating pass did
-bash scripts/rating_lane.sh --once                              # one pass now, its report printed here
-```
-
-### Starting one by hand — only when the Mini's agents are unloaded
-
-Two commands, each in **its own session**, from any folder in the repo (the
-loop makes its own worktree per task):
-
-```
-/loop 15m loop-build
-/loop 15m loop-review
-```
-
-### Installing or moving the runner
-
-`./scripts/install_loop_runner.sh` on the machine that will own the loops,
-from its **main checkout** (never a worktree). It installs all five lanes and
-refuses if `npm`, `node`, `doppler`, `claude`, `git` or `gh` is missing, or if
-`gh` is not signed in to GitHub. It also installs the headless browser the Evolution
-pictures need (`npx playwright install chromium-headless-shell`), and refuses if
-that fails. `--uninstall` removes all five agents. Before
-installing on a second machine, uninstall on the first: two machines claiming
-is the collision the lock exists to prevent.
-
-**The checkout must sit on a clean `main`.** The runner pulls only a clean
-`main`; on any other branch every pass runs that branch's code and never sees
-merged work. `--status` prints a `WARNING` when this is so, and the installer
-warns too. The runner was first installed from its own branch (it was not on
-`main` yet), so once that pull request merges, put the Mini back:
-`git -C ~/WebApps/wavecenter checkout main && git -C ~/WebApps/wavecenter pull`.
+The question is never "shall I start one", it is "what is it doing": each
+lane writes its log to `~/loop-logs/wavecenter-<lane>.log` on the Mini, and
+nobody starts a loop by hand while they are loaded. Install from an agent
+session, never from inside one of the lanes: the installer reloads the job it
+would be running in.
 
 Your day:
 
 1. **Morning:** run `loop-spec` in a session, answer its questions, approve
    the task list.
 2. **During the day:** the loops build and review. Each `Ready to launch`
-   ticket lands in *Assigned to me* with a preview link and test steps.
-3. **When you're ready:** write **`merge`** on the ticket. Within 10 minutes
-   the merge lane merges it (only with the `verify` check green) and sets the
-   ticket `Live`, with a comment naming the merge commit.
+   ticket lands in *Waiting on you* with a link or a command and test steps.
+3. **When you're ready:** comment **`merge`** (or `merge it`, `ship it`, `approve`) on the ticket, the whole comment and nothing else. The relay
+   merges it, only with the `verify` check green, then sets the ticket
+   `Live`. "merge PR #N" is not a phrase and does nothing.
 4. **When a ticket asks you a question** (`Needs your input`): answer as a
-   comment on the ticket. Within 10 minutes it goes back to `Queued` on its
-   own.
+   comment on the ticket; the relay moves it on.
 
 ### What the `verify` gate is
 
-`npm run verify` is the ONE name for the definition of done. CI runs it on
-every pull request; the build loop runs it before opening a PR; the review
-loop runs it again. Today it parses every script and runs the unit tests. As
-the app grows, each new kind of check (typecheck, build, browser test) is
-added to that script, and every lane inherits it at once.
+`npm run verify` is the definition of done. It is WaveCenter's own `verify` script (`npm run check:syntax && npm run check:secrets && npm run check:core-boundary && npm test && npm run typecheck && npm run build && npm run check:browser-secrets`). CI's `verify` check runs `npm run verify`, then the copied loop tests (`npm run test:loop`) on
+every pull request, and `main` cannot merge without it green. The build loop
+runs it before opening a PR; the review loop runs it again.
+
+A new kind of check is added to `npm run verify`, and every lane inherits
+it at once.
 
 ### Safety — why this is wired the way it is
 
-- `main` is what ships. A hook refuses edits on `main`; every change is a
-  branch, a PR and a green check.
-- No loop merges without Dane's own written word on the ticket. `Ready to
-  launch` is a request, not an action; his `merge` is the action, and the
-  merge lane only carries it out with `verify` green.
-- Every write to ClickUp is verified by reading it back.
+- `main` is what ships. A hook refuses edits on `main`
+  (`scripts/hooks/block_edits_on_main.cjs`, wired in `.claude/settings.json`);
+  every change is a branch, a PR and a green check, and GitHub's branch
+  protection refuses anything else.
+- No loop merges on its own judgement. Ever. `Ready to launch` is a request,
+  not an action; only your exact merge phrase releases it, and the relay that
+  carries it out is your hands, not a decision-maker.
+- Every write to the tracker is verified by reading it back.
 - Urgent priority is yours alone; the script refuses to set it without a
   written claim that you asked.
-- The repository is public. The review loop greps every diff for anything
+- This repository is public. The review loop greps every diff for anything
   that looks like a key.
 
 ## The work log
 
-`docs/WORK-LOG.md` is a plain-English record, newest first, one entry per
-merged PR, written inside the PR it describes. It is for you, not for the
+`docs/work-log/` is a plain-English record, one file per merged PR, named
+`<YYYY-MM-DD>-<branch>.md` and written inside the PR it describes. One file
+per entry means two PRs built at the same time never conflict on the log.
+`ls -r docs/work-log` lists it newest first. The log is for you, not for the
 machine.
 
 ## Cost
@@ -431,25 +233,3 @@ machine.
 A loop is an agent running continuously, so it spends tokens whether the
 output is good or not. Start with one build loop on small, self-checking
 work, confirm the value, then widen.
-
-## First-time setup checklist
-
-1. ✅ The **Loop Queue** list exists in the WaveCenter space (2026-10-11).
-2. ⬜ Its statuses are the seven above, in order, with `Live` closed —
-   `docs/CLICKUP_SETUP.md`, done by Dane in the ClickUp web app.
-3. ✅ The three skills live in `.claude/skills/`.
-4. ✅ Doppler holds the ClickUp token in `wavecenter/dev` (as a reference to
-   StarCaster's, so there is one token to rotate). `npm run clickup -- whoami`
-   prints "Token valid. Acting as: …".
-5. ⬜ A dry run: one `loop-build` pass on the smallest ticket, then one
-   `loop-review` pass, before trusting it with the rest.
-6. ✅ The scheduled runner on the Mac Mini (2026-10-11).
-7. ⬜ The merge lane on the Mac Mini: after its pull request merges, run
-   `./scripts/install_loop_runner.sh` again from the main checkout;
-   `--status` then shows three lanes.
-8. ⬜ The hand-off lane on the Mac Mini: after its pull request merges, run
-   `./scripts/install_loop_runner.sh` again from the main checkout;
-   `--status` then shows four lanes.
-9. ⬜ The AI rating lane on the Mac Mini: after its pull request merges, run
-   `./scripts/install_loop_runner.sh` again from the main checkout;
-   `--status` then shows five lanes.
