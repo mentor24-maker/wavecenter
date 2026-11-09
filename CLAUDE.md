@@ -77,7 +77,11 @@ StarCaster work never comes here.
 
 - **Every piece of work starts as a WaveCenter task**, owned by Dane, chat
   requests included (Dane, 2026-11-01: "Yes, always a task"); `loop-spec`
-  makes it with `npm run clickup -- chat-task` before filing the ticket.
+  makes it with `npm run wavecenter -- chat-task` before filing the ticket,
+  and records the filed ticket on it with `npm run wavecenter -- chat-record`.
+  `npm run wavecenter` is WaveCenter's own door (`scripts/wavecenter_tasks.mjs`)
+  for the commands that join a WaveCenter task to its ticket; every other
+  ticket move is `npm run clickup`, Spirality's door.
 - The process is the spec → build → review loop: `docs/LOOP_ENGINEERING.md`.
   The three skills are `loop-spec`, `loop-build` and `loop-review` in
   `.claude/skills/`.

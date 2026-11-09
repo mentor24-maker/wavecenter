@@ -1,8 +1,9 @@
 /**
  * The loop-handoff lane's database side: which ticked task goes next, the
  * checks before a filed ticket is recorded on its task, and the sync back
- * from finished tickets. `scripts/clickup.mjs` (handoff-next, handoff-record,
- * handoff-sync) is the only caller; the skill is .claude/skills/loop-handoff.
+ * from finished tickets. `scripts/wavecenter_tasks.mjs` (`npm run wavecenter --
+ * handoff-next | handoff-record | handoff-sync`) is the only caller; the skill
+ * is .claude/skills/loop-handoff.
  * Work Dane asks for in a chat comes the same way (chat-task, chat-record,
  * from .claude/skills/loop-spec): a task of his first, then its ticket.
  *
@@ -26,7 +27,16 @@ export function taskLine(taskId) {
   return `WaveCenter task: ${taskId}`;
 }
 
-export function ticketUrl(ticketId) {
+/**
+ * A ticket's link, the one a task records and Dane's screen shows. With
+ * `trackerUrl`, the tracker's own page, `<trackerUrl>/t/WC-12`: every ticket
+ * since the move to the tracker (SP-23). The caller passes the tracker's
+ * public https address (the project config's `trackerPublicUrl`), because
+ * core records only https links. Without it, the ClickUp link the tasks
+ * handed off before the move still carry.
+ */
+export function ticketUrl(ticketId, trackerUrl = null) {
+  if (trackerUrl) return `${String(trackerUrl).replace(/\/+$/, '')}/t/${ticketId}`;
   return `https://app.clickup.com/t/${ticketId}`;
 }
 
@@ -34,6 +44,26 @@ export function ticketUrl(ticketId) {
 export function ticketIdFromUrl(url) {
   const m = /^https:\/\/app\.clickup\.com\/t\/([A-Za-z0-9]+)\/?$/.exec(String(url ?? '').trim());
   return m ? m[1] : null;
+}
+
+/**
+ * Where a recorded ticket link points: `{ where: 'tracker', id }` for a
+ * tracker page (`<address>/t/WC-12`, at any of `trackerUrls`: the public
+ * address and the local one), `{ where: 'clickup', id }` for a ClickUp link
+ * from before the move, or null for anything else.
+ * @param {unknown} url
+ * @param {string | null | Array<string | null | undefined>} trackerUrls
+ */
+export function ticketRef(url, trackerUrls = []) {
+  const text = String(url ?? '').trim();
+  for (const base of [trackerUrls].flat()) {
+    if (!base) continue;
+    const escaped = String(base).replace(/\/+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`^${escaped}/t/([A-Za-z]+-[0-9]+)/?$`).exec(text);
+    if (m) return { where: 'tracker', id: m[1].toUpperCase() };
+  }
+  const id = ticketIdFromUrl(text);
+  return id ? { where: 'clickup', id } : null;
 }
 
 /**
@@ -168,12 +198,13 @@ export function ticketProblems(ticket, taskId, listId) {
 
 /**
  * Record a filed ticket on its task, through core. Refuses (and changes
- * nothing) if the ticket is not the one filed for this task.
+ * nothing) if the ticket is not the one filed for this task. `trackerUrl`
+ * makes the recorded link the tracker's page (see ticketUrl).
  */
-export async function recordHandOff({ db, ticket, taskId, listId, tool }) {
+export async function recordHandOff({ db, ticket, taskId, listId, tool, trackerUrl = null }) {
   const problems = ticketProblems(ticket, taskId, listId);
   if (problems.length) throw new Error(`Ticket ${ticket?.id ?? '?'} was not recorded: ${problems.join('; ')}.`);
-  return handOffTask(db.store, taskId, ticketUrl(ticket.id), tool);
+  return handOffTask(db.store, taskId, ticketUrl(ticket.id, trackerUrl), tool);
 }
 
 /**
@@ -201,10 +232,10 @@ export async function createChatTask({ db, title, notes = null, points = 0, prio
  * checks as `recordHandOff` (in the Loop Queue, tagged from-wavecenter,
  * carrying the task line); refuses, changing nothing, if any fails.
  */
-export async function recordChatTicket({ db, ticket, taskId, listId, tool }) {
+export async function recordChatTicket({ db, ticket, taskId, listId, tool, trackerUrl = null }) {
   const problems = ticketProblems(ticket, taskId, listId);
   if (problems.length) throw new Error(`Ticket ${ticket?.id ?? '?'} was not recorded: ${problems.join('; ')}.`);
-  return handOffChatTask(db.store, taskId, ticketUrl(ticket.id), tool);
+  return handOffChatTask(db.store, taskId, ticketUrl(ticket.id, trackerUrl), tool);
 }
 
 function mountainDate(now) {
@@ -212,8 +243,8 @@ function mountainDate(now) {
 }
 
 /** The note a handed-back task gets, in plain words. */
-export function returnNote(ticket, tag, now = new Date()) {
-  return `Handed back by the AI agents on ${mountainDate(now)}: the ticket "${ticket.name}" (${ticketUrl(ticket.id)}) `
+export function returnNote(ticket, tag, now = new Date(), url = ticketUrl(ticket.id)) {
+  return `Handed back by the AI agents on ${mountainDate(now)}: the ticket "${ticket.name}" (${url}) `
     + `was closed as ${tag}, so it was not built. Tick the AI box again to hand it over afresh.`;
 }
 
@@ -232,24 +263,27 @@ export function ticketOutcome(ticket) {
  * Bring finished tickets back to their tasks: every handed-off task not yet
  * done is checked against its ticket. One task's failure is logged and the
  * rest carry on; a failed read or write leaves that task as it was.
- * `readTicket(id)` resolves to ClickUp's task JSON or throws.
+ * `readTicket(ref)` takes a ticketRef (`{ where, id }`) and resolves to the
+ * ticket in ClickUp's task shape (the tracker door answers in it too), or
+ * throws. `trackerUrls` are the tracker addresses whose links it reads (see
+ * ticketRef).
  */
-export async function syncBack({ db, readTicket, tool, log = console.log, now = new Date() }) {
+export async function syncBack({ db, readTicket, tool, trackerUrls = [], log = console.log, now = new Date() }) {
   const rows = await db.read('tasks?agent_ticket_url=not.is.null&status=neq.done&select=*');
   const tally = { done: 0, returned: 0, waiting: 0, failed: 0 };
   for (const task of rows.map(fromRow)) {
     const url = /** @type {string} */ (task.agentTicketUrl);
     try {
-      const id = ticketIdFromUrl(url);
-      if (!id) throw new Error(`its ticket link "${url}" is not a ClickUp ticket link`);
-      const ticket = await readTicket(id);
+      const ref = ticketRef(url, trackerUrls);
+      if (!ref) throw new Error(`its ticket link "${url}" is neither a tracker nor a ClickUp ticket link`);
+      const ticket = await readTicket(ref);
       const outcome = ticketOutcome(ticket);
       if (outcome.action === 'done') {
         await completeHandOff(db.store, task.id, url, tool);
         tally.done += 1;
         log(`DONE      "${task.title}" — its ticket went Live (${url})`);
       } else if (outcome.action === 'return') {
-        await returnHandOff(db.store, task.id, url, returnNote(ticket, outcome.tag, now), tool);
+        await returnHandOff(db.store, task.id, url, returnNote(ticket, outcome.tag, now, url), tool);
         tally.returned += 1;
         log(`RETURNED  "${task.title}" — its ticket was closed as ${outcome.tag} (${url})`);
       } else {
