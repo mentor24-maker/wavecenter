@@ -179,6 +179,36 @@ export function databaseLine({ files, applied }) {
 }
 
 /**
+ * The pre-merge step's own time limit. The relay may wait 10 minutes for a
+ * step, but WaveCenter's relay pass is stopped at 480 seconds
+ * (`scripts/run_relay.sh`, RELAY_PASS_LIMIT_SECONDS), and a pass stopped from
+ * outside leaves no note saying why. So the step gives itself 5 minutes, which
+ * leaves the relay time for its gates and the merge, and when it runs out it
+ * stops its own command, merges nothing and says so. A migration normally
+ * applies in seconds. A command stopped mid-apply drops its connection, and
+ * Postgres rolls back the file it was running (each file is one transaction).
+ */
+export const STEP_BUDGET_MS = 5 * 60 * 1000;
+
+/** spawnSync options giving a command only the time left before `deadline`. */
+function budget(deadline, now) {
+  if (!Number.isFinite(deadline)) return {};
+  return { timeout: Math.max(1, deadline - now()) };
+}
+
+/** True when a command was stopped by the time limit (or the limit had already passed). */
+function ranOutOfTime(r, deadline, now) {
+  if (!Number.isFinite(deadline)) return false;
+  return r?.error?.code === 'ETIMEDOUT' || (r?.signal && now() >= deadline) || false;
+}
+
+function outOfTimeMessage(cmd, args) {
+  const verb = cmd === 'supabase' ? args.slice(0, 2).join(' ') : (args.find((a) => ['fetch', 'diff', 'archive'].includes(a)) || '');
+  const what = `${cmd} ${verb}`.trim();
+  return `ran out of time: the step's ${STEP_BUDGET_MS / 60000}-minute limit passed during \`${what}\`, so it was stopped. A migration file it was applying rolls back on its own.`;
+}
+
+/**
  * Apply the migrations at `commit` to the database at `dbUrl`: everything in
  * that commit's supabase/migrations/ that the database does not have yet. The
  * files come from git, never a working folder, so what is applied is exactly
@@ -187,11 +217,12 @@ export function databaseLine({ files, applied }) {
  * Returns { ok: true, applied: [file names] } or { ok: false, error }.
  * Never throws, and never puts `dbUrl` into the error.
  */
-export function applyMigrations({ repoDir, commit, dbUrl, run = spawnSync }) {
+export function applyMigrations({ repoDir, commit, dbUrl, run = spawnSync, deadline = Infinity, now = Date.now }) {
   if (!dbUrl) return { ok: false, error: 'DATABASE_URL is not set, so the live database cannot be reached.' };
   const env = cliEnv();
   const sh = (cmd, args) => {
-    const r = run(cmd, args, { encoding: 'utf8', cwd: repoDir, env });
+    const r = run(cmd, args, { encoding: 'utf8', cwd: repoDir, env, ...budget(deadline, now) });
+    if (ranOutOfTime(r, deadline, now)) return { ok: false, out: outOfTimeMessage(cmd, args) };
     return { ok: r.status === 0, out: `${r.stdout || ''}\n${r.stderr || ''}` };
   };
   const work = mkdtempSync(join(tmpdir(), 'wavecenter-migrations-'));
@@ -221,4 +252,62 @@ export function applyMigrations({ repoDir, commit, dbUrl, run = spawnSync }) {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * The relay's pre-merge step (WC-164, on Spirality's SP-185 hook): what used
+ * to be the merge lane's database step before WaveCenter moved onto
+ * Spirality's loop. The relay runs `scripts/apply_migrations.mjs` (configured
+ * as `../scripts/apply_migrations.mjs`, because the vendored relay runs it from
+ * the main checkout's `loop/` folder) once every gate says merge, and before `gh pr merge`, telling
+ * it the pull request in LOOP_* variables. A non-zero exit merges nothing and
+ * leaves Dane's `merge` unspent, so the relay runs it again next pass: it must
+ * be safe to run twice, and it is (it only applies what the database lacks).
+ *
+ * The migration files come from git at LOOP_HEAD_SHA, never the checkout, and
+ * the relay merges only that commit (`--match-head-commit`).
+ *
+ * Returns { code, lines }: the exit code and the lines to print (the relay
+ * quotes the last ones on the ticket). Never throws, never prints the address.
+ */
+export function preMergeStep({ env = process.env, repoDir, run = spawnSync, apply = applyMigrations, now = Date.now, budgetMs = STEP_BUDGET_MS } = {}) {
+  const deadline = now() + budgetMs;
+  const sha = String(env.LOOP_HEAD_SHA || '').trim();
+  const base = String(env.LOOP_BASE_BRANCH || '').trim();
+  const pr = String(env.LOOP_PR_NUMBER || '').trim();
+  const name = pr ? `PR #${pr}` : 'This PR';
+  const stop = (why) => ({
+    code: 1,
+    lines: [
+      `Database step: ${why}`,
+      `${name} was NOT merged. The relay tries again on its next pass and merges once this step passes.`,
+    ],
+  });
+  if (!/^[0-9a-f]{40}$/.test(sha)) return stop(`the relay did not give the commit about to merge (LOOP_HEAD_SHA is "${sha.slice(0, 60)}"), so its database change cannot be read.`);
+  if (!/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/.test(base) || base.includes('..')) return stop(`the relay did not give a usable branch to merge into (LOOP_BASE_BRANCH is "${base.slice(0, 60)}").`);
+
+  const git = (args) => {
+    const r = run('git', ['-C', repoDir, ...args], { encoding: 'utf8', cwd: repoDir, ...budget(deadline, now) });
+    if (ranOutOfTime(r, deadline, now)) return { ok: false, stdout: '', out: outOfTimeMessage('git', args) };
+    return { ok: r.status === 0, stdout: String(r.stdout || ''), out: `${r.stdout || ''}\n${r.stderr || ''}` };
+  };
+  const fetched = git(['fetch', '--quiet', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`, sha]);
+  if (!fetched.ok) return stop(`could not fetch ${base} and commit ${sha.slice(0, 12)} from GitHub: ${cliError(fetched.out)}`);
+  // Three dots: what the branch changed since it left the base, not what the base did since.
+  const changed = git(['diff', '--name-only', `refs/remotes/origin/${base}...${sha}`, '--', MIGRATIONS_DIR]);
+  if (!changed.ok) return stop(`could not tell which database files ${name} changes: ${cliError(changed.out)}`);
+  const files = migrationFiles(changed.stdout.split('\n').map((l) => l.trim()).filter(Boolean));
+  if (!files.length) return { code: 0, lines: [databaseLine({ files })] };
+
+  const r = apply({ repoDir, commit: sha, dbUrl: env.DATABASE_URL, run, deadline, now });
+  if (!r.ok) {
+    return {
+      code: 1,
+      lines: [
+        `Database step: ${name} changes the database (${files.join(', ')}), and applying it to the live database from commit ${sha.slice(0, 12)} failed: ${scrub(r.error)}`,
+        `${name} was NOT merged. Each migration file is all-or-nothing, so a file that failed left nothing behind (a file listed before it may have applied). The relay tries again on its next pass; if it fails the same way, the migration has to be fixed on this branch and pass \`npm run db:test\` on the test database.`,
+      ],
+    };
+  }
+  return { code: 0, lines: [databaseLine({ files, applied: r.applied })] };
 }

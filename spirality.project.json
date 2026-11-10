@@ -34,5 +34,9 @@
   "tracker": "api",
   "trackerUrl": "http://mac-mini.local:4180",
   "trackerApiUrl": "http://127.0.0.1:4180",
-  "trackerPublicUrl": "https://mac-mini.tail7fc5c6.ts.net:8443"
+  "trackerPublicUrl": "https://mac-mini.tail7fc5c6.ts.net:8443",
+  "preMergeCommand": [
+    "node",
+    "../scripts/apply_migrations.mjs"
+  ]
 }

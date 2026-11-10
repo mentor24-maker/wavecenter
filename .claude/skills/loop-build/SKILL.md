@@ -194,11 +194,11 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    description says "Database: tested on the test database (`npm run
    db:test`)", or, on a machine without Docker, says it was not tested and
    why. Never run `npm run check:tasks-rls` or `supabase db push` with the
-   live keys to test an unmerged migration. Note: since the move, the relay
-   merges and does **not** apply migrations to live; WC-164 ("Merged database
-   changes will not reach the live database: apply them") brings that back,
-   and until it ships loop-review holds a migration PR out of
-   `Ready to launch`. Say so in the PR body.
+   live keys to test an unmerged migration. On Dane's `merge`, the relay
+   runs WaveCenter's pre-merge step (`preMergeCommand` in
+   `spirality.project.json`, `scripts/apply_migrations.mjs`, WC-164): it
+   applies the PR's new migrations to live from the exact commit about to
+   merge, reads them back, and merges nothing if that fails.
 
    **Read the ticket's files first.** When `get` prints `attachments:` lines
    (anything but `attachments: (none)`), they are part of the spec. Save them
