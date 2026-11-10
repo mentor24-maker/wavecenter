@@ -48,6 +48,7 @@ import { ticketRef } from './lib/ticketLinks.mjs';
 import { CoreError, LOOP_HANDOFF_TOOL, LOOP_SPEC_TOOL } from '../core/tool.ts';
 import { loadProjectConfig, ProjectConfigError } from '../loop/lib/projectConfig.mjs';
 import { createApiTracker, trackerTokenEnv } from '../loop/scripts/tracker/apiTracker.mjs';
+import { projectSeats } from '../loop/scripts/lib/expectedSecrets.mjs';
 import { createClickupTracker } from '../loop/scripts/tracker/clickupTracker.mjs';
 
 const USAGE = `usage: npm run wavecenter -- <command>
@@ -100,11 +101,18 @@ if (ON_TRACKER && !TRACKER_URL && ['chat-record', 'handoff-record'].includes(cmd
 }
 
 let tracker = null;
+/**
+ * The tracker door, signed in as this caller's own seat: the project's own
+ * lanes (`projectLanes`, loop-handoff) count as seats too (projectSeats), or
+ * the hand-off lane's every pass is refused. A refused sign-in THROWS, never
+ * exits, so handoff-sync logs that one task as failed and carries on with
+ * the rest (review of WC-162, round 3); each command's own catch says it.
+ */
 function theTracker() {
   if (tracker) return tracker;
   if (ON_TRACKER) {
     let env;
-    try { env = trackerTokenEnv(); } catch (err) { console.error(`wavecenter: ${err.message}`); process.exit(1); }
+    try { env = trackerTokenEnv(process.env, projectSeats(project)); } catch (err) { throw new Error(`could not sign in to the tracker: ${err.message}`); }
     tracker = createApiTracker({
       token: process.env[env], baseUrl: project.trackerApiUrl, project: project.projectSlug,
       listId: project.loopQueueListId, timeoutMs: process.env.TRACKER_HTTP_TIMEOUT_MS,
@@ -239,7 +247,8 @@ if (cmd === 'chat-task') {
     ?? (/^[A-Za-z]+-[0-9]+$/.test(given) ? { where: here, id: given.toUpperCase() }
       : /^[A-Za-z0-9]+$/.test(given) ? { where: 'clickup', id: given } : null);
   if (!ref) { console.error(`"${given}" is not a ticket link or id this project knows.`); process.exit(2); }
-  const door = ref.where === 'clickup' ? clickup() : theTracker();
+  let door;
+  try { door = ref.where === 'clickup' ? clickup() : theTracker(); } catch (err) { console.error(`wavecenter: ${err.message}`); process.exit(1); }
   const link = ref.where === 'clickup' ? ticketUrl(ref.id) : ticketUrl(ref.id, TRACKER_URL);
   /** Every top-level comment, oldest first, or exits saying it could not read them. */
   const commentsOf = async () => {

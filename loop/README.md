@@ -6,7 +6,7 @@ repository (`npm run doctor`).
 
 Every file here except this README is copied byte for byte from
 [Spirality](https://github.com/mentor24-maker/spirality) at commit
-`2aa0382`, keeping Spirality's layout (`scripts/` beside `lib/`) so no import
+`418fe69`, keeping Spirality's layout (`scripts/` beside `lib/`) so no import
 changes. The project settings it reads are WaveCenter's own
 `spirality.project.json` at the repository root.
 

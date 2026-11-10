@@ -1,6 +1,6 @@
 ---
 name: loop-handoff
-description: Hand the next task a WaveCenter member ticked for AI agents to the WaveCenter "Loop Queue" as a Queued ticket with a proper spec, highest priority first then oldest first, and bring finished tickets back to their tasks (Live → done; Live with wont-do or deferred → back to todo with a note). One hand-off per pass. Runs on the Mac Mini as the third lane next to loop-build and loop-review. Never builds, never merges.
+description: Hand the next task a WaveCenter member ticked for AI agents to the WaveCenter "Loop Queue" as a Queued ticket with a proper spec, highest priority first then oldest first, and bring finished tickets back to their tasks (Live → done; Live with wont-do or deferred → back to todo with a note). One hand-off per pass. Runs on the Mac Mini beside Spirality's lanes (loop-build, loop-review, loop-intake), signed in to the tracker as its own seat. Never builds, never merges.
 ---
 
 # Loop: Hand-off
@@ -23,6 +23,15 @@ the commands that read or change a WaveCenter task go through
 `npm run wavecenter -- <command>` (WaveCenter's own door,
 `scripts/wavecenter_tasks.mjs`). Doppler supplies the tracker token and the
 Supabase service key; you never see or handle either.
+
+The lane signs in to the tracker as its own seat, `TRACKER_TOKEN_LOOP_HANDOFF`
+(its runner sets `TRACKER_TOKEN_NAME` to that name). That seat exists only
+because `spirality.project.json` names `loop-handoff` in `projectLanes`
+(Spirality's SP-180). A pass refused with `... signs in only once its name is
+in the project config's "projectLanes"` means that line is gone; a refusal
+naming a missing token means the seat's sign-in was never made (Spirality's
+`npm run tracker:signins -- create --config <this repo's
+spirality.project.json>`, run on the Mini). Either way, report it and stop.
 
 ```bash
 npm run wavecenter -- handoff-sync                                 # finished tickets back to their tasks
