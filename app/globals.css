@@ -12,6 +12,11 @@
  *                          (4.5:1) on every level.
  *   --accent / --on-accent links, buttons, focus rings / text on a button.
  *   --line                 the dark-gold hairline round every box.
+ *   --icon-badge           the round badge behind each Home box heading icon
+ *                          (Dane, 2026-11-10: "a dark but bright aquamarine").
+ *                          One shade serves both modes; its white drawing
+ *                          measures 3.37:1 (the bar for a non-text mark
+ *                          is 3:1).
  *   --error / --error-bg   a failed save or a problem, never hidden.
  *   --radius               10px corners; --space the one spacing unit.
  *
@@ -72,6 +77,8 @@
   --line: #9c7414;
   --accent: #005f80;
   --on-accent: #ffffff;
+  --icon-badge: #009e87;
+  --on-icon-badge: #ffffff;
   --error: #9b1c12;
   --error-bg: #fde8e6;
   --space: 1rem;
@@ -617,12 +624,13 @@ table.teams .num { padding-right: 1.5rem; }
   display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem;
   color: var(--fg); font-size: 0.85rem;
 }
-/* Each heading's icon sits in a round badge in the link colour. */
+/* Each heading's icon sits in a round aquamarine badge, 4rem across (Dane,
+   2026-11-10: "about twice the size"). */
 .box-icon {
-  flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
-  background: var(--accent); color: var(--on-accent);
+  flex: none; display: grid; place-items: center; width: 4rem; height: 4rem; border-radius: 50%;
+  background: var(--icon-badge); color: var(--on-icon-badge);
 }
-.box-icon svg { width: 1.1rem; height: 1.1rem; }
+.box-icon svg { width: 2.2rem; height: 2.2rem; }
 ul.plain { list-style: none; padding: 0; margin: 0 0 var(--space); }
 ul.plain li { padding: 0.2rem 0; }
 .panel > h2:first-child, .box > h2:first-child { margin-top: 0; }
