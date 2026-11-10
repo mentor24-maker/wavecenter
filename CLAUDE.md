@@ -4,6 +4,8 @@ Read this file first, then [docs/MISSION.md](docs/MISSION.md). Together they
 say what WaveCenter is for and how to work on it.
 For anything about points and scoring, read the scoring wiki,
 [docs/scoring/README.md](docs/scoring/README.md).
+Every prompt Dane writes in a session is logged word for word, with what it
+led to, in [docs/OPERATOR_PROMPTS.md](docs/OPERATOR_PROMPTS.md).
 
 **This repository is public.** Anyone can read every file and every commit.
 Never commit a key, password, token or `.env` file. Keys live in Doppler.
