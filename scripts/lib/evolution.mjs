@@ -6,6 +6,8 @@
  * browser.
  */
 
+import { ticketRef } from './ticketLinks.mjs';
+
 export const CAPTURE_STATES = ['captured', 'no screen', 'failed'];
 
 /** The bucket the screenshots live in (private; members read, only the script writes). */
@@ -18,10 +20,27 @@ export function parseSubject(subject) {
   return m ? { title: m[1], prNumber: Number(m[2]) } : { title: s, prNumber: null };
 }
 
-/** The first ClickUp ticket link in a PR body, or null. */
-export function ticketUrl(text) {
-  const m = String(text || '').match(/https:\/\/app\.clickup\.com\/t\/[A-Za-z0-9]+/);
-  return m ? m[0] : null;
+/**
+ * The first ticket link in a PR body, or null: a tracker page
+ * (`<address>/t/WC-12`, at any of `trackerUrls`, the project config's public
+ * and local addresses) or a ClickUp link from before the move to the tracker.
+ * A tracker link comes back as the page at `publicUrl` when one is given,
+ * whichever address the body used, because the Evolution card links to it and
+ * only the public address opens off the Mac Mini.
+ */
+export function ticketUrl(text, { trackerUrls = [], publicUrl = null } = {}) {
+  const body = String(text || '');
+  const found = [];
+  const clickup = body.match(/https:\/\/app\.clickup\.com\/t\/[A-Za-z0-9]+/);
+  if (clickup) found.push({ at: clickup.index, url: clickup[0] });
+  for (const base of [trackerUrls].flat()) {
+    if (!base) continue;
+    const escaped = String(base).replace(/\/+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`${escaped}/t/([A-Za-z]+-[0-9]+)(?![A-Za-z0-9-])`).exec(body);
+    if (m) found.push({ at: m.index, url: `${String(publicUrl || base).replace(/\/+$/, '')}/t/${m[1].toUpperCase()}` });
+  }
+  found.sort((a, b) => a.at - b.at);
+  return found[0]?.url ?? null;
 }
 
 const PAGE_FILE = /^page\.(tsx|ts|jsx|js)$/;
@@ -284,13 +303,14 @@ function waveCenterTaskId(description) {
 /** The fenced title and notes under a ticket's "## From WaveCenter" heading, and the task it names. */
 function fromWaveCenter(description) {
   const text = String(description || '');
-  const m = text.match(/^##\s*From WaveCenter\s*\n+\s*```[^\n]*\n([\s\S]*?)\n\s*```/m);
+  // A ``` fence on ClickUp tickets, a ~~~ fence on the tracker's.
+  const m = text.match(/^##\s*From WaveCenter\s*\n+\s*(```|~~~)[^\n]*\n([\s\S]*?)\n\s*\1/m);
   if (!m) return null;
-  return { words: m[1].trim(), taskId: waveCenterTaskId(text) };
+  return { words: m[2].trim(), taskId: waveCenterTaskId(text) };
 }
 
 /**
- * An @@ASKED that says his words are not there: the merge lane's own cards
+ * An @@ASKED that says his words are not there: the picture lanes' own cards
  * ("No instruction from Dane: …", runAlertCard) and a session's admission
  * ("Your exact words aren't recorded on this ticket. …", 86bch43yw). An
  * agent wrote it, so it is never shown as his.
@@ -384,14 +404,18 @@ export function typedWords(entry) {
   return text;
 }
 
-/** The ClickUp tickets an entry's tool output says were just made (`clickup.mjs task` prints "Created task <id>"). */
+/**
+ * The tickets an entry's tool output says were just made: the door's `task`
+ * prints "Created task <id>", a tracker id (WC-170) since the move, a ClickUp
+ * id (86bcgh5n9) before it.
+ */
 export function createdTickets(entry) {
   if (entry?.type !== 'user' || !Array.isArray(entry.message?.content)) return [];
   const out = [];
   for (const block of entry.message.content) {
     if (block?.type !== 'tool_result') continue;
     const text = typeof block.content === 'string' ? block.content : (block.content || []).map((b) => b?.text ?? '').join('\n');
-    for (const m of text.matchAll(/^Created task ([A-Za-z0-9]+)$/gm)) out.push(m[1]);
+    for (const m of text.matchAll(/^Created task ([A-Za-z]+-[0-9]+|[A-Za-z0-9]+)$/gm)) out.push(m[1]);
   }
   return out;
 }
@@ -478,16 +502,19 @@ export function missingShas(shas, rows) {
   return (shas || []).filter((sha) => !have.has(sha));
 }
 
-/** The ClickUp task id in a ticket link, or null. */
-export function ticketId(url) {
-  const m = String(url || '').match(/^https:\/\/app\.clickup\.com\/t\/([A-Za-z0-9]+)$/);
-  return m ? m[1] : null;
+/**
+ * The ticket id in a ticket link, or null: `WC-12` for a tracker page at any
+ * of `trackerUrls`, the ClickUp id for a link from before the move.
+ */
+export function ticketId(url, trackerUrls = []) {
+  return ticketRef(url, trackerUrls)?.id ?? null;
 }
 
 /**
- * Whether the merge lane that merged a change was already taking its
- * picture, read from scripts/merge_lane.sh as it stood just before the
- * change (its first parent). Only those tickets hear about a failed
+ * Whether a lane was already taking a change's picture when it merged,
+ * read from the lane scripts (scripts/evolution_lane.sh, and
+ * scripts/merge_lane.sh before it) as they stood just before the change
+ * (its first parent). Only those tickets hear about a failed
  * picture; older changes caught up later keep the reason on their row alone.
  */
 export function laneCapturedOnMerge(mergeLaneBefore) {
@@ -557,10 +584,10 @@ export function nextRunState(state, outcome, now = new Date().toISOString()) {
   return { state: next, action: next.count >= ALERT_AFTER && !next.carded ? 'card' : null };
 }
 
-/** The ticket name the merge lane files when picture-taking stops. */
+/** The ticket name the Evolution lane files when picture-taking stops. */
 export const RUN_ALERT_NAME = 'Evolution pictures have stopped: the Mac Mini cannot take them';
 
-const LANE_LOG = '~/loop-logs/wavecenter-merge-on-comment.log';
+const LANE_LOG = '~/loop-logs/wavecenter-evolution.log';
 
 function firstWords(text, n) {
   const words = String(text || '').split(/\s+/).filter(Boolean);
@@ -579,7 +606,7 @@ export function runAlertDescription(state) {
     'Picture-taking for the Home "Evolution of WaveCenter" row works again on the Mac Mini.',
     '',
     '## What happened',
-    `The merge lane's \`npm run evolution -- missing\` step has failed ${state.count} passes in a row (every 10 minutes, since ${mountain(state.since)}) for one reason, so no newly merged change gets its Evolution card:`,
+    `The Evolution lane's \`npm run evolution -- missing\` step has failed ${state.count} passes in a row (every 10 minutes, since ${mountain(state.since)}) for one reason, so no newly merged change gets its Evolution card:`,
     '',
     '```',
     state.reason,
@@ -593,8 +620,8 @@ export function runAlertDescription(state) {
     '*   No code change is expected. If the fix needs one, file it as its own ticket.',
     '',
     '## Acceptance criteria',
-    '- [ ] The next merge-lane pass ends `/evolution-missing (exit 0)` in the lane log.',
-    '- [ ] This ticket carries the merge lane\'s "picture-taking works again" note.',
+    '- [ ] The next Evolution-lane pass ends `/evolution-missing (exit 0)` in the lane log.',
+    '- [ ] This ticket carries the Evolution lane\'s "picture-taking works again" note.',
   ].join('\n');
 }
 
@@ -602,19 +629,20 @@ export function runAlertDescription(state) {
 export function runAlertCard(state) {
   return [
     '@@ASKED',
-    'No instruction from Dane: the merge lane raised this on its own. It descends from the Evolution row on Home, which shows a picture of every change merged into main.',
+    'No instruction from Dane: the Evolution lane raised this on its own. It descends from the Evolution row on Home, which shows a picture of every change merged into main.',
     '@@WHEN',
-    `from ${mountain(state.since)}, the merge lane on the Mac Mini`,
+    `from ${mountain(state.since)}, the Evolution lane on the Mac Mini`,
     '@@CONTEXT',
-    `The Mac Mini has not been able to take any Evolution pictures for ${state.count} merge-lane passes in a row, so changes merged since then are missing from the Evolution row on Home. Merging still works. The reason it gives: ${firstWords(state.reason, 20)} The whole message is in the description. The fix is on the machine itself, not in the code, and this card gets a note as soon as pictures work again.`,
+    `The Mac Mini has not been able to take any Evolution pictures for ${state.count} Evolution-lane passes in a row, so changes merged since then are missing from the Evolution row on Home. Merging still works. The reason it gives: ${firstWords(state.reason, 20)} The whole message is in the description. The fix is on the machine itself, not in the code, and this card gets a note as soon as pictures work again.`,
     '@@NEEDED',
     `Your go-ahead: reply **fix it** and the next agent session on the Mac Mini ${fixLine(state.reason)}, then checks that pictures work again. If they start working first, this card gets a note and you can close the ticket.`,
+    'Your move: Reply — **fix it** sends the next agent session on the Mac Mini to fix it.',
   ].join('\n');
 }
 
 /** The one note a card's ticket gets when the run works again. */
 export function recoveredNote() {
-  return 'Picture-taking works again: the last merge-lane pass took the Evolution pictures it owed and finished cleanly. Nothing more is needed for this card; the ticket can be closed.';
+  return 'Picture-taking works again: the last Evolution-lane pass took the Evolution pictures it owed and finished cleanly. Nothing more is needed for this card; the ticket can be closed.';
 }
 
 // ------------------------------------------- retaking after a rules change
@@ -623,7 +651,7 @@ export function recoveredNote() {
 export const RULES_FILE = 'scripts/lib/evolution.mjs';
 
 /**
- * Whether the merge lane owes a `recapture`: the picture rules it is running
+ * Whether the Evolution lane owes a `recapture`: the picture rules it is running
  * (`rules`, a fingerprint of RULES_FILE) differ from the ones the last
  * successful retake used (`state.done`). A failed retake leaves `done` as it
  * was, so the next pass tries again. No state at all (a new machine) counts
@@ -675,7 +703,7 @@ export function nextRecaptureState(state, rules, outcome) {
 /** The one note the rules change's ticket gets when its retake fails. */
 export function recaptureFailedComment(reason) {
   return [
-    `The merge lane tried to retake the old Evolution pictures under this change's new picture rules, and it failed: ${reason}`,
+    `The Evolution lane tried to retake the old Evolution pictures under this change's new picture rules, and it failed: ${reason}`,
     '',
     'The old cards and their pictures are left exactly as they were. The lane tries again on every pass (every 10 minutes) and posts one more note here once the retake works; it will not repeat this one.',
   ].join('\n');

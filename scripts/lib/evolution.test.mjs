@@ -4,6 +4,7 @@ import { parseCard, validateCard, costlyTriggers } from './operatorCard.mjs';
 import { nameProblem } from './ticketName.mjs';
 import { parseSubject, ticketUrl, choosePage, samePage, previousCard, fillPage, asOf, entryRow, mountain, listLine, missingShas, ticketId, typedWords, createdTickets, chatWords, addChatWords, captureWords, laneCapturedOnMerge, failureComment, danesWords, ALERT_AFTER, reasonKey, fixCommand, nextRunState, runAlertCard, runAlertDescription, recoveredNote, RUN_ALERT_NAME, RULES_FILE, recaptureDue, nextRecaptureState, recaptureFailedComment, recaptureDoneNote, RECAPTURE_CUTOFF_LIMIT, noTaskLine, BACKFILL_TOOL } from './evolution.mjs';
 import { readFileSync } from 'node:fs';
+import { buildCard } from '../../loop/scripts/lib/operatorCard.mjs';
 
 // The app's files at three real points in main's history.
 const PLACEHOLDER = ['app/favicon.ico', 'app/globals.css', 'app/layout.tsx', 'app/page.tsx'];
@@ -18,6 +19,23 @@ const WITH_HOME = [
 test('parseSubject splits the PR title from its number', () => {
   assert.deepEqual(parseSubject('Dane wants X: do Y (#56)'), { title: 'Dane wants X: do Y', prNumber: 56 });
   assert.deepEqual(parseSubject('WaveCenter: first commit — README and .gitignore'), { title: 'WaveCenter: first commit — README and .gitignore', prNumber: null });
+});
+
+const PUBLIC = 'https://mac-mini.tail7fc5c6.ts.net:8443';
+const LOCAL = 'http://mac-mini.local:4180';
+const LINKS = { trackerUrls: [PUBLIC, LOCAL], publicUrl: PUBLIC };
+
+test('ticketUrl finds a tracker ticket link and records its public page', () => {
+  // The line every PR body carries since the move (loop-build: "Ticket: <trackerUrl>/t/WC-12").
+  assert.equal(ticketUrl(`Summary\n\nTicket: ${LOCAL}/t/WC-165\n`, LINKS), `${PUBLIC}/t/WC-165`);
+  assert.equal(ticketUrl(`Ticket: ${PUBLIC}/t/wc-7`, LINKS), `${PUBLIC}/t/WC-7`);
+  // The first link in the body wins, whichever kind it is.
+  assert.equal(ticketUrl(`Ticket: ${LOCAL}/t/WC-1\nOld: https://app.clickup.com/t/86bcvtyhh`, LINKS), `${PUBLIC}/t/WC-1`);
+  assert.equal(ticketUrl(`Old: https://app.clickup.com/t/86bcvtyhh\nTicket: ${LOCAL}/t/WC-1`, LINKS), 'https://app.clickup.com/t/86bcvtyhh');
+  // Only the configured addresses count, matched exactly.
+  assert.equal(ticketUrl('Ticket: http://mac-miniXlocal:4180/t/WC-1', LINKS), null);
+  assert.equal(ticketUrl(`Ticket: ${LOCAL}/t/WC-1`), null, 'without the tracker addresses, a tracker link is not trusted');
+  assert.equal(ticketUrl(`See ${LOCAL}/t/WC-12x`, LINKS), null, 'a longer id is not this one');
 });
 
 test('ticketUrl finds the ClickUp link in a PR body', () => {
@@ -282,6 +300,16 @@ WaveCenter task: ${TASK}
 Yes, there is a dark overlay.`;
 const CARD = (asked, when = '') => `DANE'S WORDS — the instruction behind this ticket\n\n${asked}\n\n${when ? `(${when})\n\n` : ''}WHAT'S GOING ON\n\nThe context.\n\n#############################\nNEEDED FROM DANE: merge\n\n[machine] posted by a loop`;
 
+test('a tracker ticket\'s ~~~ fence gives the same words as a ClickUp ticket\'s ``` fence', () => {
+  const tracker = FROM_WC.replace('```css', '~~~').replace('```', '~~~');
+  const words = danesWords({ url: `${PUBLIC}/t/WC-9`, tags: ['from-wavecenter'], description: tracker, comments: [] });
+  assert.equal(words.prompt, 'The header background overlay is too dark\n\nIt appears there is a dark overlay on the header.');
+  assert.equal(words.taskId, TASK);
+  // A fence opened one way is not closed the other.
+  const mixed = FROM_WC.replace('```css', '~~~');
+  assert.notEqual(danesWords({ tags: ['from-wavecenter'], description: mixed, comments: [] }).prompt, words.prompt);
+});
+
 test('a WaveCenter ticket gives the task\'s title and notes, verbatim, linking to the task', () => {
   const words = danesWords({ url: 'https://app.clickup.com/t/86bcw3my3', tags: ['from-wavecenter'], description: FROM_WC, comments: [{ text: CARD('Something else') }] });
   assert.equal(words.prompt, 'The header background overlay is too dark\n\nIt appears there is a dark overlay on the header.');
@@ -357,6 +385,12 @@ test('createdTickets reads the "Created task <id>" line the ClickUp script print
   // A mention is not a making.
   assert.deepEqual(createdTickets(toolOut('id: 86bcgh5n9\nname: The first usable version')), []);
   assert.deepEqual(createdTickets(typed('Created task 86bcgh5n9')), []);
+});
+
+test('createdTickets reads a tracker id (WC-12), the one Spirality\'s door prints since the move', () => {
+  assert.deepEqual(createdTickets(toolOut('\nCreated task WC-12\n  http://127.0.0.1:4180/tickets/WC-12\n')), ['WC-12']);
+  assert.deepEqual(chatWords([typed('Make the tasks sortable'), toolOut('Created task WC-170')], new Set(['WC-170'])).get('WC-170'), 'Make the tasks sortable');
+  assert.deepEqual(createdTickets(toolOut('Created task WC-')), []);
 });
 
 test('chatWords gives the request he typed before the chat made each ticket', () => {
@@ -468,11 +502,13 @@ test('missingShas picks a stopped capture up again, since it wrote no row', () =
 
 test('ticketId reads the task id from a ticket link only', () => {
   assert.equal(ticketId('https://app.clickup.com/t/86bcvtyhk'), '86bcvtyhk');
+  assert.equal(ticketId(`${PUBLIC}/t/WC-165`, [PUBLIC, LOCAL]), 'WC-165');
+  assert.equal(ticketId(`${PUBLIC}/t/WC-165`), null, 'a tracker page counts only at a configured address');
   assert.equal(ticketId(null), null);
   assert.equal(ticketId('https://example.com/t/86bcvtyhk'), null);
 });
 
-test('laneCapturedOnMerge is true only once the merge lane runs missing', () => {
+test('laneCapturedOnMerge is true only once a lane runs missing', () => {
   assert.equal(laneCapturedOnMerge('npm run --silent clickup -- merge-on-comment'), false);
   assert.equal(laneCapturedOnMerge(''), false);
   assert.equal(laneCapturedOnMerge('"$REPO/scripts/run_with_time_limit.sh" 360 -- npm run --silent evolution -- missing 2>&1'), true);
@@ -581,6 +617,13 @@ test('the card passes the operator-card rules for every real reason, and is not 
   }
 });
 
+test('the card passes the ticket door\'s own card rules (Spirality\'s ask), for every real reason', () => {
+  for (const reason of [NO_BROWSER, NO_TEST_DB, NO_KEYS, BAD_READ]) {
+    const state = { reason, count: 3, since: '2026-11-01T02:16:00Z', tickets: [] };
+    assert.doesNotThrow(() => buildCard(runAlertCard(state)), reason);
+  }
+});
+
 test('the ticket name and recovery note fit the rules', () => {
   assert.equal(nameProblem(RUN_ALERT_NAME), null);
   assert.match(recoveredNote(), /works again/);
@@ -592,8 +635,8 @@ test('RULES_FILE is the file that holds choosePage', () => {
   assert.match(readFileSync(RULES_FILE, 'utf8'), /export function choosePage\(/);
 });
 
-test('the merge lane retakes after a clean missing, only when the rules changed', () => {
-  const lane = readFileSync('scripts/merge_lane.sh', 'utf8');
+test('the Evolution lane retakes after a clean missing, only when the rules changed', () => {
+  const lane = readFileSync('scripts/evolution_lane.sh', 'utf8');
   const missing = lane.indexOf('evolution -- missing');
   const retake = lane.indexOf('evolution -- recapture --if-rules-changed');
   assert.ok(missing > 0 && retake > missing, 'recapture --if-rules-changed runs after missing');

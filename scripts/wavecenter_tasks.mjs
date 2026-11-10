@@ -29,6 +29,11 @@
  *       finished tickets back to their tasks: Live -> done; Live with wont-do
  *       or deferred -> todo, unticked, with a note. Tasks handed off before
  *       the move still carry a ClickUp link; those are read from ClickUp.
+ *   ticket-json --ticket <link|id>
+ *       read-only, for the Evolution pictures (scripts/evolution_capture.mjs):
+ *       the ticket's link, tags, body and comments (oldest first) as one JSON
+ *       line. A tracker ticket (WC-12, or its page) is read from the tracker;
+ *       a ClickUp ticket from before the move, from ClickUp.
  *
  * Exit codes: 0 done, 1 failed (nothing was changed), 2 usage, 3 as above.
  */
@@ -39,6 +44,7 @@ import {
   nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, serviceDb, syncBack, taskLine,
   ticketPriority as ticketPriorityOf, ticketUrl, FROM_WAVECENTER_TAG, emptyTakes, withTake, skipLine,
 } from './lib/handoff.mjs';
+import { ticketRef } from './lib/ticketLinks.mjs';
 import { CoreError, LOOP_HANDOFF_TOOL, LOOP_SPEC_TOOL } from '../core/tool.ts';
 import { loadProjectConfig, ProjectConfigError } from '../loop/lib/projectConfig.mjs';
 import { createApiTracker, trackerTokenEnv } from '../loop/scripts/tracker/apiTracker.mjs';
@@ -50,6 +56,7 @@ const USAGE = `usage: npm run wavecenter -- <command>
   handoff-next [--take]
   handoff-record --task <wavecenter-id> --ticket <ticket-id>
   handoff-sync
+  ticket-json --ticket <link|id>
 (see the top of scripts/wavecenter_tasks.mjs for what each one does)`;
 
 function arg(name, fallback = null) {
@@ -61,7 +68,7 @@ function usage() { console.error(USAGE); process.exit(2); }
 function readBody(file) { return readFileSync(file === '-' ? 0 : file, 'utf8'); }
 
 const cmd = process.argv[2];
-const COMMANDS = ['chat-task', 'chat-record', 'handoff-next', 'handoff-record', 'handoff-sync'];
+const COMMANDS = ['chat-task', 'chat-record', 'handoff-next', 'handoff-record', 'handoff-sync', 'ticket-json'];
 if (!cmd || cmd === '--help' || cmd === 'help') usage();
 if (!COMMANDS.includes(cmd)) {
   console.error(`Unknown command "${cmd}". Ticket commands (task, comment, status, ask, ...) are Spirality's door: npm run clickup -- ${cmd}`);
@@ -225,6 +232,34 @@ if (cmd === 'chat-task') {
   }, null, 2));
   console.error(`${next.waiting} ticked task(s) waiting; this is the first in line${lines.length ? ` after ${lines.length} skipped` : ''}.`);
   if (!take) console.error('(Not counted as a take: only the lane\'s own pass, with --take, counts.)');
+} else if (cmd === 'ticket-json') {
+  const given = arg('ticket');
+  if (!given) usage();
+  const ref = ticketRef(given, TRACKER_URLS)
+    ?? (/^[A-Za-z]+-[0-9]+$/.test(given) ? { where: here, id: given.toUpperCase() }
+      : /^[A-Za-z0-9]+$/.test(given) ? { where: 'clickup', id: given } : null);
+  if (!ref) { console.error(`"${given}" is not a ticket link or id this project knows.`); process.exit(2); }
+  const door = ref.where === 'clickup' ? clickup() : theTracker();
+  const link = ref.where === 'clickup' ? ticketUrl(ref.id) : ticketUrl(ref.id, TRACKER_URL);
+  /** Every top-level comment, oldest first, or exits saying it could not read them. */
+  const commentsOf = async () => {
+    const out = await door.listComments(ref.id);
+    if (out.bad || !out.paged?.complete) {
+      console.error(`could not read the comments on ticket ${ref.id}: HTTP ${out.bad?.res?.status ?? '?'}`);
+      process.exit(1);
+    }
+    return [...out.paged.comments].reverse();
+  };
+  let t;
+  try { t = await readTicket(ref); } catch (err) { console.error(err.message); process.exit(1); }
+  const comments = await commentsOf();
+  console.log(JSON.stringify({
+    id: t.id,
+    url: link,
+    tags: (t.tags || []).map((x) => x.name),
+    description: t.markdown_description || t.description || '',
+    comments: comments.map((c) => ({ text: c.comment_text || '', date: c.date })),
+  }));
 } else {
   let tally;
   try {
