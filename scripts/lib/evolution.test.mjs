@@ -387,6 +387,12 @@ test('createdTickets reads the "Created task <id>" line the ClickUp script print
   assert.deepEqual(createdTickets(typed('Created task 86bcgh5n9')), []);
 });
 
+test('createdTickets reads a tracker id (WC-12), the one Spirality\'s door prints since the move', () => {
+  assert.deepEqual(createdTickets(toolOut('\nCreated task WC-12\n  http://127.0.0.1:4180/tickets/WC-12\n')), ['WC-12']);
+  assert.deepEqual(chatWords([typed('Make the tasks sortable'), toolOut('Created task WC-170')], new Set(['WC-170'])).get('WC-170'), 'Make the tasks sortable');
+  assert.deepEqual(createdTickets(toolOut('Created task WC-')), []);
+});
+
 test('chatWords gives the request he typed before the chat made each ticket', () => {
   const chat = [
     typed('Build the simple to-do list, with points on every task'),

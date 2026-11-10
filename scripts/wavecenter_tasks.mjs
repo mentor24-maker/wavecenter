@@ -34,9 +34,6 @@
  *       the ticket's link, tags, body and comments (oldest first) as one JSON
  *       line. A tracker ticket (WC-12, or its page) is read from the tracker;
  *       a ClickUp ticket from before the move, from ClickUp.
- *   ticket-comment --ticket <link|id> --body-file <f|->
- *       a plain note on a tracker ticket, read back. A ClickUp ticket is
- *       refused (exit 2): its notes go through the old door, scripts/clickup.mjs.
  *
  * Exit codes: 0 done, 1 failed (nothing was changed), 2 usage, 3 as above.
  */
@@ -60,7 +57,6 @@ const USAGE = `usage: npm run wavecenter -- <command>
   handoff-record --task <wavecenter-id> --ticket <ticket-id>
   handoff-sync
   ticket-json --ticket <link|id>
-  ticket-comment --ticket <link|id> --body-file <f|->
 (see the top of scripts/wavecenter_tasks.mjs for what each one does)`;
 
 function arg(name, fallback = null) {
@@ -72,7 +68,7 @@ function usage() { console.error(USAGE); process.exit(2); }
 function readBody(file) { return readFileSync(file === '-' ? 0 : file, 'utf8'); }
 
 const cmd = process.argv[2];
-const COMMANDS = ['chat-task', 'chat-record', 'handoff-next', 'handoff-record', 'handoff-sync', 'ticket-json', 'ticket-comment'];
+const COMMANDS = ['chat-task', 'chat-record', 'handoff-next', 'handoff-record', 'handoff-sync', 'ticket-json'];
 if (!cmd || cmd === '--help' || cmd === 'help') usage();
 if (!COMMANDS.includes(cmd)) {
   console.error(`Unknown command "${cmd}". Ticket commands (task, comment, status, ask, ...) are Spirality's door: npm run clickup -- ${cmd}`);
@@ -236,7 +232,7 @@ if (cmd === 'chat-task') {
   }, null, 2));
   console.error(`${next.waiting} ticked task(s) waiting; this is the first in line${lines.length ? ` after ${lines.length} skipped` : ''}.`);
   if (!take) console.error('(Not counted as a take: only the lane\'s own pass, with --take, counts.)');
-} else if (cmd === 'ticket-json' || cmd === 'ticket-comment') {
+} else if (cmd === 'ticket-json') {
   const given = arg('ticket');
   if (!given) usage();
   const ref = ticketRef(given, TRACKER_URLS)
@@ -254,36 +250,16 @@ if (cmd === 'chat-task') {
     }
     return [...out.paged.comments].reverse();
   };
-  if (cmd === 'ticket-json') {
-    let t;
-    try { t = await readTicket(ref); } catch (err) { console.error(err.message); process.exit(1); }
-    const comments = await commentsOf();
-    console.log(JSON.stringify({
-      id: t.id,
-      url: link,
-      tags: (t.tags || []).map((x) => x.name),
-      description: t.markdown_description || t.description || '',
-      comments: comments.map((c) => ({ text: c.comment_text || '', date: c.date })),
-    }));
-  } else {
-    if (ref.where === 'clickup') {
-      console.error(`Ticket ${ref.id} is a ClickUp ticket from before the move; post on it with the old door: node scripts/clickup.mjs comment --task ${ref.id} --body-file -`);
-      process.exit(2);
-    }
-    const file = arg('body-file');
-    if (!file) usage();
-    const body = readBody(file);
-    if (!body.trim()) { console.error('NOT posted: the note is empty.'); process.exit(2); }
-    const out = await door.postComment(ref.id, { comment_text: body });
-    if (!out.res.ok) { console.error(`NOT posted on ticket ${ref.id}: HTTP ${out.res.status} ${String(out.text || '').slice(0, 200)}`); process.exit(1); }
-    const id = String(out.json?.id ?? '');
-    const stored = (await commentsOf()).find((c) => String(c.id) === id);
-    if (!stored || !String(stored.comment_text || '').trim()) {
-      console.error(`The note on ticket ${ref.id} did NOT land intact: comment ${id || '(no id)'} ${stored ? 'saved empty' : 'not found on the ticket'}.`);
-      process.exit(1);
-    }
-    console.log(`Comment ${id} added to ticket ${ref.id} (verified by reading it back).`);
-  }
+  let t;
+  try { t = await readTicket(ref); } catch (err) { console.error(err.message); process.exit(1); }
+  const comments = await commentsOf();
+  console.log(JSON.stringify({
+    id: t.id,
+    url: link,
+    tags: (t.tags || []).map((x) => x.name),
+    description: t.markdown_description || t.description || '',
+    comments: comments.map((c) => ({ text: c.comment_text || '', date: c.date })),
+  }));
 } else {
   let tally;
   try {

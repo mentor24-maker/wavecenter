@@ -115,7 +115,7 @@
  * that was not stored is never recorded as captured (engineering rule 6).
  * Exit 143 = stopped at the time limit.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync, existsSync, readdirSync, createReadStream } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, cpSync, mkdirSync, existsSync, readdirSync, createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { tmpdir, homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
@@ -314,6 +314,8 @@ function resetTestDb(sha) {
     workdir = mkdtempSync(join(tmpdir(), 'wavecenter-evolution-db-'));
     mkdirSync(join(workdir, 'supabase/migrations'), { recursive: true });
     copyFileSync(join(REPO, 'supabase/config.toml'), join(workdir, 'supabase/config.toml'));
+    // config.toml names files beside it (the styled emails' templates); without them the reset fails.
+    if (existsSync(join(REPO, 'supabase/templates'))) cpSync(join(REPO, 'supabase/templates'), join(workdir, 'supabase/templates'), { recursive: true });
     const listed = git(['ls-tree', '--name-only', `${sha}:supabase/migrations`]).split('\n').filter((f) => f.endsWith('.sql'));
     for (const f of listed) writeFileSync(join(workdir, 'supabase/migrations', f), git(['show', `${sha}:supabase/migrations/${f}`]) + '\n');
   }
@@ -719,16 +721,16 @@ function door(args, input) {
 }
 
 /**
- * A plain note on a ticket, read back: a tracker ticket through WaveCenter's
- * door (`ticket-comment`), a ClickUp ticket from before the move through the
- * old one, where its history is.
+ * A plain note on a ticket, read back: a tracker ticket through Spirality's
+ * door (`comment`), a ClickUp ticket from before the move through the old
+ * one, where its history is. The door refuses "> " lines (ClickUp deletes
+ * them), so a quoted line in a failure reason is escaped (\>) out of a quote.
  */
 function noteTicket(task, body) {
-  const args = onTracker(task)
-    ? [join(REPO, 'scripts/wavecenter_tasks.mjs'), 'ticket-comment', '--ticket', task, '--body-file', '-']
-    : [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'];
+  const text = String(body).replace(/^(\s*)>/gm, '$1\\>');
+  if (onTracker(task)) return door(['comment', '--task', task, '--body-file', '-'], text);
   try {
-    return sh(process.execPath, args, { input: body });
+    return sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'], { input: text });
   } catch (err) {
     return { ok: false, out: err.message };
   }

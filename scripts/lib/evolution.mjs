@@ -404,14 +404,18 @@ export function typedWords(entry) {
   return text;
 }
 
-/** The ClickUp tickets an entry's tool output says were just made (`clickup.mjs task` prints "Created task <id>"). */
+/**
+ * The tickets an entry's tool output says were just made: the door's `task`
+ * prints "Created task <id>", a tracker id (WC-170) since the move, a ClickUp
+ * id (86bcgh5n9) before it.
+ */
 export function createdTickets(entry) {
   if (entry?.type !== 'user' || !Array.isArray(entry.message?.content)) return [];
   const out = [];
   for (const block of entry.message.content) {
     if (block?.type !== 'tool_result') continue;
     const text = typeof block.content === 'string' ? block.content : (block.content || []).map((b) => b?.text ?? '').join('\n');
-    for (const m of text.matchAll(/^Created task ([A-Za-z0-9]+)$/gm)) out.push(m[1]);
+    for (const m of text.matchAll(/^Created task ([A-Za-z]+-[0-9]+|[A-Za-z0-9]+)$/gm)) out.push(m[1]);
   }
   return out;
 }
