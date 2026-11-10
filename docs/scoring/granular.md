@@ -37,7 +37,9 @@ refuses any rescore (`apply_rescore` in
 `supabase/migrations/20261103160000_rescore_past_points.sql`;
 `docs/DATA_MODEL.md`, "Rescoring past points while scoring is
 provisional"). Dane asked for this on 2026-11-03, so that a new DEO's
-early guesswork values can be corrected later.
+early guesswork values can be corrected later. Declaring points final is one-way: no screen can reopen the
+provisional phase (Dane, 2026-11-03, "Permanent"; `docs/DATA_MODEL.md`,
+"Rescoring past points while scoring is provisional").
 
 ## The four factors
 
