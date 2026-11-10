@@ -23,6 +23,9 @@
     ".github/workflows/"
   ],
   "autoMergeLanes": [],
+  "projectLanes": [
+    "loop-handoff"
+  ],
   "operatorName": "Dane",
   "projectSlug": "wavecenter",
   "legacyMachinePrefixes": [],

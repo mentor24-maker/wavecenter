@@ -2,7 +2,9 @@
 #
 # Install (or remove) the Spirality loop jobs on THIS machine: loop-build,
 # loop-review and loop-intake (each a launchd agent that keeps the committed
-# runner alive, with its own lock and log),
+# runner alive, with its own lock and log), WaveCenter's own loop-handoff
+# lane run the same way (it files the tasks members tick for AI agents into
+# the queue, .claude/skills/loop-handoff),
 # the relay (a launchd agent that runs one pass every ten minutes),
 # WaveCenter's own ai-rating lane (one pass every 30 minutes that rates the
 # tasks that need it, scripts/rating_lane.sh), its Evolution lane (one pass
@@ -29,7 +31,10 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The lanes that run a Claude skill in a kept-alive loop, and the relay,
 # which is a plain node pass on a timer. Different plist shapes, one installer.
-SKILLS=(loop-build loop-review loop-intake)
+SKILLS=(loop-build loop-review loop-intake loop-handoff)
+# loop-handoff is WaveCenter's own lane, not Spirality's (WC-163). It signs in
+# to the tracker as its own seat, TRACKER_TOKEN_LOOP_HANDOFF, which exists
+# only because spirality.project.json names it in "projectLanes" (SP-180).
 RELAY=relay
 # WaveCenter's own lane, beside Spirality's: rate the tasks that need it
 # (scripts/rating_lane.sh, Dane 2026-11-04). One pass on a timer, like the relay.
@@ -68,11 +73,28 @@ interval_of() {
     loop-build)  echo 1800 ;;
     loop-review) echo 1800 ;;
     loop-intake) echo 1800 ;;
+    loop-handoff) echo 600 ;;
     relay)       echo 600 ;;
     ai-rating)   echo 1800 ;;
     evolution)   echo 600 ;;
     *)           echo 3600 ;;
   esac
+}
+# A lane's own time limit for one pass, when it is not the runner's default
+# (7200 s). The runner reads it as LOOP_PASS_LIMIT_SECONDS, set in the lane's
+# plist below, so the runner itself stays Spirality's copy. A hand-off pass
+# only files one ticket, so a frozen one is stopped after 15 minutes, as
+# before the move to Spirality's loop (review of WC-162, round 3).
+limit_of() {
+  case "$1" in
+    loop-handoff) echo 900 ;;
+    *)            echo "" ;;
+  esac
+}
+# The plist environment pairs that give a lane its own time limit, if any.
+limit_env() {
+  local limit; limit="$(limit_of "$1")"
+  if [ -n "$limit" ]; then echo "LOOP_PASS_LIMIT_SECONDS $limit"; fi
 }
 # loaded_line and reload_job: read launchd's list safely, and replace a job
 # only once the old one is really gone.
@@ -389,7 +411,7 @@ install() {
     <true/>
     <key>ThrottleInterval</key>
     <integer>300</integer>
-$(plist_env)
+$(plist_env $(limit_env "$s"))
     <key>StandardOutPath</key>
     <string>$local_llog</string>
     <key>StandardErrorPath</key>
@@ -398,7 +420,7 @@ $(plist_env)
 </plist>
 PLIST_BODY
     if reload_job "$local_label" "$local_plist"; then
-      echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s)."
+      echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s$([ -n "$(limit_of "$s")" ] && echo ", each pass stopped after $(limit_of "$s")s"))."
     else
       not_loaded+=("$local_label")
     fi
