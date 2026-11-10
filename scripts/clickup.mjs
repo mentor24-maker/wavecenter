@@ -22,8 +22,8 @@
  * stderr, so piping stdout is always safe.
  */
 
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -39,11 +39,6 @@ import {
 } from './lib/loopTrail.mjs';
 import { buildCard, cardSurvived, findBlockquoteLines, CONTEXT_MIN_WORDS, CONTEXT_MAX_WORDS } from './lib/operatorCard.mjs';
 import { stampCommentBody, isCommentPostPath, isMachineComment, stripMachineMarker } from './lib/machineComment.mjs';
-import {
-  nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, serviceDb, syncBack, taskLine, ticketPriority as ticketPriorityOf, ticketUrl, FROM_WAVECENTER_TAG,
-  emptyTakes, withTake, skipLine, SKIP_AFTER_TAKES,
-} from './lib/handoff.mjs';
-import { CoreError, LOOP_HANDOFF_TOOL, LOOP_SPEC_TOOL } from '../core/tool.ts';
 import {
   findAuthorization, danesAnswer, refusalNotice, alreadyNoticed, prDecision, mergedComment, mergeRecorded, MERGE_PHRASES,
   conflictToSettle, settledLine, notSettledLine, settleCardProblem, SETTLE_TODO,
@@ -177,22 +172,8 @@ npm run clickup -- <command> [flags]      (WaveCenter Loop Queue: list ${LOOP_QU
   settle-blocked --task <id> --body-file <f|->    the conflict needs his choice: an operator card, Dane assigned, no status change
   merge-on-comment [--dry-run]                    the merge lane: carry out Dane's written "${MERGE_PHRASES[0]}" on Ready to launch
                                                   tickets, and requeue Needs your input tickets he has answered
-  handoff-next [--take]                           the loop-handoff lane: the next ticked WaveCenter task, as JSON
-                                                  (exit 0), or why there is none (exit 3). A task ${SKIP_AFTER_TAKES} passes
-                                                  took without recording a ticket is skipped and named. Only
-                                                  --take (the lane's own pass) counts as taking it
-  handoff-record --task <wavecenter-id> --ticket <clickup-id>
-                                                  record a filed ticket on its task, through core (exit 3: it
-                                                  already had one — close the duplicate ticket)
-  handoff-sync                                    finished tickets back to their tasks: Live -> done; Live with
-                                                  wont-do or deferred -> todo, unticked, with a note
-  chat-task --title "..." [--notes-file <f|->] [--points n] [--priority p]
-                                                  loop-spec: make the WaveCenter task, owned by Dane, for work he
-                                                  asked for in a chat, as JSON (id, taskLine, tag). Unticked, so
-                                                  the hand-off lane never files it
-  chat-record --task <wavecenter-id> --ticket <clickup-id>
-                                                  loop-spec: record the ticket filed for that task, through core
-                                                  (exit 3: it already had one — close the duplicate ticket)
+  (chat-task, chat-record, handoff-next, handoff-record and handoff-sync moved:
+   npm run wavecenter -- <command>, scripts/wavecenter_tasks.mjs)
 
 Statuses (matched case-insensitively): ${STAGE_ORDER.join(' / ')}.
 Two are Dane's and only \`ask\` may set them: ${OPERATOR_STATUSES.map((s) => DISPLAY[s]).join(', ')}.
@@ -941,130 +922,12 @@ if (cmd === 'whoami') {
   log(`merge lane done: ${merged} merged and set Live, ${requeued} answered ticket(s) requeued${dry ? ' (dry run: counts are what WOULD happen)' : ''}`);
   reportLimits();
 
-} else if (cmd === 'chat-task' || cmd === 'chat-record') {
-  // Every change Dane asks for starts as a WaveCenter task (Dane, 2026-11-01:
-  // "Yes, always a task"), chat requests included, so each Evolution card can
-  // credit him. loop-spec makes his task, files the ticket, then records it.
-  let db;
-  try {
-    db = serviceDb({ url: process.env.SUPABASE_URL, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, owner: DANE_MEMBER_ID });
-  } catch (err) { console.error(err.message); process.exit(1); }
-
-  if (cmd === 'chat-task') {
-    const title = arg('title');
-    if (!title) usage();
-    const notesFile = arg('notes-file');
-    const points = arg('points') === null ? 0 : Number(arg('points'));
-    let t;
-    try {
-      t = await createChatTask({
-        db, title, notes: notesFile ? readBody(notesFile) : null, points, priority: arg('priority', 'normal'), tool: LOOP_SPEC_TOOL,
-      });
-    } catch (err) { console.error(`NOT made, nothing was saved: ${err.message}`); process.exit(1); }
-    console.log(JSON.stringify({ id: t.id, title: t.title, notes: t.notes, points: t.points, status: t.status, taskLine: taskLine(t.id), tag: FROM_WAVECENTER_TAG }, null, 2));
-    console.error(`Made task ${t.id} "${t.title}" for Dane (${t.status}, ${t.points} point(s)). File its ticket, then: npm run clickup -- chat-record --task ${t.id} --ticket <ticket-id>`);
-  } else {
-    const task = arg('task'), ticket = arg('ticket');
-    if (!task || !ticket) usage();
-    const out = await call('GET', `/api/v2/task/${encodeURIComponent(ticket)}?include_markdown_description=true`);
-    if (!out.res.ok) die(`read ticket ${ticket} back (the task was NOT changed)`, out);
-    try {
-      const saved = await recordChatTicket({ db, ticket: out.json, taskId: task, listId: LOOP_QUEUE_LIST, tool: LOOP_SPEC_TOOL });
-      console.log(`Task ${task} "${saved.title}": now with AI agents, status ${saved.status}, ticket ${saved.agentTicketUrl}.`);
-    } catch (err) {
-      if (err instanceof CoreError && /already handed|another pass first/.test(err.message)) {
-        console.error(`NOT recorded: ${err.message}`);
-        console.error(`Ticket ${ticketUrl(ticket)} is a duplicate. Close it: tag wont-do, comment why, status Live.`);
-        process.exit(3);
-      }
-      console.error(`NOT recorded, and task ${task} was left as it was: ${err.message}`);
-      process.exit(1);
-    }
-    reportLimits();
-  }
-
-} else if (cmd === 'handoff-next' || cmd === 'handoff-record' || cmd === 'handoff-sync') {
-  // THE HAND-OFF LANE's database side (.claude/skills/loop-handoff). The
-  // service key comes from Doppler on the Mini and is never printed.
-  let db;
-  try {
-    db = serviceDb({ url: process.env.SUPABASE_URL, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY });
-  } catch (err) { console.error(err.message); process.exit(1); }
-
-  if (cmd === 'handoff-next') {
-    // Which task each pass took, so one the lane keeps freezing on is skipped
-    // (2026-10-30). On the Mini, beside the lane log; never on Vercel.
-    const logDir = process.env.LOOP_LOG_DIR || join(homedir(), 'loop-logs');
-    const takesFile = join(logDir, 'wavecenter-handoff-takes.json');
-    const laneLog = join(logDir, 'wavecenter-loop-handoff.log');
-    let takes = emptyTakes();
-    try {
-      const saved = JSON.parse(readFileSync(takesFile, 'utf8'));
-      if (saved && typeof saved.takes === 'object' && saved.takes) takes = saved;
-      else console.error(`${takesFile} is not a record of takes; starting it afresh.`);
-    } catch (err) {
-      if (err.code !== 'ENOENT') console.error(`Could not read ${takesFile} (${err.message}); starting it afresh.`);
-    }
-    let next;
-    try { next = await nextHandOff(db, takes); } catch (err) { console.error(`Could not read the ticked tasks: ${err.message}`); process.exit(1); }
-    const take = flag('take');
-    const lines = next.skipped.map(skipLine);
-    for (const line of lines) console.error(line);
-    if (take) {
-      const updated = next.task ? withTake(next.takes, next.task) : next.takes;
-      try {
-        mkdirSync(logDir, { recursive: true });
-        writeFileSync(`${takesFile}.tmp`, `${JSON.stringify(updated, null, 2)}\n`);
-        renameSync(`${takesFile}.tmp`, takesFile);
-      } catch (err) {
-        console.error(`WARNING: this take was NOT remembered (${err.message}), so a task this pass freezes on will not be skipped next time.`);
-      }
-      if (lines.length) {
-        const stamp = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', hour12: false });
-        try { appendFileSync(laneLog, lines.map((l) => `[handoff-next] ${stamp} Mountain ${l}\n`).join('')); }
-        catch (err) { console.error(`Could not write the skip to ${laneLog}: ${err.message}`); }
-      }
-    }
-    if (!next.task) { console.error(next.why); process.exit(3); }
-    const t = next.task;
-    console.log(JSON.stringify({
-      id: t.id, title: t.title, notes: t.notes, priority: t.priority, ticketPriority: ticketPriorityOf(t),
-      createdAt: t.createdAt, taskLine: taskLine(t.id), tag: FROM_WAVECENTER_TAG,
-      skipped: next.skipped.map((s) => ({ id: s.task.id, title: s.task.title, takes: s.count })),
-    }, null, 2));
-    console.error(`${next.waiting} ticked task(s) waiting; this is the first in line${lines.length ? ` after ${lines.length} skipped` : ''}.`);
-    if (!take) console.error('(Not counted as a take: only the lane\'s own pass, with --take, counts.)');
-
-  } else if (cmd === 'handoff-record') {
-    const task = arg('task'), ticket = arg('ticket');
-    if (!task || !ticket) usage();
-    const out = await call('GET', `/api/v2/task/${encodeURIComponent(ticket)}?include_markdown_description=true`);
-    if (!out.res.ok) die(`read ticket ${ticket} back (the task was NOT changed)`, out);
-    try {
-      const saved = await recordHandOff({ db, ticket: out.json, taskId: task, listId: LOOP_QUEUE_LIST, tool: LOOP_HANDOFF_TOOL });
-      console.log(`Task ${task} "${saved.title}": now with AI agents, status ${saved.status}, ticket ${saved.agentTicketUrl}.`);
-    } catch (err) {
-      if (err instanceof CoreError && /already handed|another pass first/.test(err.message)) {
-        console.error(`NOT recorded: ${err.message}`);
-        console.error(`Ticket ${ticketUrl(ticket)} is a duplicate. Close it: tag wont-do, comment why, status Live.`);
-        process.exit(3);
-      }
-      console.error(`NOT recorded, and task ${task} was left as it was: ${err.message}`);
-      process.exit(1);
-    }
-
-  } else {
-    const readTicket = async (id) => {
-      const out = await call('GET', `/api/v2/task/${encodeURIComponent(id)}`);
-      if (!out.res.ok) throw new Error(`reading ticket ${id} failed: HTTP ${out.res.status} ${String(out.json?.err || out.text || '').slice(0, 200)}`);
-      return out.json;
-    };
-    let tally;
-    try { tally = await syncBack({ db, readTicket, tool: LOOP_HANDOFF_TOOL }); } catch (err) { console.error(`Could not read the handed-off tasks: ${err.message}`); process.exit(1); }
-    console.log(`sync: ${tally.done} done, ${tally.returned} handed back, ${tally.waiting} still with the agents, ${tally.failed} failed`);
-    if (tally.failed) process.exitCode = 1;
-  }
-  reportLimits();
+} else if (['chat-task', 'chat-record', 'handoff-next', 'handoff-record', 'handoff-sync'].includes(cmd)) {
+  // These moved to WaveCenter's own door when WaveCenter took Spirality's loop
+  // (SP-23, WC-162): they read tickets from the tracker now, and this old
+  // ClickUp door no longer carries them.
+  console.error(`"${cmd}" moved: npm run wavecenter -- ${cmd} (scripts/wavecenter_tasks.mjs).`);
+  process.exit(2);
 
 } else {
   console.error(`Unknown command "${cmd}".`);

@@ -57,9 +57,9 @@ for (const file of shellFiles) {
   });
 }
 
-test("the installer defines install, uninstall, status and install_interval_lane", () => {
+test("the installer defines install, uninstall and status", () => {
   const defined = definedFunctions(readFileSync(join(SCRIPTS, "install_loop_runner.sh"), "utf8"));
-  for (const name of ["install", "uninstall", "status", "install_interval_lane"]) {
+  for (const name of ["install", "uninstall", "status"]) {
     assert.ok(defined.includes(name), `install_loop_runner.sh does not define ${name}`);
   }
 });

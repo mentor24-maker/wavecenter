@@ -1,11 +1,11 @@
 ---
 name: loop-build
-description: Pick the next claimable task (all "Rework" first, then a "Ready to launch" ticket whose approved PR conflicts with main — settled in place, status untouched — then "Queued") from the WaveCenter "Loop Queue" ClickUp list and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 15m loop-build`. Never edits main, never merges.
+description: Pick the next claimable task (all "Rework" first, then "Queued") from the WaveCenter queue in the tracker and build it end-to-end into a pull request — in its own git worktree, passing `npm run verify` — then move the task to "In review". Designed to be run on a timer with `/loop 30m loop-build`. Never edits main, never merges.
 ---
 
 # Loop: Build
 
-Step 2 of 3 in the WaveCenter development loop (spec → build → review).
+Step 2 of 3 in WaveCenter's development loop (spec → build → review), the loop Spirality defines.
 See `docs/LOOP_ENGINEERING.md` for the whole system.
 
 Each run builds **one** task into **one** PR. Under `/loop` it repeats,
@@ -14,24 +14,77 @@ draining the queue one clean PR at a time.
 ## Before anything: one claimant
 
 Claiming a ticket is check-then-act (a read, a comparison, a write), which is
-only sound with exactly one build loop running. WaveCenter has no scheduled
-runner yet, so the rule is simple: **do not start this loop if another session
-is already running it.** If `queue --claimable` shows a ticket in `Building`
-that is not yours, a pass is already in flight — stop and say so.
+only sound with exactly one build pass running. On the Mini the build lane's
+runner (`scripts/loop_runner.sh`) holds a lock, `$LOG_DIR/$SLUG-loop-build.lock`,
+so only one runner runs and its passes run one after another. A session
+started by hand holds no lock, so **it does not build while the lane is
+loaded**.
 
-## ClickUp access: the direct script, not the connector
+**First tell which one you are.** The lane's runner, `scripts/loop_runner.sh`,
+exports `LOOP_RUNNER_PID` to every pass it starts:
 
-Every ClickUp touch goes through **`npm run clickup -- <command>`** — a full
+```bash
+echo "${LOOP_RUNNER_PID:-}"
+```
+
+- **Set** (a number): you ARE the build lane's own pass, and the runner's
+  lock (`$LOG_DIR/$SLUG-loop-build.lock`) is yours: it is what makes you the only
+  one. Carry on. A loaded lane, a held lock and a running `loop_runner.sh`
+  are you, not a second builder. (On 11/4 two build passes in a row stood down
+  here, each naming its own runner's process, and two tickets sat in Rework.)
+- **Empty**: you were started by hand. Run
+  `scripts/install_loop_runner.sh --status`; if `loop-build` shows
+  `loaded:   yes`, stop and report that the lane is running, unless Dane has
+  asked for this pass by hand (then claim only through `claim`, which is
+  guarded on the ticket's status). Otherwise carry on.
+- **Whenever you stop for this reason**, the first line of your report is
+  exactly `LANE STOOD DOWN: <why, in one line>`, and nothing else ever starts
+  with those words. The setup wizard reads a new project's first lane passes
+  for that line (`npm run onboard:lanes`), never for wording, because a pass
+  that is the lane says "I am the lane, not a second one" too.
+
+A ticket in `Building` is not proof that a pass is building it. A pass that
+dies (killed, out of time, out of session) leaves its ticket there, and
+nothing claims from `Building` (Spirality's SP-101: Spirality's SP-92 sat a
+day that way). So every
+pass begins with this, **once, before it claims, never later** (later, the
+marker is your own claim and it would hand back the ticket you are building):
+
+```bash
+npm run clickup -- pass-reconcile
+```
+
+A `claim` made by the build runner's pass writes a claim marker naming the
+ticket; the hand-off (`status` or `ask`) clears it. A hand-run session never
+writes one, so its ticket is never taken back. `pass-reconcile` reads the
+marker the last pass left: if that ticket is still in `Building`, its pass is
+gone, and it goes back to `Rework` (it has a PR) or `Queued` (it has none),
+guarded on `Building`, with one note read back naming the claim time and any
+unpushed worktree from around then. **Nothing is deleted.** Run by hand while
+the runner is running, it leaves the marker alone. Exit 0 nothing to do,
+3 handed one back (both normal: carry on and claim). Exit 1 (a write failed)
+or 2 (could not tell) keeps the marker for the next pass to retry: **stop the
+pass there and report it**. `claim` refuses, with exit 1, to write over a
+marker whose ticket is still in `Building` or cannot be read, because that
+marker is the only record of the stranded ticket. A claim refused at its guard
+(exit 3) clears the marker it wrote. Any other `Building` ticket is not yours:
+leave it.
+
+## Ticket access: the direct script, not the connector
+
+Every ticket touch (the tracker, since the switch from ClickUp) goes through **`npm run clickup -- <command>`** — a full
 standalone command each time (shell state does not survive between tool
 calls). Doppler supplies the token; you never see or handle it. The moves this
 loop makes:
 
 ```bash
+npm run clickup -- pass-reconcile                                      # FIRST: hand back the ticket a dead pass left in Building
 npm run clickup -- queue --claimable                                   # FIRST LINE is the task to claim (all Rework, then Queued)
-npm run clickup -- claim --task <id>                                   # safe claim; exit 3 = someone beat you, take the next
-npm run clickup -- get --task <id>                                     # header + body; also shows any recorded PR and send-back rounds
+npm run clickup -- claim --task <id>                                   # safe claim; exit 3 = moved or still waits on a ticket, take the next
+npm run clickup -- get --task <id>                                     # header + body; also shows any recorded PR, send-back rounds and attachments
+npm run clickup -- attachments --task <id> --to /tmp/<id>-attachments  # save the ticket's files, to read before building
 npm run clickup -- comments --task <id>                                # the review notes live here on a Rework ticket
-npm run clickup -- pr-opened --task <id> --pr <pr-url>                 # record the PR — REQUIRED, and it verifies itself
+npm run clickup -- pr-opened --task <id> --pr <pr-url> --human-hours <N> --body-file -   # record the PR — REQUIRED, and it verifies itself
 npm run clickup -- status --task <id> --status "In review"             # hand off (assignees auto-cleared)
 npm run clickup -- ask --task <id> --status "Needs your input" --body-file -   # escalate: card + status together
 npm run clickup -- comment --task <id> --body-file -                   # a plain note
@@ -49,7 +102,10 @@ refuses on its own. Use `ask`, whose body is the operator card:
 @@ASKED     his own words that caused this ticket, verbatim — never invented
 @@WHEN      optional — when and where he said it
 @@CONTEXT   the problem and the fix in plain English, 50-100 words (enforced)
-@@NEEDED    the specific ask; give him named options where you can
+@@NEEDED    the specific ask; give him named options where you can.
+            Its LAST line is his move: "Your move: Merge", "Your move: Close"
+            or "Your move: Reply", then a short reason (enforced). Never tell
+            him to move a ticket himself; offer "Your move: Close" instead.
 @@EVIDENCE  required ONLY when the ask costs money or cannot be undone
 ```
 
@@ -71,31 +127,34 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 1. **Claim the next task.**
 
    ```bash
+   npm run clickup -- pass-reconcile
    npm run clickup -- queue --claimable
    npm run clickup -- claim --task <id>
    ```
 
-   `--claimable` returns every `Rework` ticket, then every `Ready to launch`
-   ticket whose approved PR has a conflict to settle, then `Queued` —
-   rework oldest-first, conflicts oldest-first, queued by
-   priority-then-oldest. **If the first line is `ready to launch`, do NOT
-   `claim` it** (claim refuses it anyway): follow "Settling a conflict on an
-   approved PR" below instead, and that is the whole pass. A `Rework` ticket
+   `--claimable` returns every `Rework` ticket before any `Queued` one —
+   rework oldest-first, then queued by priority-then-oldest. A `Rework` ticket
    is a send-back: it already has a branch, an open PR and review notes.
    Finishing one is cheaper than starting something new. If the list comes
    back empty, report "queue empty" and stop — do not invent work.
 
    `claim` reads the ticket's own status and guards the write on it. Exit 3
-   means it moved underneath you — take the next task.
+   means it moved underneath you, or its `Waits on:` line names a ticket
+   still open (or a line it cannot read) — take the next task. Exit 1 on a
+   `Waits on:` ticket that cannot be read: say so on the ticket, take the
+   next.
 
    **On a `Rework` ticket, do NOT start a second branch.** `get` prints the
    recorded PR. Check out that branch into a worktree
    (`git worktree add .claude/worktrees/<slug> -b <branch> origin/<branch>`),
    read the send-back in `comments`, fix what it named, and push to the SAME
-   PR.
+   PR. A `MAIN MOVED: ... — conflict` note newer than the send-back is part of
+   the rework even when review did not name it.
 
-   The seven statuses are `Rework → Queued → Building → In review →
-   Needs your input / Ready to launch → Live`. Two belong to Dane and no loop
+   The eight statuses are `Requested → Rework → Queued → Building →
+   In review → Needs your input / Ready to launch → Live`. `Requested` is
+   Dane's unspecced words from the tracker page: never claimed, never built
+   from; a spec pass owns it. Two belong to Dane and no loop
    may set or clear them except through `ask`. **Assignment is the handoff
    signal**: moving into his statuses assigns him; moving into a machine
    status clears assignees. `status` enforces both and verifies they stuck.
@@ -117,17 +176,60 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 
 3. **Build to the acceptance criteria.** Implement exactly what the task's
    Scope and Acceptance criteria describe. Respect the Non-goals. Keep every
-   rule in `CLAUDE.md` → "Engineering rules": a new table turns on row-level
-   security when it is created; no secret reaches the browser; never write
-   files at runtime on Vercel; a failed save says so; an empty screen says why.
-   Keep room for the roadmap: a task record carries an owner, a status, a
-   parent task and a points value.
+   rule in `CLAUDE.md` → "Engineering rules": `main` never changes
+   unchecked; a new table turns on row-level security when it is created; no
+   secret reaches the browser, the repository or a log; never write files at
+   runtime on Vercel; a failed save says so; an empty screen says why; one
+   topic, one folder. Every tracker write is read back. Keep room for the
+   roadmap: a task record carries an owner, a status, a parent task and a
+   points value.
+
+   **Never apply a migration to the live database** (WaveCenter's own rule,
+   kept from its loop before the move to Spirality's). Not to test it, not
+   "just this once". On 2026-10-29 a build applied PR #44's migration to live
+   before Dane's `merge`, and the live member list failed for five minutes. A
+   change to `supabase/migrations/` is tested only on the private test
+   database: `npm run db:test` (Docker on the Mac Mini) rebuilds it from every
+   migration in your worktree and runs `check_tasks_rls` there. The PR's
+   description says "Database: tested on the test database (`npm run
+   db:test`)", or, on a machine without Docker, says it was not tested and
+   why. Never run `npm run check:tasks-rls` or `supabase db push` with the
+   live keys to test an unmerged migration. Note: since the move, the relay
+   merges and does **not** apply migrations to live; WC-164 ("Merged database
+   changes will not reach the live database: apply them") brings that back,
+   and until it ships loop-review holds a migration PR out of
+   `Ready to launch`. Say so in the PR body.
+
+   **Read the ticket's files first.** When `get` prints `attachments:` lines
+   (anything but `attachments: (none)`), they are part of the spec. Save them
+   outside the repository and read every one (pictures and text both; the
+   Read tool opens a picture) before writing any code:
+
+   ```bash
+   npm run clickup -- attachments --task <id> --to /tmp/<id>-attachments
+   ```
+
+   It prints `saved <path> (<size> bytes)` per file and exits non-zero naming
+   any file that did not save; a file that did not save is a failure you
+   report, never one you build past. Never copy a file into the repository or
+   a pull request. `attachments: COULD NOT BE READ` means the ticket's files
+   are unknown: say so on the ticket and in your report, and never treat it
+   as none.
 
    **Verify the premise before building it.** A defect ticket is a claim to
    check, not a spec to obey. If the premise is wrong, post the correction on
    the ticket FIRST (a `comment`), then build what is true.
 
 4. **Run the gates — the definition of done.**
+
+   **Catch up with `main` first.** Another ticket may have merged while you
+   built. Run `npm run clickup -- get --task <id>` and read its `main:` line:
+   the relay writes a `MAIN MOVED:` note on your ticket after every merge.
+   On anything but `no-overlap` (or always, it is cheap), merge it in now,
+   before review finds it: `git fetch origin && git merge origin/main
+   --no-edit`. A real conflict here is yours to resolve, inside the task's
+   scope, with the conflicted files read and understood, never by taking one
+   side blind.
 
    ```bash
    npm run verify
@@ -144,23 +246,14 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    `npm run dev` once it exists) and walk the ticket's "How to test" steps
    yourself. Say in the PR where you looked and what you saw.
 
-   **Never apply a migration to the live database.** Not to test it, not
-   "just this once". On 2026-10-29 a build applied PR #44's migration to live
-   before Dane's `merge`, and the live member list failed for five minutes. A
-   change to `supabase/migrations/` is tested only on the private test
-   database: `npm run db:test` (Docker on the Mac Mini) rebuilds it from every
-   migration in your worktree and runs `check_tasks_rls` there. The merge lane
-   applies it to live, on Dane's `merge`. The PR's description says
-   "Database: tested on the test database (`npm run db:test`)", or, on a
-   machine without Docker, says it was not tested and why. Never run
-   `npm run check:tasks-rls` or `supabase db push` with the live keys to test
-   an unmerged migration.
-
-5. **Add a plain-English work-log entry.** Prepend one dated entry to
-   `docs/WORK-LOG.md` (newest first): what changed and why it mattered, the
-   way you would explain it to a non-programmer, plus the `(#PR)` number. This
-   entry rides in the task's own PR, so the log lands on `main` with the work.
-   Never edit `docs/WORK-LOG.md` directly on `main`.
+5. **Add a plain-English work-log entry.** Write one new file,
+   `docs/work-log/<YYYY-MM-DD>-<branch>.md` (today's date, Mountain time, and
+   this task's branch name): a heading `## <date> — <title> (#PR)`, then what
+   changed and why it mattered, the way you would explain it to a
+   non-programmer. One file per PR, so two PRs built at once never clash on
+   the log. This entry rides in the task's own PR, so the log lands on `main`
+   with the work. Never add entries directly on `main`, and never edit
+   another pull request's entry.
 
    You do not have the PR number yet. **Never amend a pushed commit to add
    it** — that needs a force-push, which is forbidden. Either commit the code,
@@ -171,12 +264,17 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    - Inspect `git diff --cached` before committing: no stray edits, no
      generated files, no `.env`. **This repository is public.**
    - Commit message ends with the Co-Authored-By trailer.
-   - **The PR title is the ClickUp task name, copied exactly**
+   - **The PR title is the ticket name, copied exactly**
      (`npm run clickup -- task-name --task <id>` prints it). Dane pairs the
-     ClickUp Closed list against the deploy list by name.
+     Live tickets against the deploy list by name.
    - Push the branch and open a PR to `main` with `gh pr create`. The body
-     must include **the ClickUp task URL** (`https://app.clickup.com/t/<id>`,
-     on a line of its own — `pr-opened` refuses without it), a plain-language
+     must include **the ticket link `pr-opened` reads**, on a line of its
+     own: the ticket's page, `Ticket: <trackerUrl>/t/WC-12`, with the
+     `trackerUrl` written in `spirality.project.json`
+     (`Ticket: http://mac-mini.local:4180/t/WC-12`). Not the `url:` line
+     `get` prints: that is the API address the loop itself uses. `pr-opened`
+     refuses
+     without it and prints the exact line, a plain-language
      summary, and the task's "How to test" steps. End with the Generated-with
      trailer.
    - Wait for the `verify` check: `gh pr checks <pr> --watch`. If no check
@@ -190,12 +288,27 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
 7. **Record the PR on the ticket — with the command, and check what it says.**
 
    ```bash
-   npm run clickup -- pr-opened --task <id> --pr <pr-url>
+   echo "Why that estimate: <one line>" | \
+     npm run clickup -- pr-opened --task <id> --pr <pr-url> --human-hours <N> --body-file -
    ```
 
    It refuses if the PR body has no link back to the ticket, posts the one
    line the review and merge steps read (`PR opened: <url>`), and parses it
    back. **A non-zero exit fails the run** — do not hand the ticket to review.
+
+   **`--human-hours` goes on every time.** It is the Reporting page's count of
+   how much human programmer work the loops did (Spirality's SP-78). Estimate it from the
+   finished pull request, the same way every time: the hours an experienced
+   programmer **new to this code** would take to read the ticket, find their
+   way around the files it touches, make the change, write the tests and get
+   it through review. Not how long this pass took, and not a guess at what
+   Dane would pay. Whole or half hours, more than 0 and at most 200 (anything
+   else exits 2 and writes nothing; a job worth more than 200 should have been
+   sliced). The reason is ONE line on stdin, starting `Why that estimate:`,
+   naming what drove the number (e.g. "Why that estimate: a new module with
+   tests, two existing tests extended, one skill file edited"). On a `Rework`
+   ticket, the newest `PR opened:` comment is the one counted, so if you
+   record the PR again, estimate the whole pull request as it now stands.
 
 8. **Hand off to review.** `npm run clickup -- status --task <id> --status
    "In review"`. Leave it unassigned (it is the machine's turn). **Do NOT
@@ -203,51 +316,6 @@ Exit **0** nothing of his / **3** something IS his / **1** could not tell.
    it from here.
 
 9. **Report** which task you built and the PR number, then finish.
-
-## Settling a conflict on an approved PR
-
-Dane wrote `merge`, but the merge lane refused with `MERGE NOT DONE (…
-reason conflict)` or `reason catch-up-failed`: the branch clashes with
-`main`. He does nothing here; this pass settles it **in place**.
-
-1. `npm run clickup -- settle --task <id>` — exit 0 prints the PR and its
-   branch; exit 3 means it is not owed a fix (take the next line).
-2. Check the branch out into a worktree (as for Rework:
-   `git worktree add .claude/worktrees/<slug> -b <branch> origin/<branch>`,
-   or reuse one that is still there), then `git merge origin/main --no-edit`.
-3. Settle each conflict **keeping both sides**: both changes were meant to
-   ship. Read what each side was for (the two PRs / tickets) before you edit.
-4. `npm run verify`, then commit the merge and push — an ordinary push,
-   never a force-push, never a rebase.
-5. `npm run clickup -- settled --task <id> --body-file -` with a plain note:
-   which files conflicted and how both sides were kept. It refuses unless
-   GitHub reads the PR `MERGEABLE`.
-
-**Never change the status** — `Ready to launch` is Dane's, and his `merge`
-still stands; the merge lane merges once `verify` is green. **Never merge the
-PR yourself.**
-
-If the two sides changed **the same behaviour** and keeping both is not
-possible without a real choice, do not guess and do not push a half-merge
-(`git merge --abort`). Post a card instead — it assigns Dane and leaves the
-status alone, and the build loop will not pick the ticket again for this
-`merge`:
-
-```bash
-npm run clickup -- settle-blocked --task <id> --body-file -   # @@ASKED / @@CONTEXT / @@NEEDED, a decision only he can make
-```
-
-Name the two behaviours as options in `@@NEEDED`, and end `@@NEEDED` with
-this exact line (`settle-blocked` refuses a card without it):
-
-```
-Reply with your choice, then write merge as its own comment.
-```
-
-His plain answer is not a merge phrase, so on its own it lapses his `merge`
-and nothing acts. When he answers and writes `merge` again, the lane refuses
-afresh and the next pass settles it his way: read his answer in `comments`
-and keep the side he chose.
 
 ## Guardrails
 
@@ -262,9 +330,7 @@ and keep the side he chose.
 - **One task, one worktree, one PR.** Never build two tasks in one branch.
 - **The PR and the ticket must name each other.** `pr-opened` enforces both
   directions.
-- **Never touch a task that is not `Rework` or `Queued`**, except a
-  `Ready to launch` ticket `settle` says is owed a conflict fix, and then
-  only its branch, never its status. `claim` refuses the rest.
+- **Never touch a task that is not `Rework` or `Queued`.** `claim` refuses them.
 - **Never set `Ready to launch` and never clear `Needs your input`.** Those
   are Dane's. A build loop never sets either one and never merges.
 - If the task description is too vague to build safely, `ask` for a
@@ -273,9 +339,10 @@ and keep the side he chose.
   `ask` before building and offer named slices, smallest-and-safest first.
   Then build only the slice he names, narrowing the description with
   `describe` first.
-- **Ticket names:** Dane's own title word for word when the ticket came
-  from him, unless it is over 12 words, then condensed to 12 or fewer; any
-  other name is 6-12 plain words. Never rewrite a name that came from Dane's list (tag `from-wavecenter`);
-  a cryptic name of anyone else's is fixed on the ticket first, within 6-12
-  words, then copied to the PR.
+- **Ticket names** (WaveCenter's rule, CLAUDE.md): Dane's own title word for
+  word when the ticket came from him, unless it is over 12 words, then
+  condensed to 12 or fewer; any other name is 6-12 plain words. Never rewrite
+  a name that came from Dane's list (tag `from-wavecenter`); a cryptic name of
+  anyone else's is fixed on the ticket first, within 6-12 words, then copied
+  to the PR.
 - Leave the worktree in place until the PR merges; `loop-review` may reuse it.

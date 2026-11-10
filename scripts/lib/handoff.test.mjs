@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, syncBack, serviceDb, taskLine, ticketIdFromUrl, ticketPriority, ticketProblems,
+  nextHandOff, recordHandOff, recordChatTicket, createChatTask, DANE_MEMBER_ID, syncBack, serviceDb, taskLine, ticketIdFromUrl, ticketRef, ticketUrl, ticketPriority, ticketProblems,
   ticketOutcome, returnNote, emptyTakes, withTake, pickFromLine, skipLine, SKIP_AFTER_TAKES,
 } from './handoff.mjs';
 import { MemoryTaskStore } from '../../core/memoryTaskStore.ts';
@@ -283,7 +283,7 @@ test('syncBack finishes, returns and leaves tasks by their tickets, and one fail
   const lines = [];
   const tally = await syncBack({
     db: fakeDb(store),
-    readTicket: async (id) => { if (!tickets[id]) throw new Error('HTTP 404'); return tickets[id]; },
+    readTicket: async ({ id }) => { if (!tickets[id]) throw new Error('HTTP 404'); return tickets[id]; },
     tool: 'loop-handoff',
     log: (l) => lines.push(l),
     now: new Date('2026-10-13T03:00:00Z'),
@@ -305,6 +305,47 @@ test('ticket links are read strictly, and the note names the ticket', () => {
   assert.equal(ticketIdFromUrl('https://app.clickup.com/t/86bch40q7'), '86bch40q7');
   assert.equal(ticketIdFromUrl('https://evil.example/t/86bch40q7'), null);
   assert.match(returnNote({ id: 'x1', name: 'Logo' }, 'deferred'), /"Logo" \(https:\/\/app\.clickup\.com\/t\/x1\) was closed as deferred/);
+});
+
+const TRACKER = 'https://mac-mini.tail7fc5c6.ts.net:8443';
+const LOCAL = 'http://mac-mini.local:4180';
+
+test('tracker ticket links: the tracker page is recorded, read back, and older ClickUp links still read', () => {
+  assert.equal(ticketUrl('WC-12', TRACKER), `${TRACKER}/t/WC-12`);
+  assert.equal(ticketUrl('WC-12', `${TRACKER}/`), `${TRACKER}/t/WC-12`);
+  assert.equal(ticketUrl('86abc'), 'https://app.clickup.com/t/86abc');
+  assert.deepEqual(ticketRef(`${TRACKER}/t/WC-12`, TRACKER), { where: 'tracker', id: 'WC-12' });
+  assert.deepEqual(ticketRef(`${LOCAL}/t/WC-12`, [TRACKER, LOCAL]), { where: 'tracker', id: 'WC-12' });
+  assert.deepEqual(ticketRef(`${TRACKER}/t/WC-12`, [null, TRACKER]), { where: 'tracker', id: 'WC-12' });
+  assert.deepEqual(ticketRef(`${TRACKER}/t/wc-12/`, TRACKER), { where: 'tracker', id: 'WC-12' });
+  assert.deepEqual(ticketRef('https://app.clickup.com/t/86bch40q7', TRACKER), { where: 'clickup', id: '86bch40q7' });
+  assert.equal(ticketRef(`${LOCAL}/t/WC-12`), null, 'without the tracker address, a tracker link is not trusted');
+  assert.equal(ticketRef('http://mac-miniXlocal:4180/t/WC-12', LOCAL), null, 'the address is matched exactly, dots included');
+  assert.equal(ticketRef(`${TRACKER}/tickets/WC-12`, TRACKER), null);
+});
+
+test('on the tracker, a filed ticket is recorded as its page, and the sync reads tracker and ClickUp links both', async () => {
+  const store = new MemoryTaskStore();
+  const db = fakeDb(store);
+  const fresh = await ticked(store, 'Fresh');
+  const old = await ticked(store, 'From before the move');
+  const onTracker = ticketFor(fresh.id, { id: 'WC-40', list: { id: 'wavecenter', name: 'wavecenter' } });
+  assert.ok(ticketProblems(onTracker, fresh.id, LIST).length, 'the old Loop Queue list id is not the tracker project');
+  const saved = await recordHandOff({ db, ticket: onTracker, taskId: fresh.id, listId: 'wavecenter', tool: 'loop-handoff', trackerUrl: TRACKER });
+  assert.equal(saved.agentTicketUrl, `${TRACKER}/t/WC-40`);
+  await handOffTask(store, old.id, 'https://app.clickup.com/t/old1', 'loop-handoff');
+  const asked = [];
+  const tally = await syncBack({
+    db,
+    trackerUrls: [TRACKER, LOCAL],
+    readTicket: async (ref) => { asked.push(ref); return { id: ref.id, name: 'x', status: { status: 'live' }, tags: ref.where === 'clickup' ? [{ name: 'deferred' }] : [] }; },
+    tool: 'loop-handoff',
+    log: () => {},
+  });
+  assert.deepEqual(tally, { done: 1, returned: 1, waiting: 0, failed: 0 });
+  assert.deepEqual(asked.map((r) => `${r.where}:${r.id}`).sort(), ['clickup:old1', 'tracker:WC-40']);
+  assert.equal((await store.get(fresh.id))?.status, 'done');
+  assert.match((await store.get(old.id))?.notes ?? '', /\(https:\/\/app\.clickup\.com\/t\/old1\) was closed as deferred/);
 });
 
 test('the service database refuses to start without its settings, and a failed read throws', async () => {

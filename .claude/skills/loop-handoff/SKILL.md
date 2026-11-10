@@ -18,33 +18,35 @@ WaveCenter.
 
 ## The commands
 
-Every ClickUp and database touch goes through `npm run clickup -- <command>`.
-Doppler supplies the ClickUp token and the Supabase service key; you never see
-or handle either.
+Ticket moves go through `npm run clickup -- <command>` (Spirality's door);
+the commands that read or change a WaveCenter task go through
+`npm run wavecenter -- <command>` (WaveCenter's own door,
+`scripts/wavecenter_tasks.mjs`). Doppler supplies the tracker token and the
+Supabase service key; you never see or handle either.
 
 ```bash
-npm run clickup -- handoff-sync                                 # finished tickets back to their tasks
-npm run clickup -- handoff-next --take                          # the next task, as JSON (exit 3: none, and why)
-npm run clickup -- task --name "..." --status Queued --priority <p> --tags from-wavecenter --name-is-danes --body-file - --id-out <file>
+npm run wavecenter -- handoff-sync                                 # finished tickets back to their tasks
+npm run wavecenter -- handoff-next --take                          # the next task, as JSON (exit 3: none, and why)
+npm run clickup -- task --name "..." --status Queued --priority <p> --tags from-wavecenter --body-file - --id-out <file>
 npm run clickup -- ask --task <ticket> --status "Needs your input" --body-file -
-npm run clickup -- handoff-record --task <wavecenter-id> --ticket <ticket-id>
+npm run wavecenter -- handoff-record --task <wavecenter-id> --ticket <ticket-id>
 ```
 
 `handoff-record` changes the task through core as the tool `loop-handoff`:
 the task becomes "doing" and shows **With AI agents** and the ticket link on
-Dane's screen. It reads the ticket back first and refuses unless the ticket is
-in the Loop Queue, tagged `from-wavecenter`, and carries the task's line. It
+Dane's screen (the tracker's public page for the ticket). It reads the ticket
+back first and refuses unless the ticket is in this project's queue, tagged `from-wavecenter`, and carries the task's line. It
 only lands if the task still has no ticket.
 
 ## One pass
 
-1. **Sync back.** `npm run clickup -- handoff-sync`. It marks a task done when
+1. **Sync back.** `npm run wavecenter -- handoff-sync`. It marks a task done when
    its ticket went Live, and puts it back to todo, unticked, with a note, when
    the ticket went Live tagged `wont-do` or `deferred`. Paste its last line
    into your report. A failure on one task leaves that task as it was; say
    which, and carry on.
 
-2. **Find the next task.** `npm run clickup -- handoff-next --take`.
+2. **Find the next task.** `npm run wavecenter -- handoff-next --take`.
    `--take` writes down that this pass took the task. A task two passes
    already took without recording a ticket is skipped, and each skip prints a
    `SKIPPED "<title>" …` line: paste every one into your report, so Dane sees
@@ -66,8 +68,9 @@ only lands if the task still has no ticket.
    - The **name** is the task's `title`, word for word. Ticket names:
      Dane's own title word for word when the ticket came from him, unless it
      is over 12 words, then condensed to 12 or fewer; any other name is 6-12
-     plain words. Pass `--name-is-danes` so a short title of his is not
-     refused; a title over 12 words is condensed, keeping his words.
+     plain words. A short title of his stays as he wrote it (Spirality's
+     `task` does not count words); a title over 12 words is condensed,
+     keeping his words.
    - Start the body with a `## From WaveCenter` section: the task's title and
      notes **verbatim** inside a fenced block (never a `> ` blockquote;
      ClickUp deletes those), then the `taskLine` value from the JSON on a line
@@ -81,7 +84,7 @@ only lands if the task still has no ticket.
 
    ```bash
    npm run clickup -- task --name "<name>" --status Queued --priority <ticketPriority> \
-     --tags from-wavecenter --name-is-danes --body-file <body-file> --id-out <id-file>
+     --tags from-wavecenter --body-file <body-file> --id-out <id-file>
    ```
 
    Use `ticketPriority` from the JSON, never your own judgement. When it is
@@ -95,7 +98,7 @@ only lands if the task still has no ticket.
    carry on; if you cannot, close the ticket (step 7) and stop.
 
 5. **Record it on the task.**
-   `npm run clickup -- handoff-record --task <id> --ticket <ticket-id>`.
+   `npm run wavecenter -- handoff-record --task <id> --ticket <ticket-id>`.
    - Exit **0**: done. The task is now with the agents.
    - Exit **3**: the task already had a ticket (another pass got there first).
      Yours is a duplicate: close it (step 7).

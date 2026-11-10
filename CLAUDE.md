@@ -70,20 +70,29 @@ status, a parent task and a points value from the very first version.
 
 ## Where the work is tracked
 
-Every piece of work on this repository is a ticket in the **Loop Queue** list
-of the **WaveCenter** space in ClickUp (list id `901422159126`). StarCaster
-has its own Loop Queue (`901418546619`); WaveCenter work never goes there, and
-StarCaster work never comes here.
+Every piece of work on this repository is a ticket in WaveCenter's queue in
+the **tracker**, Spirality's ticket system on the Mac Mini (Dane's page:
+`http://mac-mini.local:4180`; tickets are numbered `WC-<n>`; the settings are
+in `spirality.project.json`). Other projects have their own queues there
+(Spirality's tickets are `SP-<n>`); WaveCenter work never goes into another
+project's queue, and theirs never comes here. ClickUp was the tracker before
+2026-11-09; its old Loop Queue (list `901422159126`) is history, read only for
+tasks handed off before the move.
 
 - **Every piece of work starts as a WaveCenter task**, owned by Dane, chat
   requests included (Dane, 2026-11-01: "Yes, always a task"); `loop-spec`
-  makes it with `npm run clickup -- chat-task` before filing the ticket.
+  makes it with `npm run wavecenter -- chat-task` before filing the ticket,
+  and records the filed ticket on it with `npm run wavecenter -- chat-record`.
+  `npm run wavecenter` is WaveCenter's own door (`scripts/wavecenter_tasks.mjs`)
+  for the commands that join a WaveCenter task to its ticket; every other
+  ticket move is `npm run clickup`, Spirality's door.
 - The process is the spec → build → review loop: `docs/LOOP_ENGINEERING.md`.
   The three skills are `loop-spec`, `loop-build` and `loop-review` in
   `.claude/skills/`.
-- Every ClickUp touch goes through `npm run clickup -- <command>` (Doppler
-  supplies the token). Never the claude.ai connector, unless the script is
-  broken, and then say so.
+- Every ticket touch goes through `npm run clickup -- <command>`, the
+  tracker's door (it keeps the old name; Doppler supplies each lane's
+  sign-in). Never the claude.ai ClickUp connector, and never a ClickUp write
+  for new work.
 - When a plan produces more than one shippable unit, file each as a ticket in
   the shape `loop-spec` prescribes **before** building, even when Dane only
   asked for a plan. Work that lives only in a session is invisible to him.

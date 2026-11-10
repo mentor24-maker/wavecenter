@@ -1,82 +1,120 @@
 #!/bin/bash
 #
-# Install (or remove) the WaveCenter loop lanes on THIS machine, as launchd
-# agents: loop-build, loop-review and loop-handoff (each keeps the committed
-# runner alive; loop-handoff files the tasks members tick for AI agents as
-# Loop Queue tickets), and merge-on-comment (a plain node pass every 10 minutes that carries out
-# Dane's written "merge"; no Claude session), and ai-rating (one pass every
-# 30 minutes that rates the tasks that need it through Claude Code under
-# Dane's plan, every tool off; scripts/rating_lane.sh).
+# Install (or remove) the Spirality loop jobs on THIS machine: loop-build,
+# loop-review and loop-intake (each a launchd agent that keeps the committed
+# runner alive, with its own lock and log),
+# the relay (a launchd agent that runs one pass every ten minutes),
+# WaveCenter's own ai-rating lane (one pass every 30 minutes that rates the
+# tasks that need it, scripts/rating_lane.sh) and, when
+# the project config names a trackerPort, the tracker (a kept-alive web
+# server, docs/TRACKER_MVP.md) with its nightly database backup.
 #
-#   ./scripts/install_loop_runner.sh              # install all five lanes here
+#   ./scripts/install_loop_runner.sh              # install them all here
 #   ./scripts/install_loop_runner.sh --status     # installed? running? locks? last pass?
-#   ./scripts/install_loop_runner.sh --uninstall  # remove all five from here
+#   ./scripts/install_loop_runner.sh --uninstall  # remove them all from here
 #
-# Copied from StarCaster's installer. launchd starts the runner at load,
-# restarts it if it dies, and survives a reboot; a screen session does none of
-# that. Labels are com.wavecenter.<skill>, so they sit beside StarCaster's
-# com.starcaster.<skill> on the same machine without touching them.
+# Copied from StarCaster's installer. launchd starts a job at load, restarts a
+# kept-alive one if it dies, and survives a reboot; a screen session does none
+# of that. Labels are <launchdPrefix>.<job>, read from the project config, so
+# a project's jobs sit beside another project's on the same machine without
+# touching them.
 #
-# Every path is derived from where this script lives, never typed in.
+# Every path is derived from where this script lives or read from the project
+# config, never typed in.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILLS=(loop-build loop-review loop-handoff)
-MERGE_LANE=merge-on-comment
-RATING_LANE=ai-rating
-LANES=("${SKILLS[@]}" "$MERGE_LANE" "$RATING_LANE")
+# The lanes that run a Claude skill in a kept-alive loop, and the relay,
+# which is a plain node pass on a timer. Different plist shapes, one installer.
+SKILLS=(loop-build loop-review loop-intake)
+RELAY=relay
+# WaveCenter's own lane, beside Spirality's: rate the tasks that need it
+# (scripts/rating_lane.sh, Dane 2026-11-04). One pass on a timer, like the relay.
+RATING=ai-rating
+TRACKER=tracker
+BACKUP=tracker-backup
+# When the nightly backup runs, in the machine's own time zone.
+BACKUP_HOUR=3
+BACKUP_MINUTE=15
+
+# The PATH launchd gives the jobs. The installer checks the tools against
+# THIS, not its own shell's PATH, because launchd is what will run them.
+LAUNCHD_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
+
+# The project's values: the label prefix, the log folder and the short name
+# every log and lock file starts with (CLAUDE.md engineering rule 2).
+config_value() { PATH="$LAUNCHD_PATH" node "$REPO/scripts/project_config.mjs" "$1"; }
+PREFIX="$(config_value launchdPrefix)"
+LOG_DIR="$(config_value logDir)"
+SLUG="$(config_value projectSlug)"
+# The tracker's settings. An empty port means this project runs no tracker
+# service here, and every tracker step below is skipped.
+TRACKER_PORT="$(config_value trackerPort)"
+TRACKER_HOST="$(config_value trackerHost)"
+TRACKER_DATA_DIR="$(config_value trackerDataDir)"
+TRACKER_DB="$TRACKER_DATA_DIR/tracker.db"
+TRACKER_BACKUP_DIR="$TRACKER_DATA_DIR/backups"
+tracker_configured() { [ -n "$TRACKER_PORT" ]; }
 
 interval_of() {
   case "$1" in
-    loop-build)  echo 900 ;;
-    loop-review) echo 900 ;;
-    loop-handoff) echo 600 ;;
-    merge-on-comment) echo 600 ;;
+    loop-build)  echo 1800 ;;
+    loop-review) echo 1800 ;;
+    loop-intake) echo 1800 ;;
+    relay)       echo 600 ;;
     ai-rating)   echo 1800 ;;
     *)           echo 3600 ;;
   esac
 }
-label_of() { echo "com.wavecenter.$1"; }
-# The PATH launchd gives the runner. The installer checks the tools against
-# THIS, not its own shell's PATH, because launchd is what will run them.
-LAUNCHD_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
+# loaded_line and reload_job: read launchd's list safely, and replace a job
+# only once the old one is really gone.
+# shellcheck source=lib/launchd_reload.sh
+source "$REPO/scripts/lib/launchd_reload.sh"
+
+label_of() { echo "$PREFIX.$1"; }
 plist_of() { echo "$HOME/Library/LaunchAgents/$(label_of "$1").plist"; }
+log_of() { echo "$LOG_DIR/$SLUG-$1.log"; }
+lock_of() { echo "$LOG_DIR/$SLUG-$1.lock"; }
 
 status_one() {
-  local skill="$1" label plist lock log
-  label="$(label_of "$skill")"; plist="$(plist_of "$skill")"
-  lock="$HOME/loop-logs/wavecenter-$skill.lock"; log="$HOME/loop-logs/wavecenter-$skill.log"
-  echo "── $skill"
-  if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist — every $(( $(interval_of "$skill") / 60 )) minutes"; else echo "schedule: not installed on this machine"; fi
-  # Read launchctl's list into a variable first. Piping it straight into
-  # `grep -q` under pipefail reported a live lane as "loaded: no": grep quits
-  # at the first match, launchctl dies of SIGPIPE, and the pipeline "fails".
-  local listing line
-  listing="$(launchctl list 2>/dev/null || true)"
-  line="$(awk -v l="$label" '$3 == l' <<<"$listing")"
+  local job="$1" label plist lock log line
+  label="$(label_of "$job")"; plist="$(plist_of "$job")"
+  lock="$(lock_of "$job")"; log="$(log_of "$job")"
+  echo "── $job"
+  if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist"; else echo "schedule: not installed on this machine"; fi
+  line="$(loaded_line "$label")"
   if [ -n "$line" ]; then
     echo "loaded:   yes — $line"
-    echo "          (columns: PID, last exit code, label. A PID here means the runner is alive right now.)"
+    if [ "$job" = "$RELAY" ] || [ "$job" = "$RATING" ]; then
+      echo "          (columns: PID, last exit code, label. '-' for PID means not running right now, which is normal between passes; it wakes every $(( $(interval_of "$job") / 60 )) minutes.)"
+    else
+      echo "          (columns: PID, last exit code, label. A PID here means the runner is alive right now.)"
+    fi
   else
     echo "loaded:   no"
   fi
   if [ -d "$lock" ]; then
     local pid; pid="$(cat "$lock/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo "lock:     held by live pid $pid — a runner is working"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo "lock:     held by live pid $pid — a pass is working"
     else echo "lock:     STALE (pid ${pid:-unrecorded} is gone) — the next start clears it"; fi
   else
     echo "lock:     none"
   fi
   if [ -f "$log" ]; then
     echo "log:      $log (last modified $(date -r "$log" '+%Y-%m-%d %H:%M'))"
-    echo "last pass: $(grep -E "START /$skill" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
+    if [ "$job" = "$RELAY" ]; then
+      echo "last pass: $(grep -E "START relay" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
+      echo "last end:  $(grep -E "END relay" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
+    else
+      echo "last pass: $(grep -E "START /$job" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
+    fi
   else
     echo "log:      $log (nothing written yet)"
   fi
 }
 
-# The runner only pulls when the checkout is a clean main. On anything else
+# The runners only pull when the checkout is a clean main. On anything else
 # every pass runs stale code and says so in one quiet log line, so say it
 # loudly here instead.
 checkout_state() {
@@ -87,60 +125,174 @@ checkout_state() {
     echo "checkout: $REPO on a clean main — each pass pulls the latest merged work"
   else
     echo "checkout: $REPO on branch '$branch'$([ -n "$dirty" ] && echo ', with uncommitted changes')"
-    echo "WARNING:  the runner only pulls a clean main, so every pass runs THIS code and never"
+    echo "WARNING:  the runners only pull a clean main, so every pass runs THIS code and never"
     echo "          picks up merged work. Put it back: git -C $REPO checkout main && git -C $REPO pull"
   fi
 }
 
-status() { checkout_state; for s in "${LANES[@]}"; do status_one "$s"; done; }
+# The address to knock on: the configured host, or this machine itself when
+# the server listens on every address.
+tracker_url() {
+  local host="$TRACKER_HOST"
+  if [ "$host" = "0.0.0.0" ]; then host=127.0.0.1; fi
+  echo "http://$host:$TRACKER_PORT"
+}
 
-install_interval_lane() {
-  local lane="$1" script="$2" local_label local_plist local_llog
-  local_label="$(label_of "$lane")"; local_plist="$(plist_of "$lane")"
-  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
-  cat > "$local_plist" <<PLIST_BODY
+status_job_header() {
+  local job="$1" label plist line
+  label="$(label_of "$job")"; plist="$(plist_of "$job")"
+  echo "── $job"
+  if [ -f "$plist" ]; then echo "schedule: INSTALLED at $plist"; else echo "schedule: not installed on this machine"; fi
+  line="$(loaded_line "$label")"
+  if [ -n "$line" ]; then echo "loaded:   yes — $line"; else echo "loaded:   no"; fi
+}
+
+status_tracker() {
+  local log code newest
+  if ! tracker_configured; then
+    echo "── $TRACKER"
+    echo "tracker:  not run by this project (no trackerPort in the project config)"
+    return
+  fi
+  status_job_header "$TRACKER"
+  echo "          (columns: PID, last exit code, label. A PID here means the server is up right now.)"
+  # /me without a token answers 401: the tracker's own answer to a knock with
+  # no key. Silence, or any other answer, means it is not the tracker there.
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$(tracker_url)/me" 2>/dev/null || true)"
+  if [ "$code" = "401" ]; then
+    echo "answers:  yes — $(tracker_url) (listening on $TRACKER_HOST:$TRACKER_PORT)"
+  else
+    echo "answers:  NO — nothing answered at $(tracker_url)${code:+ (got HTTP $code)}"
+  fi
+  if [ -f "$TRACKER_DB" ]; then echo "database: $TRACKER_DB ($(du -h "$TRACKER_DB" | cut -f1 | xargs))"
+  else echo "database: $TRACKER_DB (not created yet; the server makes it on first start)"; fi
+  log="$(log_of "$TRACKER")"
+  if [ -f "$log" ]; then echo "log:      $log (last modified $(date -r "$log" '+%Y-%m-%d %H:%M'))"
+  else echo "log:      $log (nothing written yet)"; fi
+
+  status_job_header "$BACKUP"
+  echo "          (runs nightly at $(printf '%02d:%02d' "$BACKUP_HOUR" "$BACKUP_MINUTE"); '-' for PID is normal between runs.)"
+  newest="$(ls -1 "$TRACKER_BACKUP_DIR"/tracker-*.db 2>/dev/null | tail -1 || true)"
+  if [ -n "$newest" ]; then
+    echo "backups:  $(ls -1 "$TRACKER_BACKUP_DIR"/tracker-*.db | wc -l | xargs) in $TRACKER_BACKUP_DIR, newest $(basename "$newest")"
+  else
+    echo "backups:  none yet in $TRACKER_BACKUP_DIR"
+  fi
+  log="$(log_of "$BACKUP")"
+  if [ -f "$log" ]; then echo "last run: $(grep -E 'backup (OK|FAILED)' "$log" | tail -1 || echo '(none yet)')"
+  else echo "last run: (none yet)"; fi
+}
+
+status() {
+  echo "project:  $SLUG (labels $PREFIX.*, logs in $LOG_DIR)"
+  checkout_state
+  PATH="$LAUNCHD_PATH" node "$REPO/scripts/lib/claudeTrust.mjs" check "$REPO" || true
+  for s in "${SKILLS[@]}"; do status_one "$s"; done
+  status_one "$RELAY"
+  status_one "$RATING"
+  status_tracker
+}
+
+# The tracker server (kept alive, like the lanes) and its nightly backup (on
+# a calendar, like nothing else here). Appends to not_loaded on failure.
+install_tracker() {
+  local node label plist log
+  node="$(PATH="$LAUNCHD_PATH" command -v node)"
+  mkdir -p "$TRACKER_DATA_DIR" "$TRACKER_BACKUP_DIR"
+
+  label="$(label_of "$TRACKER")"; plist="$(plist_of "$TRACKER")"; log="$(log_of "$TRACKER")"
+  cat > "$plist" <<PLIST_BODY
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$local_label</string>
+    <string>$label</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$REPO/scripts/$script</string>
+        <string>$node</string>
+        <string>--disable-warning=ExperimentalWarning</string>
+        <string>$REPO/tracker/server.mjs</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$REPO</string>
-    <key>StartInterval</key>
-    <integer>$(interval_of "$lane")</integer>
+    <key>KeepAlive</key>
+    <true/>
     <key>RunAtLoad</key>
     <true/>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>$LAUNCHD_PATH</string>
-        <key>HOME</key>
-        <string>$HOME</string>
-    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+$(plist_env TRACKER_DB "$TRACKER_DB" TRACKER_PORT "$TRACKER_PORT" TRACKER_HOST "$TRACKER_HOST")
     <key>StandardOutPath</key>
-    <string>$local_llog</string>
+    <string>$log</string>
     <key>StandardErrorPath</key>
-    <string>$local_llog</string>
+    <string>$log</string>
 </dict>
 </plist>
 PLIST_BODY
-  launchctl bootout "gui/$(id -u)/$local_label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$local_plist"
-  echo "Installed $local_label — one pass every $(interval_of "$lane")s from $REPO."
+  if reload_job "$label" "$plist"; then
+    echo "Installed $label — kept alive, listening on $TRACKER_HOST:$TRACKER_PORT, database $TRACKER_DB, log $log."
+  else
+    not_loaded+=("$label")
+  fi
+
+  label="$(label_of "$BACKUP")"; plist="$(plist_of "$BACKUP")"; log="$(log_of "$BACKUP")"
+  cat > "$plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$node</string>
+        <string>--disable-warning=ExperimentalWarning</string>
+        <string>$REPO/tracker/backup.mjs</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>$BACKUP_HOUR</integer>
+        <key>Minute</key>
+        <integer>$BACKUP_MINUTE</integer>
+    </dict>
+$(plist_env TRACKER_DB "$TRACKER_DB" TRACKER_BACKUP_DIR "$TRACKER_BACKUP_DIR")
+    <key>StandardOutPath</key>
+    <string>$log</string>
+    <key>StandardErrorPath</key>
+    <string>$log</string>
+</dict>
+</plist>
+PLIST_BODY
+  if reload_job "$label" "$plist"; then
+    echo "Installed $label — nightly at $(printf '%02d:%02d' "$BACKUP_HOUR" "$BACKUP_MINUTE") into $TRACKER_BACKUP_DIR (newest 14 kept), log $log."
+  else
+    not_loaded+=("$label")
+  fi
 }
 
 uninstall() {
-  for s in "${LANES[@]}"; do
+  # The tracker jobs are removed whether or not the config still names them;
+  # their database and backups are left where they are.
+  for s in "${SKILLS[@]}" "$RELAY" "$RATING" "$TRACKER" "$BACKUP"; do
     launchctl bootout "gui/$(id -u)/$(label_of "$s")" 2>/dev/null || true
     rm -f "$(plist_of "$s")"
     echo "Removed $(label_of "$s") from this machine."
   done
   echo "Locks are left for the runners' own stale-lock handling. Confirm with: $0 --status"
+  if [ -n "$TRACKER_DATA_DIR" ]; then echo "The tracker's database and backups are left in $TRACKER_DATA_DIR."; fi
+}
+
+# plist_env [NAME VALUE]...: the environment block, PATH and HOME plus any
+# extra pairs given.
+plist_env() {
+  echo "    <key>EnvironmentVariables</key>"
+  echo "    <dict>"
+  printf '        <key>%s</key>\n        <string>%s</string>\n' PATH "$LAUNCHD_PATH" HOME "$HOME" "$@"
+  echo "    </dict>"
 }
 
 install() {
@@ -148,37 +300,37 @@ install() {
     echo "Refusing to install: $REPO is a worktree, and worktrees get deleted when their work ships. Run this from the main checkout." >&2
     exit 1
   fi
-  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HOME/loop-logs"
+  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$LOG_DIR"
   for bin in npm node doppler claude git gh; do
     if ! (PATH="$LAUNCHD_PATH" command -v "$bin" >/dev/null); then
-      echo "Cannot find $bin on launchd's PATH ($LAUNCHD_PATH) — the loops would install and then fail on every pass." >&2
+      echo "Cannot find $bin on launchd's PATH ($LAUNCHD_PATH) — the jobs would install and then fail on every pass." >&2
       exit 1
     fi
   done
+  if tracker_configured && [ -z "$TRACKER_DATA_DIR" ]; then
+    echo "Refusing to install: the project config names trackerPort but no trackerDataDir, so the tracker has nowhere to keep its database." >&2
+    exit 1
+  fi
   if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" != "main" ]; then
-    echo "WARNING: $REPO is not on main. The runner will install, but it never pulls" >&2
-    echo "         anything but a clean main, so it will run this branch's code until" >&2
+    echo "WARNING: $REPO is not on main. The jobs will install, but they never pull" >&2
+    echo "         anything but a clean main, so they will run this branch's code until" >&2
     echo "         the checkout is put back on main." >&2
   fi
-  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/merge_lane.sh" "$REPO/scripts/rating_lane.sh"
-  if ! (PATH="$LAUNCHD_PATH" gh auth status >/dev/null 2>&1); then
-    echo "gh is not signed in to GitHub on this machine — the merge lane would read every \"merge\" and fail to act." >&2
-    echo "A person signs in once with: gh auth login" >&2
-    exit 1
-  fi
-  # The merge lane's Evolution step takes its pictures with a headless
-  # browser, which Playwright keeps in this user's cache, not in the repo.
-  # Without it every pass failed and no change reached the Evolution row
-  # (2026-10-31 to 11-01, 96 passes), so a machine cannot install without it.
-  if [ ! -d "$REPO/node_modules/playwright" ]; then
-    (cd "$REPO" && PATH="$LAUNCHD_PATH" npm ci)
-  fi
-  if ! (cd "$REPO" && PATH="$LAUNCHD_PATH" npx --no-install playwright install chromium-headless-shell); then
-    echo "Could not install the headless browser the Evolution pictures need (npx playwright install chromium-headless-shell)." >&2
-    exit 1
-  fi
-  echo "Headless browser for the Evolution pictures: installed."
+  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/run_relay.sh" "$REPO/scripts/rating_lane.sh"
 
+  # Jobs that could not be loaded. Every job is still tried; the list decides
+  # the exit code at the end.
+  not_loaded=()
+
+  # Trust this checkout in Claude's own settings before any lane starts, or
+  # every headless pass ignores the project's .claude/settings.json allow list
+  # until somebody opens Claude here by hand (SP-116). A failure is said and
+  # fails the run at the end, but the lanes still install: they run, only
+  # without that list.
+  trust_failed=""
+  PATH="$LAUNCHD_PATH" node "$REPO/scripts/lib/claudeTrust.mjs" ensure "$REPO" || trust_failed=yes
+
+  # The kept-alive lanes: the runner script loops forever, launchd restarts it.
   for s in "${SKILLS[@]}"; do
     local_label="$(label_of "$s")"; local_plist="$(plist_of "$s")"
     local_llog="$HOME/Library/Logs/$local_label.launchd.log"
@@ -203,13 +355,7 @@ install() {
     <true/>
     <key>ThrottleInterval</key>
     <integer>300</integer>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>$LAUNCHD_PATH</string>
-        <key>HOME</key>
-        <string>$HOME</string>
-    </dict>
+$(plist_env)
     <key>StandardOutPath</key>
     <string>$local_llog</string>
     <key>StandardErrorPath</key>
@@ -217,18 +363,101 @@ install() {
 </dict>
 </plist>
 PLIST_BODY
-    launchctl bootout "gui/$(id -u)/$local_label" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$local_plist"
-    echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s)."
+    if reload_job "$local_label" "$local_plist"; then
+      echo "Installed $local_label — kept alive from $REPO (every $(interval_of "$s")s)."
+    else
+      not_loaded+=("$local_label")
+    fi
   done
 
-  # The merge lane (every 10 minutes) and the AI rating lane (every 30) are
-  # one short pass each on a timer (StartInterval), not a kept-alive loop.
-  # launchd never runs two copies of one job at once.
-  install_interval_lane "$MERGE_LANE" merge_lane.sh
-  install_interval_lane "$RATING_LANE" rating_lane.sh
+  # The relay: one pass per wake, on a timer. Its own output IS its log, so the
+  # plist points stdout and stderr at the log the status reader looks for.
+  local_label="$(label_of "$RELAY")"; local_plist="$(plist_of "$RELAY")"; local_rlog="$(log_of "$RELAY")"
+  cat > "$local_plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$local_label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REPO/scripts/run_relay.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartInterval</key>
+    <integer>$(interval_of "$RELAY")</integer>
+    <key>RunAtLoad</key>
+    <true/>
+$(plist_env)
+    <key>StandardOutPath</key>
+    <string>$local_rlog</string>
+    <key>StandardErrorPath</key>
+    <string>$local_rlog</string>
+</dict>
+</plist>
+PLIST_BODY
+  if reload_job "$local_label" "$local_plist"; then
+    echo "Installed $local_label — one pass every $(( $(interval_of "$RELAY") / 60 )) minutes from $REPO, log $local_rlog."
+  else
+    not_loaded+=("$local_label")
+  fi
+
+  # WaveCenter's ai-rating lane: one pass per wake, on a timer. The pass
+  # writes its own log (the one the status reader looks for); launchd's own
+  # output goes beside the lanes' launchd logs.
+  local_label="$(label_of "$RATING")"; local_plist="$(plist_of "$RATING")"
+  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
+  cat > "$local_plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$local_label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REPO/scripts/rating_lane.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartInterval</key>
+    <integer>$(interval_of "$RATING")</integer>
+    <key>RunAtLoad</key>
+    <true/>
+$(plist_env)
+    <key>StandardOutPath</key>
+    <string>$local_llog</string>
+    <key>StandardErrorPath</key>
+    <string>$local_llog</string>
+</dict>
+</plist>
+PLIST_BODY
+  if reload_job "$local_label" "$local_plist"; then
+    echo "Installed $local_label — one pass every $(( $(interval_of "$RATING") / 60 )) minutes from $REPO, log $(log_of "$RATING")."
+  else
+    not_loaded+=("$local_label")
+  fi
+
+  if tracker_configured; then install_tracker; else echo "Skipped the tracker: this project's config names no trackerPort."; fi
   echo
   status
+
+  # One job failing to load does not stop the others from being tried, but the
+  # run as a whole fails and says which (CLAUDE.md engineering rule 6).
+  if [ "${#not_loaded[@]}" -gt 0 ]; then
+    echo >&2
+    echo "FAILED: ${#not_loaded[@]} job(s) are NOT loaded on this machine: ${not_loaded[*]}" >&2
+    echo "        Run this installer again; if it fails the same way, check $0 --status." >&2
+    exit 1
+  fi
+  if [ -n "$trust_failed" ]; then
+    echo >&2
+    echo "FAILED: $REPO is not marked trusted in Claude's settings (the FAILED: trust line above says why)." >&2
+    echo "        The lanes are installed and run, but ignore .claude/settings.json's allow list until it is." >&2
+    exit 1
+  fi
 }
 
 case "${1:-}" in
