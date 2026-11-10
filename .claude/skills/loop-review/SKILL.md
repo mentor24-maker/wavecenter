@@ -151,18 +151,6 @@ look at; this is a check that runs in CI"*).
    `--body-file -` takes your one-line reason on stdin — what you ran, what
    you walked through, what convinced you. Then:
 
-   - **Pass on a PR that adds a migration, while WC-164 is not Live** →
-     not `Ready to launch`. Since the move to Spirality's loop the relay
-     merges without applying migrations to live (WC-164, "Merged database
-     changes will not reach the live database: apply them", brings that
-     back), so a merge now would put code on `main` that the live database
-     cannot serve. Record the PASS verdict, then `ask --status "Needs your
-     input"` with named options: **A** (recommended) wait until WC-164 is
-     Live, then a review pass moves it to `Ready to launch`; **B** merge now
-     and have a session apply the migration to live by hand right after.
-     End with `Your move: Reply`. "Apply the migration" is a costly phrase,
-     so the card needs `@@EVIDENCE` (the `npm run db:test` output in a
-     fence and a `@@MEASURED` line). Once WC-164 is Live, delete this bullet.
    - **Pass** → `ask --status "Ready to launch"`. `@@ASKED` carries the
      instruction the ticket came from; `@@CONTEXT` says in 50-100 words what
      changed and what he will see; `@@NEEDED` is the merge approval, with the

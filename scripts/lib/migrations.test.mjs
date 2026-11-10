@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   migrationFiles, lastJson, pushList, missingOnRemote, scrub, cliError, isLocalUrl, databaseLine, applyMigrations, cliEnv,
-  takeTestDbLock, releaseTestDbLock,
+  takeTestDbLock, releaseTestDbLock, preMergeStep,
 } from './migrations.mjs';
 import { mkdtempSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -217,4 +217,82 @@ test('the test-database lock lets one run in at a time, and takes over one left 
   releaseTestDbLock({ lock });
   assert.deepEqual(takeTestDbLock({ lock }), { ok: true, tookOverMinutes: null });
   releaseTestDbLock({ lock });
+});
+
+// The relay's pre-merge step (WC-164).
+const SHA = 'a'.repeat(40);
+const STEP_ENV = { LOOP_HEAD_SHA: SHA, LOOP_BASE_BRANCH: 'main', LOOP_PR_NUMBER: '170', DATABASE_URL: 'postgresql://u:secretpw@h/db' };
+/** A fake git answering the fetch and the diff; records each call. */
+function fakeGit({ diff = '', fetchStatus = 0, diffStatus = 0 } = {}) {
+  const ran = [];
+  const run = (cmd, args) => {
+    ran.push([cmd, ...args].join(' '));
+    if (args.includes('fetch')) return { status: fetchStatus, stdout: '', stderr: fetchStatus ? 'fatal: could not read from remote' : '' };
+    if (args.includes('diff')) return { status: diffStatus, stdout: diff, stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  return { run, ran };
+}
+
+test('pre-merge step: a PR with no database change passes without touching the database', () => {
+  const { run, ran } = fakeGit({ diff: 'app/page.tsx\n' });
+  let applied = false;
+  const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run, apply: () => { applied = true; return { ok: true, applied: [] }; } });
+  assert.equal(r.code, 0);
+  assert.match(r.lines.join('\n'), /no database change/);
+  assert.equal(applied, false);
+  assert.ok(ran.some((l) => l.includes(`refs/remotes/origin/main...${SHA}`)), 'diffs from where the branch left main');
+});
+
+test('pre-merge step: a new migration is applied from the commit about to merge', () => {
+  const { run } = fakeGit({ diff: 'supabase/migrations/20261110000000_new.sql\n' });
+  let seen;
+  const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run, apply: (a) => { seen = a; return { ok: true, applied: ['20261110000000_new.sql'] }; } });
+  assert.equal(r.code, 0);
+  assert.equal(seen.commit, SHA);
+  assert.equal(seen.dbUrl, STEP_ENV.DATABASE_URL);
+  assert.match(r.lines.join('\n'), /applied 20261110000000_new\.sql to the live database .*read it back/);
+});
+
+test('pre-merge step: a migration already live passes and says so', () => {
+  const { run } = fakeGit({ diff: 'supabase/migrations/20261110000000_new.sql\n' });
+  const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run, apply: () => ({ ok: true, applied: [] }) });
+  assert.equal(r.code, 0);
+  assert.match(r.lines.join('\n'), /already on the live database/);
+});
+
+test('pre-merge step: a failed apply exits non-zero, says nothing merged, and never leaks the address', () => {
+  const { run } = fakeGit({ diff: 'supabase/migrations/20261110000000_new.sql\n' });
+  const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run, apply: () => ({ ok: false, error: 'applying x failed: postgresql://u:secretpw@h/db refused' }) });
+  assert.equal(r.code, 1);
+  const text = r.lines.join('\n');
+  assert.match(text, /20261110000000_new\.sql/);
+  assert.match(text, /PR #170 was NOT merged/);
+  assert.match(text, /npm run db:test/);
+  assert.equal(text.includes('secretpw'), false);
+});
+
+test('pre-merge step: no database address stops the merge', () => {
+  const { run } = fakeGit({ diff: 'supabase/migrations/20261110000000_new.sql\n' });
+  const r = preMergeStep({ env: { ...STEP_ENV, DATABASE_URL: '' }, repoDir: '/repo', run, apply: applyMigrations });
+  assert.equal(r.code, 1);
+  assert.match(r.lines.join('\n'), /DATABASE_URL is not set/);
+});
+
+test('pre-merge step: a missing or odd commit or branch stops before git runs', () => {
+  for (const env of [{ ...STEP_ENV, LOOP_HEAD_SHA: '' }, { ...STEP_ENV, LOOP_HEAD_SHA: '--upload-pack=x' }, { ...STEP_ENV, LOOP_BASE_BRANCH: '-x' }, { ...STEP_ENV, LOOP_BASE_BRANCH: 'a..b' }]) {
+    const { run, ran } = fakeGit();
+    const r = preMergeStep({ env, repoDir: '/repo', run, apply: () => assert.fail('must not apply') });
+    assert.equal(r.code, 1);
+    assert.match(r.lines.join('\n'), /NOT merged/);
+    assert.deepEqual(ran, []);
+  }
+});
+
+test('pre-merge step: git failing to fetch or diff stops the merge', () => {
+  for (const g of [fakeGit({ fetchStatus: 128 }), fakeGit({ diffStatus: 128 })]) {
+    const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run: g.run, apply: () => assert.fail('must not apply') });
+    assert.equal(r.code, 1);
+    assert.match(r.lines.join('\n'), /NOT merged/);
+  }
 });

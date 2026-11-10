@@ -6,7 +6,7 @@ repository (`npm run doctor`).
 
 Every file here except this README is copied byte for byte from
 [Spirality](https://github.com/mentor24-maker/spirality) at commit
-`418fe69`, keeping Spirality's layout (`scripts/` beside `lib/`) so no import
+`418fe69`, with the five files Spirality's SP-185 (the pre-merge step) changed recopied from `dd807ea` (`lib/projectConfig.mjs`, `lib/refusalClass.js`, `lib/relayLane.js`, `lib/relayLane.test.js`, `scripts/clickup.mjs`; WC-164), keeping Spirality's layout (`scripts/` beside `lib/`) so no import
 changes. The project settings it reads are WaveCenter's own
 `spirality.project.json` at the repository root.
 
