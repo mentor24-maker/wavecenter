@@ -5,7 +5,9 @@
 # runner alive, with its own lock and log),
 # the relay (a launchd agent that runs one pass every ten minutes),
 # WaveCenter's own ai-rating lane (one pass every 30 minutes that rates the
-# tasks that need it, scripts/rating_lane.sh) and, when
+# tasks that need it, scripts/rating_lane.sh), its Evolution lane (one pass
+# every 10 minutes that takes the picture of each merged change,
+# scripts/evolution_lane.sh) and, when
 # the project config names a trackerPort, the tracker (a kept-alive web
 # server, docs/TRACKER_MVP.md) with its nightly database backup.
 #
@@ -32,6 +34,10 @@ RELAY=relay
 # WaveCenter's own lane, beside Spirality's: rate the tasks that need it
 # (scripts/rating_lane.sh, Dane 2026-11-04). One pass on a timer, like the relay.
 RATING=ai-rating
+# WaveCenter's Evolution lane: the picture of each change merged into main
+# (scripts/evolution_lane.sh, WC-165). The relay merges and runs no step of
+# WaveCenter's, so the pictures run on its own timer, the relay's interval.
+EVOLUTION=evolution
 TRACKER=tracker
 BACKUP=tracker-backup
 # When the nightly backup runs, in the machine's own time zone.
@@ -64,6 +70,7 @@ interval_of() {
     loop-intake) echo 1800 ;;
     relay)       echo 600 ;;
     ai-rating)   echo 1800 ;;
+    evolution)   echo 600 ;;
     *)           echo 3600 ;;
   esac
 }
@@ -86,7 +93,7 @@ status_one() {
   line="$(loaded_line "$label")"
   if [ -n "$line" ]; then
     echo "loaded:   yes — $line"
-    if [ "$job" = "$RELAY" ] || [ "$job" = "$RATING" ]; then
+    if [ "$job" = "$RELAY" ] || [ "$job" = "$RATING" ] || [ "$job" = "$EVOLUTION" ]; then
       echo "          (columns: PID, last exit code, label. '-' for PID means not running right now, which is normal between passes; it wakes every $(( $(interval_of "$job") / 60 )) minutes.)"
     else
       echo "          (columns: PID, last exit code, label. A PID here means the runner is alive right now.)"
@@ -183,6 +190,18 @@ status_tracker() {
   else echo "last run: (none yet)"; fi
 }
 
+# The headless browser the Evolution lane photographs with, in Playwright's
+# cache for this user. Checked the way the capture uses it: start it the
+# same way (chromium.launch()) and close it again.
+status_browser() {
+  echo "── headless browser (Evolution pictures)"
+  if (cd "$REPO" && PATH="$LAUNCHD_PATH" "$REPO/scripts/run_with_time_limit.sh" 60 -- node -e "require('playwright').chromium.launch().then((b) => b.close())" >/dev/null 2>&1); then
+    echo "browser:  installed — it starts and closes"
+  else
+    echo "browser:  NOT WORKING — it would not start, so every Evolution pass fails until it does; the installer puts it in (npx playwright install chromium-headless-shell)"
+  fi
+}
+
 status() {
   echo "project:  $SLUG (labels $PREFIX.*, logs in $LOG_DIR)"
   checkout_state
@@ -190,6 +209,8 @@ status() {
   for s in "${SKILLS[@]}"; do status_one "$s"; done
   status_one "$RELAY"
   status_one "$RATING"
+  status_one "$EVOLUTION"
+  status_browser
   status_tracker
 }
 
@@ -277,7 +298,7 @@ PLIST_BODY
 uninstall() {
   # The tracker jobs are removed whether or not the config still names them;
   # their database and backups are left where they are.
-  for s in "${SKILLS[@]}" "$RELAY" "$RATING" "$TRACKER" "$BACKUP"; do
+  for s in "${SKILLS[@]}" "$RELAY" "$RATING" "$EVOLUTION" "$TRACKER" "$BACKUP"; do
     launchctl bootout "gui/$(id -u)/$(label_of "$s")" 2>/dev/null || true
     rm -f "$(plist_of "$s")"
     echo "Removed $(label_of "$s") from this machine."
@@ -316,7 +337,20 @@ install() {
     echo "         anything but a clean main, so they will run this branch's code until" >&2
     echo "         the checkout is put back on main." >&2
   fi
-  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/run_relay.sh" "$REPO/scripts/rating_lane.sh"
+  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/run_relay.sh" "$REPO/scripts/rating_lane.sh" "$REPO/scripts/evolution_lane.sh"
+
+  # The Evolution lane photographs each change in a headless browser, which
+  # Playwright keeps in this user's cache, not in the repo. Without it every
+  # pass failed and no change reached the Evolution row (2026-10-31 to 11-01,
+  # 96 passes), so a machine cannot install without it.
+  if [ ! -d "$REPO/node_modules/playwright" ]; then
+    (cd "$REPO" && PATH="$LAUNCHD_PATH" npm ci)
+  fi
+  if ! (cd "$REPO" && PATH="$LAUNCHD_PATH" npx --no-install playwright install chromium-headless-shell); then
+    echo "Could not install the headless browser the Evolution pictures need (npx playwright install chromium-headless-shell)." >&2
+    exit 1
+  fi
+  echo "Headless browser for the Evolution pictures: installed."
 
   # Jobs that could not be loaded. Every job is still tried; the list decides
   # the exit code at the end.
@@ -436,6 +470,42 @@ $(plist_env)
 PLIST_BODY
   if reload_job "$local_label" "$local_plist"; then
     echo "Installed $local_label — one pass every $(( $(interval_of "$RATING") / 60 )) minutes from $REPO, log $(log_of "$RATING")."
+  else
+    not_loaded+=("$local_label")
+  fi
+
+  # WaveCenter's Evolution lane: one pass per wake, on a timer, like the
+  # ai-rating lane. The pass writes its own log; launchd's own output goes
+  # beside the lanes' launchd logs.
+  local_label="$(label_of "$EVOLUTION")"; local_plist="$(plist_of "$EVOLUTION")"
+  local_llog="$HOME/Library/Logs/$local_label.launchd.log"
+  cat > "$local_plist" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$local_label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$REPO/scripts/evolution_lane.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO</string>
+    <key>StartInterval</key>
+    <integer>$(interval_of "$EVOLUTION")</integer>
+    <key>RunAtLoad</key>
+    <true/>
+$(plist_env)
+    <key>StandardOutPath</key>
+    <string>$local_llog</string>
+    <key>StandardErrorPath</key>
+    <string>$local_llog</string>
+</dict>
+</plist>
+PLIST_BODY
+  if reload_job "$local_label" "$local_plist"; then
+    echo "Installed $local_label — one pass every $(( $(interval_of "$EVOLUTION") / 60 )) minutes from $REPO, log $(log_of "$EVOLUTION")."
   else
     not_loaded+=("$local_label")
   fi

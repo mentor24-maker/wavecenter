@@ -290,6 +290,21 @@ stopped). Before inviting other members, re-check Anthropic's terms on using
 a personal plan to rate other people's tasks; moving to an API key is one
 `TaskRater` swap.
 
+**The Evolution pictures.** Also a lane on the **Mac Mini**, plain node
+under Doppler with no Claude session. Every 10 minutes the launchd agent
+`com.wavecenter.evolution` runs `scripts/evolution_lane.sh`:
+`npm run evolution -- missing` takes the picture of each change on `main`
+that has none yet, then `recapture --if-rules-changed` retakes old cards when
+a merge changed the picture rules. Until the move to Spirality's loop these
+ran inside WaveCenter's merge lane; Spirality's relay merges now and runs no
+step of WaveCenter's, so the pictures have their own lane (WC-165). Each
+change's ticket is found from its pull request's `Ticket:` line and read
+from the tracker (`npm run wavecenter -- ticket-json`; ClickUp tickets from
+before the move are still read from ClickUp), signed in as the relay's seat.
+It needs Playwright's headless browser, which the installer puts in;
+`scripts/install_loop_runner.sh --status` shows whether it starts. Log:
+`~/loop-logs/wavecenter-evolution.log`.
+
 ## The core is separate from the framework
 
 `core/` holds the task record, the points rules and the who-may-do-what

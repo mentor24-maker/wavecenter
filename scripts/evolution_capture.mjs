@@ -10,7 +10,7 @@
  *   npm run evolution -- backfill                         every first-parent change on main, oldest first,
  *                                                         skipping ones already captured
  *   npm run evolution -- missing                          every first-parent change on main with no row
- *                                                         yet, oldest first (the merge lane runs this)
+ *                                                         yet, oldest first (the Evolution lane runs this)
  *   npm run evolution -- words [--plan]                   fill Dane's words and their thread on every
  *                                                         recorded change that has none yet, from its
  *                                                         ticket, else the chat that made the ticket; no
@@ -21,7 +21,7 @@
  *                                                         a picture identical to the card before it;
  *                                                         --plan says what it would do and changes nothing
  *   npm run evolution -- recapture --if-rules-changed     the same, but only when the picture rules differ
- *                                                         from the last retake's (the merge lane runs this)
+ *                                                         from the last retake's (the Evolution lane runs this)
  *   npm run evolution -- list                             one line per recorded change
  *
  * Runs on the Mac Mini only: it needs the test database (Docker), and Doppler
@@ -64,8 +64,9 @@
  * not copied, so a picture of one will not load. Columns that did not exist
  * at a change are dropped and tables that did not exist are skipped.
  *
- * `missing` is the merge lane's step after each merge (scripts/merge_lane.sh,
- * under a time limit). Because it fills whatever has no row, a pass that was
+ * `missing` is the Evolution lane's step every ten minutes, so each merge
+ * gets its picture within a pass or two (scripts/evolution_lane.sh, under a
+ * time limit; the relay merges, and runs no step of WaveCenter's own). Because it fills whatever has no row, a pass that was
  * skipped, failed to start or was stopped heals itself on the next one. A
  * picture that fails for a ticket the lane merged gets a `failed` row and one
  * plain comment on that ticket; the merge and the ticket's status are never
@@ -82,8 +83,9 @@
  * it adds one "works again" note to that ticket (nextRunState).
  *
  * Each row also keeps Dane's own words behind the change and a link to
- * where he said them (danesWords), read from its ClickUp ticket through
- * `scripts/clickup.mjs ticket-json`. The Evolution cards show those words.
+ * where he said them (danesWords), read from its ticket through
+ * `scripts/wavecenter_tasks.mjs ticket-json`: a tracker ticket (WC-<n>) from
+ * the tracker, a ClickUp ticket from before the move from ClickUp. The Evolution cards show those words.
  * A ticket that cannot be read leaves them empty, and `words` fills them
  * on a later run without retaking any picture. When a ticket holds none of
  * his words, `words` also looks for the Claude Code chat that made the
@@ -95,7 +97,7 @@
  * at it, so a retake that fails leaves the old row and picture as they were
  * and says so (engineering rule 6).
  *
- * `recapture --if-rules-changed` is the merge lane's step after `missing`.
+ * `recapture --if-rules-changed` is the Evolution lane's step after `missing`.
  * A merged change to the picture rules (RULES_FILE) once reached no old card
  * until a session remembered to run the retake (2026-11-01: a rules fix went
  * Live with every card unchanged). Now the lane keeps a fingerprint of the
@@ -122,12 +124,26 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
 import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
+import { loadProjectConfig } from '../loop/lib/projectConfig.mjs';
 import { addChatWords, asOf, BUCKET, captureWords, chatWords, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, typedWords, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Dane's member account, the earliest one (20261029120000_member_roles.sql makes it the first admin).
 const DANE_ID = '3cb23781-b16b-4fae-93e0-85e51915641c';
 const VIEWPORT = { width: 1280, height: 800 };
+
+// Where tickets live (spirality.project.json). A PR body names its ticket by
+// the tracker's page, at the local or the public address; the card records
+// the public one, the only one that opens off the Mac Mini.
+const PROJECT = loadProjectConfig({ cwd: REPO });
+const TRACKER_URLS = PROJECT.tracker === 'api' ? [PROJECT.trackerPublicUrl, PROJECT.trackerUrl] : [];
+const TICKET_LINKS = { trackerUrls: TRACKER_URLS, publicUrl: PROJECT.tracker === 'api' ? PROJECT.trackerPublicUrl : null };
+const ticketOf = (url) => ticketId(url, TRACKER_URLS);
+/** A tracker ticket id (WC-12), as against a ClickUp id from before the move. */
+const onTracker = (task) => /^[A-Za-z]+-[0-9]+$/.test(String(task));
+/** The page Dane opens for a ticket. */
+const ticketPage = (task) => (onTracker(task) && PROJECT.trackerPublicUrl
+  ? `${PROJECT.trackerPublicUrl.replace(/\/+$/, '')}/t/${task}` : `https://app.clickup.com/t/${task}`);
 
 const LIVE_URL = process.env.SUPABASE_URL;
 const LIVE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -515,10 +531,10 @@ function commitInfo(rev, { ticket: lookUp = true } = {}) {
   const added = (parent ? git(['diff', '--name-only', '--diff-filter=A', parent, sha]).split('\n').filter(Boolean) : changed);
   const files = git(['ls-tree', '-r', '--name-only', sha]).split('\n').filter(Boolean);
   const { title, prNumber } = parseSubject(subject);
-  let ticket = ticketUrl(git(['show', '-s', '--format=%b', sha]));
+  let ticket = ticketUrl(git(['show', '-s', '--format=%b', sha]), TICKET_LINKS);
   if (!ticket && prNumber && lookUp) {
     const pr = sh('gh', ['pr', 'view', String(prNumber), '--json', 'body', '-q', '.body']);
-    if (pr.ok) ticket = ticketUrl(pr.stdout);
+    if (pr.ok) ticket = ticketUrl(pr.stdout, TICKET_LINKS);
   }
   return { sha, mergedAt, title, prNumber, ticketUrl: ticket, changed, added, files };
 }
@@ -530,9 +546,9 @@ function commitInfo(rev, { ticket: lookUp = true } = {}) {
  * names a ticket with no WaveCenter task behind it (noTaskLine), else null.
  */
 function ticketWords(url) {
-  const task = ticketId(url);
+  const task = ticketOf(url);
   if (!task) return { prompt: null, threadUrl: null, taskId: null, noTask: noTaskLine(null) };
-  const got = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'ticket-json', '--task', task]);
+  const got = sh(process.execPath, [join(REPO, 'scripts/wavecenter_tasks.mjs'), 'ticket-json', '--ticket', url]);
   const json = got.ok ? got.stdout.trim().split('\n').filter((l) => l.startsWith('{')).at(-1) : null;
   if (!json) {
     console.log(`  could not read ticket ${task} for Dane's words: ${tail(got.out)}`);
@@ -666,14 +682,16 @@ async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
 
 /** Tell the ticket its picture could not be taken: one plain comment, nothing else. */
 function tellTicket(row) {
-  const parent = sh('git', ['-C', REPO, 'show', `${row.commit_sha}^1:scripts/merge_lane.sh`]);
-  if (!laneCapturedOnMerge(parent.ok ? parent.stdout : '')) return;
-  const task = ticketId(row.ticket_url);
+  const lanes = ['scripts/evolution_lane.sh', 'scripts/merge_lane.sh']
+    .map((file) => sh('git', ['-C', REPO, 'show', `${row.commit_sha}^1:${file}`]))
+    .map((r) => (r.ok ? r.stdout : '')).join('\n');
+  if (!laneCapturedOnMerge(lanes)) return;
+  const task = ticketOf(row.ticket_url);
   if (!task) {
     console.log('  no ticket link on this change, so no ticket to tell.');
     return;
   }
-  const sent = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'], { input: failureComment(row) });
+  const sent = noteTicket(task, failureComment(row));
   console.log(sent.ok ? `  told ticket ${task} the screenshot could not be taken.` : `  could not comment on ticket ${task}: ${tail(sent.out)}`);
 }
 
@@ -691,9 +709,26 @@ function writeRunState(state) {
   writeFileSync(RUN_STATE, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-function clickup(args, input) {
+/** One command of Spirality's ticket door (`npm run clickup`), the one every ticket write goes through. */
+function door(args, input) {
   try {
-    return sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), ...args], { input });
+    return sh(process.execPath, [join(REPO, 'loop/scripts/clickup.mjs'), ...args], { input });
+  } catch (err) {
+    return { ok: false, out: err.message };
+  }
+}
+
+/**
+ * A plain note on a ticket, read back: a tracker ticket through WaveCenter's
+ * door (`ticket-comment`), a ClickUp ticket from before the move through the
+ * old one, where its history is.
+ */
+function noteTicket(task, body) {
+  const args = onTracker(task)
+    ? [join(REPO, 'scripts/wavecenter_tasks.mjs'), 'ticket-comment', '--ticket', task, '--body-file', '-']
+    : [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'];
+  try {
+    return sh(process.execPath, args, { input: body });
   } catch (err) {
     return { ok: false, out: err.message };
   }
@@ -709,7 +744,7 @@ function tellDane(state) {
   let task = state.pending;
   if (!task) {
     const idFile = join(tmpdir(), `evolution-run-alert-${process.pid}.txt`);
-    const made = clickup(['task', '--name', RUN_ALERT_NAME, '--status', 'building', '--body-file', '-', '--id-out', idFile], runAlertDescription(state));
+    const made = door(['task', '--name', RUN_ALERT_NAME, '--status', 'building', '--body-file', '-', '--id-out', idFile], runAlertDescription(state));
     task = existsSync(idFile) ? readFileSync(idFile, 'utf8').trim() : null;
     rmSync(idFile, { force: true });
     if (!task) {
@@ -717,12 +752,12 @@ function tellDane(state) {
       return state;
     }
   }
-  const asked = clickup(['ask', '--task', task, '--status', 'Needs your input', '--body-file', '-'], runAlertCard(state));
+  const asked = door(['ask', '--task', task, '--status', 'Needs your input', '--body-file', '-'], runAlertCard(state));
   if (!asked.ok) {
     console.error(`  filed ticket ${task}, but could NOT post Dane's card on it: ${tail(asked.out)}. The next pass tries again.`);
     return { ...state, pending: task };
   }
-  console.error(`  ${state.count} broken runs in a row: told Dane on ticket ${task} (https://app.clickup.com/t/${task}).`);
+  console.error(`  ${state.count} broken runs in a row: told Dane on ticket ${task} (${ticketPage(task)}).`);
   const { pending, ...rest } = state;
   return { ...rest, carded: task, tickets: [...state.tickets, task] };
 }
@@ -730,7 +765,7 @@ function tellDane(state) {
 /** Note on each card of this outage that it works again; keep any not yet noted. */
 function tellRecovered(state) {
   const left = state.tickets.filter((task) => {
-    const sent = clickup(['comment', '--task', task, '--body-file', '-'], recoveredNote());
+    const sent = noteTicket(task, recoveredNote());
     console.log(sent.ok ? `  told ticket ${task} picture-taking works again.` : `  could NOT tell ticket ${task} picture-taking works again: ${tail(sent.out)}. The next pass tries again.`);
     return !sent.ok;
   });
@@ -755,7 +790,7 @@ const tally = () => ({ retaken: 0, leftOff: 0, kept: 0, failed: 0, reasons: [] }
  * Counts into `out` as it goes (so a caller still has them after a stop),
  * and returns it, with each failed retake's reason.
  *
- * `newNeighboursOnly` (the merge lane) compares pictures only where this run
+ * `newNeighboursOnly` (the Evolution lane) compares pictures only where this run
  * made two cards neighbours: after a retake, or where a card between them
  * was left off. Two untouched neighbours were compared when the later one
  * was taken, and downloading every stored picture on every pass would grow
@@ -829,18 +864,18 @@ function writeRecaptureState(state) {
 /** The ticket of the latest change to the picture rules this checkout runs, or null. */
 function rulesTicket() {
   const sha = git(['log', '-1', '--format=%H', 'HEAD', '--', RULES_FILE]);
-  return sha ? ticketId(commitInfo(sha).ticketUrl) : null;
+  return sha ? ticketOf(commitInfo(sha).ticketUrl) : null;
 }
 
 function noteOn(task, body) {
   if (!task) return false;
-  const sent = sh(process.execPath, [join(REPO, 'scripts/clickup.mjs'), 'comment', '--task', task, '--body-file', '-'], { input: body });
+  const sent = noteTicket(task, body);
   console.log(sent.ok ? `  noted it on ticket ${task}.` : `  could NOT note it on ticket ${task}: ${tail(sent.out)}.`);
   return sent.ok;
 }
 
 /**
- * The merge lane's step after `missing`: when the picture rules (RULES_FILE)
+ * The Evolution lane's step after `missing`: when the picture rules (RULES_FILE)
  * differ from the ones the last successful retake used, run `recapture`, so
  * a merged rules fix reaches the old cards without a session remembering to.
  * Unchanged rules retake nothing. The fingerprint lives on the Mini in
@@ -950,18 +985,18 @@ try {
       else words.set(r.commit_sha, got.prompt ? { prompt: got.prompt, threadUrl: got.threadUrl, from: 'its ticket' } : null);
     }
     // A ticket with none of his words: the chat that made it, if it was made on this machine.
-    const ask = new Set(todo.filter((r) => words.get(r.commit_sha) === null && ticketId(r.ticket_url)).map((r) => ticketId(r.ticket_url)));
+    const ask = new Set(todo.filter((r) => words.get(r.commit_sha) === null && ticketOf(r.ticket_url)).map((r) => ticketOf(r.ticket_url)));
     const chats = ask.size ? await chatTicketWords(ask) : null;
     if (chats) console.log(`read ${chats.chats} Claude Code chat(s) in ${CHATS}, ${chats.typed} of them with anything typed by a person, for the ${ask.size} ticket(s) with none of Dane's words on them.`);
     let filled = 0, none = 0;
     for (const r of todo) {
       if (!words.has(r.commit_sha)) continue;
-      const said = chats?.found.get(ticketId(r.ticket_url));
+      const said = chats?.found.get(ticketOf(r.ticket_url));
       const w = words.get(r.commit_sha) ?? (said ? { prompt: said, threadUrl: r.ticket_url, from: 'the Claude Code chat that made its ticket' } : null);
       if (!w) {
         none += 1;
         const where = !r.ticket_url ? 'it names no ticket'
-          : chats?.found.has(ticketId(r.ticket_url)) ? 'not on its ticket, and a loop made the ticket, so nobody typed them'
+          : chats?.found.has(ticketOf(r.ticket_url)) ? 'not on its ticket, and a loop made the ticket, so nobody typed them'
           : 'not on its ticket, and no chat on this machine made the ticket';
         console.log(`${r.commit_sha.slice(0, 7)} ${r.title}\n  no words of Dane's on record: ${where}. The card keeps its short statement.`);
         continue;
