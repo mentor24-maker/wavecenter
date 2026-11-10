@@ -37,6 +37,6 @@
   "trackerPublicUrl": "https://mac-mini.tail7fc5c6.ts.net:8443",
   "preMergeCommand": [
     "node",
-    "scripts/apply_migrations.mjs"
+    "../scripts/apply_migrations.mjs"
   ]
 }

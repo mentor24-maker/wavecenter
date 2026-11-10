@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   migrationFiles, lastJson, pushList, missingOnRemote, scrub, cliError, isLocalUrl, databaseLine, applyMigrations, cliEnv,
-  takeTestDbLock, releaseTestDbLock, preMergeStep,
+  takeTestDbLock, releaseTestDbLock, preMergeStep, STEP_BUDGET_MS,
 } from './migrations.mjs';
 import { mkdtempSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -295,4 +295,56 @@ test('pre-merge step: git failing to fetch or diff stops the merge', () => {
     assert.equal(r.code, 1);
     assert.match(r.lines.join('\n'), /NOT merged/);
   }
+});
+
+test('pre-merge step: a command stopped by the time limit merges nothing and says why', () => {
+  let clock = 0;
+  const now = () => clock;
+  const seen = [];
+  const run = (cmd, args, opts) => {
+    seen.push(opts.timeout);
+    if (args.includes('fetch')) { clock += 10; return { status: 0, stdout: '', stderr: '' }; }
+    if (args.includes('diff')) return { status: 0, stdout: 'supabase/migrations/20261110000000_new.sql\n', stderr: '' };
+    if (cmd === 'supabase' && args.includes('--yes')) { clock = 1000; return { status: null, signal: 'SIGTERM', error: { code: 'ETIMEDOUT' }, stdout: '', stderr: '' }; }
+    if (cmd === 'supabase') return { status: 0, stdout: '{"migrations":["20261110000000_new.sql"]}', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const r = preMergeStep({ env: STEP_ENV, repoDir: '/repo', run, now, budgetMs: 1000, apply: applyMigrations });
+  assert.equal(r.code, 1);
+  const text = r.lines.join('\n');
+  assert.match(text, /ran out of time: .*`supabase db push`/);
+  assert.match(text, /PR #170 was NOT merged/);
+  assert.equal(seen[0], 1000, 'the first command gets the whole budget');
+  assert.ok(seen.slice(1).every((t) => t <= 990), 'later commands get only what is left');
+});
+
+test('pre-merge step: the time limit fits inside the relay pass limit', async () => {
+  const { readFileSync } = await import('node:fs');
+  const relay = readFileSync(new URL('../run_relay.sh', import.meta.url), 'utf8');
+  const limit = Number(relay.match(/RELAY_PASS_LIMIT_SECONDS:-(\d+)/)?.[1]);
+  assert.ok(limit > 0, 'run_relay.sh still names its pass limit');
+  assert.ok(STEP_BUDGET_MS / 1000 <= limit - 120, `the step's ${STEP_BUDGET_MS / 1000}s leaves the relay at least 2 minutes of its ${limit}s`);
+});
+
+// The relay runs the step with cwd set to the vendored clickup.mjs's REPO_ROOT,
+// which in WaveCenter is loop/, not the repository root (review of PR #160).
+// A configured path that does not resolve from there refuses every merge.
+test('pre-merge step: the configured command resolves from the folder the relay runs it in', async () => {
+  const { readFileSync, existsSync, realpathSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { resolve } = await import('node:path');
+  const clickupUrl = new URL('../../loop/scripts/clickup.mjs', import.meta.url);
+  const source = readFileSync(clickupUrl, 'utf8');
+  const rootLine = source.match(/^const REPO_ROOT = fileURLToPath\(new URL\('([^']+)', import\.meta\.url\)\);$/m);
+  assert.ok(rootLine, 'loop/scripts/clickup.mjs still sets REPO_ROOT the way this test reads it');
+  const premerge = source.slice(source.indexOf('mergeWithPreMergeStep({'));
+  assert.match(premerge.slice(0, 800), /spawnSync\(command\[0\], command\.slice\(1\), \{\s*cwd: REPO_ROOT,/, 'the step is still spawned from REPO_ROOT');
+  const relayCwd = fileURLToPath(new URL(rootLine[1], clickupUrl));
+
+  const config = JSON.parse(readFileSync(new URL('../../spirality.project.json', import.meta.url), 'utf8'));
+  const [program, script] = config.preMergeCommand;
+  assert.equal(program, 'node');
+  const resolved = resolve(relayCwd, script);
+  assert.ok(existsSync(resolved), `${script} from ${relayCwd} must exist`);
+  assert.equal(realpathSync(resolved), realpathSync(fileURLToPath(new URL('../apply_migrations.mjs', import.meta.url))));
 });
