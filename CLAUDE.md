@@ -2,6 +2,8 @@
 
 Read this file first, then [docs/MISSION.md](docs/MISSION.md). Together they
 say what WaveCenter is for and how to work on it.
+Dane's own prompts, word for word, and what each led to are logged in
+[docs/OPERATOR_PROMPTS.md](docs/OPERATOR_PROMPTS.md).
 For anything about points and scoring, read the scoring wiki,
 [docs/scoring/README.md](docs/scoring/README.md).
 
