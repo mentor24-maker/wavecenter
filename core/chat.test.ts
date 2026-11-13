@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CHAT_BODY_MAX, chatMessageProblem, isInChat, listChatMessages, listChats, sendChatMessage, startChat, startChatProblem } from './chat.ts';
+import { CHAT_BODY_MAX, chatMessageProblem, chatSubject, chatsAboutTask, isInChat, listChatMessages, listChats, sendChatMessage, startChat, startChatProblem } from './chat.ts';
 import { MemoryChatStore } from './memoryChatStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
@@ -30,7 +30,7 @@ test('starting a chat twice, from either side, finds the same chat; a task makes
   assert.equal(await chatAs(store, 'dane', 'kim', 'task-1'), aboutTask);
   assert.notEqual(await chatAs(store, 'dane', 'lee'), first, 'another pair is another chat');
   assert.equal(store.chatRows.length, 3);
-  assert.deepEqual(store.chatRows[1], { id: aboutTask, taskId: 'task-1', memberIds: ['kim', 'dane'], createdBy: 'kim', createdAt: store.chatRows[1].createdAt });
+  assert.deepEqual(store.chatRows[1], { id: aboutTask, taskId: 'task-1', aboutATask: true, memberIds: ['kim', 'dane'], createdBy: 'kim', createdAt: store.chatRows[1].createdAt });
 });
 
 test('a chat with yourself, an unknown member or a task you may not read is refused, and nothing is saved', async () => {
@@ -148,4 +148,24 @@ test('the database repeats core\'s rules, keeps the tables private and read-only
   assert.match(code, /perform public\.record_engagement\(new\.sender_id, 'sent_a_chat_message', new\.tool, null\)/);
   assert.match(code, /alter publication supabase_realtime add table public\.chat_messages/);
   assert.match(code, /security definer\s+set search_path = ''/);
+});
+
+test('a chat about a task stays one after the task is deleted, and a plain chat between the same two is a separate chat', async () => {
+  const store = new MemoryChatStore();
+  const aboutTask = await chatAs(store, 'dane', 'kim', 'task-1');
+  store.deleteTask('task-1');
+  const gone = store.chatRows.find((c) => c.id === aboutTask)!;
+  assert.deepEqual(chatSubject(gone), { kind: 'deleted-task' });
+  const plain = await chatAs(store, 'kim', 'dane');
+  assert.notEqual(plain, aboutTask, 'a plain chat is never the old task chat');
+  assert.deepEqual(chatSubject(store.chatRows.find((c) => c.id === plain)!), { kind: 'none' });
+});
+
+test('what a chat is about, and the chats about one task', () => {
+  assert.deepEqual(chatSubject({ taskId: 'task-1', aboutATask: true }), { kind: 'task', taskId: 'task-1' });
+  assert.deepEqual(chatSubject({ taskId: null, aboutATask: true }), { kind: 'deleted-task' });
+  assert.deepEqual(chatSubject({ taskId: null, aboutATask: false }), { kind: 'none' });
+  const chats = [{ id: 'a', taskId: 'task-1' }, { id: 'b', taskId: null }, { id: 'c', taskId: 'task-2' }, { id: 'd', taskId: 'task-1' }];
+  assert.deepEqual(chatsAboutTask(chats, 'task-1').map((c) => c.id), ['a', 'd']);
+  assert.deepEqual(chatsAboutTask(chats, ''), []);
 });

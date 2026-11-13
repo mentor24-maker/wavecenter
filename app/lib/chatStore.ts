@@ -8,7 +8,8 @@
  * member read only the chats they are in.
  *
  * `latestChatMessages` reads the newest message of each chat, for the chat
- * window's list (app/chat).
+ * window's list (app/chat); `chatTaskTitles` reads the titles of the tasks
+ * chats are about, for their labels.
  *
  * It only translates names and turns a failed or unconfirmed database call
  * into a thrown error, so a refused save is never reported as a success
@@ -39,7 +40,7 @@ export function supabaseChatStore(supabase: Client): ChatStore {
     async chats(memberId): Promise<Chat[]> {
       const { data, error } = await supabase
         .from("chats")
-        .select("id,task_id,created_by,created_at,chat_members!inner(member_id)")
+        .select("id,task_id,about_a_task,created_by,created_at,chat_members!inner(member_id)")
         .eq("chat_members.member_id", memberId)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -56,6 +57,7 @@ export function supabaseChatStore(supabase: Client): ChatStore {
       return (data ?? []).map((c) => ({
         id: c.id,
         taskId: c.task_id,
+        aboutATask: Boolean(c.about_a_task),
         memberIds: everyone.get(c.id) ?? [],
         createdBy: c.created_by,
         createdAt: c.created_at,
@@ -120,4 +122,19 @@ export async function latestChatMessages(supabase: Client, chatIds: string[]): P
     if (read.data) latest.set(read.data.chat_id, toMessage(read.data));
   }
   return latest;
+}
+
+/**
+ * The titles of the tasks `chats` are about, task id to title, for the chat
+ * window's labels. A task the member may not read, or one since deleted, is
+ * simply missing. A failed read throws.
+ */
+export async function chatTaskTitles(supabase: Client, chats: Pick<Chat, "taskId">[]): Promise<Map<string, string>> {
+  const ids = [...new Set(chats.map((c) => c.taskId).filter((id): id is string => Boolean(id)))];
+  const titles = new Map<string, string>();
+  if (!ids.length) return titles;
+  const { data, error } = await supabase.from("tasks").select("id,title").in("id", ids);
+  if (error) throw new Error(`The database refused to read the tasks your chats are about: ${error.message}`);
+  for (const t of data ?? []) titles.set(t.id, t.title);
+  return titles;
 }

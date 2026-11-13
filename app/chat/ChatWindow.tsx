@@ -26,11 +26,13 @@ import { useEffect, useRef, useState, useTransition, type FormEvent, type Keyboa
 import { CHAT_BODY_MAX, chatMessageProblem, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
 import { sendChat } from "./actions";
-import { listTimeLabel, preview, sendsOnKey, sentLabel, type ChatListItem } from "./chatView";
+import { A_TASK, DELETED_TASK, listTimeLabel, preview, sendsOnKey, sentLabel, type ChatListItem, type ChatTopic } from "./chatView";
 
 /** The chat the page opened, with its messages oldest first. */
 export interface OpenChat {
   id: string;
+  /** The task it is about, if any. */
+  topic: ChatTopic;
   otherName: string;
   otherSymbol: string;
   messages: ChatMessage[];
@@ -62,40 +64,7 @@ export default function ChatWindow({
   /** Where to listen for live updates; null when this deployment has no database settings. */
   live: LiveSettings;
 }) {
-  const router = useRouter();
-  const [liveState, setLiveState] = useState<LiveState>("connecting");
-
-  // The connection follows these strings, not the `live` object, which is new
-  // on every server render: depending on it would rejoin on every reload.
-  const liveUrl = live?.url ?? null;
-  const liveKey = live?.anonKey ?? null;
-  useEffect(() => {
-    const settings: LiveSettings = liveUrl && liveKey ? { url: liveUrl, anonKey: liveKey } : null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Several messages close together reload once.
-    const reload = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => router.refresh(), 150);
-    };
-    const stop = listenToTable(settings, {
-      table: "chat_messages",
-      // Messages from anyone else, in any chat this member may read. Their
-      // own messages show when the send is confirmed.
-      filter: `sender_id=neq.${me}`,
-      onChange: (change) => {
-        // Messages are never edited or deleted today; a new one reloads.
-        if (change.eventType === "INSERT") reload();
-      },
-      onState: (state) => {
-        setLiveState(state);
-        if (state === "live") reload();
-      },
-    });
-    return () => {
-      clearTimeout(timer);
-      stop();
-    };
-  }, [liveUrl, liveKey, me, router]);
+  const liveState = useChatLive(me, live);
 
   const showing = openId ? "conversation" : "list";
   return (
@@ -119,6 +88,7 @@ export default function ChatWindow({
                         <b>{c.otherName}</b>
                         <time className="note" dateTime={c.activeAt}>{listTimeLabel(c.activeAt)}</time>
                       </span>
+                      {c.topic && <span className="note chat-topic">{topicText(c.topic)}</span>}
                       <span className="note chat-preview">
                         {c.last ? `${c.last.mine ? "You: " : ""}${preview(c.last.body)}` : "No messages yet"}
                       </span>
@@ -147,7 +117,13 @@ export default function ChatWindow({
   );
 }
 
-function Conversation({ me, chat }: { me: string; chat: OpenChat }) {
+/**
+ * One open chat: its messages, oldest first, and the box to send from. Used
+ * by the chat window and by the task page's "Chat about this task" panel
+ * (app/tasks/[id]/TaskChats.tsx), which hides the task line (`showTopic`)
+ * because the task is the page itself.
+ */
+export function Conversation({ me, chat, showTopic = true }: { me: string; chat: OpenChat; showTopic?: boolean }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
@@ -203,6 +179,7 @@ function Conversation({ me, chat }: { me: string; chat: OpenChat }) {
       <h2 className="chat-with">
         <span aria-hidden="true">{chat.otherSymbol}</span> {chat.otherName}
       </h2>
+      {showTopic && chat.topic && <TopicLine topic={chat.topic} />}
       <div className="chat-messages box" aria-live="polite">
         {chat.error !== null ? (
           <p className="error" role="alert">The messages could not be loaded: {chat.error}. Nothing has been lost; try reloading the page.</p>
@@ -242,4 +219,69 @@ function Conversation({ me, chat }: { me: string; chat: OpenChat }) {
       </form>
     </>
   );
+}
+
+/** The list's short words for what a chat is about. */
+function topicText(topic: NonNullable<ChatTopic>): string {
+  return topic.kind === "task" ? `About: ${topic.title ?? A_TASK}` : DELETED_TASK;
+}
+
+/** Under an open chat's name: the task it is about, linked, or that the task was deleted. */
+function TopicLine({ topic }: { topic: NonNullable<ChatTopic> }) {
+  return (
+    <p className="note chat-topic-line">
+      {topic.kind === "task" ? (
+        <>About <Link href={`/tasks/${topic.taskId}`}>{topic.title ?? A_TASK}</Link></>
+      ) : (
+        <>This chat was {DELETED_TASK}.</>
+      )}
+    </p>
+  );
+}
+
+/**
+ * Listen live for chat messages from anyone else in any chat this member is
+ * in, through the one live helper (app/lib/realtimeClient.ts), and reload the
+ * page's data when one arrives, so the server stays the one source of what is
+ * shown. Every time the listen becomes live it reloads once, so nothing said
+ * while it was connecting is missed. Returns the listen's state, for the
+ * "paused" line (rule 7). Used by the chat window and the task page's panel.
+ */
+export function useChatLive(me: string, live: LiveSettings): LiveState {
+  const router = useRouter();
+  const [liveState, setLiveState] = useState<LiveState>("connecting");
+
+  // The connection follows these strings, not the `live` object, which is new
+  // on every server render: depending on it would rejoin on every reload.
+  const liveUrl = live?.url ?? null;
+  const liveKey = live?.anonKey ?? null;
+  useEffect(() => {
+    const settings: LiveSettings = liveUrl && liveKey ? { url: liveUrl, anonKey: liveKey } : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Several messages close together reload once.
+    const reload = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => router.refresh(), 150);
+    };
+    const stop = listenToTable(settings, {
+      table: "chat_messages",
+      // Messages from anyone else, in any chat this member may read. Their
+      // own messages show when the send is confirmed.
+      filter: `sender_id=neq.${me}`,
+      onChange: (change) => {
+        // Messages are never edited or deleted today; a new one reloads.
+        if (change.eventType === "INSERT") reload();
+      },
+      onState: (state) => {
+        setLiveState(state);
+        if (state === "live") reload();
+      },
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  }, [liveUrl, liveKey, me, router]);
+
+  return liveState;
 }

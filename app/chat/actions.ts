@@ -35,16 +35,26 @@ async function signedIn(what: string): Promise<Signed> {
   return { ok: true, store: supabaseChatStore(supabase), memberId: user.id };
 }
 
-/** Find or start the signed-in member's chat with `otherMemberId`. Doing it again finds the same chat. */
-export async function startChatWith(otherMemberId: string): Promise<ChatStartResult> {
+/**
+ * Find or start the signed-in member's chat with `otherMemberId`, about task
+ * `taskId` if given (the task page's "Chat about this task" panel). Doing it
+ * again finds the same chat; a chat about a task and a plain chat between the
+ * same two are separate. The database refuses a task the member may not read.
+ */
+export async function startChatWith(otherMemberId: string, taskId: string | null = null): Promise<ChatStartResult> {
   try {
     const me = await signedIn("no chat was started");
     if (!me.ok) return me;
-    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId });
+    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId, taskId });
     revalidatePath("/chat");
+    if (taskId) revalidatePath(`/tasks/${taskId}`);
     return { ok: true, id };
   } catch (err) {
     if (err instanceof CoreError) return { ok: false, error: err.message };
+    // The database's own refusal (an unknown member, a task you may not
+    // read) is already in plain words: show it.
+    const refused = err instanceof Error ? /^The database refused to start the chat: (.+)$/.exec(err.message) : null;
+    if (refused) return { ok: false, error: `${refused[1]}` };
     console.error("chat: could not start a chat:", err);
     return { ok: false, error: "Could not start the chat. Nothing was saved; try again." };
   }
