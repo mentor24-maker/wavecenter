@@ -15,7 +15,8 @@ import TokenAnimation from "./TokenAnimation";
  * for a change that could become a task, at `/proposals`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
  * points are, then Teams (`/teams`, the Team Manager: the groups members
- * work in), then Members (`/members`). Every member gets Teams and Members; each page itself
+ * work in), then Members (`/members`), then Chat (`/chat`, live chats
+ * between members). Every member gets Teams, Members and Chat; each page itself
  * decides what the member's role may see and do there. The menu holds only
  * the places every member goes, and runs along the bottom of the bar, under
  * the name and Log out. An admin also gets an Admin link (`/admin`), not in
@@ -83,6 +84,7 @@ export default function SiteHeader({
               <Link href="/game" className="quiet">Game</Link>
               <Link href="/teams" className="quiet">Teams</Link>
               <Link href="/members" className="quiet">Members</Link>
+              <Link href="/chat" className="quiet">Chat</Link>
             </nav>
           </div>
         ) : (

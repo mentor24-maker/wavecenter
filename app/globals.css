@@ -900,3 +900,46 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .task-score .score-parts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1.25rem; margin: 0; }
 .task-score .score-parts dt { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
 .task-score .score-parts dd { margin: 0; overflow-wrap: anywhere; }
+
+/*
+ * The chat window (app/chat): the member's chats on the left, the open chat
+ * on the right. The window is a level-1 box; the message pane inside it is
+ * level 2, so it reads one step darker (lighter in dark mode), as every
+ * nested box does. Your own messages sit on the right with an accent edge.
+ * Under 48rem only one side shows: the list on /chat, the chat on
+ * /chat/<id>, with "All chats" to go back.
+ */
+.chat-window { --surface: var(--level-1); display: grid; grid-template-columns: minmax(14rem, 18rem) 1fr; gap: var(--space); }
+.chat-window .chat-messages { --surface: var(--level-2); }
+.chat-list h2, .chat-with { margin-top: 0; }
+.chat-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.chat-item { display: flex; gap: 0.6rem; align-items: center; padding: 0.45rem 0.5rem; border-radius: 0.5rem; color: var(--fg); text-decoration: none; }
+.chat-item:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chat-item.open { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.chat-avatar { font-size: 1.5rem; line-height: 1; }
+.chat-item-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.chat-item-top { display: flex; justify-content: space-between; gap: 0.5rem; }
+.chat-item-top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item-top time { font-size: 0.8rem; white-space: nowrap; }
+.chat-preview { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-conversation { display: flex; flex-direction: column; min-width: 0; }
+.chat-back { display: none; margin-top: 0; }
+.chat-messages { height: min(60vh, 32rem); overflow-y: auto; margin-bottom: 0.5rem; }
+.chat-messages ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.chat-message { display: flex; flex-direction: column; max-width: 80%; align-self: flex-start; padding: 0.35rem 0.6rem; border-radius: 0.5rem; background: var(--level-1); }
+.chat-message.mine { align-self: flex-end; border-right: 3px solid var(--accent); }
+.chat-meta { font-size: 0.8rem; }
+.chat-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-send { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.5rem; align-items: end; }
+.chat-send textarea { resize: none; }
+.chat-send .chat-hint, .chat-send .error { grid-column: 1 / -1; margin: 0; }
+.chat-hint { font-size: 0.8rem; }
+.chat-start-error { display: block; margin-top: 0.25rem; font-size: 0.85rem; }
+@media (max-width: 48rem) {
+  .chat-window { grid-template-columns: 1fr; }
+  .chat-window.showing-list .chat-conversation { display: none; }
+  .chat-window.showing-conversation .chat-list { display: none; }
+  .chat-back { display: block; }
+  .chat-messages { height: 55vh; }
+  .chat-message { max-width: 92%; }
+}

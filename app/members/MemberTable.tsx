@@ -5,7 +5,8 @@
  * clicked (Member, Joined, Role), and an Actions column holding the buttons
  * the viewer's role may use. Which buttons those are is decided in core
  * (memberActions in core/members.ts) and handed in by the page; the database
- * still refuses an action the viewer may not take. Filtering and sorting work
+ * still refuses an action the viewer may not take. Chat shows on every row
+ * but your own: nobody chats with themselves. Filtering and sorting work
  * on the members already loaded (memberView.ts).
  */
 import { useState } from "react";
@@ -23,6 +24,7 @@ import {
   type MemberSort,
   type MemberSortKey,
 } from "./memberView";
+import ChatButton from "./ChatButton";
 import MessageButton from "./MessageButton";
 import RolePicker from "./RolePicker";
 
@@ -114,6 +116,7 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
                         <RolePicker memberId={m.memberId} initial={m.role} label={you ? "you" : name} />
                       )}
                       {actions.includes("message") && <MessageButton memberId={m.memberId} label={you ? "yourself" : name} />}
+                      {actions.includes("chat") && !you && <ChatButton memberId={m.memberId} label={name} />}
                     </td>
                   )}
                 </tr>

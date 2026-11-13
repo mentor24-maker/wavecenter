@@ -7,6 +7,9 @@
  * Reading goes straight to the tables, whose row-level security lets a
  * member read only the chats they are in.
  *
+ * `latestChatMessages` reads the newest message of each chat, for the chat
+ * window's list (app/chat).
+ *
  * It only translates names and turns a failed or unconfirmed database call
  * into a thrown error, so a refused save is never reported as a success
  * (engineering rule 6). Server only.
@@ -76,4 +79,45 @@ export function supabaseChatStore(supabase: Client): ChatStore {
       }));
     },
   };
+}
+
+/** How many recent messages one read for the chat list looks through before asking chat by chat. */
+const LATEST_SCAN = 1000;
+
+/**
+ * The newest message in each of `chatIds`, for the chat list (app/chat).
+ * One read of the most recent messages covers the busy chats; any chat with
+ * no message among them is then asked on its own, so a quiet chat still
+ * shows its last message. Row-level security keeps it to the member's own
+ * chats. A failed read throws.
+ */
+export async function latestChatMessages(supabase: Client, chatIds: string[]): Promise<Map<string, ChatMessage>> {
+  const latest = new Map<string, ChatMessage>();
+  if (!chatIds.length) return latest;
+  const toMessage = (m: { id: string; chat_id: string; sender_id: string; body: string; tool: string; created_at: string }): ChatMessage => ({
+    id: m.id, chatId: m.chat_id, senderId: m.sender_id, body: m.body, tool: m.tool, sentAt: m.created_at,
+  });
+  const columns = "id,chat_id,sender_id,body,tool,created_at";
+  const recent = await supabase
+    .from("chat_messages")
+    .select(columns)
+    .in("chat_id", chatIds)
+    .order("created_at", { ascending: false })
+    .limit(LATEST_SCAN);
+  if (recent.error) throw new Error(`The database refused to read your chats' last messages: ${recent.error.message}`);
+  for (const m of recent.data ?? []) if (!latest.has(m.chat_id)) latest.set(m.chat_id, toMessage(m));
+  // Fewer rows than the scan means every message was seen: a chat still
+  // missing has none. Otherwise ask each missing chat for its newest.
+  if ((recent.data ?? []).length < LATEST_SCAN) return latest;
+  const missing = chatIds.filter((id) => !latest.has(id));
+  const reads = await Promise.all(
+    missing.map((id) =>
+      supabase.from("chat_messages").select(columns).eq("chat_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ),
+  );
+  for (const read of reads) {
+    if (read.error) throw new Error(`The database refused to read a chat's last message: ${read.error.message}`);
+    if (read.data) latest.set(read.data.chat_id, toMessage(read.data));
+  }
+  return latest;
 }
