@@ -75,11 +75,11 @@ test('mayDo follows the grants the database holds, not only the starting ones', 
   assert.equal(mayDo('admin', 'member.edit', {}), false);
 });
 
-test('the member-table buttons: an admin gets Change role and Message, everyone else gets Message', () => {
-  assert.deepEqual(MEMBER_ACTIONS.map((a) => a.key), ['change-role', 'message']);
-  assert.deepEqual(memberActions('admin'), ['change-role', 'message']);
-  assert.deepEqual(memberActions('admin', { admin: ['member.message'] }), ['message']);
-  for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) assert.deepEqual(memberActions(role), ['message'], role);
+test('the member-table buttons: an admin gets Change role, Message and Chat, everyone else gets Message and Chat', () => {
+  assert.deepEqual(MEMBER_ACTIONS.map((a) => a.key), ['change-role', 'message', 'chat']);
+  assert.deepEqual(memberActions('admin'), ['change-role', 'message', 'chat']);
+  assert.deepEqual(memberActions('admin', { admin: ['member.message'] }), ['message', 'chat']);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) assert.deepEqual(memberActions(role), ['message', 'chat'], role);
   assert.deepEqual(memberActions(null), []);
   assert.deepEqual(memberActions('admin', { admin: ['member.read'] }), []);
 });

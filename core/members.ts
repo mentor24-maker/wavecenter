@@ -11,7 +11,7 @@
  * makes them count. The member permissions do count: `member.read` decides
  * who may see the member list (the database's `list_members` asks it too),
  * `member.edit` who gets the role picker in each row, and `member.message`
- * who gets the Message button (the database's `send_message` asks it too),
+ * who gets the Message and Chat buttons (the database's `send_message` asks it too),
  * and `home.edit` who gets the pencil on Home's boxes (core/homeBoxes.ts).
  *
  * Like the profile (core/profiles.ts), roles are reached through a store a
@@ -96,6 +96,11 @@ export function mayDo(
 export const MEMBER_ACTIONS = [
   { key: 'change-role', label: 'Change role', permission: 'member.edit' },
   { key: 'message', label: 'Message', permission: 'member.message' },
+  // Live chat (core/chat.ts) rides on the same permission as messaging: both
+  // are one member talking to another, and every role has it (Dane,
+  // 2026-11-12: "Any two members, for now"). The database's `start_chat`
+  // lets any signed-in member start one.
+  { key: 'chat', label: 'Chat', permission: 'member.message' },
 ] as const satisfies readonly { key: string; label: string; permission: PermissionKey }[];
 export type MemberActionKey = (typeof MEMBER_ACTIONS)[number]['key'];
 
