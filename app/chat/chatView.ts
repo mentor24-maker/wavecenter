@@ -18,6 +18,20 @@ export interface ChatListItem {
   last: { body: string; sentAt: string; mine: boolean } | null;
   /** When anything last happened: the newest message, or when it was started. */
   activeAt: string;
+  /** How many messages in it the viewer has not read yet (WC-176). */
+  unread: number;
+}
+
+/**
+ * The browser event that tells the header's Chat badge to count again: sent
+ * when the open chat has been marked read and when a new message arrives.
+ */
+export const CHAT_UNREAD_EVENT = "wavecenter:chat-unread-changed";
+
+/** The newest message in `messages` that someone else sent: its id, or null. Opening a chat marks it read again whenever this changes. */
+export function newestFromOthers(messages: Pick<ChatMessage, "id" | "senderId">[], me: string): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i].senderId !== me) return messages[i].id;
+  return null;
 }
 
 /** What a member the page could not name is called. */
@@ -38,6 +52,7 @@ export function chatList(
   latest: ReadonlyMap<string, ChatMessage>,
   me: string,
   who: (memberId: string | null) => { name: string; symbol: string },
+  unread: ReadonlyMap<string, number> = new Map(),
 ): ChatListItem[] {
   return chats
     .map((chat) => {
@@ -46,7 +61,7 @@ export function chatList(
       const message = latest.get(chat.id) ?? null;
       const last = message ? { body: message.body, sentAt: message.sentAt, mine: message.senderId === me } : null;
       const activeAt = message && message.sentAt > chat.createdAt ? message.sentAt : chat.createdAt;
-      return { id: chat.id, otherId, otherName: person.name, otherSymbol: person.symbol, last, activeAt };
+      return { id: chat.id, otherId, otherName: person.name, otherSymbol: person.symbol, last, activeAt, unread: unread.get(chat.id) ?? 0 };
     })
     .sort((a, b) => (a.activeAt < b.activeAt ? 1 : a.activeAt > b.activeAt ? -1 : 0));
 }

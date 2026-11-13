@@ -18,7 +18,9 @@
  * `message_recipient_email`); that any two members chat only through
  * start_chat and send_chat_message, and a member reads a chat, its members
  * and its messages only when they are in it (`public.chats`,
- * `public.chat_members`, `public.chat_messages`); that every member reads the teams and their
+ * `public.chat_members`, `public.chat_messages`), and only they mark a chat
+ * read for themselves, which clears its unread count for them alone
+ * (`mark_chat_read`, `my_chat_unread`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
@@ -852,6 +854,42 @@ try {
     chatRule?.name === 'Sent a chat message' && chatRule.points === 4 && chatRule.effort === 1 && chatRule.value === 1 && chatRule.rarity === 0 && chatRule.farm_risk === 2
       && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof chatRule[k] === 'string' && chatRule[k].length > 0),
     JSON.stringify(chatRule));
+
+  // Unread chat messages (20261113150000_chat_unread.sql): a message is
+  // unread for a member when it is newer than their last read and not their
+  // own; only the member marks a chat read, for themselves alone.
+  const unreadIn = async (who) => {
+    const r = await call('/rest/v1/rpc/my_chat_unread', { method: 'POST', token: who.token, body: {} });
+    return { status: r.status, count: (Array.isArray(r.json) ? r.json : []).find((row) => row.chat_id === chatId)?.unread ?? 0, rows: r.json };
+  };
+  const markRpc = (who, chat) => call('/rest/v1/rpc/mark_chat_read', { method: 'POST', token: who.token, body: { chat } });
+  const [unreadA0, unreadB0] = [await unreadIn(a), await unreadIn(b)];
+  check('each member of a chat has the other\'s message unread, never their own', unreadA0.status === 200 && unreadA0.count === 1 && unreadB0.status === 200 && unreadB0.count === 1,
+    `A ${JSON.stringify(unreadA0)}, B ${JSON.stringify(unreadB0)}`);
+  const markA = await markRpc(a, chatId);
+  const [unreadA1, unreadB1] = [await unreadIn(a), await unreadIn(b)];
+  const readRows = (await admin(`/rest/v1/chat_members?chat_id=eq.${chatId}&select=member_id,last_read_at`)).json ?? [];
+  const readOf = (member) => readRows.find((r) => r.member_id === member.id)?.last_read_at;
+  check('marking a chat read clears it for that member alone, and records it on their own row only',
+    markA.status === 200 && typeof markA.json === 'string' && unreadA1.count === 0 && unreadB1.count === 1 && readOf(a) && readOf(b) === null,
+    `mark HTTP ${markA.status} ${JSON.stringify(markA.json)}, A ${unreadA1.count}, B ${unreadB1.count}, rows ${JSON.stringify(readRows)}`);
+  const markOut = await markRpc(outsider, chatId);
+  const markAnon = await call('/rest/v1/rpc/mark_chat_read', { method: 'POST', body: { chat: chatId } });
+  const forgeRead = await call(`/rest/v1/chat_members?chat_id=eq.${chatId}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { last_read_at: new Date().toISOString() } });
+  const readRowsAfter = (await admin(`/rest/v1/chat_members?chat_id=eq.${chatId}&select=member_id,last_read_at`)).json ?? [];
+  check('nobody else marks a chat read: not a member outside it, not a signed-out visitor, and nobody writes last_read_at directly',
+    markOut.status >= 400 && /not in that chat/.test(markOut.json?.message ?? '') && markAnon.status >= 400
+      && (forgeRead.status >= 400 || (Array.isArray(forgeRead.json) && forgeRead.json.length === 0))
+      && readRowsAfter.find((r) => r.member_id === b.id)?.last_read_at === null,
+    `outsider HTTP ${markOut.status} ${markOut.json?.message ?? ''}, signed out HTTP ${markAnon.status}, direct HTTP ${forgeRead.status} ${JSON.stringify(forgeRead.json)}`);
+  const unreadOut = await call('/rest/v1/rpc/my_chat_unread', { method: 'POST', token: outsider.token, body: {} });
+  check('a member outside a chat never sees an unread count for it',
+    unreadOut.status === 200 && (unreadOut.json ?? []).every((row) => row.chat_id !== chatId), `HTTP ${unreadOut.status} ${JSON.stringify(unreadOut.json)}`);
+  await chatRpc(b, { chat: chatId, body: 'Are you there?', tool: TOOL });
+  const unreadA2 = await unreadIn(a);
+  check('a newer message after a member read the chat counts as unread again', unreadA2.count === 1, JSON.stringify(unreadA2));
+  const readScored = (await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=like.*read*&select=kind`)).json ?? [];
+  check('marking a chat read scores nothing', readScored.length === 0, JSON.stringify(readScored));
 
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through

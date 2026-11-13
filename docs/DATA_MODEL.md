@@ -364,6 +364,7 @@ in WaveCenter and is never emailed. Neither table touches the other.
 | | `task_id` | The task it is about, or empty for a plain chat. Deleting the task keeps the chat and empties this. |
 | | `created_by`, `created_at` | Who started it, and when. |
 | `chat_members` | `chat_id`, `member_id`, `joined_at` | Who is in each chat. A list, not two columns, so group chats can come later without a rebuild; today every chat has two. |
+| | `last_read_at` | When this member last read this chat; empty means never. Set only through `mark_chat_read`. |
 | `chat_messages` | `chat_id`, `sender_id`, `body` | What was said, in which chat, by whom: plain text, 1 to 4,000 characters, trimmed. |
 | | `tool`, `created_at` | The tool that sent it, and when. |
 
@@ -381,6 +382,20 @@ the three directly. Two database functions are the only way in, and
 - `send_chat_message(chat, body, tool)` saves a message from the caller. It
   refuses a member who is not in the chat, an empty or over-long message,
   and a message that names no tool.
+- `mark_chat_read(chat)` sets the caller's own `last_read_at` in that chat
+  to now, and hands back the time. It never touches anyone else's, and
+  refuses a member who is not in the chat. It is not scored: reading a chat
+  is not an engagement a member chooses.
+
+A message is **unread** for a member when it is newer than their
+`last_read_at` (or they have never read the chat) and they did not send it;
+your own messages never count. `core/chat.ts` holds the rule
+(`isUnreadChatMessage`), and the database repeats it in `my_chat_unread()`,
+which hands the caller each of their chats with unread messages and how
+many. It runs as the caller, so row-level security keeps it to their own
+chats. The header's Chat link shows how many chats have unread messages
+(hidden at 0, "9+" above 9), live; the chat list shows each one in bold with
+its count.
 
 Every chat message saved is an engagement for its sender (`sent_a_chat_message`,
 "Sent a chat message", worth what Game > Manage says: 4 to start, by the
@@ -389,8 +404,8 @@ formula in `docs/GRANULAR_SCORING_ALGORITHM.md`), recorded by the
 written, the message is not saved either. `chat_messages` is in Supabase's
 live-update feed (the `supabase_realtime` publication), so a chat window can
 show a new message the moment it is saved; the feed obeys the same read
-rule. There is no chat screen yet, no unread count, and no editing or
-deleting a chat message (each is its own ticket, or not planned yet).
+rule. There is no editing or deleting a chat message, and no "seen" mark
+for the sender (not planned yet).
 
 ### Teams: `teams` and `team_members`
 

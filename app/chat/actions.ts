@@ -10,13 +10,15 @@
  * and keeps what was typed (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
-import { sendChatMessage, startChat } from "../../core/chat.ts";
+import { markChatRead, sendChatMessage, startChat, unreadChats } from "../../core/chat.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { supabaseChatStore } from "../lib/chatStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
 export type ChatStartResult = { ok: true; id: string } | { ok: false; error: string };
 export type ChatSendResult = { ok: true } | { ok: false; error: string };
+export type ChatReadResult = { ok: true } | { ok: false; error: string };
+export type ChatUnreadResult = { ok: true; chats: number; memberId: string } | { ok: false; error: string };
 
 type Signed = { ok: true; store: ReturnType<typeof supabaseChatStore>; memberId: string } | { ok: false; error: string };
 
@@ -63,4 +65,39 @@ export async function sendChat(chatId: string, body: string): Promise<ChatSendRe
   }
   revalidatePath("/chat");
   return { ok: true };
+}
+
+/**
+ * The signed-in member has read chat `chatId` up to now (WC-176). Marks it
+ * for them alone. Not scored. A refusal comes back as `{ ok: false }`.
+ */
+export async function markChatReadNow(chatId: string): Promise<ChatReadResult> {
+  try {
+    const me = await signedIn("the chat was not marked read");
+    if (!me.ok) return me;
+    await markChatRead(me.store, { memberId: me.memberId, chatId });
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("chat: could not mark a chat read:", err);
+    return { ok: false, error: "Could not mark the chat read. Try again." };
+  }
+  return { ok: true };
+}
+
+/**
+ * How many of the signed-in member's chats have unread messages, for the
+ * header's Chat badge, and the member's own id, which the badge's live
+ * listen filters on. A failed read says so, never 0.
+ */
+export async function unreadChatCount(): Promise<ChatUnreadResult> {
+  try {
+    const me = await signedIn("unread chats cannot be counted");
+    if (!me.ok) return me;
+    const counts = await unreadChats(me.store, me.memberId);
+    return { ok: true, chats: counts.size, memberId: me.memberId };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("chat: could not count unread chats:", err);
+    return { ok: false, error: "Unread chats could not be counted." };
+  }
 }

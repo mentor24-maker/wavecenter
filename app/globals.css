@@ -194,6 +194,13 @@ html, body {
 .site a:focus-visible, .site button:focus-visible { outline-color: #fff; }
 /* Bold is wider: on a phone, tighter gaps keep Log out on screen. */
 @media (max-width: 30rem) { .site-inner { gap: 0.5rem; } .who .menu { gap: 0.25rem 0.5rem; } }
+/* The number of chats with a message waiting, beside Chat (WC-176): a small
+   gold pill with dark text, so it reads on the bar's picture in light and dark
+   mode alike. "?" when the count could not be read. */
+.unread-badge { display: inline-block; min-width: 1.25rem; margin-left: 0.3rem; padding: 0 0.35rem; border-radius: 999px;
+  background: #f2c14e; color: #0b2533; font-size: 0.75rem; font-weight: 700; line-height: 1.25rem; text-align: center;
+  text-shadow: none; vertical-align: 0.1em; }
+.unread-badge.unknown { background: #d7e3e7; }
 
 /* Every page has the same 1440px main body, and the header bar above lines up with it. */
 main {
@@ -922,6 +929,11 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .chat-item-top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-item-top time { font-size: 0.8rem; white-space: nowrap; }
 .chat-preview { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A chat with messages you have not read: its last message in bold, full colour, and its count beside it. */
+.chat-item.unread .chat-preview { font-weight: 700; color: var(--fg); }
+.chat-item-bottom { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.chat-item-bottom .chat-preview { flex: 1; min-width: 0; }
+.chat-item .unread-badge { flex: none; margin-left: 0; }
 .chat-conversation { display: flex; flex-direction: column; min-width: 0; }
 .chat-back { display: none; margin-top: 0; }
 .chat-messages { height: min(60vh, 32rem); overflow-y: auto; margin-bottom: 0.5rem; }
