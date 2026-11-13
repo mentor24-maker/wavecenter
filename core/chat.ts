@@ -27,8 +27,14 @@ export const CHAT_BODY_MAX = 4000;
 /** One conversation. */
 export interface Chat {
   id: string;
-  /** The task it is about; null for a plain chat. */
+  /** The task it is about; null for a plain chat, or once that task is deleted. */
   taskId: string | null;
+  /**
+   * Whether it was started about a task. Set once and never changed, so a
+   * chat whose task was deleted (taskId null) is still told apart from a
+   * plain chat (supabase/migrations/20261113120000_chats_about_a_task.sql).
+   */
+  aboutATask: boolean;
   /** Everyone in it. Two today. */
   memberIds: string[];
   /** Who started it; null once their account is gone. */
@@ -135,6 +141,20 @@ export async function listChats(store: ChatStore, memberId: string): Promise<Cha
   return rows
     .filter((c) => isInChat(c, memberId))
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+}
+
+/** What a chat is about: a task still there, a task since deleted, or nothing (a plain chat). */
+export type ChatSubject = { kind: 'task'; taskId: string } | { kind: 'deleted-task' } | { kind: 'none' };
+
+/** What `chat` is about. */
+export function chatSubject(chat: Pick<Chat, 'taskId' | 'aboutATask'>): ChatSubject {
+  if (chat.taskId) return { kind: 'task', taskId: chat.taskId };
+  return chat.aboutATask ? { kind: 'deleted-task' } : { kind: 'none' };
+}
+
+/** Of `chats`, the ones about task `taskId`, in the order given. */
+export function chatsAboutTask<T extends Pick<Chat, 'taskId'>>(chats: T[], taskId: string): T[] {
+  return taskId ? chats.filter((c) => c.taskId === taskId) : [];
 }
 
 /**

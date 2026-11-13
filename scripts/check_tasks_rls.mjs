@@ -843,6 +843,24 @@ try {
     outChats.json?.length === 0 && outMembers.json?.length === 0 && outMessages.json?.length === 0 && (outAll.json ?? []).every((m) => m.chat_id === raced[0].json)
       && (anonRead.status >= 400 || anonRead.json?.length === 0),
     `chats ${JSON.stringify(outChats.json)}, members ${JSON.stringify(outMembers.json)}, messages ${JSON.stringify(outMessages.json)}, all ${JSON.stringify(outAll.json)}, signed out HTTP ${anonRead.status}`);
+  // A chat about a task stays one after the task is deleted
+  // (20261113120000_chats_about_a_task.sql): it keeps about_a_task, and a
+  // plain chat between the same two is a new chat, not the old task chat.
+  const goneTask = await createTask(outsider.store, { title: 'Task deleted under a chat', points: 1 }, TOOL);
+  const goneChat = await startRpc(outsider, { other_member: b.id, about_task: goneTask.id });
+  const goneDelete = await admin(`/rest/v1/tasks?id=eq.${goneTask.id}`, { method: 'DELETE', prefer: 'return=representation', tool: TOOL });
+  const goneChatRow = await call(`/rest/v1/chats?id=eq.${goneChat.json}&select=task_id,about_a_task`, { token: b.token });
+  const plainAfter = await startRpc(b, { other_member: outsider.id });
+  const plainAgain = await startRpc(outsider, { other_member: b.id, about_task: null });
+  check('a chat about a deleted task still says it was about a task, and a plain chat between the same two is a separate chat',
+    goneChat.status === 200 && Array.isArray(goneDelete.json) && goneDelete.json.length === 1
+      && JSON.stringify(goneChatRow.json) === JSON.stringify([{ task_id: null, about_a_task: true }])
+      && plainAfter.status === 200 && plainAfter.json !== goneChat.json && plainAgain.json === plainAfter.json,
+    `chat HTTP ${goneChat.status}, delete HTTP ${goneDelete.status} ${JSON.stringify(goneDelete.json)}, row ${JSON.stringify(goneChatRow.json)}, plain ${JSON.stringify(plainAfter.json)} again ${JSON.stringify(plainAgain.json)}`);
+  const plainRow = await call(`/rest/v1/chats?id=in.(${chatId},${chatTask.json})&select=id,about_a_task`, { token: a.token });
+  check('a plain chat is marked as not about a task, and a task chat as about one',
+    (plainRow.json ?? []).find((c) => c.id === chatId)?.about_a_task === false && (plainRow.json ?? []).find((c) => c.id === chatTask.json)?.about_a_task === true,
+    JSON.stringify(plainRow.json));
   const chatRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${CHAT_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
   const [chatA, chatB, chatOut] = [await chatScored(a), await chatScored(b), await chatScored(outsider)];
   check('each chat message saved records one engagement for its sender, worth what the rule says and naming its tool; a refused one records none',
