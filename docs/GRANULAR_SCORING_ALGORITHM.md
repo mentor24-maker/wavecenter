@@ -208,15 +208,25 @@ ticket each.
 | Changed a scoring rule | 1 | 1 | 2 | 1 | 3 | **7** | Sets values every member earns by; can be changed back. Admin only. |
 | Added a scoring action | 1 | 1 | 2 | 1 | 2 | **7** | Grows the list of what counts; no rule can be deleted, so it cannot loop, but a new one takes a minute. Admin only. |
 
+### Actions added since, scored by the formula from the start
+
+Each of these was scored by "Scoring an action added later" below in the
+pull request that wired it, so its points today ("Now") are already the
+formula's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
 factors are taken one at a time: one sentence for each, drafted from the
-action's "Why" line and the factor's level test. The same 96 sentences are
+action's "Why" line and the factor's level test. The same sentences are
 stored with the action in `game_scoring_rules` (`effort_reason`,
-`value_reason`, `rarity_reason`, `farm_risk_reason`, filled by
-`supabase/migrations/20261103120000_scoring_factor_reasons.sql`; a test
-keeps the two in step). On the Admin page, clicking a factor's number in
+`value_reason`, `rarity_reason`, `farm_risk_reason`): the first 96 filled by
+`supabase/migrations/20261103120000_scoring_factor_reasons.sql`, each later
+action's by the migration that wires it; a test keeps the two in step). On the Admin page, clicking a factor's number in
 **Recalculate action points** shows its sentence.
 
 | Action | Factor | Score | Reason |
@@ -317,6 +327,10 @@ keeps the two in step). On the Admin page, clicking a factor's number in
 | Added a scoring action | Value | 2 | Grows the list of what counts, which every member earns by. |
 | Added a scoring action | Rarity | 1 | New actions are added a few times a week at most, and only by an admin. |
 | Added a scoring action | Farm risk | 2 | No rule can be deleted, so it cannot loop, but a new one takes a minute. |
+| Sent a chat message | Effort | 1 | A few words: under a minute. |
+| Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
+| Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
+| Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
 
 ## Scoring an action added later
 
