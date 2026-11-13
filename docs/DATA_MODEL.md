@@ -347,6 +347,49 @@ for its sender (`send_a_message_to_another_member`, worth what Game > Manage
 says), recorded by the `messages_score` trigger in the same save; a note to
 oneself earns nothing. There is no screen for reading messages yet (a later ticket).
 
+### Chats: `chats`, `chat_members` and `chat_messages`
+
+Live chat between members (Dane, 2026-11-12: "So two WaveCenter users could
+chat with each other in real-time in a dedicated window"; any two members,
+for now; "Chat's next to and about tasks would be ideal"). **This is
+separate from "Messages to members" above:** a message is one-way, has a
+subject and is emailed; a chat is a back-and-forth conversation that stays
+in WaveCenter and is never emailed. Neither table touches the other.
+
+| Table | Column | What it holds |
+|---|---|---|
+| `chats` | `id` | One conversation. |
+| | `task_id` | The task it is about, or empty for a plain chat. Deleting the task keeps the chat and empties this. |
+| | `created_by`, `created_at` | Who started it, and when. |
+| `chat_members` | `chat_id`, `member_id`, `joined_at` | Who is in each chat. A list, not two columns, so group chats can come later without a rebuild; today every chat has two. |
+| `chat_messages` | `chat_id`, `sender_id`, `body` | What was said, in which chat, by whom: plain text, 1 to 4,000 characters, trimmed. |
+| | `tool`, `created_at` | The tool that sent it, and when. |
+
+Row-level security was on for all three from the moment they were made. A
+member reads a chat, who is in it and what was said **only when they are in
+that chat**; nobody else does, an admin included, and nobody writes any of
+the three directly. Two database functions are the only way in, and
+`core/chat.ts` applies the same rules first:
+
+- `start_chat(other_member, about_task)` hands back the chat between the
+  caller and the other member about that task (or about none): the one
+  already there, whichever of the two started it, or a new one. It refuses a
+  chat with yourself, a member who does not exist, and a task the caller may
+  not read.
+- `send_chat_message(chat, body, tool)` saves a message from the caller. It
+  refuses a member who is not in the chat, an empty or over-long message,
+  and a message that names no tool.
+
+Every chat message saved is an engagement for its sender (`sent_a_chat_message`,
+"Sent a chat message", worth what Game > Manage says: 4 to start, by the
+formula in `docs/GRANULAR_SCORING_ALGORITHM.md`), recorded by the
+`chat_messages_score` trigger in the same save: if the points cannot be
+written, the message is not saved either. `chat_messages` is in Supabase's
+live-update feed (the `supabase_realtime` publication), so a chat window can
+show a new message the moment it is saved; the feed obeys the same read
+rule. There is no chat screen yet, no unread count, and no editing or
+deleting a chat message (each is its own ticket, or not planned yet).
+
 ### Teams: `teams` and `team_members`
 
 A team is a named group of members (Dane, 2026-10-30). Every role may view

@@ -15,7 +15,10 @@
  * (`public.member_roles`); that every member, a viewer too, sends a message
  * only through send_message, only its sender and recipient read it, and no
  * member's session is ever handed an email address (`public.messages`,
- * `message_recipient_email`); that every member reads the teams and their
+ * `message_recipient_email`); that any two members chat only through
+ * start_chat and send_chat_message, and a member reads a chat, its members
+ * and its messages only when they are in it (`public.chats`,
+ * `public.chat_members`, `public.chat_messages`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
  * editor changes them (`public.teams`, `public.team_members`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
@@ -721,6 +724,84 @@ try {
       && [...aScored, ...bScored].every((e) => e.points === messagePoints && e.tool === TOOL && e.task_id === null),
     `A sent B ${aToB}, scored ${aScored.length}; B sent A ${bToA}, scored ${bScored.length}; rule worth ${messagePoints}`);
 
+  // Chats (20261112120000_chats.sql): any two members chat; a chat is made
+  // only through start_chat and a message saved only through
+  // send_chat_message; a member reads a chat, its members and its messages
+  // only when they are in it, an admin included; nobody writes the tables
+  // directly; every message saved is scored for its sender in the same save.
+  const outsider = await makeUser('chat-outsider');
+  const startRpc = (who, body) => call('/rest/v1/rpc/start_chat', { method: 'POST', token: who.token, body });
+  const chatRpc = (who, body) => call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: who.token, body });
+  const chatAB = await startRpc(b, { other_member: a.id });
+  const chatBA = await startRpc(a, { other_member: b.id });
+  const chatAgain = await startRpc(b, { other_member: a.id, about_task: null });
+  check('start_chat twice for the same pair, in either order, returns the same chat', chatAB.status === 200 && typeof chatAB.json === 'string' && chatBA.json === chatAB.json && chatAgain.json === chatAB.json,
+    `HTTP ${chatAB.status} ${JSON.stringify(chatAB.json)}, other way ${JSON.stringify(chatBA.json)}, again ${JSON.stringify(chatAgain.json)}`);
+  const chatTask = await startRpc(a, { other_member: b.id, about_task: insA.id });
+  const chatTaskAgain = await startRpc(b, { other_member: a.id, about_task: insA.id });
+  check('a chat about a task is its own chat, and starting it again from either side finds it', chatTask.status === 200 && chatTask.json !== chatAB.json && chatTaskAgain.json === chatTask.json,
+    `HTTP ${chatTask.status} ${JSON.stringify(chatTask.json)}, again ${JSON.stringify(chatTaskAgain.json)}`);
+  // Two members starting the same chat at the same moment still make one.
+  const raced = await Promise.all([startRpc(a, { other_member: outsider.id }), startRpc(outsider, { other_member: a.id }), startRpc(a, { other_member: outsider.id })]);
+  check('starting the same chat three times at once makes one chat', raced.every((r) => r.status === 200 && r.json === raced[0].json), JSON.stringify(raced.map((r) => [r.status, r.json])));
+  const selfChat = await startRpc(a, { other_member: a.id });
+  const nobodyChat = await startRpc(a, { other_member: randomUUID() });
+  const noTaskChat = await startRpc(a, { other_member: b.id, about_task: randomUUID() });
+  const anonChat = await call('/rest/v1/rpc/start_chat', { method: 'POST', body: { other_member: a.id } });
+  check('the database refuses a chat with yourself, an unknown member, a task you may not read, and a signed-out visitor',
+    selfChat.status >= 400 && /yourself/.test(selfChat.json?.message ?? '') && nobodyChat.status >= 400 && /no such member/.test(nobodyChat.json?.message ?? '')
+      && noTaskChat.status >= 400 && /no task/.test(noTaskChat.json?.message ?? '') && anonChat.status >= 400,
+    `self HTTP ${selfChat.status} ${selfChat.json?.message ?? ''}; unknown HTTP ${nobodyChat.status} ${nobodyChat.json?.message ?? ''}; task HTTP ${noTaskChat.status} ${noTaskChat.json?.message ?? ''}; signed out HTTP ${anonChat.status}`);
+  const chatId = chatAB.json;
+  const CHAT_KIND = 'sent_a_chat_message';
+  const chatScored = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${CHAT_KIND}&select=points,tool,task_id`)).json ?? [];
+  const sayB = await chatRpc(b, { chat: chatId, body: '  Hello A \n', tool: TOOL });
+  const sayA = await chatRpc(a, { chat: chatId, body: 'Hello B', tool: TOOL });
+  check('both members of a chat send a message, each handed back its id', sayB.status === 200 && typeof sayB.json === 'string' && sayA.status === 200 && typeof sayA.json === 'string',
+    `B HTTP ${sayB.status} ${JSON.stringify(sayB.json)}, A HTTP ${sayA.status} ${JSON.stringify(sayA.json)}`);
+  const intruder = await chatRpc(outsider, { chat: chatId, body: 'Let me in', tool: TOOL });
+  const emptyChat = await chatRpc(a, { chat: chatId, body: ' \n\t ', tool: TOOL });
+  const longChat = await chatRpc(a, { chat: chatId, body: 'x'.repeat(4001), tool: TOOL });
+  const noToolChat = await chatRpc(a, { chat: chatId, body: 'Hi', tool: ' ' });
+  const anonSay = await call('/rest/v1/rpc/send_chat_message', { method: 'POST', body: { chat: chatId, body: 'Hi', tool: TOOL } });
+  check('the database refuses a message from someone not in the chat, an empty or over-long one, one with no tool, and a signed-out visitor',
+    intruder.status >= 400 && /not in that chat/.test(intruder.json?.message ?? '') && emptyChat.status >= 400 && longChat.status >= 400 && /too long/.test(longChat.json?.message ?? '')
+      && noToolChat.status >= 400 && anonSay.status >= 400,
+    `outsider HTTP ${intruder.status} ${intruder.json?.message ?? ''}; empty HTTP ${emptyChat.status}; long HTTP ${longChat.status}; no tool HTTP ${noToolChat.status}; signed out HTTP ${anonSay.status}`);
+  const forgeChatMessage = await call('/rest/v1/chat_messages', { method: 'POST', token: outsider.token, body: { chat_id: chatId, sender_id: a.id, body: 'Forged', tool: TOOL } });
+  const forgeChat = await call('/rest/v1/chats', { method: 'POST', token: outsider.token, body: {} });
+  const forgeJoin = await call('/rest/v1/chat_members', { method: 'POST', token: outsider.token, body: { chat_id: chatId, member_id: outsider.id } });
+  const editChat = await call(`/rest/v1/chat_messages?id=eq.${sayA.json}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { body: 'Changed' } });
+  const wipeChat = await call(`/rest/v1/chat_messages?id=eq.${sayA.json}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+  const leaveChat = await call(`/rest/v1/chat_members?chat_id=eq.${chatId}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('nobody writes a chat, a chat member or a chat message directly, or changes or deletes one',
+    forgeChatMessage.status >= 400 && forgeChat.status >= 400 && forgeJoin.status >= 400
+      && (editChat.status >= 400 || editChat.json?.length === 0) && (wipeChat.status >= 400 || wipeChat.json?.length === 0) && (leaveChat.status >= 400 || leaveChat.json?.length === 0),
+    `message HTTP ${forgeChatMessage.status}, chat HTTP ${forgeChat.status}, join HTTP ${forgeJoin.status}, edit HTTP ${editChat.status}, delete HTTP ${wipeChat.status}, leave HTTP ${leaveChat.status}`);
+  const chatReadB = await call(`/rest/v1/chat_messages?chat_id=eq.${chatId}&select=sender_id,body,tool&order=created_at`, { token: b.token });
+  const membersB = await call(`/rest/v1/chat_members?chat_id=eq.${chatId}&select=member_id`, { token: b.token });
+  check('a member of the chat reads both messages, saved trimmed, and both members', JSON.stringify(chatReadB.json) === JSON.stringify([{ sender_id: b.id, body: 'Hello A', tool: TOOL }, { sender_id: a.id, body: 'Hello B', tool: TOOL }])
+      && (membersB.json ?? []).map((m) => m.member_id).sort().join() === [a.id, b.id].sort().join(),
+    `messages ${JSON.stringify(chatReadB.json)}, members ${JSON.stringify(membersB.json)}`);
+  const outChats = await call(`/rest/v1/chats?id=in.(${chatId},${chatTask.json})&select=id`, { token: outsider.token });
+  const outMembers = await call(`/rest/v1/chat_members?chat_id=in.(${chatId},${chatTask.json})&select=member_id`, { token: outsider.token });
+  const outMessages = await call(`/rest/v1/chat_messages?chat_id=eq.${chatId}&select=body`, { token: outsider.token });
+  const outAll = await call('/rest/v1/chat_messages?select=chat_id', { token: outsider.token });
+  const anonRead = await call('/rest/v1/chat_messages?select=body');
+  check('a member outside a chat reads nothing from it: not the chat, not who is in it, not one message; a signed-out visitor reads none',
+    outChats.json?.length === 0 && outMembers.json?.length === 0 && outMessages.json?.length === 0 && (outAll.json ?? []).every((m) => m.chat_id === raced[0].json)
+      && (anonRead.status >= 400 || anonRead.json?.length === 0),
+    `chats ${JSON.stringify(outChats.json)}, members ${JSON.stringify(outMembers.json)}, messages ${JSON.stringify(outMessages.json)}, all ${JSON.stringify(outAll.json)}, signed out HTTP ${anonRead.status}`);
+  const chatRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${CHAT_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+  const [chatA, chatB, chatOut] = [await chatScored(a), await chatScored(b), await chatScored(outsider)];
+  check('each chat message saved records one engagement for its sender, worth what the rule says and naming its tool; a refused one records none',
+    chatA.length === 1 && chatB.length === 1 && chatOut.length === 0 && [...chatA, ...chatB].every((e) => e.points === chatRule?.points && e.tool === TOOL && e.task_id === null),
+    `A ${JSON.stringify(chatA)}, B ${JSON.stringify(chatB)}, outsider ${JSON.stringify(chatOut)}, rule ${chatRule?.points}`);
+  check('"Sent a chat message" is listed at 4 points with its four factors and a reason for each',
+    chatRule?.name === 'Sent a chat message' && chatRule.points === 4 && chatRule.effort === 1 && chatRule.value === 1 && chatRule.rarity === 0 && chatRule.farm_risk === 2
+      && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof chatRule[k] === 'string' && chatRule[k].length > 0),
+    JSON.stringify(chatRule));
+
   // Teams: every role reads them and their members; only an admin or an
   // editor (Dane, 2026-10-30, "B") makes, changes or deletes them, through
   // core or straight at the tables. A is an admin and B a viewer by now.
@@ -1159,8 +1240,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=neq.${MESSAGE_KIND}&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages and chat messages were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1183,7 +1264,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).

@@ -35,9 +35,39 @@ function setup(member = 'dane') {
 const kinds = (ledger: MemoryEngagementStore) => ledger.rows.map((e) => e.kind);
 const SWEEP_SQL = readFileSync(new URL('../supabase/migrations/20261102120000_scoring_actions_sweep.sql', import.meta.url), 'utf8');
 
-test('every kind has a starting rule, and only finishing a task is worth more than 1', () => {
+/** Actions listed after the formula was written, each worth its formula value from the start, by the migration that wires it. */
+const LATER_ACTION_MIGRATIONS = ['20261112120000_chats.sql'];
+
+/** Each later action's row: its rule, its four factors and its four reasons, as its migration lists it. */
+function laterRows() {
+  const quoted = String.raw`'((?:[^']|'')*)'`;
+  const row = new RegExp(String.raw`^\s*\('([a-z_]+)', ${quoted}, ${quoted}, ${quoted}, (\d+), (\d+),\s*(\d), (\d), (\d), (\d),\s*${quoted},\s*${quoted},\s*${quoted},\s*${quoted}\)`, 'gm');
+  const text = (t: string) => t.replaceAll("''", "'");
+  return LATER_ACTION_MIGRATIONS.flatMap((file) => [...readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8').matchAll(row)].map((m) => ({
+    kind: m[1], name: text(m[2]), description: text(m[3]), criteria: text(m[4]), points: Number(m[5]), ord: Number(m[6]),
+    factors: { effort: Number(m[7]), value: Number(m[8]), rarity: Number(m[9]), farmRisk: Number(m[10]) } as ScoringFactors,
+    reasons: { effort: text(m[11]), value: text(m[12]), rarity: text(m[13]), farmRisk: text(m[14]) } as FactorReasons,
+  })));
+}
+
+test('every kind has a starting rule; before the formula only finishing a task was worth more than 1, and later actions start at their formula value', () => {
   assert.deepEqual(STARTING_SCORING_RULES.map((r) => r.kind), [...ENGAGEMENT_KINDS]);
-  for (const rule of STARTING_SCORING_RULES) assert.equal(rule.points, rule.kind === 'finished_task' ? 5 : 1, rule.kind);
+  const later = laterRows();
+  assert.ok(later.length >= 1);
+  for (const rule of STARTING_SCORING_RULES) {
+    const added = later.find((r) => r.kind === rule.kind);
+    assert.equal(rule.points, added ? granularPoints(added.factors) : rule.kind === 'finished_task' ? 5 : 1, rule.kind);
+  }
+});
+
+test('each later action\'s migration gives the factors and reasons the document gives it', () => {
+  const rows = documentRows();
+  const reasons = documentReasons();
+  for (const r of laterRows()) {
+    assert.deepEqual(rows.find((d) => d.kind === r.kind)?.factors, r.factors, `${r.name}: the document's table`);
+    assert.equal(rows.find((d) => d.kind === r.kind)?.proposed, r.points, `${r.name}: its points are the document's`);
+    assert.deepEqual(reasons.get(r.kind)?.reasons, r.reasons, `${r.name}: the document's reasons, word for word`);
+  }
 });
 
 test('the migrations seed exactly the starting rules core knows', () => {
@@ -51,7 +81,10 @@ test('the migrations seed exactly the starting rules core knows', () => {
   // The sweep's rows go after those, in its own order; the ones wired since are starting rules too.
   const last = Math.max(...seeded.map((r) => r.position));
   const swept = sweepRows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: last + ord }));
-  assert.deepEqual([...seeded, ...swept], STARTING_SCORING_RULES);
+  // Each later action goes after everything listed before it.
+  const afterSweep = Math.max(last, ...swept.map((r) => r.position));
+  const later = laterRows().map(({ ord, factors, reasons, ...r }) => ({ ...r, position: afterSweep + ord }));
+  assert.deepEqual([...seeded, ...swept, ...later], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -474,7 +507,7 @@ function documentRows() {
 
 test('the formula gives the Proposed column of every row in the document', () => {
   const rows = documentRows();
-  assert.equal(rows.length, 24);
+  assert.equal(rows.length, 24 + laterRows().length);
   for (const r of rows) assert.equal(granularPoints(r.factors), r.proposed, r.name);
 });
 
@@ -538,7 +571,8 @@ test('the migration fills every action the document scores, with the same factor
   const filled = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*(\d), (\d), (\d), (\d)\)/gm)].map((m) => ({
     kind: m[1], factors: { effort: Number(m[2]), value: Number(m[3]), rarity: Number(m[4]), farmRisk: Number(m[5]) },
   }));
-  assert.deepEqual(filled, documentRows().map((r) => ({ kind: r.kind, factors: r.factors })));
+  const later = new Set(laterRows().map((r) => r.kind));
+  assert.deepEqual(filled, documentRows().filter((r) => !later.has(r.kind)).map((r) => ({ kind: r.kind, factors: r.factors })));
 });
 
 /** The document's "Why each factor got its score" table: per action, each factor's score and the reason for it. */
@@ -573,8 +607,9 @@ test('the reasons migration stores the document\'s 96 reasons word for word, and
   const filled = [...sql.matchAll(new RegExp(String.raw`^\s*\('([a-z_]+)',\s*${quoted},\s*${quoted},\s*${quoted},\s*${quoted}\)`, 'gm'))].map((m) => [
     m[1], m.slice(2, 6).map((t) => t.replaceAll("''", "'")),
   ]);
-  const reasons = documentReasons();
-  assert.deepEqual(filled, [...reasons].map(([kind, r]) => [kind, (['effort', 'value', 'rarity', 'farmRisk'] as const).map((k) => r.reasons[k])]));
+  const reasons = [...documentReasons()].filter(([kind]) => !laterRows().some((r) => r.kind === kind));
+  assert.equal(reasons.length * 4, 96);
+  assert.deepEqual(filled, reasons.map(([kind, r]) => [kind, (['effort', 'value', 'rarity', 'farmRisk'] as const).map((k) => r.reasons[k])]));
   const code = sql.replace(/--.*$/gm, '');
   assert.doesNotMatch(code, /set[^;]*\b(points|effort|value|rarity|farm_risk)\s*=/i, 'the migration changes no points and no factor');
   assert.doesNotMatch(code, /grant (insert|update|delete|all)[^;]*on public\.game_scoring_rules/i, 'members never write the table directly');
