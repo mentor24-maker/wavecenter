@@ -33,7 +33,7 @@ added `messages` and the Message members permission;
 words and the link to where he said them;
 `20261102140000_evolution_task_link.sql` linked each Evolution card to its
 task; `20261102210000_proposals.sql` added `proposals`;
-`20261112120000_task_comments_shared_live.sql` let every member read and post
+`20261112130000_task_comments_shared_live.sql` let every member read and post
 comments, and made the Discussion live); this page
 explains them.
 
@@ -564,7 +564,7 @@ engagement.
 
 Row-level security was on from the moment `task_comments` was made. At
 first a member read and added comments only on their own tasks. Since
-2026-11-12 (`20261112120000_task_comments_shared_live.sql`, WC-172) **every
+2026-11-12 (`20261112130000_task_comments_shared_live.sql`, WC-172) **every
 signed-in member reads every comment and may comment on any task**, in their
 own name only; a member still edits and deletes **only their own** comments
 (Dane chose this: "every member reads every comment and may post on any task.
