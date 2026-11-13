@@ -6,8 +6,9 @@
  * error.
  */
 import type { NewTaskCommentRow, TaskComment, TaskCommentStore } from "../../core/comments.ts";
+import type { TaskStore } from "../../core/tasks.ts";
 import type { supabaseForRequest } from "./supabase";
-import { TOOL_HEADER } from "./taskStore";
+import { fromRow, TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -52,6 +53,22 @@ export function supabaseTaskCommentStore(supabase: Client): TaskCommentStore {
       const { data, error } = await supabase.from("task_comments").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("remove the comment", error);
       return (data?.length ?? 0) > 0;
+    },
+  };
+}
+
+/**
+ * The tasks a member may comment on, for core's `addComment`: every task they
+ * can read, which is every task (Dane, 2026-11-12, WC-172). Unlike the app's
+ * TaskStore, whose `get` returns only the member's own tasks because it is
+ * also the path for changing them.
+ */
+export function supabaseCommentableTasks(supabase: Client): Pick<TaskStore, "get"> {
+  return {
+    async get(id) {
+      const { data, error } = await supabase.from("tasks").select().eq("id", id).maybeSingle();
+      if (error) failed("read the task", error);
+      return data ? fromRow(data) : null;
     },
   };
 }

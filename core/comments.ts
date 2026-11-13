@@ -82,11 +82,14 @@ export function checkCommentBody(body: unknown): string {
 }
 
 /**
- * Add a comment to one of the caller's own tasks (`TaskStore.get` returns
- * only those), on behalf of `tool`. Posting one earns "Posted a comment"
- * (core/game.ts), recorded by the table's trigger inside the same save.
+ * Add a comment to a task, on behalf of `tool`, in the caller's own name.
+ * Every member may comment on any task (Dane, 2026-11-12, WC-172: "every
+ * member reads every comment and may post on any task"), so `tasks.get` must
+ * return any task the caller can read, not only their own. Posting one earns
+ * "Posted a comment" (core/game.ts), recorded by the table's trigger inside
+ * the same save.
  */
-export async function addComment(tasks: TaskStore, comments: TaskCommentStore, taskId: string, body: unknown, tool: string): Promise<TaskComment> {
+export async function addComment(tasks: Pick<TaskStore, 'get'>, comments: TaskCommentStore, taskId: string, body: unknown, tool: string): Promise<TaskComment> {
   const row: NewTaskCommentRow = { tool: requireTool(tool), body: checkCommentBody(body), taskId };
   if (!(await tasks.get(taskId))) throw new CoreError(`No task ${taskId} was found that you may comment on.`);
   return comments.insert(row);

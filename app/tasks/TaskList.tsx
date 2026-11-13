@@ -1027,6 +1027,7 @@ function TaskRow({
             comments={comments}
             files={commentFiles}
             userId={userId}
+            canAttach={mine}
             pending={pending}
             run={run}
           />

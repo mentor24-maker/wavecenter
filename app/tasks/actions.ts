@@ -35,7 +35,7 @@ import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.t
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { myRole } from "../lib/memberRoleStore";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
-import { supabaseTaskCommentStore } from "../lib/taskCommentStore";
+import { supabaseCommentableTasks, supabaseTaskCommentStore } from "../lib/taskCommentStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
 import { supabaseTaskStore } from "../lib/taskStore";
 import { supabaseVoteStore } from "../lib/voteStore";
@@ -255,8 +255,8 @@ export async function removeAttachment(fileId: string): Promise<SaveResult> {
 /** Post a comment in a task's Discussion. Says the comment's id, so files picked for it can follow it. */
 export async function postComment(taskId: string, body: string): Promise<SaveResult & { id?: string }> {
   let id = "";
-  const result = await save("post the comment", async (store, supabase) => {
-    id = (await addComment(store, supabaseTaskCommentStore(supabase), taskId, body, WAVECENTER_TOOL)).id;
+  const result = await save("post the comment", async (_store, supabase) => {
+    id = (await addComment(supabaseCommentableTasks(supabase), supabaseTaskCommentStore(supabase), taskId, body, WAVECENTER_TOOL)).id;
   });
   return result.ok ? { ok: true, id } : result;
 }

@@ -4,8 +4,11 @@
  * through that session, so the row-level security rules on each table decide
  * what comes back (docs/DATA_MODEL.md).
  *
- * Server only. Nothing here is ever sent to the browser: the browser holds no
- * Supabase key at all, only the session cookie. The service role key, which
+ * Server only. Nothing here is ever sent to the browser. The browser holds
+ * the session cookie and, for live updates only (app/lib/realtimeClient.ts,
+ * WC-172), the project address and the public anon key, handed to it per
+ * request from `supabaseSettings()`; the anon key is safe there only because
+ * row-level security decides what it can read. The service role key, which
  * ignores row-level security, is read in one place only, on the server, to
  * look up a message's recipient's address (messageAddressBook.ts), and never
  * reaches the browser (engineering rule 3).

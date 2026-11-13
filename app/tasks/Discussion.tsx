@@ -38,6 +38,7 @@ export default function Discussion({
   comments,
   files,
   userId,
+  canAttach = true,
   pending,
   run,
 }: {
@@ -47,6 +48,8 @@ export default function Discussion({
   /** Every comment's files, by comment id. */
   files: Map<string, ListFile[]>;
   userId: string;
+  /** Files go only on comments on the member's own tasks; elsewhere the attach link is replaced by a note saying so. */
+  canAttach?: boolean;
   pending: boolean;
   run: (action: () => Promise<SaveResult>) => Promise<boolean>;
 }) {
@@ -187,10 +190,14 @@ export default function Discussion({
         />
         <span>
           <button type="submit" disabled={pending || !draft.trim()}>Post</button>{" "}
-          <label className="link attach">
-            attach
-            <input type="file" multiple hidden aria-label={`Attach files to the new comment on "${taskTitle}"`} disabled={pending} onChange={pickFiles} />
-          </label>
+          {canAttach ? (
+            <label className="link attach">
+              attach
+              <input type="file" multiple hidden aria-label={`Attach files to the new comment on "${taskTitle}"`} disabled={pending} onChange={pickFiles} />
+            </label>
+          ) : (
+            <span className="note">Files can be attached only on your own tasks.</span>
+          )}
         </span>
         {draftFiles.length > 0 && (
           <p className="note">
