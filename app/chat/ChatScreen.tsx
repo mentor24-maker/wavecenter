@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { listChatMessages, listChats, type Chat, type ChatMessage } from "../../core/chat.ts";
+import { listChatMessages, listChats, unreadChats, type Chat, type ChatMessage } from "../../core/chat.ts";
 import { mayOpenAdmin } from "../../core/members.ts";
 import { AVATARS } from "../../core/profiles.ts";
 import { chatTaskTitles, latestChatMessages, supabaseChatStore } from "../lib/chatStore";
@@ -82,12 +82,13 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
 
   // The titles of the tasks chats are about. If they cannot be read, a chat
   // still shows, labelled "a task", still linked.
-  const [latest, titleRead] = await Promise.all([
+  const [latest, titleRead, unread] = await Promise.all([
     read(() => latestChatMessages(supabase, chats.value.map((c) => c.id))),
     read(() => chatTaskTitles(supabase, chats.value)),
+    read(() => unreadChats(store, user.id)),
   ]);
   const titles = titleRead.value ?? new Map<string, string>();
-  const list = chatList(chats.value, latest.value ?? new Map<string, ChatMessage>(), user.id, who, titles);
+  const list = chatList(chats.value, latest.value ?? new Map<string, ChatMessage>(), user.id, who, titles, unread.value ?? new Map<string, number>());
 
   let open: OpenChat | null = null;
   let openProblem: string | null = null;
@@ -119,6 +120,9 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
       )}
       {latest.error !== null && (
         <p className="error" role="alert">The last message of each chat could not be loaded: {latest.error}. Nothing has been lost; try reloading the page.</p>
+      )}
+      {unread.error !== null && (
+        <p className="note" role="status">Which chats have unread messages could not be loaded ({unread.error}), so none show as unread. Try reloading the page.</p>
       )}
       <ChatWindow
         me={user.id}

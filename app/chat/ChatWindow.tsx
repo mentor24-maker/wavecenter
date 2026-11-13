@@ -23,10 +23,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
-import { CHAT_BODY_MAX, chatMessageProblem, type ChatMessage } from "../../core/chat.ts";
+import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
-import { sendChat } from "./actions";
-import { A_TASK, DELETED_TASK, listTimeLabel, preview, sendsOnKey, sentLabel, type ChatListItem, type ChatTopic } from "./chatView";
+import { markChatReadNow, sendChat } from "./actions";
+import { A_TASK, CHAT_UNREAD_EVENT, DELETED_TASK, listTimeLabel, newestFromOthers, preview, sendsOnKey, sentLabel, type ChatListItem, type ChatTopic } from "./chatView";
 
 /** The chat the page opened, with its messages oldest first. */
 export interface OpenChat {
@@ -79,23 +79,36 @@ export default function ChatWindow({
             </p>
           ) : (
             <ul>
-              {chats.map((c) => (
-                <li key={c.id}>
-                  <Link href={`/chat/${c.id}`} className={c.id === openId ? "chat-item open" : "chat-item"} aria-current={c.id === openId ? "page" : undefined}>
-                    <span className="chat-avatar" aria-hidden="true">{c.otherSymbol}</span>
-                    <span className="chat-item-text">
-                      <span className="chat-item-top">
-                        <b>{c.otherName}</b>
-                        <time className="note" dateTime={c.activeAt}>{listTimeLabel(c.activeAt)}</time>
+              {chats.map((c) => {
+                // The open chat is being read right now, so it never shows as unread.
+                const isOpen = c.id === openId;
+                const badge = isOpen ? null : unreadBadge(c.unread);
+                return (
+                  <li key={c.id}>
+                    <Link
+                      href={`/chat/${c.id}`}
+                      className={`chat-item${isOpen ? " open" : ""}${badge ? " unread" : ""}`}
+                      aria-current={isOpen ? "page" : undefined}
+                      aria-label={badge ? `${c.otherName}, ${c.unread} unread ${c.unread === 1 ? "message" : "messages"}` : undefined}
+                    >
+                      <span className="chat-avatar" aria-hidden="true">{c.otherSymbol}</span>
+                      <span className="chat-item-text">
+                        <span className="chat-item-top">
+                          <b>{c.otherName}</b>
+                          <time className="note" dateTime={c.activeAt}>{listTimeLabel(c.activeAt)}</time>
+                        </span>
+                        {c.topic && <span className="note chat-topic">{topicText(c.topic)}</span>}
+                        <span className="chat-item-bottom">
+                          <span className="note chat-preview">
+                            {c.last ? `${c.last.mine ? "You: " : ""}${preview(c.last.body)}` : "No messages yet"}
+                          </span>
+                          {badge && <span className="unread-badge" aria-hidden="true">{badge}</span>}
+                        </span>
                       </span>
-                      {c.topic && <span className="note chat-topic">{topicText(c.topic)}</span>}
-                      <span className="note chat-preview">
-                        {c.last ? `${c.last.mine ? "You: " : ""}${preview(c.last.body)}` : "No messages yet"}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              ))}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </nav>
@@ -140,6 +153,37 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
     const el = box.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [count]);
+
+  // Opening the chat marks it read, and so does each new message from the
+  // other member while it is open and on screen (WC-176). In a hidden tab it
+  // waits until the tab is shown again. Then the header's badge counts again.
+  const [readProblem, setReadProblem] = useState<string | null>(null);
+  const newest = newestFromOthers(chat.messages, me);
+  const shown = chat.error === null;
+  useEffect(() => {
+    if (!shown) return;
+    let done = false;
+    let gone = false;
+    const mark = () => {
+      if (done || document.visibilityState !== "visible") return;
+      done = true;
+      markChatReadNow(chat.id)
+        .then((r) => {
+          if (gone) return;
+          setReadProblem(r.ok ? null : r.error);
+          if (r.ok) window.dispatchEvent(new Event(CHAT_UNREAD_EVENT));
+        })
+        .catch(() => {
+          if (!gone) setReadProblem("Could not reach WaveCenter to mark this chat read.");
+        });
+    };
+    mark();
+    document.addEventListener("visibilitychange", mark);
+    return () => {
+      gone = true;
+      document.removeEventListener("visibilitychange", mark);
+    };
+  }, [chat.id, newest, shown]);
 
   function send(e?: FormEvent) {
     e?.preventDefault();
@@ -205,6 +249,7 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
           </ol>
         )}
       </div>
+      {readProblem && <p className="note" role="status">This chat could not be marked read, so it may still show as unread: {readProblem}</p>}
       <form className="chat-send" onSubmit={send}>
         <label className="sr-only" htmlFor={`chat-box-${chat.id}`}>Message {chat.otherName}</label>
         <textarea

@@ -7,6 +7,10 @@
  * Reading goes straight to the tables, whose row-level security lets a
  * member read only the chats they are in.
  *
+ * Unread messages (WC-176): `markRead` goes through `mark_chat_read`, which
+ * marks the chat read for the signed-in member alone; `unread` asks
+ * `my_chat_unread`, which counts by core's rule under row-level security.
+ *
  * `latestChatMessages` reads the newest message of each chat, for the chat
  * window's list (app/chat); `chatTaskTitles` reads the titles of the tasks
  * chats are about, for their labels.
@@ -15,7 +19,7 @@
  * into a thrown error, so a refused save is never reported as a success
  * (engineering rule 6). Server only.
  */
-import type { Chat, ChatMessage, ChatStore } from "../../core/chat.ts";
+import type { Chat, ChatMessage, ChatReadStore, ChatStore } from "../../core/chat.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -23,7 +27,7 @@ type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 /** The most messages one read of a chat brings back: the newest ones. */
 const MESSAGE_READ_LIMIT = 500;
 
-export function supabaseChatStore(supabase: Client): ChatStore {
+export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
   return {
     async start(otherMemberId, taskId) {
       const { data, error } = await supabase.rpc("start_chat", { other_member: otherMemberId, about_task: taskId });
@@ -86,6 +90,18 @@ export function supabaseChatStore(supabase: Client): ChatStore {
         tool: m.tool,
         sentAt: m.created_at,
       }));
+    },
+    async markRead(chatId) {
+      const { data, error } = await supabase.rpc("mark_chat_read", { chat: chatId });
+      if (error) throw new Error(`The database refused to mark the chat read: ${error.message}`);
+      if (typeof data !== "string" || !data) throw new Error("The database did not confirm the chat was marked read.");
+      return { readAt: data };
+    },
+    async unread() {
+      const { data, error } = await supabase.rpc("my_chat_unread");
+      if (error) throw new Error(`The database refused to count your unread chat messages: ${error.message}`);
+      if (!Array.isArray(data)) throw new Error("The database did not hand back your unread chat messages.");
+      return data.map((r: { chat_id: string; unread: number }) => ({ chatId: r.chat_id, unread: r.unread }));
     },
   };
 }

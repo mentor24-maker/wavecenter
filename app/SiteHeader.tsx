@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { signOut } from "./auth/actions";
+import ChatLink from "./ChatLink";
 import type { HeaderPoints } from "./lib/engagementStore";
+import { supabaseSettings } from "./lib/supabase";
 import TokenAnimation from "./TokenAnimation";
 
 /**
@@ -16,7 +18,8 @@ import TokenAnimation from "./TokenAnimation";
  * `/tasks`), then the Game page, where their
  * points are, then Teams (`/teams`, the Team Manager: the groups members
  * work in), then Members (`/members`), then Chat (`/chat`, live chats
- * between members). Every member gets Teams, Members and Chat; each page itself
+ * between members, with the number of chats that have a message waiting,
+ * live: ChatLink.tsx). Every member gets Teams, Members and Chat; each page itself
  * decides what the member's role may see and do there. The menu holds only
  * the places every member goes, and runs along the bottom of the bar, under
  * the name and Log out. An admin also gets an Admin link (`/admin`), not in
@@ -45,6 +48,10 @@ export default function SiteHeader({
   showSignIn?: boolean;
   onPicture?: boolean;
 }) {
+  // The Chat badge listens live with the project address and the public anon
+  // key, read per request (rule 4), never the service key (rule 3).
+  const settings = name ? supabaseSettings() : null;
+  const live = settings && !("missing" in settings) ? settings : null;
   return (
     <header className={onPicture ? "site on-picture" : "site"}>
       <div className="site-inner">
@@ -84,7 +91,7 @@ export default function SiteHeader({
               <Link href="/game" className="quiet">Game</Link>
               <Link href="/teams" className="quiet">Teams</Link>
               <Link href="/members" className="quiet">Members</Link>
-              <Link href="/chat" className="quiet">Chat</Link>
+              <ChatLink liveUrl={live?.url ?? null} liveKey={live?.anonKey ?? null} />
             </nav>
           </div>
         ) : (

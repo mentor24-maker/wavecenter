@@ -170,3 +170,75 @@ export async function listChatMessages(store: ChatStore, memberId: string, chat:
     .filter((m) => m.chatId === chat.id)
     .sort((a, b) => (a.sentAt < b.sentAt ? -1 : a.sentAt > b.sentAt ? 1 : 0));
 }
+
+/**
+ * Unread messages (WC-176: "Members cannot tell when a chat message is
+ * waiting: show unread count"). A message is unread for `memberId` when it
+ * is newer than when they last read the chat (`lastReadAt`, null: never) and
+ * they did not send it: your own messages never count. The database repeats
+ * this rule (`my_chat_unread`, supabase/migrations/20261113150000_chat_unread.sql).
+ */
+export function isUnreadChatMessage(
+  message: Pick<ChatMessage, 'senderId' | 'sentAt'>,
+  lastReadAt: string | null,
+  memberId: string,
+): boolean {
+  if (!memberId || message.senderId === memberId) return false;
+  if (lastReadAt === null) return true;
+  return Date.parse(message.sentAt) > Date.parse(lastReadAt);
+}
+
+/** How many of `messages` are unread for `memberId`, by the rule above. */
+export function countUnread(
+  messages: Pick<ChatMessage, 'senderId' | 'sentAt'>[],
+  lastReadAt: string | null,
+  memberId: string,
+): number {
+  return messages.filter((m) => isUnreadChatMessage(m, lastReadAt, memberId)).length;
+}
+
+/**
+ * What a count of unread chats or messages shows as: nothing at 0, the
+ * number up to 9, and "9+" above that.
+ */
+export function unreadBadge(count: number): string | null {
+  if (!Number.isFinite(count) || count < 1) return null;
+  return count > 9 ? '9+' : String(Math.floor(count));
+}
+
+/** What core needs from storage for unread messages, acting as the signed-in member. Each throws if the database refuses or fails. */
+export interface ChatReadStore {
+  /** Mark chat `chatId` read for the signed-in member only, now. Hands back when. Throws if they are not in it. */
+  markRead(chatId: string): Promise<{ readAt: string }>;
+  /** For the signed-in member, each chat with unread messages and how many. */
+  unread(): Promise<{ chatId: string; unread: number }[]>;
+}
+
+/**
+ * `memberId` has read chat `chatId` up to now. Marks it for them alone; a
+ * member not in the chat is refused by the store. Not a scored action: it is
+ * not an engagement a member chooses. A failed save throws.
+ */
+export async function markChatRead(store: ChatReadStore, input: { memberId: string; chatId: string }): Promise<{ readAt: string }> {
+  if (!input.memberId) throw new CoreError('You are signed out, so the chat was not marked read.');
+  if (!input.chatId) throw new CoreError('You are not in that chat, so it was not marked read.');
+  const saved = await store.markRead(input.chatId);
+  if (!saved?.readAt) throw new CoreError('The chat was not marked read. Try again.');
+  return { readAt: saved.readAt };
+}
+
+/**
+ * The signed-in member's chats with unread messages, chat id to count.
+ * Chats with none are left out. A failed read throws: it is never shown as
+ * "nothing unread".
+ */
+export async function unreadChats(store: ChatReadStore, memberId: string): Promise<Map<string, number>> {
+  if (!memberId) throw new CoreError('You are signed out, so there are no unread chats to show.');
+  const rows = await store.unread();
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const n = Math.floor(Number(r.unread));
+    if (r.chatId && n > 0) counts.set(r.chatId, n);
+  }
+  return counts;
+}

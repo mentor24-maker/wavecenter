@@ -14,12 +14,15 @@
  *   engagement cannot be written, the message is not saved either.
  * - `chats` and `messages` read as row-level security lets the signed-in
  *   member read: only chats they are in.
+ * - `markRead` is `mark_chat_read`: it sets when the signed-in member last
+ *   read a chat, for them alone, and refuses a member not in it. `unread` is
+ *   `my_chat_unread`: their chats with unread messages, by core's rule.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
-import { chatMessageProblem, isInChat, startChatProblem, type Chat, type ChatMessage, type ChatStore } from './chat.ts';
+import { chatMessageProblem, countUnread, isInChat, startChatProblem, type Chat, type ChatMessage, type ChatReadStore, type ChatStore } from './chat.ts';
 import { CoreError } from './tool.ts';
 
-export class MemoryChatStore implements ChatStore {
+export class MemoryChatStore implements ChatStore, ChatReadStore {
   readonly chatRows: Chat[] = [];
   readonly messageRows: ChatMessage[] = [];
   /** Every member there is. */
@@ -32,6 +35,8 @@ export class MemoryChatStore implements ChatStore {
   leaky = false;
   /** Set to make the next send fail the way a refused write does. */
   failNextSend = false;
+  /** When each member last read each chat, keyed `<chat id> <member id>`. Absent: never. */
+  readonly lastRead = new Map<string, string>();
   private readonly engagements: EngagementStore | null;
   private clock = 0;
 
@@ -89,5 +94,23 @@ export class MemoryChatStore implements ChatStore {
     return this.messageRows
       .filter((m) => this.leaky || (chat && isInChat(chat, this.signedIn) && m.chatId === chatId))
       .map((m) => ({ ...m }));
+  }
+
+  async markRead(chatId: string) {
+    const chat = this.chatRows.find((c) => c.id === chatId);
+    if (!chat || !isInChat(chat, this.signedIn)) throw new CoreError('You are not in that chat, so it was not marked read.');
+    const readAt = this.now();
+    this.lastRead.set(`${chatId} ${this.signedIn}`, readAt);
+    return { readAt };
+  }
+
+  async unread() {
+    return this.chatRows
+      .filter((c) => isInChat(c, this.signedIn))
+      .map((c) => ({
+        chatId: c.id,
+        unread: countUnread(this.messageRows.filter((m) => m.chatId === c.id), this.lastRead.get(`${c.id} ${this.signedIn}`) ?? null, this.signedIn),
+      }))
+      .filter((r) => r.unread > 0);
   }
 }

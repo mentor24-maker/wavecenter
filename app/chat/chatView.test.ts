@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, notStarted, preview, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, newestFromOthers, notStarted, preview, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -32,9 +32,23 @@ test("the list puts the chat with the newest activity first, a quiet chat by whe
     id: "a", topic: null, otherId: "lee", otherName: "Lee", otherSymbol: "🌊",
     last: { body: "newest of all", sentAt: "2026-11-13T09:00:00Z", mine: false },
     activeAt: "2026-11-13T09:00:00Z",
+    unread: 0,
   });
   assert.equal(list[1].last, null);
   assert.equal(list[2].last?.mine, true);
+});
+
+test("each chat in the list carries its unread count; a chat missing from the counts has none", () => {
+  const chats = [chat("a", ["me", "lee"], "2026-11-10T10:00:00Z"), chat("b", ["sam", "me"], "2026-11-11T10:00:00Z")];
+  const list = chatList(chats, new Map(), "me", who, new Map(), new Map([["a", 3]]));
+  assert.deepEqual(list.map((c) => [c.id, c.unread]), [["b", 0], ["a", 3]]);
+});
+
+test("the newest message from someone else is what marks an open chat read again", () => {
+  assert.equal(newestFromOthers([], "me"), null);
+  assert.equal(newestFromOthers([{ id: "1", senderId: "me" }], "me"), null, "only your own: nothing to read");
+  assert.equal(newestFromOthers([{ id: "1", senderId: "kim" }, { id: "2", senderId: "me" }], "me"), "1", "your reply does not change it");
+  assert.equal(newestFromOthers([{ id: "1", senderId: "kim" }, { id: "2", senderId: "me" }, { id: "3", senderId: "kim" }], "me"), "3");
 });
 
 test("a chat whose other member is gone is still listed, under a plain name", () => {

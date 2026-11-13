@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CHAT_BODY_MAX, chatMessageProblem, chatSubject, chatsAboutTask, isInChat, listChatMessages, listChats, sendChatMessage, startChat, startChatProblem } from './chat.ts';
+import { CHAT_BODY_MAX, chatMessageProblem, chatSubject, chatsAboutTask, countUnread, isInChat, isUnreadChatMessage, listChatMessages, listChats, markChatRead, sendChatMessage, startChat, startChatProblem, unreadBadge, unreadChats } from './chat.ts';
 import { MemoryChatStore } from './memoryChatStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 const TOOL = 'wavecenter';
 const MIGRATION = readFileSync(new URL('../supabase/migrations/20261112120000_chats.sql', import.meta.url), 'utf8');
+const UNREAD_MIGRATION = readFileSync(new URL('../supabase/migrations/20261113150000_chat_unread.sql', import.meta.url), 'utf8');
 
 function scoredSetup() {
   const ledger = new MemoryEngagementStore();
@@ -148,6 +149,97 @@ test('the database repeats core\'s rules, keeps the tables private and read-only
   assert.match(code, /perform public\.record_engagement\(new\.sender_id, 'sent_a_chat_message', new\.tool, null\)/);
   assert.match(code, /alter publication supabase_realtime add table public\.chat_messages/);
   assert.match(code, /security definer\s+set search_path = ''/);
+});
+
+/** `who` says `body` in `chatId`. */
+async function say(store: MemoryChatStore, who: string, chatId: string, body: string) {
+  store.signedIn = who;
+  await sendChatMessage(store, { senderId: who, chatId, body }, TOOL);
+}
+
+test('a message is unread when it is newer than your last read and not your own', () => {
+  const at = (s: number) => new Date(Date.UTC(2026, 10, 13, 0, 0, s)).toISOString();
+  assert.equal(isUnreadChatMessage({ senderId: 'kim', sentAt: at(5) }, null, 'dane'), true, 'never read: everything from others counts');
+  assert.equal(isUnreadChatMessage({ senderId: 'kim', sentAt: at(5) }, at(4), 'dane'), true, 'newer than the last read');
+  assert.equal(isUnreadChatMessage({ senderId: 'kim', sentAt: at(5) }, at(5), 'dane'), false, 'read at the same moment');
+  assert.equal(isUnreadChatMessage({ senderId: 'kim', sentAt: at(3) }, at(4), 'dane'), false, 'older than the last read');
+  assert.equal(isUnreadChatMessage({ senderId: 'dane', sentAt: at(5) }, null, 'dane'), false, 'your own message never counts');
+  assert.equal(isUnreadChatMessage({ senderId: 'kim', sentAt: at(5) }, null, ''), false, 'signed out: nothing counts');
+  assert.equal(countUnread([{ senderId: 'kim', sentAt: at(1) }, { senderId: 'dane', sentAt: at(2) }, { senderId: 'kim', sentAt: at(3) }], at(2), 'dane'), 1);
+});
+
+test('the unread badge is hidden at 0 and says 9+ above 9', () => {
+  assert.equal(unreadBadge(0), null);
+  assert.equal(unreadBadge(-1), null);
+  assert.equal(unreadBadge(Number.NaN), null);
+  assert.equal(unreadBadge(1), '1');
+  assert.equal(unreadBadge(9), '9');
+  assert.equal(unreadBadge(10), '9+');
+  assert.equal(unreadBadge(250), '9+');
+});
+
+test('a message to you counts as unread until you open the chat; your own never do', async () => {
+  const store = new MemoryChatStore();
+  const chat = await chatAs(store, 'kim', 'dane');
+  await say(store, 'kim', chat, 'ping');
+  await say(store, 'kim', chat, 'are you there?');
+  store.signedIn = 'dane';
+  assert.deepEqual([...(await unreadChats(store, 'dane'))], [[chat, 2]], 'two from Kim, never read');
+  store.signedIn = 'kim';
+  assert.deepEqual([...(await unreadChats(store, 'kim'))], [], 'Kim\'s own messages are not unread for her');
+
+  store.signedIn = 'dane';
+  await markChatRead(store, { memberId: 'dane', chatId: chat });
+  assert.deepEqual([...(await unreadChats(store, 'dane'))], [], 'opening it clears it');
+  await say(store, 'dane', chat, 'here');
+  store.signedIn = 'dane';
+  assert.deepEqual([...(await unreadChats(store, 'dane'))], [], 'replying adds nothing unread for yourself');
+  await say(store, 'kim', chat, 'great');
+  store.signedIn = 'dane';
+  assert.deepEqual([...(await unreadChats(store, 'dane'))], [[chat, 1]], 'a newer message counts again');
+});
+
+test('only you can mark your chats read: it marks yours alone, and a member outside the chat is refused', async () => {
+  const store = new MemoryChatStore();
+  const chat = await chatAs(store, 'kim', 'dane');
+  await say(store, 'kim', chat, 'ping');
+  await say(store, 'dane', chat, 'pong');
+
+  store.signedIn = 'dane';
+  await markChatRead(store, { memberId: 'dane', chatId: chat });
+  assert.deepEqual([...store.lastRead.keys()], [`${chat} dane`], 'only Dane\'s own read is recorded');
+  store.signedIn = 'kim';
+  assert.deepEqual([...(await unreadChats(store, 'kim'))], [[chat, 1]], 'Dane opening it does not clear it for Kim');
+
+  store.signedIn = 'lee';
+  await assert.rejects(markChatRead(store, { memberId: 'lee', chatId: chat }), /not in that chat/);
+  await assert.rejects(markChatRead(store, { memberId: 'lee', chatId: 'chat-nope' }), /not in that chat/);
+  await assert.rejects(markChatRead(store, { memberId: '', chatId: chat }), /signed out/);
+  await assert.rejects(markChatRead(store, { memberId: 'lee', chatId: '' }), /not in that chat/);
+  assert.equal(store.lastRead.size, 1, 'nothing saved for a refused mark');
+});
+
+test('a failed unread read throws instead of showing nothing unread, and odd rows are dropped', async () => {
+  const failing = { markRead: async () => ({ readAt: '' }), unread: async () => { throw new Error('The database refused to read your unread chats.'); } };
+  await assert.rejects(unreadChats(failing, 'dane'), /refused/);
+  await assert.rejects(markChatRead(failing, { memberId: 'dane', chatId: 'chat-1' }), /not marked read/);
+  await assert.rejects(unreadChats(failing, ''), /signed out/);
+  const odd = { markRead: async () => ({ readAt: 'x' }), unread: async () => [{ chatId: 'a', unread: 3 }, { chatId: 'b', unread: 0 }, { chatId: '', unread: 2 }] };
+  assert.deepEqual([...(await unreadChats(odd, 'dane'))], [['a', 3]]);
+});
+
+test('the database marks a chat read for the caller only, refuses outsiders, and counts by core\'s rule', () => {
+  const mark = UNREAD_MIGRATION.slice(UNREAD_MIGRATION.indexOf('function public.mark_chat_read'), UNREAD_MIGRATION.indexOf('function public.my_chat_unread'));
+  assert.match(UNREAD_MIGRATION, /add column if not exists last_read_at timestamptz;/);
+  assert.match(mark, /security definer/);
+  assert.match(mark, /not private\.in_chat\(chat, caller\)/);
+  assert.match(mark, /where cm\.chat_id = chat and cm\.member_id = caller;/, 'only the caller\'s own row');
+  assert.doesNotMatch(UNREAD_MIGRATION, /record_engagement/, 'marking read is not scored');
+  assert.doesNotMatch(UNREAD_MIGRATION, /grant (update|insert|delete)/i, 'still no direct writes');
+  const count = UNREAD_MIGRATION.slice(UNREAD_MIGRATION.indexOf('function public.my_chat_unread'));
+  assert.match(count, /security invoker/, 'row-level security still applies to the count');
+  assert.match(count, /msg\.sender_id <> cm\.member_id/, 'your own messages never count');
+  assert.match(count, /cm\.last_read_at is null or msg\.created_at > cm\.last_read_at/);
 });
 
 test('a chat about a task stays one after the task is deleted, and a plain chat between the same two is a separate chat', async () => {
