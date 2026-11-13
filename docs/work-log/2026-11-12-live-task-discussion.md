@@ -21,3 +21,13 @@ helper is the one the coming chat window will reuse.
 
 The database rules check gained live checks: a second member hears new
 comments, edits and deletes, and a signed-out visitor hears nothing.
+
+Review sent it back once, and the fix closed a quiet gap. Every time the
+page refreshed to show a new comment, the live connection hung up and dialled
+in again, and a comment that landed in that moment could be missed with
+nothing on screen saying so. Now the connection stays open for the whole
+visit (checked: one connection for five comments in a row, where before
+there were five). Each time it does start listening, the Discussion reloads
+once, so nothing said just before is missed. And if the connection is still
+not working after about ten seconds, the "paused" line shows, instead of a
+screen that looks current but is not.

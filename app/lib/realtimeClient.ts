@@ -32,6 +32,13 @@ export type LiveSettings = { url: string; anonKey: string } | null;
  */
 export type LiveState = "connecting" | "live" | "paused";
 
+/**
+ * How long a listen may stay "connecting" before it shows as paused. A listen
+ * whose "system" message never comes must not leave a stale screen looking
+ * current (rule 7).
+ */
+export const CONNECTING_LIMIT_MS = 10_000;
+
 /** One change to a row, as Realtime sends it. A delete carries only the row's id. */
 export type LiveChange = RealtimePostgresChangesPayload<Record<string, unknown>>;
 
@@ -60,6 +67,16 @@ export function listenToTable(
   }
   let stopped = false;
   let stop = () => {};
+  let isLive = false;
+  // Still not live after the limit: say so. A later "live" clears it.
+  const limit = setTimeout(() => {
+    if (!stopped && !isLive) onState("paused");
+  }, CONNECTING_LIMIT_MS);
+  const report = (state: LiveState) => {
+    if (stopped) return;
+    isLive = state === "live";
+    onState(state);
+  };
   onState("connecting");
   try {
     // One browser client per page (createBrowserClient keeps a single one). It
@@ -80,8 +97,8 @@ export function listenToTable(
       // refusal (a bad filter, a member it cannot see) leaves the channel
       // joined but deaf, so it must show as paused, never as live.
       .on("system", {}, (message: { extension?: string; status?: string }) => {
-        if (stopped || message.extension !== "postgres_changes") return;
-        onState(message.status === "ok" ? "live" : "paused");
+        if (message.extension !== "postgres_changes") return;
+        report(message.status === "ok" ? "live" : "paused");
       });
     stop = () => void supabase.removeChannel(channel);
     // Sign the connection in as the member before joining, so row-level
@@ -94,14 +111,15 @@ export function listenToTable(
         channel.subscribe((status) => {
           if (stopped) return;
           // Joined: live once the "system" message above says the database side is listening.
-          if (status !== "SUBSCRIBED") onState("paused"); // CHANNEL_ERROR, TIMED_OUT or CLOSED
+          if (status !== "SUBSCRIBED") report("paused"); // CHANNEL_ERROR, TIMED_OUT or CLOSED
         });
       });
   } catch {
-    onState("paused");
+    report("paused");
   }
   return () => {
     stopped = true;
+    clearTimeout(limit);
     stop();
   };
 }

@@ -10,9 +10,13 @@
  * this task being posted, edited or deleted, by anyone, and reloads the
  * page's data when one is. The server stays the one source of what the thread
  * shows, so a comment appears once, in its place, with its files, and your
- * own post never shows twice. When the live connection cannot start or
- * drops, one plain line says so (rule 7); when it comes back, the thread
- * catches up.
+ * own post never shows twice. When the live connection cannot start, is
+ * slow to start, or drops, one plain line says so (rule 7).
+ *
+ * Every time the listen becomes live (the first time and after any rejoin) the
+ * thread reloads once, so a comment that landed while it was not yet
+ * listening is never missed. The connection depends only on the address and
+ * key, not on the props object, so a reload does not tear it down and rejoin.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -54,15 +58,19 @@ export default function TaskDiscussion({
   const shownIds = useRef(new Set<string>());
   shownIds.current = new Set(comments.map((c) => c.id));
 
+  // The connection follows these two strings, not the `live` object, which is
+  // new on every server render: depending on it would rejoin on every reload.
+  const liveUrl = live?.url ?? null;
+  const liveKey = live?.anonKey ?? null;
   useEffect(() => {
+    const settings: LiveSettings = liveUrl && liveKey ? { url: liveUrl, anonKey: liveKey } : null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let wasPaused = false;
     // Several changes close together reload once.
     const reload = () => {
       clearTimeout(timer);
       timer = setTimeout(() => router.refresh(), 150);
     };
-    const stop = listenToTable(live, {
+    const stop = listenToTable(settings, {
       table: "task_comments",
       filter: `task_id=eq.${taskId}`,
       onChange: (change) => {
@@ -72,19 +80,16 @@ export default function TaskDiscussion({
       },
       onState: (state) => {
         setLiveState(state);
-        if (state === "paused") wasPaused = true;
-        // Back after a gap: catch up on whatever was said meanwhile.
-        if (state === "live" && wasPaused) {
-          wasPaused = false;
-          reload();
-        }
+        // Listening now, first time or again: catch up on anything said
+        // before the listen was in place.
+        if (state === "live") reload();
       },
     });
     return () => {
       clearTimeout(timer);
       stop();
     };
-  }, [live, taskId, router]);
+  }, [liveUrl, liveKey, taskId, router]);
   const filesByComment = new Map<string, ListFile[]>();
   for (const f of files) if (f.commentId) filesByComment.set(f.commentId, [...(filesByComment.get(f.commentId) ?? []), f]);
 
