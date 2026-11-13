@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, chatList, chatPartner, listTimeLabel, newestFromOthers, preview, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, newestFromOthers, notStarted, preview, sendsOnKey, sentLabel } from "./chatView.ts";
 
-const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, memberIds, createdBy: memberIds[0], createdAt });
+const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
   id: `${chatId}-${sentAt}`, chatId, senderId, body, tool: "wavecenter", sentAt,
 });
@@ -29,7 +29,7 @@ test("the list puts the chat with the newest activity first, a quiet chat by whe
   const list = chatList(chats, latest, "me", who);
   assert.deepEqual(list.map((c) => c.id), ["a", "c", "b"]);
   assert.deepEqual(list[0], {
-    id: "a", otherId: "lee", otherName: "Lee", otherSymbol: "🌊",
+    id: "a", topic: null, otherId: "lee", otherName: "Lee", otherSymbol: "🌊",
     last: { body: "newest of all", sentAt: "2026-11-13T09:00:00Z", mine: false },
     activeAt: "2026-11-13T09:00:00Z",
     unread: 0,
@@ -40,7 +40,7 @@ test("the list puts the chat with the newest activity first, a quiet chat by whe
 
 test("each chat in the list carries its unread count; a chat missing from the counts has none", () => {
   const chats = [chat("a", ["me", "lee"], "2026-11-10T10:00:00Z"), chat("b", ["sam", "me"], "2026-11-11T10:00:00Z")];
-  const list = chatList(chats, new Map(), "me", who, new Map([["a", 3]]));
+  const list = chatList(chats, new Map(), "me", who, new Map(), new Map([["a", 3]]));
   assert.deepEqual(list.map((c) => [c.id, c.unread]), [["b", 0], ["a", 3]]);
 });
 
@@ -90,4 +90,24 @@ test("only a UUID can be a chat id", () => {
   assert.equal(CHAT_ID.test("64ce0cfd-f297-4d66-9740-257d8f3a8707"), true);
   assert.equal(CHAT_ID.test("not-a-chat"), false);
   assert.equal(CHAT_ID.test("64ce0cfd-f297-4d66-9740-257d8f3a8707x"), false);
+});
+
+test("a chat's topic: a task with its title, a task whose title is unknown, a deleted task, or none", () => {
+  const titles = new Map([["task-1", "Write the plan"]]);
+  assert.deepEqual(chatTopic({ taskId: "task-1", aboutATask: true }, titles), { kind: "task", taskId: "task-1", title: "Write the plan" });
+  assert.deepEqual(chatTopic({ taskId: "task-2", aboutATask: true }, titles), { kind: "task", taskId: "task-2", title: null });
+  assert.deepEqual(chatTopic({ taskId: null, aboutATask: true }, titles), { kind: "deleted-task" });
+  assert.equal(chatTopic({ taskId: null, aboutATask: false }, titles), null);
+  const about = { ...chat("c1", ["me", "kim"], "2026-11-12T10:00:00Z"), taskId: "task-1", aboutATask: true };
+  const [item] = chatList([about], new Map(), "me", () => ({ name: "Kim", symbol: "*" }), titles);
+  assert.deepEqual(item.topic, { kind: "task", taskId: "task-1", title: "Write the plan" });
+});
+
+test("a refused start says no chat was started exactly once", () => {
+  assert.equal(notStarted("There is no such member."), "No chat was started. There is no such member.");
+  assert.equal(
+    notStarted("There is no task of that id you may read, so no chat was started."),
+    "There is no task of that id you may read, so no chat was started.",
+  );
+  assert.equal(notStarted("You are signed out, so no chat was started. Reload the page and log in again."), "You are signed out, so no chat was started. Reload the page and log in again.");
 });

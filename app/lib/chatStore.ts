@@ -12,7 +12,8 @@
  * `my_chat_unread`, which counts by core's rule under row-level security.
  *
  * `latestChatMessages` reads the newest message of each chat, for the chat
- * window's list (app/chat).
+ * window's list (app/chat); `chatTaskTitles` reads the titles of the tasks
+ * chats are about, for their labels.
  *
  * It only translates names and turns a failed or unconfirmed database call
  * into a thrown error, so a refused save is never reported as a success
@@ -30,7 +31,14 @@ export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
   return {
     async start(otherMemberId, taskId) {
       const { data, error } = await supabase.rpc("start_chat", { other_member: otherMemberId, about_task: taskId });
-      if (error) throw new Error(`The database refused to start the chat: ${error.message}`);
+      if (error) {
+        // Only start_chat's own refusals (raised with these codes, in plain
+        // words) are marked as refusals the screen may show. Anything else,
+        // such as Postgres's "invalid input syntax for type uuid", is logged
+        // and the member sees a plain failure instead (WC-175 review).
+        if (error.code === "22023" || error.code === "42501") throw new Error(`The database refused to start the chat: ${error.message}`);
+        throw new Error(`The database could not start the chat (${error.code ?? "no code"}): ${error.message}`);
+      }
       if (typeof data !== "string" || !data) throw new Error("The database did not confirm the chat was started.");
       return { id: data };
     },
@@ -43,7 +51,7 @@ export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
     async chats(memberId): Promise<Chat[]> {
       const { data, error } = await supabase
         .from("chats")
-        .select("id,task_id,created_by,created_at,chat_members!inner(member_id)")
+        .select("id,task_id,about_a_task,created_by,created_at,chat_members!inner(member_id)")
         .eq("chat_members.member_id", memberId)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -60,6 +68,7 @@ export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
       return (data ?? []).map((c) => ({
         id: c.id,
         taskId: c.task_id,
+        aboutATask: Boolean(c.about_a_task),
         memberIds: everyone.get(c.id) ?? [],
         createdBy: c.created_by,
         createdAt: c.created_at,
@@ -136,4 +145,19 @@ export async function latestChatMessages(supabase: Client, chatIds: string[]): P
     if (read.data) latest.set(read.data.chat_id, toMessage(read.data));
   }
   return latest;
+}
+
+/**
+ * The titles of the tasks `chats` are about, task id to title, for the chat
+ * window's labels. A task the member may not read, or one since deleted, is
+ * simply missing. A failed read throws.
+ */
+export async function chatTaskTitles(supabase: Client, chats: Pick<Chat, "taskId">[]): Promise<Map<string, string>> {
+  const ids = [...new Set(chats.map((c) => c.taskId).filter((id): id is string => Boolean(id)))];
+  const titles = new Map<string, string>();
+  if (!ids.length) return titles;
+  const { data, error } = await supabase.from("tasks").select("id,title").in("id", ids);
+  if (error) throw new Error(`The database refused to read the tasks your chats are about: ${error.message}`);
+  for (const t of data ?? []) titles.set(t.id, t.title);
+  return titles;
 }

@@ -4,11 +4,31 @@
  * Plain functions with their own tests (chatView.test.ts): nothing here reads
  * or writes the database.
  */
-import type { Chat, ChatMessage } from "../../core/chat.ts";
+import { chatSubject, type Chat, type ChatMessage } from "../../core/chat.ts";
+
+/**
+ * What a chat is about, as the window labels it: a task (with its title, or
+ * null when the title could not be read), a task since deleted, or nothing.
+ */
+export type ChatTopic = { kind: "task"; taskId: string; title: string | null } | { kind: "deleted-task" } | null;
+
+/** The label for a chat about a task whose title could not be read. */
+export const A_TASK = "a task";
+/** The label for a chat whose task was deleted. */
+export const DELETED_TASK = "about a deleted task";
+
+/** What `chat` is about, with task titles looked up in `titles` (task id → title). */
+export function chatTopic(chat: Pick<Chat, "taskId" | "aboutATask">, titles: ReadonlyMap<string, string>): ChatTopic {
+  const subject = chatSubject(chat);
+  if (subject.kind === "task") return { kind: "task", taskId: subject.taskId, title: titles.get(subject.taskId) ?? null };
+  return subject.kind === "deleted-task" ? { kind: "deleted-task" } : null;
+}
 
 /** A chat as the list shows it: who it is with and its last message. */
 export interface ChatListItem {
   id: string;
+  /** The task it is about, if any. */
+  topic: ChatTopic;
   /** The other member's id; null if they are gone. */
   otherId: string | null;
   otherName: string;
@@ -52,6 +72,7 @@ export function chatList(
   latest: ReadonlyMap<string, ChatMessage>,
   me: string,
   who: (memberId: string | null) => { name: string; symbol: string },
+  titles: ReadonlyMap<string, string> = new Map(),
   unread: ReadonlyMap<string, number> = new Map(),
 ): ChatListItem[] {
   return chats
@@ -61,7 +82,7 @@ export function chatList(
       const message = latest.get(chat.id) ?? null;
       const last = message ? { body: message.body, sentAt: message.sentAt, mine: message.senderId === me } : null;
       const activeAt = message && message.sentAt > chat.createdAt ? message.sentAt : chat.createdAt;
-      return { id: chat.id, otherId, otherName: person.name, otherSymbol: person.symbol, last, activeAt, unread: unread.get(chat.id) ?? 0 };
+      return { id: chat.id, topic: chatTopic(chat, titles), otherId, otherName: person.name, otherSymbol: person.symbol, last, activeAt, unread: unread.get(chat.id) ?? 0 };
     })
     .sort((a, b) => (a.activeAt < b.activeAt ? 1 : a.activeAt > b.activeAt ? -1 : 0));
 }
@@ -106,4 +127,13 @@ export const CHAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 /** Whether a key press in the send box sends: Enter alone does; Shift+Enter makes a new line, and so does Enter while an input method is composing. */
 export function sendsOnKey(e: { key: string; shiftKey: boolean; isComposing?: boolean }): boolean {
   return e.key === "Enter" && !e.shiftKey && !e.isComposing;
+}
+
+/**
+ * A refused start, said once: "No chat was started." goes in front only when
+ * the reason does not already say so (WC-175 review: "No chat was started.
+ * There is no task ... so no chat was started.").
+ */
+export function notStarted(reason: string): string {
+  return /no chat was started/i.test(reason) ? reason : `No chat was started. ${reason}`;
 }

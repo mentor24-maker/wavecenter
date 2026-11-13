@@ -14,6 +14,8 @@ import { fullDate, PRIORITY_LABEL } from "../listView.ts";
 import { ratingFromRow, type AiRatingRow } from "../scoreView.ts";
 import TaskScore from "../TaskScore";
 import TaskDiscussion from "./TaskDiscussion";
+import TaskChats from "./TaskChats";
+import { taskChatPanel } from "./taskChatPanel";
 
 const STATUS_LABEL: Record<TaskStatus, string> = { proposed: "Proposed", todo: "To do", doing: "Doing", done: "Done" };
 
@@ -25,12 +27,15 @@ const TASK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Discussion, closed until clicked. Read through the signed-in member's own
  * session, so row-level security decides what comes back: every member may
  * read every task (Dane, 2026-10-27) and every comment (Dane, 2026-11-12,
- * WC-172), and the Discussion updates live. Nothing is
+ * WC-172), and the Discussion updates live. Beside the details, the
+ * member's own private chats about the task (TaskChats.tsx, WC-175). Nothing is
  * edited here; editing stays on the list. A visitor who is not signed in is
  * sent to sign in, and every missing or failed part says why (rule 7).
  */
-export default async function TaskPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TaskPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ chat?: string | string[] }> }) {
   const { id } = await params;
+  const { chat: chatParam } = await searchParams;
+  const openChatId = typeof chatParam === "string" ? chatParam : null;
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   if (supabase && !user && !checkFailed) redirect("/sign-in");
@@ -70,7 +75,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
 
   const task = fromRow(read.data);
   const mine = task.ownerId === user.id;
-  const [parent, subTasks, files, comments, rating, votes] = await Promise.all([
+  const [parent, subTasks, files, comments, rating, votes, chatPanel] = await Promise.all([
     task.parentTaskId
       ? supabase.from("tasks").select("id, title").eq("id", task.parentTaskId).maybeSingle()
       : Promise.resolve(null),
@@ -83,6 +88,8 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
       .eq("task_id", task.id)
       .order("created_at", { ascending: false }).order("seq", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("task_votes").select("member_id, points").eq("task_id", task.id),
+    // The member's own private chats about this task, and who they may chat with.
+    taskChatPanel(supabase, user.id, task, openChatId),
   ]);
   const scoreError = rating.error?.message ?? votes.error?.message ?? null;
   const score = scoreError
@@ -101,6 +108,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
           {mine ? "Your task was added as Proposed." : "This task is Proposed."} An admin needs to approve it before work starts.
         </p>
       )}
+      <div className="task-top">
       <dl className="task-facts box">
         <dt>Status</dt>
         <dd>{STATUS_LABEL[task.status] ?? task.status}</dd>
@@ -140,6 +148,8 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
           </>
         )}
       </dl>
+      <TaskChats me={user.id} taskId={task.id} live={liveSettings()} {...chatPanel} />
+      </div>
 
       <h2>Details</h2>
       {task.notes ? <p className="task-notes">{task.notes}</p> : <p className="note">No details written.</p>}

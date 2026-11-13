@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { listChatMessages, listChats, unreadChats, type Chat, type ChatMessage } from "../../core/chat.ts";
 import { mayOpenAdmin } from "../../core/members.ts";
 import { AVATARS } from "../../core/profiles.ts";
-import { latestChatMessages, supabaseChatStore } from "../lib/chatStore";
+import { chatTaskTitles, latestChatMessages, supabaseChatStore } from "../lib/chatStore";
 import { headerPoints, type HeaderPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole } from "../lib/memberRoleStore";
@@ -11,7 +11,7 @@ import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings
 import { shownName } from "../members/memberView";
 import SiteHeader from "../SiteHeader";
 import ChatWindow, { type OpenChat } from "./ChatWindow";
-import { CHAT_ID, SOMEONE, chatList, chatPartner } from "./chatView";
+import { CHAT_ID, SOMEONE, chatList, chatPartner, chatTopic } from "./chatView";
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
@@ -80,11 +80,15 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
     };
   };
 
-  const [latest, unread] = await Promise.all([
+  // The titles of the tasks chats are about. If they cannot be read, a chat
+  // still shows, labelled "a task", still linked.
+  const [latest, titleRead, unread] = await Promise.all([
     read(() => latestChatMessages(supabase, chats.value.map((c) => c.id))),
+    read(() => chatTaskTitles(supabase, chats.value)),
     read(() => unreadChats(store, user.id)),
   ]);
-  const list = chatList(chats.value, latest.value ?? new Map<string, ChatMessage>(), user.id, who, unread.value ?? new Map<string, number>());
+  const titles = titleRead.value ?? new Map<string, string>();
+  const list = chatList(chats.value, latest.value ?? new Map<string, ChatMessage>(), user.id, who, titles, unread.value ?? new Map<string, number>());
 
   let open: OpenChat | null = null;
   let openProblem: string | null = null;
@@ -97,6 +101,7 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
       const other = who(chatPartner(chat, user.id));
       open = {
         id: chat.id,
+        topic: chatTopic(chat, titles),
         otherName: other.name,
         otherSymbol: other.symbol,
         messages: messages.value ?? [],
@@ -109,6 +114,9 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
     <Shell name={name} isAdmin={isAdmin} points={points}>
       {members.error !== null && (
         <p className="note" role="status">Members&apos; names could not be loaded ({members.error}), so chats show &quot;{SOMEONE}&quot;. Try reloading the page.</p>
+      )}
+      {titleRead.error !== null && (
+        <p className="note" role="status">The titles of the tasks your chats are about could not be loaded ({titleRead.error}), so they show as &quot;a task&quot;. Try reloading the page.</p>
       )}
       {latest.error !== null && (
         <p className="error" role="alert">The last message of each chat could not be loaded: {latest.error}. Nothing has been lost; try reloading the page.</p>

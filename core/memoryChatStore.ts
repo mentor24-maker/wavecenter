@@ -1,10 +1,13 @@
 /**
  * Chats kept in memory, for core's tests. It behaves as the database does
- * (supabase/migrations/20261112120000_chats.sql):
+ * (supabase/migrations/20261112120000_chats.sql and
+ * 20261113120000_chats_about_a_task.sql):
  *
  * - `start` is `start_chat`: it refuses an unknown member, yourself and a
  *   task that does not exist, and finds the chat already there for the pair
- *   and task, whichever of the two starts it.
+ *   and task, whichever of the two starts it. A plain chat is never found
+ *   among chats whose task was deleted. `deleteTask` deletes a task the way
+ *   the database's on-delete-set-null does.
  * - `send` is `send_chat_message`: it refuses a member who is not in the
  *   chat and an empty or over-long message, and, given an engagement store,
  *   scores the message for its sender as `chat_messages_score` does. If the
@@ -52,11 +55,17 @@ export class MemoryChatStore implements ChatStore, ChatReadStore {
     if (problem) throw new CoreError(problem);
     if (taskId !== null && !this.tasks.has(taskId)) throw new CoreError('There is no task of that id you may read, so no chat was started.');
     const pair = [this.signedIn, otherMemberId].sort().join(' ');
-    const found = this.chatRows.find((c) => c.taskId === taskId && [...c.memberIds].sort().join(' ') === pair);
+    const found = this.chatRows.find((c) => c.taskId === taskId && c.aboutATask === (taskId !== null) && [...c.memberIds].sort().join(' ') === pair);
     if (found) return { id: found.id };
-    const chat: Chat = { id: `chat-${this.chatRows.length + 1}`, taskId, memberIds: [this.signedIn, otherMemberId], createdBy: this.signedIn, createdAt: this.now() };
+    const chat: Chat = { id: `chat-${this.chatRows.length + 1}`, taskId, aboutATask: taskId !== null, memberIds: [this.signedIn, otherMemberId], createdBy: this.signedIn, createdAt: this.now() };
     this.chatRows.push(chat);
     return { id: chat.id };
+  }
+
+  /** Delete task `taskId`: its chats are kept, no longer naming it. */
+  deleteTask(taskId: string) {
+    this.tasks.delete(taskId);
+    for (const c of this.chatRows) if (c.taskId === taskId) c.taskId = null;
   }
 
   async send(chatId: string, body: string, tool: string) {

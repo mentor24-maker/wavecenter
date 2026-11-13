@@ -955,3 +955,24 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
   .chat-messages { height: 55vh; }
   .chat-message { max-width: 92%; }
 }
+
+/*
+ * A task's page (app/tasks/[id]): its facts and "Chat about this task" side
+ * by side; under 48rem the chats go below the facts.
+ */
+.task-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space); align-items: start; }
+.task-top > * { margin-top: 0; }
+.task-chats { --surface: var(--level-1); display: flex; flex-direction: column; min-width: 0; }
+.task-chats h2 { margin-top: 0; }
+.task-chats h3 { margin-bottom: 0.25rem; }
+.task-chats .chat-messages { --surface: var(--level-2); height: min(45vh, 22rem); }
+.task-chat-start { display: grid; grid-template-columns: auto 1fr auto; gap: 0.25rem 0.5rem; align-items: center; }
+.task-chat-start .error { grid-column: 1 / -1; margin: 0; }
+.task-chat-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.task-chat-open { margin-top: 0.75rem; }
+.chat-topic { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-topic-line { margin-top: -0.5rem; }
+@media (max-width: 48rem) {
+  .task-top { grid-template-columns: 1fr; }
+  .task-chat-start { grid-template-columns: 1fr; }
+}
