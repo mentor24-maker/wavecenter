@@ -32,7 +32,9 @@ added `messages` and the Message members permission;
 `20261101120000_evolution_prompt.sql` gave each Evolution change Dane's own
 words and the link to where he said them;
 `20261102140000_evolution_task_link.sql` linked each Evolution card to its
-task; `20261102210000_proposals.sql` added `proposals`); this page
+task; `20261102210000_proposals.sql` added `proposals`;
+`20261112130000_task_comments_shared_live.sql` let every member read and post
+comments, and made the Discussion live); this page
 explains them.
 
 ## The `tasks` table
@@ -520,9 +522,10 @@ A file can also be attached to a Discussion comment (Dane, 2026-10-27:
 "allow links and attachments"). Its stored copy sits in the task's comments
 folder, `<owner id>/<task id>/comments/<random id>-<file name>`, and its row
 names the comment. It shows under the comment, not in the task's own file
-list. It is as private as the comment: only whoever can see the comment can
-see its row or open its stored copy, which today means only its author. A
-file can be attached only to the member's own comment, on the same task.
+list. Whoever can see the comment can see its row and open its stored copy,
+which since 2026-11-12 means every signed-in member. A file can be attached
+only to the member's own comment, on the same task, and only on their own
+task.
 Removing the comment, or deleting the task, deletes its files' stored copies
 too, not just the rows.
 
@@ -559,9 +562,19 @@ inside the same delete (`task_comments_score_delete`); a comment that goes
 because its task was deleted earns nothing, since deleting the task was the
 engagement.
 
-Row-level security was on from the moment `task_comments` was made: a member
-reads, adds, edits and deletes only their own comments, and adds them only to
-their own tasks.
+Row-level security was on from the moment `task_comments` was made. At
+first a member read and added comments only on their own tasks. Since
+2026-11-12 (`20261112130000_task_comments_shared_live.sql`, WC-172) **every
+signed-in member reads every comment and may comment on any task**, in their
+own name only; a member still edits and deletes **only their own** comments
+(Dane chose this: "every member reads every comment and may post on any task.
+Members still edit and remove only their own comments").
+
+`task_comments` is in the `supabase_realtime` publication, so a task's
+Discussion updates live: Supabase Realtime tells each open page about a new,
+edited or deleted comment, checking row-level security for every listener. A
+delete sends only the comment's id, never its words. See
+docs/INFRASTRUCTURE.md, "Live updates".
 
 ### Who can see what
 

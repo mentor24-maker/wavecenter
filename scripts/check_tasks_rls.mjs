@@ -57,6 +57,7 @@
  * Exit 0 = every check held. Exit 1 = a check failed or the run broke.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
@@ -238,6 +239,56 @@ async function upload(member, path, text) {
   if (signed.status >= 300) return { status: signed.status, json: signed.json };
   const res = await fetch(`${URL_}/storage/v1${signed.json.url}`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: text });
   return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/** The tasks a member may comment on, for core's addComment: every task they can read, not only their own. */
+function readableTasks(member) {
+  return restTaskStore({ url: URL_, apiKey: ANON, token: member.token });
+}
+
+/**
+ * Listen live to one task's comments through Supabase Realtime, the way the
+ * browser does: as the member whose token it is, or as a signed-out visitor
+ * (`token` null). Resolves once the connection has said yes or no.
+ */
+async function listenToComments(token, taskId) {
+  // The client asks this for the member's token on connect and every
+  // heartbeat (a token set by hand would be overridden); the browser's comes
+  // from the session cookie the same way. No token: the public key, as a
+  // signed-out visitor.
+  const client = token
+    ? createClient(URL_, ANON, { accessToken: async () => token })
+    : createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Fetch the token before joining, or the join goes out as a signed-out
+  // visitor (app/lib/realtimeClient.ts waits the same way).
+  await client.realtime.setAuth();
+  const events = [];
+  const channel = client.channel(`rls-check:${randomUUID()}`);
+  // The same two listens as app/lib/realtimeClient.ts: everything about this task, and every delete.
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'task_comments', filter: `task_id=eq.${taskId}` }, (e) => events.push(e));
+  channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'task_comments' }, (e) => events.push(e));
+  // Listening only once Realtime's "system" message says the database side
+  // is ready: "SUBSCRIBED" alone comes a moment earlier, and a change made in
+  // between is never sent.
+  const status = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('NO ANSWER IN 15 SECONDS'), 15_000);
+    const done = (s) => { clearTimeout(timer); resolve(s); };
+    channel.on('system', {}, (m) => { if (m.extension === 'postgres_changes') done(m.status === 'ok' ? 'LISTENING' : `REFUSED: ${m.message}`); });
+    channel.subscribe((s) => { if (s !== 'SUBSCRIBED' && s !== 'CLOSED') done(s); });
+  });
+  return {
+    status,
+    events,
+    /** The events that match, once at least one has arrived or 10 seconds have passed. */
+    async waitFor(match) {
+      for (let waited = 0; waited < 10_000 && !events.some(match); waited += 200) await new Promise((r) => setTimeout(r, 200));
+      return events.filter(match);
+    },
+    async stop() {
+      await client.removeChannel(channel);
+      client.realtime.disconnect();
+    },
+  };
 }
 
 /** A TaskCommentStore (core/comments.ts) over REST, acting as one member. */
@@ -1070,21 +1121,27 @@ try {
   const left = Array.isArray(folder.json) ? folder.json.map((o) => o.name) : folder.json;
   check('A can remove A’s own file through core: the stored copy and the row both go', Array.isArray(left) && left.length === 0 && goneRow.json?.length === 0, `left in the folder ${JSON.stringify(left)}, rows ${JSON.stringify(goneRow.json)}`);
 
-  // task_comments: a member's Discussion comments are their own.
+  // task_comments: every member reads every comment and may post on any task;
+  // a member edits and removes only their own (Dane, 2026-11-12, WC-172).
+  // B listens live from here on, and so does a signed-out visitor.
+  const liveB = await listenToComments(b.token, insA.id);
+  const liveAnon = await listenToComments(null, insA.id);
+  check('B can listen live to the comments on A’s task', liveB.status === 'LISTENING', `the live connection said ${liveB.status}`);
+
   const commentA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment', TOOL);
   check('A can comment on A’s own task through core', commentA.ownerId === a.id && commentA.tool === TOOL, JSON.stringify(commentA));
 
-  const commentsB = await call('/rest/v1/task_comments?select=body', { token: b.token });
-  check('B sees none of A’s comments', commentsB.status === 200 && commentsB.json.length === 0, `sees ${JSON.stringify(commentsB.json)}`);
+  const commentsB = await call(`/rest/v1/task_comments?id=eq.${commentA.id}&select=body`, { token: b.token });
+  check('B can read A’s comment', commentsB.status === 200 && commentsB.json?.[0]?.body === 'A’s comment', `sees ${JSON.stringify(commentsB.json)}`);
+
+  const heardB = await liveB.waitFor((e) => e.eventType === 'INSERT' && e.new?.id === commentA.id);
+  check('B hears A’s new comment live, once', heardB.length === 1 && heardB[0].new.body === 'A’s comment', `heard ${JSON.stringify(liveB.events)}`);
 
   const editB = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { body: 'taken over' } });
   check('B cannot change A’s comment', editB.status === 200 && editB.json.length === 0, `HTTP ${editB.status} ${JSON.stringify(editB.json)}`);
 
   const delCommentB = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
   check('B cannot delete A’s comment', delCommentB.status === 200 && delCommentB.json.length === 0, `HTTP ${delCommentB.status} ${JSON.stringify(delCommentB.json)}`);
-
-  const forgeComment = await call('/rest/v1/task_comments', { method: 'POST', token: b.token, body: { task_id: insA.id, body: 'B on A’s task' } });
-  check('B cannot comment on A’s task', forgeComment.status >= 400, `HTTP ${forgeComment.status} ${forgeComment.json?.message ?? ''}`);
 
   const forgeCommentOwner = await call('/rest/v1/task_comments', { method: 'POST', token: b.token, body: { task_id: insA.id, owner_id: a.id, body: 'in A’s name' } });
   check('B cannot add a comment in A’s name', forgeCommentOwner.status >= 400, `HTTP ${forgeCommentOwner.status} ${forgeCommentOwner.json?.message ?? ''}`);
@@ -1095,9 +1152,20 @@ try {
   refusedComment = '';
   try { await removeComment(commentStore(b), commentA.id, TOOL); } catch (err) { refusedComment = err.message; }
   check('B cannot remove A’s comment through core either', /No comment .* you may remove/.test(refusedComment), refusedComment || 'the remove went through');
-  refusedComment = '';
-  try { await addComment(b.store, commentStore(b), insA.id, 'B on A’s task', TOOL); } catch (err) { refusedComment = err.message; }
-  check('B cannot comment on A’s task through core either', /No task .* you may comment on/.test(refusedComment), refusedComment || 'the comment went through');
+  const commentB = await addComment(readableTasks(b), commentStore(b), insA.id, 'B on A’s task', TOOL);
+  check('B can comment on A’s task through core, in B’s own name', commentB.ownerId === b.id && commentB.taskId === insA.id, JSON.stringify(commentB));
+  const seenByA = await call(`/rest/v1/task_comments?id=eq.${commentB.id}&select=body`, { token: a.token });
+  check('A can read B’s comment on A’s task', seenByA.json?.[0]?.body === 'B on A’s task', JSON.stringify(seenByA.json));
+  let refusedOnNothing = '';
+  try { await addComment(readableTasks(b), commentStore(b), randomUUID(), 'on no task', TOOL); } catch (err) { refusedOnNothing = err.message; }
+  check('nobody can comment on a task that does not exist', /No task .* you may comment on/.test(refusedOnNothing), refusedOnNothing || 'the comment went through');
+  const editOwnB = await editComment(commentStore(b), commentB.id, 'B on A’s task, edited', TOOL);
+  check('B can edit B’s own comment on A’s task', editOwnB.body === 'B on A’s task, edited', JSON.stringify(editOwnB));
+  const editByA = await call(`/rest/v1/task_comments?id=eq.${commentB.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { body: 'the task owner rewrote it' } });
+  check('A cannot change B’s comment, even on A’s own task', editByA.status === 200 && editByA.json.length === 0, `HTTP ${editByA.status} ${JSON.stringify(editByA.json)}`);
+  const delByA = await call(`/rest/v1/task_comments?id=eq.${commentB.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+  check('A cannot delete B’s comment, even on A’s own task', delByA.status === 200 && delByA.json.length === 0, `HTTP ${delByA.status} ${JSON.stringify(delByA.json)}`);
+  await removeComment(commentStore(b), commentB.id, TOOL);
 
   const moveComment = await call(`/rest/v1/task_comments?id=eq.${commentA.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { task_id: taskB } });
   check('A cannot move A’s comment onto another task', moveComment.status >= 400, `HTTP ${moveComment.status} ${moveComment.json?.message ?? JSON.stringify(moveComment.json)}`);
@@ -1117,18 +1185,31 @@ try {
     editsOnce?.length === 1 && editsOnce[0].task_id === insA.id && editsOnce[0].tool === TOOL && editsOnce[0].points === 1 && editsAfterSame?.length === 1,
     `after the edit ${JSON.stringify(editsOnce)}, after saving the same words ${JSON.stringify(editsAfterSame)}`);
 
+  // Heard before the delete: Realtime checks an edited row as it sends it, so
+  // an edit followed at once by a delete is never sent (harmless on screen:
+  // the comment is gone either way).
+  const heardEdit = await liveB.waitFor((e) => e.eventType === 'UPDATE' && e.new?.id === commentA.id);
+  check('B hears A’s edit live', heardEdit.length >= 1 && heardEdit.at(-1).new.body === 'A’s comment, edited', `heard ${JSON.stringify(liveB.events)}`);
+
   await removeComment(commentStore(a), commentA.id, TOOL);
   const goneComment = await admin(`/rest/v1/task_comments?id=eq.${commentA.id}&select=id`);
   check('A can remove A’s own comment through core', goneComment.json?.length === 0, JSON.stringify(goneComment.json));
+
+  const heardDelete = await liveB.waitFor((e) => e.eventType === 'DELETE' && e.old?.id === commentA.id);
+  check('B hears A’s delete live, and it names only the comment, never its words', heardDelete.length >= 1 && heardDelete.every((e) => e.old.body === undefined), `heard ${JSON.stringify(heardDelete)}`);
+  check('a signed-out visitor hears nothing live', liveAnon.events.length === 0, `the live connection said ${liveAnon.status}; heard ${JSON.stringify(liveAnon.events)}`);
+  await liveB.stop();
+  await liveAnon.stop();
 
   // Posting a comment is scored by the table's trigger: once, for the writer.
   const postedA = await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.posted_a_comment&select=points,tool,task_id`);
   check('posting a comment records one engagement, credited to the writer, naming the tool and the task, and editing or removing it records none',
     JSON.stringify(postedA.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: insA.id }]), JSON.stringify(postedA.json));
-  const postedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.posted_a_comment&select=id`);
-  check('a comment that was refused records no engagement', postedB.json?.length === 0, JSON.stringify(postedB.json));
+  const postedB = await admin(`/rest/v1/engagements?member_id=eq.${b.id}&kind=eq.posted_a_comment&select=task_id`);
+  check('B’s comment on A’s task is credited to B, once; the one refused records nothing', JSON.stringify(postedB.json) === JSON.stringify([{ task_id: insA.id }]), JSON.stringify(postedB.json));
 
-  // A comment's files: as private as the comment, and gone with it.
+  // A comment's files: readable by every member, as the comment is; attached
+  // only by its writer, on their own task; gone with the comment.
   const noteA = await addComment(a.store, commentStore(a), insA.id, 'A’s comment with a file', TOOL);
   const notePath = commentFilePath(a.id, insA.id, randomUUID(), 'a-mock.txt');
   storedPaths.push(notePath);
@@ -1138,11 +1219,18 @@ try {
   check('A can attach it to A’s own comment through core', noteFile.commentId === noteA.id && noteFile.ownerId === a.id, JSON.stringify(noteFile));
 
   const noteRowB = await call(`/rest/v1/task_files?id=eq.${noteFile.id}&select=name`, { token: b.token });
-  check('B cannot see A’s comment file row', noteRowB.status === 200 && noteRowB.json.length === 0, `sees ${JSON.stringify(noteRowB.json)}`);
+  check('B can see A’s comment file row', noteRowB.status === 200 && noteRowB.json?.[0]?.name === 'a-mock.txt', `sees ${JSON.stringify(noteRowB.json)}`);
   const noteReadB = await call(`/storage/v1/object/authenticated/${BUCKET}/${notePath}`, { token: b.token });
-  check('B cannot read A’s stored comment file', noteReadB.status >= 400, `HTTP ${noteReadB.status}`);
+  check('B can read A’s stored comment file', noteReadB.status === 200, `HTTP ${noteReadB.status}`);
   const noteSignB = await call(`/storage/v1/object/sign/${BUCKET}/${notePath}`, { method: 'POST', token: b.token, body: { expiresIn: 60 } });
-  check('B cannot get a link to A’s stored comment file', noteSignB.status >= 400, `HTTP ${noteSignB.status} ${JSON.stringify(noteSignB.json)}`);
+  check('B can get a link to A’s stored comment file', noteSignB.status === 200, `HTTP ${noteSignB.status} ${JSON.stringify(noteSignB.json)}`);
+  const anonNote = await call(`/storage/v1/object/authenticated/${BUCKET}/${notePath}`);
+  check('a signed-out visitor cannot read A’s stored comment file', anonNote.status >= 400, `HTTP ${anonNote.status}`);
+  const ownNoteB = await addComment(readableTasks(b), commentStore(b), insA.id, 'B wants to attach here', TOOL);
+  const ownNotePath = commentFilePath(b.id, insA.id, randomUUID(), 'b.txt');
+  const onOwnNoteB = await call('/rest/v1/task_files', { method: 'POST', token: b.token, body: { task_id: insA.id, comment_id: ownNoteB.id, path: ownNotePath, name: 'b.txt', size_bytes: 1 } });
+  check('B cannot attach a file to B’s own comment on A’s task (files only on your own tasks)', onOwnNoteB.status >= 400, `HTTP ${onOwnNoteB.status} ${onOwnNoteB.json?.message ?? ''}`);
+  await removeComment(commentStore(b), ownNoteB.id, TOOL);
   const noteReadA = await call(`/storage/v1/object/authenticated/${BUCKET}/${notePath}`, { token: a.token });
   check('A can read A’s own comment file', noteReadA.status === 200, `HTTP ${noteReadA.status}`);
 

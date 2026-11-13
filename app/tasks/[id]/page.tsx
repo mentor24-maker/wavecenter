@@ -6,7 +6,7 @@ import { taskScore, taskScoreLine } from "../../../core/taskScore.ts";
 import { headerPoints, type HeaderPoints } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
-import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../../lib/supabase";
+import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../../lib/supabase";
 import { loadComments, loadFiles } from "../../lib/taskReads";
 import { fromRow } from "../../lib/taskStore";
 import SiteHeader from "../../SiteHeader";
@@ -24,7 +24,8 @@ const TASK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * One task on its own page: everything WaveCenter knows about it, and its
  * Discussion, closed until clicked. Read through the signed-in member's own
  * session, so row-level security decides what comes back: every member may
- * read every task (Dane, 2026-10-27), and comments only their own. Nothing is
+ * read every task (Dane, 2026-10-27) and every comment (Dane, 2026-11-12,
+ * WC-172), and the Discussion updates live. Nothing is
  * edited here; editing stays on the list. A visitor who is not signed in is
  * sent to sign in, and every missing or failed part says why (rule 7).
  */
@@ -75,7 +76,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
       : Promise.resolve(null),
     supabase.from("tasks").select("id, title, status").eq("parent_task_id", task.id).order("position").order("created_at"),
     loadFiles(supabase, task.id),
-    mine ? loadComments(supabase, task.id) : Promise.resolve(null),
+    loadComments(supabase, task.id),
     // The parts of its points (core/taskScore.ts): the newest AI rating and every member's votes.
     supabase.from("ai_task_ratings")
       .select("scope, difficulty, relevance, demand, ai_score, instruction_version, created_at, ai_task_model_ratings(model, scope, difficulty, relevance, demand, scope_reason, difficulty_reason, relevance_reason, demand_reason)")
@@ -201,14 +202,7 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         )}
       </section>
 
-      {comments === null ? (
-        <details className="task-discussion box">
-          <summary>Discussion</summary>
-          <p className="note">
-            Only the member who made a task can read and post in its Discussion for now, so there is nothing to show you here.
-          </p>
-        </details>
-      ) : comments.error ? (
+      {comments.error ? (
         <details className="task-discussion box">
           <summary>Discussion</summary>
           <p className="error" role="alert">
@@ -216,10 +210,28 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
           </p>
         </details>
       ) : (
-        <TaskDiscussion taskId={task.id} taskTitle={task.title} comments={comments.comments} files={commentFiles} userId={user.id} />
+        <TaskDiscussion
+          taskId={task.id}
+          taskTitle={task.title}
+          comments={comments.comments}
+          files={commentFiles}
+          userId={user.id}
+          canAttach={mine}
+          live={liveSettings()}
+        />
       )}
     </Shell>
   );
+}
+
+/**
+ * What the Discussion needs to listen live: the project address and the
+ * public anon key, read now, per request, never baked in at build (rule 4).
+ * Never the service key (rule 3).
+ */
+function liveSettings() {
+  const settings = supabaseSettings();
+  return "missing" in settings ? null : { url: settings.url, anonKey: settings.anonKey };
 }
 
 /** The frame every state of the page shares: header, title, and the way back. */

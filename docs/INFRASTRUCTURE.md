@@ -221,10 +221,25 @@ email a link. The link goes to Supabase, which checks it and sends the browser
 to `/auth/confirm` on the same site with a one-time code; that route trades
 the code for a session cookie and sends the member to `/`. `proxy.ts` renews
 the session cookie before each page request (a session token lasts an hour).
-Everything runs on the server: the browser holds **no Supabase key at all**,
-only the session cookie, and app code never reads the service role key. Every
-query runs as the signed-in member, so row-level security decides what comes
-back. `npm run check:browser-secrets` (part of `verify`) fails the build if a
+Everything runs on the server, with one exception: live updates. Every query
+runs as the signed-in member, so row-level security decides what comes back,
+and app code never reads the service role key.
+
+**Live updates (since WC-172, 2026-11-12).** A task's Discussion updates while
+it is open, through Supabase Realtime: the browser connects to Supabase
+directly and is told when a comment is posted, edited or deleted
+(`app/lib/realtimeClient.ts`, the one helper for it; the chat window reuses
+it). For that, the browser holds the project address and the **anon key**,
+and nothing else. The anon key is the public key: it is safe in a browser
+only because row-level security decides what it can read, and Realtime
+checks the same rules for every listener, so a browser hears only about rows
+its signed-in member may read and a signed-out visitor hears nothing. The
+server page hands the two settings to the browser per request, read through
+`supabaseSettings()`, never baked in at build (engineering rule 4). The
+service key never goes to the browser (rule 3). Realtime is part of
+open-source Supabase, not a Vercel feature, so it works on any host (rule
+11). A table is heard live only once it is in the `supabase_realtime`
+publication (a migration adds it). `npm run check:browser-secrets` (part of `verify`) fails the build if a
 server-only secret's name appears in anything shipped to the browser.
 
 **Supabase dashboard settings** (Authentication → URL Configuration). Supabase

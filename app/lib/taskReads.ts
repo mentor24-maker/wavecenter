@@ -52,7 +52,7 @@ export async function loadFiles(supabase: Client, taskId?: string): Promise<{ fi
   };
 }
 
-/** Discussion comments, oldest first. Row-level security returns only the member's own. */
+/** Discussion comments, oldest first: every member's, since every member may read every comment (WC-172). */
 export async function loadComments(supabase: Client, taskId?: string): Promise<{ comments: TaskComment[]; error: string | null }> {
   let query = supabase.from("task_comments").select();
   if (taskId) query = query.eq("task_id", taskId);
