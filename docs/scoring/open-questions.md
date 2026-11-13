@@ -44,6 +44,10 @@ pointed to here:
    adding more sophisticated anti-farming behavior negative scores." Which
    behaviour would be scored, who or what decides it, and can a member's
    total go below zero?
+   Dane confirmed on 2026-11-12 that the system will "look for signs of
+   trying to game the system and actively penalize that type of behavior"
+   ([Anti-farming](anti-farming.md), "Why gaming is not a reason to leave
+   an action unscored"). Which signs, and how much, are still undecided.
 5. **Does farm risk come back?** It is scored and stored but not counted.
    Is it meant to feed the negative scores in question 4, or something else?
 6. **Do you want the third safeguard?** "An undo takes back what its action

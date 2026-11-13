@@ -17,7 +17,8 @@ works in one place: start a scoring wiki that can grow as the system does".
 ### Start here
 
 - [Principles](principles.md): the two types of score, why scores grow
-  with the complexity of the engagement, and why granular points are small.
+  with the complexity of the engagement, why granular points are small,
+  and why every form of engagement earns points.
 - [Glossary](glossary.md): the words this wiki uses.
 
 ### How scores are worked out
@@ -31,8 +32,9 @@ works in one place: start a scoring wiki that can grow as the system does".
 
 ### Keeping scores honest
 
-- [Anti-farming](anti-farming.md): how WaveCenter stops points being
-  collected by repeating actions, in stages.
+- [Anti-farming](anti-farming.md): why gaming is not a reason to leave an
+  action unscored, and how WaveCenter stops points being collected by
+  repeating actions, in stages.
 
 ### Not settled yet
 
