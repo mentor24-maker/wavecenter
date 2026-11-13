@@ -68,6 +68,34 @@ Dane, 2026-11-02: "I want a floor of 1 point. Every single action scores
 something." (`docs/GRANULAR_SCORING_ALGORITHM.md`, "Why farm risk is not in
 the formula").
 
+## Every form of engagement earns points
+
+Dane, 2026-11-12, on whether chatting should earn points (in a chat
+session, recorded on ticket WC-171, "Nobody can read why every engagement
+earns points: write Dane's reasons"):
+
+> I see every form of human engagement as inherently valuable and so it
+> should receive automatic scores. Your presupposition that people trying to
+> game the system to score points isn't valid for at least a couple reasons:
+> The membership of WaveCenter will be selected to be motivated to produced
+> value and results. We will be aggressively screening out the kind of
+> people who want to game the system. Also, at the mechanical level, the
+> point levels are so low that it is a waste of time to try to maximize
+> them. The increase in point values associated with substance and quality
+> will be huge. Third, the system will look for signs of trying to game the
+> system and actively penalize that type of behavior. Let's create a ticket
+> to document these ideas.
+
+What this means in practice:
+
+- **A new kind of action gets a granular scoring rule by default.** Sending
+  a chat message is the first case: it is a form of human engagement, so it
+  earns automatic points like any other action.
+- **"It could be gamed" is never a reason to leave an action unscored.**
+  Dane's three reasons why are set out one by one in
+  [Anti-farming](anti-farming.md), "Why gaming is not a reason to leave an
+  action unscored".
+
 ## Members set the values, in the end
 
 The canon says values are set "through a **continuously voted valuation

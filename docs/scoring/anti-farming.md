@@ -16,6 +16,32 @@ weighting so "low-quality volume earns commensurate tokens"
 also says "the same machinery that credits constructive contribution debits
 toxic or manipulative behavior" (canon, "Engagement and Intelligence").
 
+## Why gaming is not a reason to leave an action unscored
+
+Dane decided on 2026-11-12 that every form of human engagement earns
+automatic points, chat included (see [Principles](principles.md), "Every
+form of engagement earns points", for his full words). Farming is still
+worth stopping, but the chance that an action could be farmed does not
+take its points away. He gave three reasons:
+
+1. **Members are chosen for wanting to produce value.** "The membership of
+   WaveCenter will be selected to be motivated to produced value and
+   results. We will be aggressively screening out the kind of people who
+   want to game the system."
+2. **Granular points are too small to be worth chasing.** "[A]t the
+   mechanical level, the point levels are so low that it is a waste of time
+   to try to maximize them. The increase in point values associated with
+   substance and quality will be huge." This is the same idea as
+   [Principles](principles.md), "Scores grow with the complexity of the
+   engagement": a granular action scores 1 to 12, and most of a member's
+   total is meant to come from globular scores.
+3. **The system will watch for gaming and penalise it.** "The system will
+   look for signs of trying to game the system and actively penalize that
+   type of behavior." This is [Stage 2: negative scores for
+   behaviour](#stage-2-negative-scores-for-behaviour) below. Which signs it
+   looks for, and how big a penalty is, are not decided
+   ([Open questions](open-questions.md), question 4).
+
 ## The gap today
 
 The granular formula does not stop loops: every action, looping or not,
