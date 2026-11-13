@@ -113,3 +113,12 @@ export const CHAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export function sendsOnKey(e: { key: string; shiftKey: boolean; isComposing?: boolean }): boolean {
   return e.key === "Enter" && !e.shiftKey && !e.isComposing;
 }
+
+/**
+ * A refused start, said once: "No chat was started." goes in front only when
+ * the reason does not already say so (WC-175 review: "No chat was started.
+ * There is no task ... so no chat was started.").
+ */
+export function notStarted(reason: string): string {
+  return /no chat was started/i.test(reason) ? reason : `No chat was started. ${reason}`;
+}

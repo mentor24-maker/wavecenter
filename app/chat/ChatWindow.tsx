@@ -129,12 +129,16 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const sending = useRef(false);
-  const bottom = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
 
-  // Keep the newest message in view as messages arrive.
+  // Keep the newest message in view as messages arrive, by scrolling the
+  // messages box itself. Never scrollIntoView: that scrolls the whole page
+  // too, and on the task page it threw the reader back to the top whenever
+  // a message arrived (WC-175 review).
   const count = chat.messages.length;
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
+    const el = box.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [count]);
 
   function send(e?: FormEvent) {
@@ -180,7 +184,7 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
         <span aria-hidden="true">{chat.otherSymbol}</span> {chat.otherName}
       </h2>
       {showTopic && chat.topic && <TopicLine topic={chat.topic} />}
-      <div className="chat-messages box" aria-live="polite">
+      <div ref={box} className="chat-messages box" aria-live="polite">
         {chat.error !== null ? (
           <p className="error" role="alert">The messages could not be loaded: {chat.error}. Nothing has been lost; try reloading the page.</p>
         ) : chat.messages.length === 0 ? (
@@ -200,7 +204,6 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
             })}
           </ol>
         )}
-        <div ref={bottom} />
       </div>
       <form className="chat-send" onSubmit={send}>
         <label className="sr-only" htmlFor={`chat-box-${chat.id}`}>Message {chat.otherName}</label>

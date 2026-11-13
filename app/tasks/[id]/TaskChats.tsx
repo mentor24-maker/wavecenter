@@ -22,7 +22,7 @@ import { useState, useTransition, type FormEvent } from "react";
 import type { LiveSettings } from "../../lib/realtimeClient";
 import { startChatWith } from "../../chat/actions";
 import { CHAT_PAUSED, Conversation, useChatLive, type OpenChat } from "../../chat/ChatWindow";
-import { listTimeLabel, preview, type ChatListItem } from "../../chat/chatView";
+import { listTimeLabel, notStarted, preview, type ChatListItem } from "../../chat/chatView";
 
 /** A member the panel offers to chat with. */
 export interface ChatPartnerOption {
@@ -45,6 +45,7 @@ export default function TaskChats({
   partnersError,
   chats,
   chatsError,
+  latestError,
   open,
   openProblem,
   live,
@@ -59,6 +60,8 @@ export default function TaskChats({
   chats: ChatListItem[];
   /** Why those chats could not be read, or null. */
   chatsError: string | null;
+  /** Why the last message of each chat could not be read, or null; the chats still list. */
+  latestError: string | null;
   /** The chat in the link, open in the panel. */
   open: OpenChat | null;
   /** Why the chat in the link could not be opened, or null. */
@@ -82,11 +85,12 @@ export default function TaskChats({
       try {
         const result = await startChatWith(partner, taskId);
         if (!result.ok) {
-          setFailure(`No chat was started. ${result.error}`);
+          setFailure(notStarted(result.error));
           return;
         }
+        // The start revalidated this page on the server, so the push alone
+        // brings the new chat (a refresh as well would render it twice).
         router.push(`/tasks/${taskId}?chat=${result.id}`, { scroll: false });
-        router.refresh();
       } catch {
         setFailure(UNREACHABLE);
       }
@@ -122,29 +126,34 @@ export default function TaskChats({
       ) : chats.length === 0 ? (
         <p className="note" role="status">{NO_TASK_CHATS}</p>
       ) : (
-        <ul className="task-chat-list">
-          {chats.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/tasks/${taskId}?chat=${c.id}`}
-                scroll={false}
-                className={c.id === open?.id ? "chat-item open" : "chat-item"}
-                aria-current={c.id === open?.id ? "true" : undefined}
-              >
-                <span className="chat-avatar" aria-hidden="true">{c.otherSymbol}</span>
-                <span className="chat-item-text">
-                  <span className="chat-item-top">
-                    <b>{c.otherName}</b>
-                    <time className="note" dateTime={c.activeAt}>{listTimeLabel(c.activeAt)}</time>
+        <>
+          {latestError !== null && (
+            <p className="error" role="alert">The last message of each chat could not be loaded: {latestError}. Nothing has been lost; try reloading the page.</p>
+          )}
+          <ul className="task-chat-list">
+            {chats.map((c) => (
+              <li key={c.id}>
+                <Link
+                  href={`/tasks/${taskId}?chat=${c.id}`}
+                  scroll={false}
+                  className={c.id === open?.id ? "chat-item open" : "chat-item"}
+                  aria-current={c.id === open?.id ? "true" : undefined}
+                >
+                  <span className="chat-avatar" aria-hidden="true">{c.otherSymbol}</span>
+                  <span className="chat-item-text">
+                    <span className="chat-item-top">
+                      <b>{c.otherName}</b>
+                      <time className="note" dateTime={c.activeAt}>{listTimeLabel(c.activeAt)}</time>
+                    </span>
+                    <span className="note chat-preview">
+                      {c.last ? `${c.last.mine ? "You: " : ""}${preview(c.last.body)}` : "No messages yet"}
+                    </span>
                   </span>
-                  <span className="note chat-preview">
-                    {c.last ? `${c.last.mine ? "You: " : ""}${preview(c.last.body)}` : "No messages yet"}
-                  </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {openProblem && <p className="error" role="alert">{openProblem}</p>}

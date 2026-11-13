@@ -24,6 +24,8 @@ export interface TaskChatPanel {
   partnersError: string | null;
   chats: ChatListItem[];
   chatsError: string | null;
+  /** Why the last message of each chat could not be read, or null: the list still shows. */
+  latestError: string | null;
   open: OpenChat | null;
   openProblem: string | null;
 }
@@ -51,16 +53,18 @@ export async function taskChatPanel(supabase: Client, me: string, task: Pick<Tas
     .sort((a, b) => (a.isMaker !== b.isMaker ? (a.isMaker ? -1 : 1) : a.name.localeCompare(b.name)));
 
   if (chatsRead.error !== null) {
-    return { partners, partnersError: membersRead.error, chats: [], chatsError: chatsRead.error, open: null, openProblem: null };
+    return { partners, partnersError: membersRead.error, chats: [], chatsError: chatsRead.error, latestError: null, open: null, openProblem: null };
   }
 
   const mine = chatsAboutTask(chatsRead.value, task.id);
   let latest = new Map<string, ChatMessage>();
-  let chatsError: string | null = null;
+  // When only the last messages cannot be read, the chats still list (as on
+  // /chat) with a note saying so, rather than hiding chats that did load.
+  let latestError: string | null = null;
   try {
     latest = await latestChatMessages(supabase, mine.map((c) => c.id));
   } catch (err) {
-    chatsError = `the last message of each chat could not be read (${reason(err)})`;
+    latestError = reason(err);
   }
   const chats = chatList(mine, latest, me, who);
 
@@ -83,5 +87,5 @@ export async function taskChatPanel(supabase: Client, me: string, task: Pick<Tas
     }
   }
 
-  return { partners, partnersError: membersRead.error, chats, chatsError, open, openProblem };
+  return { partners, partnersError: membersRead.error, chats, chatsError: null, latestError, open, openProblem };
 }

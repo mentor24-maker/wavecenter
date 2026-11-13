@@ -27,7 +27,14 @@ export function supabaseChatStore(supabase: Client): ChatStore {
   return {
     async start(otherMemberId, taskId) {
       const { data, error } = await supabase.rpc("start_chat", { other_member: otherMemberId, about_task: taskId });
-      if (error) throw new Error(`The database refused to start the chat: ${error.message}`);
+      if (error) {
+        // Only start_chat's own refusals (raised with these codes, in plain
+        // words) are marked as refusals the screen may show. Anything else,
+        // such as Postgres's "invalid input syntax for type uuid", is logged
+        // and the member sees a plain failure instead (WC-175 review).
+        if (error.code === "22023" || error.code === "42501") throw new Error(`The database refused to start the chat: ${error.message}`);
+        throw new Error(`The database could not start the chat (${error.code ?? "no code"}): ${error.message}`);
+      }
       if (typeof data !== "string" || !data) throw new Error("The database did not confirm the chat was started.");
       return { id: data };
     },

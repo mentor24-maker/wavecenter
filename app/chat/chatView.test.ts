@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, preview, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, notStarted, preview, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -87,4 +87,13 @@ test("a chat's topic: a task with its title, a task whose title is unknown, a de
   const about = { ...chat("c1", ["me", "kim"], "2026-11-12T10:00:00Z"), taskId: "task-1", aboutATask: true };
   const [item] = chatList([about], new Map(), "me", () => ({ name: "Kim", symbol: "*" }), titles);
   assert.deepEqual(item.topic, { kind: "task", taskId: "task-1", title: "Write the plan" });
+});
+
+test("a refused start says no chat was started exactly once", () => {
+  assert.equal(notStarted("There is no such member."), "No chat was started. There is no such member.");
+  assert.equal(
+    notStarted("There is no task of that id you may read, so no chat was started."),
+    "There is no task of that id you may read, so no chat was started.",
+  );
+  assert.equal(notStarted("You are signed out, so no chat was started. Reload the page and log in again."), "You are signed out, so no chat was started. Reload the page and log in again.");
 });
