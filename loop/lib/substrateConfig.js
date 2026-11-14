@@ -141,6 +141,17 @@ function legacyMachinePrefixes() {
 }
 
 /**
+ * The project's own protected files: `governancePaths` in its config, on top of
+ * the floor `autoMergeLane.js` holds for every project. No auto-merge lane may
+ * carry a pull request that touches one (SP-199). Empty with no config, so a
+ * consumer without one gets the floor and nothing else.
+ */
+function governancePaths() {
+  const config = projectConfig();
+  return (config && config.governancePaths) || [];
+}
+
+/**
  * The folder the loop runners write their logs to, as the operator would type
  * it (`~/loop-logs`), for a sentence that tells him where to look. The config
  * key is `logDir`; the fallback is what every project uses today.
@@ -148,6 +159,23 @@ function legacyMachinePrefixes() {
 function logDir() {
   const config = projectConfig();
   return (config && config.logDir) || '~/loop-logs';
+}
+
+/**
+ * Where a lane's log is, as the operator would type it:
+ * `~/loop-logs/spirality-loop-build.log`. Named for the project, the way
+ * scripts/loop_runner.sh names it, because the log folder is shared by every
+ * project on the machine (SP-263). With no `projectSlug` it says "the
+ * <skill> lane's log" rather than invent a file name.
+ */
+function laneLogFile(skill) {
+  const config = projectConfig();
+  const slug = String((config && config.projectSlug) || '').trim();
+  // No slug, no name to invent: laneFile (scripts/lib/laneFiles.mjs) refuses
+  // a missing slug, and a guessed `loop-<skill>.log` points at a file that
+  // does not exist. Say what it is instead.
+  if (!slug) return `the ${skill} lane's log`;
+  return `${logDir()}/${slug}-${skill}.log`;
 }
 
 /**
@@ -165,5 +193,5 @@ function callerEnvVar() {
 
 module.exports = {
   projectConfig, resetProjectConfig, filedTrackerUrl, operatorName, machineSenderTag, legacyMachinePrefixes,
-  mergePhrases, logDir, callerEnvVar,
+  mergePhrases, governancePaths, logDir, laneLogFile, callerEnvVar,
 };

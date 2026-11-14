@@ -5,7 +5,8 @@
 # runner alive, with its own lock and log), WaveCenter's own loop-handoff
 # lane run the same way (it files the tasks members tick for AI agents into
 # the queue, .claude/skills/loop-handoff),
-# the relay (a launchd agent that runs one pass every ten minutes),
+# the relay (a launchd agent started every minute, which runs a pass when its
+# wake time from the Settings page is up: every ten minutes by default),
 # WaveCenter's own ai-rating lane (one pass every 30 minutes that rates the
 # tasks that need it, scripts/rating_lane.sh), its Evolution lane (one pass
 # every 10 minutes that takes the picture of each merged change,
@@ -68,16 +69,32 @@ TRACKER_DB="$TRACKER_DATA_DIR/tracker.db"
 TRACKER_BACKUP_DIR="$TRACKER_DATA_DIR/backups"
 tracker_configured() { [ -n "$TRACKER_PORT" ]; }
 
+# How often each job wakes by default, in seconds. The numbers live in one
+# place, scripts/lib/loopSchedule.mjs, which the tracker's Pipeline Status pod
+# reads too (SP-168). The wake time set on the Settings page (SP-236) wins
+# over them once a job has read it, with no plist rewrite: a lane reads it
+# before every sleep, and the relay's tick (relay_tick) reads it after every
+# pass. WaveCenter's own lanes are not in loopSchedule.mjs (a copied file) and
+# have no wake time on the Settings page, so their fixed intervals stay here.
 interval_of() {
   case "$1" in
-    loop-build)  echo 1800 ;;
-    loop-review) echo 1800 ;;
-    loop-intake) echo 1800 ;;
     loop-handoff) echo 600 ;;
-    relay)       echo 600 ;;
     ai-rating)   echo 1800 ;;
     evolution)   echo 600 ;;
-    *)           echo 3600 ;;
+    *)           PATH="$LAUNCHD_PATH" node "$REPO/scripts/lib/loopSchedule.mjs" interval "$1" ;;
+  esac
+}
+relay_tick() { PATH="$LAUNCHD_PATH" node "$REPO/scripts/lib/loopSchedule.mjs" tick; }
+# The runner a kept-alive lane runs on. Spirality's lanes run on
+# scripts/loop_runner.sh, which asks the Settings page for a pause switch
+# before every pass and treats a lane with no switch as paused. The Settings
+# page has no switch for WaveCenter's own loop-handoff lane, so it keeps the
+# fixed-interval runner it ran on before (scripts/project_lane_runner.sh,
+# Spirality's 418fe69 runner byte for byte; WC-177).
+runner_of() {
+  case "$1" in
+    loop-handoff) echo "$REPO/scripts/project_lane_runner.sh" ;;
+    *)            echo "$REPO/scripts/loop_runner.sh" ;;
   esac
 }
 # A lane's own time limit for one pass, when it is not the runner's default
@@ -96,6 +113,9 @@ limit_env() {
   local limit; limit="$(limit_of "$1")"
   if [ -n "$limit" ]; then echo "LOOP_PASS_LIMIT_SECONDS $limit"; fi
 }
+# gh_signed_in_as and gh_state: is the GitHub command-line tool signed in?
+# shellcheck source=lib/gh_auth.sh
+source "$REPO/scripts/lib/gh_auth.sh"
 # loaded_line and reload_job: read launchd's list safely, and replace a job
 # only once the old one is really gone.
 # shellcheck source=lib/launchd_reload.sh
@@ -105,6 +125,7 @@ label_of() { echo "$PREFIX.$1"; }
 plist_of() { echo "$HOME/Library/LaunchAgents/$(label_of "$1").plist"; }
 log_of() { echo "$LOG_DIR/$SLUG-$1.log"; }
 lock_of() { echo "$LOG_DIR/$SLUG-$1.lock"; }
+wake_of() { echo "$LOG_DIR/$SLUG-$1.wake"; }
 
 status_one() {
   local job="$1" label plist lock log line
@@ -115,7 +136,9 @@ status_one() {
   line="$(loaded_line "$label")"
   if [ -n "$line" ]; then
     echo "loaded:   yes — $line"
-    if [ "$job" = "$RELAY" ] || [ "$job" = "$RATING" ] || [ "$job" = "$EVOLUTION" ]; then
+    if [ "$job" = "$RELAY" ]; then
+      echo "          (columns: PID, last exit code, label. '-' for PID means not running right now, which is normal between passes; launchd starts it every $(relay_tick)s and it runs a pass when its wake time is up, $(interval_of "$job")s unless the Settings page says otherwise.)"
+    elif [ "$job" = "$RATING" ] || [ "$job" = "$EVOLUTION" ]; then
       echo "          (columns: PID, last exit code, label. '-' for PID means not running right now, which is normal between passes; it wakes every $(( $(interval_of "$job") / 60 )) minutes.)"
     else
       echo "          (columns: PID, last exit code, label. A PID here means the runner is alive right now.)"
@@ -130,11 +153,22 @@ status_one() {
   else
     echo "lock:     none"
   fi
+  # A lane's wake file (SP-219): the runner ends its sleep on it within seconds,
+  # so one still here means the runner is mid-pass, or not running at all.
+  if [ "$job" != "$RELAY" ] && [ -e "$(wake_of "$job")" ]; then
+    echo "wake:     waiting at $(wake_of "$job") (sent $(date -r "$(wake_of "$job")" '+%Y-%m-%d %H:%M')) — the next pass starts as soon as this one ends"
+  fi
   if [ -f "$log" ]; then
     echo "log:      $log (last modified $(date -r "$log" '+%Y-%m-%d %H:%M'))"
     if [ "$job" = "$RELAY" ]; then
       echo "last pass: $(grep -E "START relay" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
       echo "last end:  $(grep -E "END relay" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
+      # The newest line of the application checks the relay runs after its
+      # own pass (SP-274), so Dane can see when they last ran and what said.
+      # A log with none yet is normal: grep finds nothing, and under pipefail
+      # that would end the whole --status here, so it is caught.
+      local checks; checks="$(grep -E '^app-checks:' "$log" | tail -1 | sed 's/^app-checks: *//' || true)"
+      echo "app-checks: ${checks:-(none yet)}"
     else
       echo "last pass: $(grep -E "START /$job" "$log" | tail -1 | sed 's/=//g' | xargs || echo '(none yet)')"
     fi
@@ -228,6 +262,7 @@ status() {
   echo "project:  $SLUG (labels $PREFIX.*, logs in $LOG_DIR)"
   checkout_state
   PATH="$LAUNCHD_PATH" node "$REPO/scripts/lib/claudeTrust.mjs" check "$REPO" || true
+  gh_state
   for s in "${SKILLS[@]}"; do status_one "$s"; done
   status_one "$RELAY"
   status_one "$RATING"
@@ -339,6 +374,9 @@ plist_env() {
 }
 
 install() {
+  # Before anything is written: a signed-out gh would install a relay that
+  # fails the first merge Dane asks for (SP-181).
+  gh_require_signed_in || exit 1
   if [ -f "$REPO/.git" ] && grep -q '^gitdir:.*worktrees' "$REPO/.git" 2>/dev/null; then
     echo "Refusing to install: $REPO is a worktree, and worktrees get deleted when their work ships. Run this from the main checkout." >&2
     exit 1
@@ -359,7 +397,7 @@ install() {
     echo "         anything but a clean main, so they will run this branch's code until" >&2
     echo "         the checkout is put back on main." >&2
   fi
-  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/run_relay.sh" "$REPO/scripts/rating_lane.sh" "$REPO/scripts/evolution_lane.sh"
+  chmod +x "$REPO/scripts/loop_runner.sh" "$REPO/scripts/project_lane_runner.sh" "$REPO/scripts/run_with_time_limit.sh" "$REPO/scripts/run_relay.sh" "$REPO/scripts/rating_lane.sh" "$REPO/scripts/evolution_lane.sh"
 
   # The Evolution lane photographs each change in a headless browser, which
   # Playwright keeps in this user's cache, not in the repo. Without it every
@@ -399,7 +437,7 @@ install() {
     <string>$local_label</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$REPO/scripts/loop_runner.sh</string>
+        <string>$(runner_of "$s")</string>
         <string>$s</string>
         <string>$(interval_of "$s")</string>
     </array>
@@ -426,8 +464,11 @@ PLIST_BODY
     fi
   done
 
-  # The relay: one pass per wake, on a timer. Its own output IS its log, so the
-  # plist points stdout and stderr at the log the status reader looks for.
+  # The relay: started on a short fixed tick with --tick, and run_relay.sh
+  # runs a pass only when the wake time set on the Settings page is up
+  # (SP-236), so changing it needs no plist rewrite. Its own output IS its
+  # log, so the plist points stdout and stderr at the log the status reader
+  # looks for; a tick that runs no pass writes nothing there.
   local_label="$(label_of "$RELAY")"; local_plist="$(plist_of "$RELAY")"; local_rlog="$(log_of "$RELAY")"
   cat > "$local_plist" <<PLIST_BODY
 <?xml version="1.0" encoding="UTF-8"?>
@@ -439,11 +480,12 @@ PLIST_BODY
     <key>ProgramArguments</key>
     <array>
         <string>$REPO/scripts/run_relay.sh</string>
+        <string>--tick</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$REPO</string>
     <key>StartInterval</key>
-    <integer>$(interval_of "$RELAY")</integer>
+    <integer>$(relay_tick)</integer>
     <key>RunAtLoad</key>
     <true/>
 $(plist_env)
@@ -455,7 +497,7 @@ $(plist_env)
 </plist>
 PLIST_BODY
   if reload_job "$local_label" "$local_plist"; then
-    echo "Installed $local_label — one pass every $(( $(interval_of "$RELAY") / 60 )) minutes from $REPO, log $local_rlog."
+    echo "Installed $local_label — started every $(relay_tick)s from $REPO, a pass each time its wake time is up ($(interval_of "$RELAY")s unless the Settings page says otherwise), log $local_rlog."
   else
     not_loaded+=("$local_label")
   fi

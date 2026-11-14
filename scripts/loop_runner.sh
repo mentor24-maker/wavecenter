@@ -28,6 +28,10 @@ set -u
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
 SKILL=${1:?usage: loop_runner.sh <skill-name> [interval-seconds]}
+# The first sleep's length, handed in by the installer (the default in
+# scripts/lib/loopSchedule.mjs). Before every sleep the runner asks the
+# tracker for the wake time set on the Settings page (read_wake_time, below)
+# and keeps this one only while that cannot be read.
 INTERVAL=${2:-1800}
 
 # The repo is WHERE THIS SCRIPT LIVES, never a path typed from memory, and it
@@ -47,6 +51,20 @@ PREFIX="$(node "$REPO/scripts/project_config.mjs" launchdPrefix)" || { echo "[lo
 TRACKER_PORT="$(node "$REPO/scripts/project_config.mjs" trackerPort)" || { echo "[loop-runner] could not read trackerPort from the project config" >&2; exit 1; }
 LOG="$LOG_DIR/$SLUG-$SKILL.log"
 LOCK="$LOG_DIR/$SLUG-$SKILL.lock"
+# A file here ends the sleep between passes early (SP-219); `node
+# scripts/lib/wakeLane.mjs <lane>` writes it. Named like the lock, from the
+# project config.
+WAKE="$LOG_DIR/$SLUG-$SKILL.wake"
+# How often the sleep looks for the wake file, in seconds.
+WAKE_POLL="${LOOP_WAKE_POLL_SECONDS:-5}"
+case "$WAKE_POLL" in ""|*[!0-9]*|0) WAKE_POLL=5 ;; esac
+# The longest a lane goes without a real Claude pass while its queue is
+# empty, in seconds (SP-292): the work check skips empty passes only while
+# the last real one is younger than this. 0 turns the skipping off.
+IDLE_PASS_EVERY="${LOOP_IDLE_PASS_EVERY_SECONDS:-21600}"
+case "$IDLE_PASS_EVERY" in ""|*[!0-9]*) IDLE_PASS_EVERY=21600 ;; esac
+# When the last real pass started (epoch seconds); 0 until the first, which always runs.
+LAST_REAL_PASS=0
 mkdir -p "$LOG_DIR"
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || echo "$HOME/.local/bin/claude")}"
 
@@ -87,6 +105,69 @@ take_sync_lock() {
     sleep 5; waited=$((waited + 5))
   done
   echo "$$" > "$SYNC_LOCK/pid"
+}
+
+# The sleep between passes, in steps of WAKE_POLL seconds, so a wake file
+# ends it early. It never cuts a pass short: it only runs between passes. A
+# wake that arrived during the pass is still there, so the next pass starts at
+# once, and any number of wakes sent during one pass start exactly one more
+# (they are all the same file). The file is cleared as a pass starts, never
+# here, so a wake that lands just as the timer runs out is not left over to
+# start a second pass behind it.
+sleep_until_woken() {
+  local slept=0 step
+  while [ "$slept" -lt "$INTERVAL" ]; do
+    if [ -e "$WAKE" ]; then
+      echo "[loop-runner] $(date "+%H:%M:%S") woken early after ${slept}s of ${INTERVAL}s (wake file $WAKE) — starting the next /$SKILL now" >> "$LOG"
+      return 0
+    fi
+    step=$WAKE_POLL
+    [ $((INTERVAL - slept)) -lt "$step" ] && step=$((INTERVAL - slept))
+    sleep "$step"; slept=$((slept + step))
+  done
+}
+
+# The wake time Dane set for this lane on the tracker's Settings page
+# (SP-236), read before every sleep, so a change takes effect at the next
+# sleep with no launchd reload. scripts/lib/wakeSetting.mjs prints the number,
+# or one line saying why it could not; only a whole number of at least 60
+# seconds is ever slept on. Anything else keeps the last good value (on the
+# first pass, the one launchd passed in), and the log says so in one line:
+# the lane never stops and never sleeps 0.
+read_wake_time() {
+  local said
+  said="$(node "$REPO/scripts/lib/wakeSetting.mjs" "$SKILL" 2>/dev/null)"
+  local code=$?
+  case "$said" in
+    ""|*[!0-9]*) ;;
+    *) if [ "$code" -eq 0 ] && [ "$said" -ge 60 ]; then INTERVAL="$said"; return 0; fi ;;
+  esac
+  echo "[loop-runner] $(date "+%H:%M:%S") could not read /$SKILL's wake time from the tracker (${said:-no answer}) — keeping the last good value, ${INTERVAL}s" >> "$LOG"
+}
+
+# The model Dane chose for this lane on the tracker's Settings page (SP-239),
+# read before every pass, so a change takes effect at the next pass with no
+# launchd reload. scripts/lib/modelSetting.mjs prints `default` or one id from
+# the Settings page's own list (scripts/lib/laneModels.mjs MODELS), or one
+# line saying why it could not. A chosen model adds `--model <id>` to the
+# claude line; `default`, or anything that could not be read or is not a
+# plain model id, adds nothing, so the command is exactly what it was before
+# the setting existed, and the log says why in one line. PASS_MODEL is what
+# the START line names.
+read_model() {
+  PASS_MODEL=default
+  MODEL_ARGS=()
+  local said code
+  said="$(node "$REPO/scripts/lib/modelSetting.mjs" "$SKILL" 2>/dev/null)"
+  code=$?
+  if [ "$code" -eq 0 ]; then
+    case "$said" in
+      default) return 0 ;;
+      *[!a-z0-9.-]*) ;;
+      claude-?*) PASS_MODEL="$said"; MODEL_ARGS=(--model "$said"); return 0 ;;
+    esac
+  fi
+  echo "[loop-runner] $(date "+%H:%M:%S") could not read /$SKILL's model from the tracker (${said:-no answer}) — this pass runs on Claude's default" >> "$LOG"
 }
 
 # A template with X's, the one form macOS and GNU mktemp both accept.
@@ -136,8 +217,61 @@ while true; do
     echo "[loop-runner] $(date "+%H:%M:%S") main checkout is not on a clean main — not pulling. Every pass runs stale code until it is put back on main." >> "$LOG"
   fi
 
+  # 2. Paused? (SP-237) The Settings page's switches, the whole pipeline and
+  #    this lane, asked here, between passes, so a pause never stops a pass
+  #    already running: it drains. Asked after the pull, so the check is the
+  #    newest code. ANY non-zero exit counts as paused, a check that could not
+  #    run included (it fails safe), and the line it printed says which.
+  PAUSE_LINE="$("$REPO/scripts/pause_check.sh" "$SKILL" 2>>"$LOG")"
+  PAUSE_CODE=$?
+  if [ "$PAUSE_CODE" -ne 0 ]; then
+    [ -n "$PAUSE_LINE" ] || PAUSE_LINE="could not read the pipeline settings (the check exited $PAUSE_CODE and said nothing; its errors are above), so /$SKILL is treated as PAUSED and not starting (it fails safe)"
+    echo "[loop-runner] $(date "+%H:%M:%S") $PAUSE_LINE" >> "$LOG"
+    # A wake sent while paused is answered by this check, not kept: kept, it
+    # would end every sleep at once and ask again every few seconds.
+    rm -f "$WAKE"
+    echo "[loop-runner] $(date "+%H:%M:%S") sleeping ${INTERVAL}s before the next /$SKILL (a wake ends it early)" >> "$LOG"
+    sleep_until_woken
+    continue
+  fi
+
+  # This pass reads the queue afresh (the work check below, then the pass), so
+  # every wake sent before now is answered by it. A wake sent from here on is
+  # kept for the next one.
+  rm -f "$WAKE"
+
+  # 3. Anything to do? (SP-292) A pass with nothing to do used to start a
+  #    Claude session only to say "nothing to do", and every one counted
+  #    against the weekly limit, so a short wake time cost quota on every
+  #    empty tick. scripts/work_check.sh asks the door the same first
+  #    questions the skill asks, with no AI, and exits 3 only on a clean read
+  #    that found nothing; any other exit (work, could not tell, the check
+  #    could not run) starts the pass as before, so a ticket is never left
+  #    waiting on the check. It is not asked on the first pass after this
+  #    runner starts, nor when the last real pass is IDLE_PASS_EVERY seconds
+  #    old or more: those passes run anyway, so a broken Claude sign-in still
+  #    shows on the Pipeline Status pod within hours, and a new project's
+  #    first pass is still there for `npm run onboard:lanes` to read. The
+  #    skipped pass leaves a dated SKIP line (never START or END, so no
+  #    reader counts it as a pass), which the pod dates its sleeping lines by.
+  if [ "$LAST_REAL_PASS" -gt 0 ] && [ $(( $(date +%s) - LAST_REAL_PASS )) -lt "$IDLE_PASS_EVERY" ]; then
+    WORK_LINE="$("$REPO/scripts/work_check.sh" "$SKILL" 2>>"$LOG")"
+    WORK_CODE=$?
+    if [ "$WORK_CODE" -eq 3 ]; then
+      echo "===== $(date "+%Y-%m-%d %H:%M:%S") SKIP /$SKILL (${WORK_LINE:-no work}; Claude not started) =====" >> "$LOG"
+      read_wake_time
+      echo "[loop-runner] $(date "+%H:%M:%S") sleeping ${INTERVAL}s before the next /$SKILL (a wake ends it early)" >> "$LOG"
+      sleep_until_woken
+      continue
+    fi
+    echo "[loop-runner] $(date "+%H:%M:%S") work check: ${WORK_LINE:-the check exited $WORK_CODE and said nothing} — starting /$SKILL" >> "$LOG"
+  fi
+  LAST_REAL_PASS="$(date +%s)"
+  read_model
   echo "" >> "$LOG"
-  echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL =====" >> "$LOG"
+  # The START line names the model, so the Settings page (tracker/pipeline.mjs)
+  # and the time-in-status report can tell which pass ran on what.
+  echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL (model: $PASS_MODEL) =====" >> "$LOG"
   # The pass's output goes to the log as it happens AND to its own file, so
   # the sign-in check below reads this pass only, not an older one.
   # The time limit writes what the pass was running into this file when it has
@@ -147,7 +281,7 @@ while true; do
   rm -f "$SNAPSHOT"
   RUN_WITH_TIME_LIMIT_SNAPSHOT="$SNAPSHOT" \
   "$REPO/scripts/run_with_time_limit.sh" "${LOOP_PASS_LIMIT_SECONDS:-7200}" -- \
-    "$CLAUDE_BIN" -p "/$SKILL" \
+    "$CLAUDE_BIN" -p "/$SKILL" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
     --allowedTools Bash Edit Write Read Glob Grep Task TodoWrite WebFetch \
     2>&1 | tee "$PASS_OUT" >> "$LOG"
   CODE=${PIPESTATUS[0]}
@@ -170,6 +304,7 @@ while true; do
     echo "[loop-runner] $(date "+%H:%M:%S") THIS PASS COULD NOT SIGN IN TO CLAUDE. Nothing will change until a person signs in on this machine (claude login) and restarts this job: launchctl kickstart -k gui/$(id -u)/$PREFIX.$SKILL" >> "$LOG"
   fi
 
-  echo "[loop-runner] $(date "+%H:%M:%S") sleeping ${INTERVAL}s before the next /$SKILL" >> "$LOG"
-  sleep "$INTERVAL"
+  read_wake_time
+  echo "[loop-runner] $(date "+%H:%M:%S") sleeping ${INTERVAL}s before the next /$SKILL (a wake ends it early)" >> "$LOG"
+  sleep_until_woken
 done

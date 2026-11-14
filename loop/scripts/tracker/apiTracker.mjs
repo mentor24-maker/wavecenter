@@ -296,6 +296,35 @@ export function createApiTracker({ token, baseUrl, project, listId, timeoutMs, l
     /** The configured project's details (name, prefix, GitHub repository, ...). Read-only. */
     projectDetails: () => call('GET', `/projects/${encodeURIComponent(project)}`),
 
+    /**
+     * The configured project's pipeline controls (SP-224) as `{ controls:
+     * [{ key, value, isDefault }] }`, defaults included. Read-only.
+     */
+    async pipelineSettings() {
+      const out = await call('GET', `/pipeline-controls/${encodeURIComponent(project)}`);
+      if (!out.res.ok) return out;
+      if (!Array.isArray(out.json?.controls) || !out.json.controls.length) return refused(502, 'the tracker answered without any pipeline controls.');
+      return out;
+    },
+
+    /**
+     * Spirality's releases (SP-265): `{ ownProject, ownRelease, projects:
+     * [{ slug, name, own, release, history }] }` for every project this
+     * sign-in may see. Read-only.
+     */
+    async releases() {
+      const out = await call('GET', '/releases');
+      if (!out.res.ok) return out;
+      if (!Array.isArray(out.json?.projects)) return refused(502, 'the tracker answered the releases without a list of projects.');
+      return out;
+    },
+    /** One project's release record (`{ slug, own, release, history }`), for a read-back. */
+    projectRelease: (slug) => call('GET', `/releases/${encodeURIComponent(slug)}`),
+    /** Name a release for a project; the answer is the record as stored. */
+    nameRelease: (slug, release) => call('PUT', `/releases/${encodeURIComponent(slug)}`, { release }),
+    /** Roll a project back to the release it ran before; the answer is the record as stored. */
+    rollBackRelease: (slug) => call('POST', `/releases/${encodeURIComponent(slug)}/back`, {}),
+
     /** The tracker has no spaces: its one "list" is the configured project. */
     listsInSpace: async () => ({ res: { ok: true, status: 200, headers: { get: () => null } }, json: { lists: [{ id: project, name: `${project} (tracker project)` }] }, text: '' }),
     foldersInSpace: async () => ({ res: { ok: true, status: 200, headers: { get: () => null } }, json: { folders: [] }, text: '' }),
@@ -321,6 +350,39 @@ export function createApiTracker({ token, baseUrl, project, listId, timeoutMs, l
       if (!out.res.ok || !out.json?.id) return out;
       for (const c of out.json.comments || []) commentTicket.set(String(c.id), c.ticket);
       return withJson(out, await taskFromTicket(out.json));
+    },
+
+    /**
+     * When the ticket entered its current status, in ClickUp's "Time in
+     * Status" shape (`current_status.total_time.since`, milliseconds), from
+     * the ticket's history: the newest status move, or its filing when it
+     * never moved. Only `since` is filled; the tracker keeps no per-minute
+     * totals.
+     */
+    async getTimeInStatus(task) {
+      const out = await call('GET', `${ticketPath(task)}/events`);
+      if (!out.res.ok) return out;
+      if (!Array.isArray(out.json?.events)) return refused(502, 'the tracker answered without a ticket history.');
+      const moves = out.json.events.filter((e) => e.field === 'status' || e.field === 'created');
+      const last = moves[moves.length - 1];
+      if (!last) return refused(502, `the tracker's history of ${task} has no filing or status move.`);
+      return withJson(out, { current_status: { status: last.to, total_time: { since: ms(last.at) } } });
+    },
+
+    /**
+     * A ticket's status moves, oldest first, as `{ moves: [{ at, to }] }`
+     * (`at` in milliseconds): its filing, into the status it was filed in,
+     * then every status change. For `stage-counts` (SP-206).
+     */
+    async getStatusHistory(task) {
+      const out = await call('GET', `${ticketPath(task)}/events`);
+      if (!out.res.ok) return out;
+      if (!Array.isArray(out.json?.events)) return refused(502, 'the tracker answered without a ticket history.');
+      const moves = out.json.events
+        .filter((e) => e.field === 'status' || e.field === 'created')
+        .map((e) => ({ at: ms(e.at), to: e.to }));
+      if (!moves.length) return refused(502, `the tracker's history of ${task} has no filing or status move.`);
+      return withJson(out, { moves });
     },
 
     async createTask(list, fields) {

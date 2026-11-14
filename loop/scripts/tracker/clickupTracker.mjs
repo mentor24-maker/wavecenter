@@ -100,6 +100,24 @@ export function createClickupTracker({ token, apiBase, timeoutMs, log = console.
     }
   }
 
+  /**
+   * One trail read across every page (lib/commentPages.js): a ticket's
+   * comments by default, or whatever `path` names (a comment's replies).
+   * Answers `{ paged, bad }`: `bad` is the first response that was not a
+   * readable comment list, or null.
+   */
+  async function pagedRead({ taskId, path, maxPages }) {
+    let bad = null;
+    const get = async (p) => {
+      const out = await call('GET', p);
+      const ok = out.res.ok && commentsReadable(out.json);
+      if (!ok) bad = out;
+      return { ok, json: out.json };
+    };
+    const paged = await pageComments({ get, taskId, ...(path ? { path } : {}), ...(maxPages ? { maxPages } : {}) });
+    return { paged, bad };
+  }
+
   return {
     name: 'clickup',
 
@@ -129,6 +147,16 @@ export function createClickupTracker({ token, apiBase, timeoutMs, log = console.
     /** How long the ticket spent in each status (ClickUp's "Time in Status";
      *  a workspace without that ClickApp answers an error). */
     getTimeInStatus: (task) => call('GET', `/api/v2/task/${task}/time_in_status`),
+    // ClickUp keeps per-status totals, not each move, so `stage-counts` has no
+    // window to count on a ClickUp project (SP-206).
+    // The pipeline controls live in the tracker's own data (SP-224); ClickUp keeps none.
+    pipelineSettings: async () => unsupported('the pipeline controls are kept only in the tracker; this project\'s tickets are on ClickUp, where there are none to read.'),
+    // Spirality's releases are a record in the tracker (SP-265); ClickUp keeps none.
+    releases: async () => unsupported('which Spirality release each project runs is kept only in the tracker; this project\'s tickets are on ClickUp.'),
+    projectRelease: async () => unsupported('which Spirality release each project runs is kept only in the tracker; this project\'s tickets are on ClickUp.'),
+    nameRelease: async () => unsupported('which Spirality release each project runs is kept only in the tracker; this project\'s tickets are on ClickUp.'),
+    rollBackRelease: async () => unsupported('which Spirality release each project runs is kept only in the tracker; this project\'s tickets are on ClickUp.'),
+    getStatusHistory: async () => unsupported('ClickUp keeps no move-by-move status history this door reads; stage-counts counts a window only on the tracker.'),
     createTask: (list, fields) => call('POST', `/api/v2/list/${list}/task`, fields),
     updateTask: (task, fields) => call('PUT', `/api/v2/task/${task}`, fields),
     setTag: (task, name, on) => call(on ? 'POST' : 'DELETE', `/api/v2/task/${task}/tag/${encodeURIComponent(name)}`),
@@ -136,22 +164,22 @@ export function createClickupTracker({ token, apiBase, timeoutMs, log = console.
     /**
      * Every comment on the ticket, newest first, across all pages
      * (lib/commentPages.js). Answers `{ paged, bad }`: `bad` is the first
-     * response that was not a readable comment list, or null.
+     * response that was not a readable comment list, or null. `maxPages`
+     * overrides the everyday page limit (an archive read passes
+     * ARCHIVE_MAX_PAGES, SP-235).
      */
-    async listComments(task) {
-      let bad = null;
-      const get = async (path) => {
-        const out = await call('GET', path);
-        const ok = out.res.ok && commentsReadable(out.json);
-        if (!ok) bad = out;
-        return { ok, json: out.json };
-      };
-      const paged = await pageComments({ get, taskId: task });
-      return { paged, bad };
+    async listComments(task, { maxPages } = {}) {
+      return pagedRead({ taskId: task, maxPages });
     },
     postComment: (task, body) => call('POST', `/api/v2/task/${task}/comment`, body),
     replyToComment: (commentId, body) => call('POST', `/api/v2/comment/${commentId}/reply`, body),
     listReplies: (commentId) => call('GET', `/api/v2/comment/${commentId}/reply`),
+    /**
+     * Every reply to one comment, newest first, across all pages: ClickUp
+     * pages replies 25 at a time, as it pages comments (SP-242). Answers
+     * `{ paged, bad }`, as listComments does.
+     */
+    listAllReplies: (commentId, { maxPages } = {}) => pagedRead({ path: `/api/v2/comment/${commentId}/reply`, maxPages }),
 
     /**
      * The bytes of one file ClickUp gave a link to (a ticket's attachment).
