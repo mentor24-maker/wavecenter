@@ -42,9 +42,28 @@ test("there are shell scripts to check", () => {
   assert.ok(shellFiles.includes("install_loop_runner.sh"));
 });
 
+// Functions a script gets from the helper files it sources
+// (`source "$REPO/scripts/lib/relay_app_checks.sh"`), so a call into one
+// counts as defined. Only scripts/lib/*.sh is followed: the lane scripts keep
+// their shared helpers there (WC-177).
+function sourcedFunctions(text) {
+  const names = [];
+  for (const m of text.matchAll(/^\s*(?:source|\.)\s+"?[^"\n]*\/scripts\/lib\/([A-Za-z0-9_.-]+\.sh)"?/gm)) {
+    names.push(...definedFunctions(readFileSync(join(SCRIPTS, "lib", m[1]), "utf8")));
+  }
+  return names;
+}
+
+test("a call into a sourced helper file counts as defined", () => {
+  const text = 'source "$REPO/scripts/lib/relay_app_checks.sh"\nrun_relay_app_checks 10\n';
+  const defined = [...definedFunctions(text), ...sourcedFunctions(text)];
+  assert.deepEqual([...calledFunctions(text)].filter((n) => !defined.includes(n)), []);
+});
+
 for (const file of shellFiles) {
   const text = readFileSync(join(SCRIPTS, file), "utf8");
   const defined = definedFunctions(text);
+  const fromSourced = sourcedFunctions(text);
 
   test(`${file}: no function is defined twice`, () => {
     const twice = defined.filter((n, i) => defined.indexOf(n) !== i);
@@ -52,7 +71,7 @@ for (const file of shellFiles) {
   });
 
   test(`${file}: every function it calls is defined`, () => {
-    const missing = [...calledFunctions(text)].filter((n) => !defined.includes(n));
+    const missing = [...calledFunctions(text)].filter((n) => !defined.includes(n) && !fromSourced.includes(n));
     assert.deepEqual(missing, [], `${file} calls ${missing.join(", ")}, which it never defines`);
   });
 }
