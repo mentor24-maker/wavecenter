@@ -1121,6 +1121,46 @@ try {
     check('a signed-out visitor sees no proposals', anonProposals.status >= 400 || anonProposals.json?.length === 0, `HTTP ${anonProposals.status} ${JSON.stringify(anonProposals.json)}`);
   }
 
+  // Forum topics and tags (20261115210000_forum_topics_tags.sql): every
+  // member reads and adds them, in their own name; nobody changes or deletes
+  // one; a name is unique ignoring capitals and spaces. The test rows are
+  // removed at the end (created_by is set null, not cascaded, when an
+  // account goes).
+  {
+    const forumIds = { forum_topics: [], forum_tags: [] };
+    try {
+      for (const table of ['forum_topics', 'forum_tags']) {
+        const word = `RLS check ${table} ${randomUUID().slice(0, 8)}`;
+        const added = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: word } });
+        const row = added.json?.[0];
+        if (row?.id) forumIds[table].push(row.id);
+        check(`a member adds to ${table} in their own name`, added.status === 201 && row?.created_by === a.id && row?.tool === 'wavecenter', `HTTP ${added.status} ${JSON.stringify(added.json)}`);
+        const seen = await call(`/rest/v1/${table}?id=eq.${row?.id}&select=id`, { token: b.token });
+        check(`every member reads ${table}`, seen.status === 200 && seen.json?.length === 1, `HTTP ${seen.status} ${JSON.stringify(seen.json)}`);
+        const twin = await call(`/rest/v1/${table}`, { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: `  ${word.toUpperCase()} ` } });
+        if (twin.json?.[0]?.id) forumIds[table].push(twin.json[0].id);
+        check(`${table} refuses a name already there, whatever its capitals`, twin.status === 409, `HTTP ${twin.status} ${JSON.stringify(twin.json)}`);
+        const forge = await call(`/rest/v1/${table}`, { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: `${word} forged`, created_by: a.id } });
+        if (forge.json?.[0]?.id) forumIds[table].push(forge.json[0].id);
+        const blank = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, body: { name: ' \n ' } });
+        const long = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, body: { name: 'x'.repeat(81) } });
+        check(`${table} refuses a forged adder, a blank name and one over 80 characters`, forge.status >= 400 && blank.status >= 400 && long.status >= 400,
+          `forge HTTP ${forge.status}, blank HTTP ${blank.status}, long HTTP ${long.status}`);
+        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { name: 'changed' } });
+        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+        const still = (await admin(`/rest/v1/${table}?id=eq.${row?.id}&select=name`)).json?.[0];
+        check(`nobody changes or deletes a row of ${table}, not even its adder`, patch.status >= 400 && del.status >= 400 && still?.name === word,
+          `patch HTTP ${patch.status}, delete HTTP ${del.status}, row ${JSON.stringify(still)}`);
+        const anon = await call(`/rest/v1/${table}?select=id`);
+        check(`a signed-out visitor sees nothing in ${table}`, anon.status >= 400 || anon.json?.length === 0, `HTTP ${anon.status} ${JSON.stringify(anon.json)}`);
+      }
+    } finally {
+      for (const [table, ids] of Object.entries(forumIds)) {
+        if (ids.length) await admin(`/rest/v1/${table}?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+      }
+    }
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
