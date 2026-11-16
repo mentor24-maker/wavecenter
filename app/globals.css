@@ -976,3 +976,39 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
   .task-top { grid-template-columns: 1fr; }
   .task-chat-start { grid-template-columns: 1fr; }
 }
+
+/* The Forum's Topics and Tags (WC-178): two columns whose headings, Add
+   boxes and tables share grid rows, so the two sides line up; table rows
+   have one fixed height and long names cut off with an ellipsis, so row N on
+   the left sits beside row N on the right. Narrow screens stack them. */
+.forum-lists {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "topic-title" "topic-add" "topic-table" "tag-title" "tag-add" "tag-table";
+  column-gap: 2rem;
+  align-items: start;
+  margin-top: var(--space);
+}
+@media (min-width: 48rem) {
+  .forum-lists {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "topic-title tag-title" "topic-add tag-add" "topic-table tag-table";
+  }
+}
+.forum-topic-title { grid-area: topic-title; }
+.forum-topic-add { grid-area: topic-add; }
+.forum-topic-table { grid-area: topic-table; }
+.forum-tag-title { grid-area: tag-title; }
+.forum-tag-add { grid-area: tag-add; }
+.forum-tag-table { grid-area: tag-table; }
+.forum-lists h2 { margin: 0 0 0.5rem; }
+.forum-add { margin: 0 0 var(--space); }
+.forum-add summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.forum-add-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.forum-add-form input { flex: 1; min-width: 0; }
+table.forum-table { table-layout: fixed; }
+table.forum-table th:nth-child(2), table.forum-table td:nth-child(2) { width: 30%; }
+table.forum-table th:nth-child(3), table.forum-table td:nth-child(3) { width: 7.5rem; }
+table.forum-table tbody tr { height: 2.6rem; }
+table.forum-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+table.forum-table th:last-child, table.forum-table td:last-child { padding-right: 0.5rem; }

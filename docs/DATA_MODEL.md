@@ -949,6 +949,29 @@ signed-in member reads every proposal; a member adds, changes and deletes
 only their own; signed-out visitors read nothing. Making, changing and
 deleting a proposal is not scored yet. `check:tasks-rls` proves each rule.
 
+## The Forum's topics and tags: `forum_topics` and `forum_tags`
+
+The Forum (`/forum`) is where members curate topics, tags and threads to
+discuss ideas, aiming at proposals (Dane, 2026-11-04). Its first section
+(WC-178, 2026-11-15) is two lists side by side: Topics on the left, Tags on
+the right, each with a fold-out Add box over a table. A topic and a tag have
+the same shape, so the two tables have the same columns. The rules live in
+`core/forum.ts`.
+
+| Column | What it holds |
+|---|---|
+| `id` | The entry's own id. |
+| `name` | The topic or tag, 1 to 80 characters. Unique in its own table, ignoring capitals and the spaces around it; a topic and a tag may share a name. |
+| `created_by` | The member who added it; set by the database to whoever is signed in. Deleting their account keeps the entry and empties this. |
+| `tool` | The tool that added it, such as `wavecenter`. |
+| `created_at` | When it was added; the database stamps it. |
+
+Row-level security is on from the migration that made the tables: every
+signed-in member reads every topic and tag and adds one in their own name;
+nobody changes or deletes one yet; signed-out visitors read nothing.
+Attaching tags to topics, threads, changing and deleting, and scoring an
+addition are later tickets. `check:tasks-rls` proves each rule.
+
 ## Why the four fields are there from day one
 
 WaveCenter starts as a simple to-do list, but the list is a seed (CLAUDE.md).
