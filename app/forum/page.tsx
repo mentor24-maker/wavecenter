@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
-import { headerIsAdmin } from "../lib/memberRoleStore";
+import { headerIsAdmin, listMembers } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import type { ForumEntry, ForumKind } from "../../core/forum.ts";
@@ -40,15 +40,19 @@ export default async function Forum() {
   }
 
   const me = user.id;
+  // Display names as the Members page shows them (each member's privacy
+  // applied by list_members). If that read fails, the lists still show, with
+  // the short id wording.
+  const names = listMembers(supabase).then(
+    (members) => new Map(members.flatMap((m) => (m.displayName?.trim() ? [[m.memberId, m.displayName.trim()] as const] : []))),
+    () => new Map<string, string>(),
+  );
+  const addedBy = (id: string | null, shown: Map<string, string>) =>
+    id === me ? "you" : !id ? "a former member" : shown.get(id) ?? `member ${id.slice(0, 8)}`;
   const read = (kind: ForumKind) =>
-    listForumEntries(supabase, kind).then(
-      (rows: ForumEntry[]): ListEntry[] | string =>
-        rows.map((r) => ({
-          id: r.id,
-          name: r.name,
-          createdAt: r.createdAt,
-          by: r.createdBy === me ? "you" : r.createdBy ? `member ${r.createdBy.slice(0, 8)}` : "a former member",
-        })),
+    Promise.all([listForumEntries(supabase, kind), names]).then(
+      ([rows, shown]): ListEntry[] | string =>
+        rows.map((r: ForumEntry) => ({ id: r.id, name: r.name, createdAt: r.createdAt, by: addedBy(r.createdBy, shown) })),
       (err: unknown) => (err instanceof Error ? err.message : String(err)),
     );
 

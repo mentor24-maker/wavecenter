@@ -6,11 +6,9 @@
  * looking at one Forum.
  */
 import { CoreError } from './tool.ts';
-import type { ForumEntry, ForumKind, ForumStore, NewForumEntryRow } from './forum.ts';
+import { findForumEntryByName, forumNameKey as key, type ForumEntry, type ForumKind, type ForumStore, type NewForumEntryRow } from './forum.ts';
 
 let next = 1;
-
-const key = (name: string) => name.trim().toLowerCase();
 
 export class MemoryForumStore implements ForumStore {
   readonly rows: ForumEntry[];
@@ -31,7 +29,7 @@ export class MemoryForumStore implements ForumStore {
   }
 
   async findByName(kind: ForumKind, name: string): Promise<ForumEntry | null> {
-    const found = this.rows.find((r) => r.kind === kind && key(r.name) === key(name));
+    const found = findForumEntryByName(this.rows.filter((r) => r.kind === kind), name);
     return found ? { ...found } : null;
   }
 }

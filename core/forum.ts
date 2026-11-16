@@ -47,6 +47,21 @@ export interface ForumStore {
   findByName(kind: ForumKind, name: string): Promise<ForumEntry | null>;
 }
 
+/** The form of a name two entries may not share: no surrounding spaces, no capitals. */
+export function forumNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * The entry among `entries` whose name matches `name`, ignoring capitals and
+ * surrounding spaces; null if none. A plain string comparison, so no
+ * character in a name ("*", "%", "_") is ever read as a wildcard.
+ */
+export function findForumEntryByName(entries: readonly ForumEntry[], name: string): ForumEntry | null {
+  const key = forumNameKey(name);
+  return entries.find((e) => forumNameKey(e.name) === key) ?? null;
+}
+
 function requireKind(kind: unknown): ForumKind {
   if (!FORUM_KINDS.includes(kind as ForumKind)) {
     throw new CoreError(`A Forum entry is a ${FORUM_KINDS.join(' or a ')}; got "${String(kind)}".`);

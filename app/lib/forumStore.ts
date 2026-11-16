@@ -9,7 +9,7 @@
  * decided and checked in core.
  */
 import { CoreError } from "../../core/tool.ts";
-import type { ForumEntry, ForumKind, ForumStore } from "../../core/forum.ts";
+import { findForumEntryByName, type ForumEntry, type ForumKind, type ForumStore } from "../../core/forum.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -42,11 +42,10 @@ export function supabaseForumStore(supabase: Client): ForumStore {
       return fromRow(kind, data);
     },
     async findByName(kind, name) {
-      // ilike with every wildcard escaped is a case-blind exact match.
-      const pattern = name.trim().replace(/[\\%_]/g, (c) => `\\${c}`);
-      const { data, error } = await supabase.from(TABLE[kind]).select().ilike("name", pattern).limit(1);
-      if (error) failed(`check the ${PLURAL[kind]}`, error);
-      return data?.[0] ? fromRow(kind, data[0]) : null;
+      // Read the list and compare in code. Not ilike: PostgREST turns every
+      // "*" in an ilike pattern into a wildcard, so "Q*" matched "Quorum".
+      // The unique index still refuses a duplicate that slips in between.
+      return findForumEntryByName(await listForumEntries(supabase, kind), name);
     },
   };
 }

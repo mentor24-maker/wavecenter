@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addForumEntry, FORUM_NAME_MAX } from './forum.ts';
+import { addForumEntry, findForumEntryByName, FORUM_NAME_MAX, type ForumEntry } from './forum.ts';
 import { MemoryForumStore } from './memoryForumStore.ts';
 
 test('addForumEntry adds a topic and a tag, trimmed, in the member’s name, naming the tool', async () => {
@@ -34,4 +34,20 @@ test('a name already on the list is refused, whoever added it and whatever its c
   const tag = await addForumEntry(other, 'tag', 'Voting', 'wavecenter');
   assert.equal(tag.createdBy, 'other');
   assert.equal(rows.length, 2);
+});
+
+test('no character in a name is a wildcard: "Q*", "100%" and "a_b" are their own names', async () => {
+  const entry = (name: string): ForumEntry => ({ id: name, kind: 'topic', name, createdBy: null, tool: 'wavecenter', createdAt: '' });
+  const list = [entry('Quorum'), entry('1000'), entry('axb'), entry('a\\b')];
+  for (const name of ['Q*', 'Q%', '100%', '100_', 'a_b', 'a*b', '*', '%', '_']) {
+    assert.equal(findForumEntryByName(list, name), null, `"${name}" matched something`);
+  }
+  assert.equal(findForumEntryByName(list, ' QUORUM ')?.name, 'Quorum');
+  assert.equal(findForumEntryByName(list, 'A\\B')?.name, 'a\\b');
+
+  const store = new MemoryForumStore('dane');
+  await addForumEntry(store, 'topic', 'Quorum', 'wavecenter');
+  const star = await addForumEntry(store, 'topic', 'Q*', 'wavecenter');
+  assert.equal(star.name, 'Q*');
+  await assert.rejects(addForumEntry(store, 'topic', 'q*', 'wavecenter'), /already a topic called "Q\*"/);
 });
