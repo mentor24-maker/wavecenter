@@ -986,6 +986,13 @@ WC-183); nothing else about a topic can be changed. Attaching tags to
 topics, threads, and scoring are later tickets. `check:tasks-rls` proves
 each rule.
 
+A topic's details page sets its parent two ways (WC-185): a "Parent topic"
+dropdown on the topic itself, and an "Adopt a sub-topic" dropdown that moves
+another topic under it. Both write `parent_id` alone, through
+`setTopicParent` in `core/forum.ts`, and both follow the rule above: the
+moved topic's adder or an admin. The dropdowns never offer a choice that
+would make a loop, and the page lists the topic's sub-topics.
+
 ## Why the four fields are there from day one
 
 WaveCenter starts as a simple to-do list, but the list is a seed (CLAUDE.md).

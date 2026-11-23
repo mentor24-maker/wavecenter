@@ -1087,3 +1087,9 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-form .hint { font-weight: normal; }
 .topic-form .comment-editor textarea { min-height: 10rem; }
 .topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
+.topic-subtopics { margin: 0 0 var(--space); padding-left: 1.5rem; }
+.topic-family { display: grid; gap: 1rem; max-width: 46rem; margin: 0 0 var(--space); }
+.topic-picker { display: grid; gap: 0.3rem; }
+.topic-picker .label { margin: 0; }
+.topic-picker-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.topic-picker-row select { min-width: 16rem; }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addForumEntry, deleteTopic, editTopic, findForumEntryByName, FORUM_NAME_MAX, mayChangeTopic, possibleParents, topicSlug, uniqueTopicSlug,
+  addForumEntry, deleteTopic, editTopic, findForumEntryByName, FORUM_NAME_MAX, mayChangeTopic, possibleParents, possibleSubTopics, setTopicParent, subTopicsOf, topicSlug, uniqueTopicSlug,
   type ForumEntry, type ForumTopic,
 } from './forum.ts';
 import { MemoryForumStore } from './memoryForumStore.ts';
@@ -145,4 +145,49 @@ test('deleting a topic keeps its sub-topics, with no parent', async () => {
   const left = await dane.listTopics();
   assert.deepEqual(left.map((t) => [t.name, t.parentId]), [['Quorum', null], ['Budget', null]]);
   await assert.rejects(deleteTopic(dane, voting.id, DANE, 'wavecenter'), /topic was not found/);
+});
+
+test('setTopicParent sets and clears only the parent, keeping every other field', async () => {
+  const { dane, voting, quorum } = await forum();
+  await editTopic(dane, quorum.id, edit('Quorum', { slug: 'q', description: 'How many', details: 'Words' }), DANE, 'wavecenter');
+  const under = await setTopicParent(dane, quorum.id, voting.id, DANE, 'wavecenter');
+  assert.deepEqual([under.parentId, under.name, under.slug, under.description, under.details], [voting.id, 'Quorum', 'q', 'How many', 'Words']);
+  assert.deepEqual(subTopicsOf(await dane.listTopics(), voting.id).map((t) => t.name), ['Quorum']);
+  for (const none of [null, '', undefined]) {
+    assert.equal((await setTopicParent(dane, quorum.id, none, DANE, 'wavecenter')).parentId, null);
+  }
+  assert.deepEqual(subTopicsOf(await dane.listTopics(), voting.id), []);
+});
+
+test('adopting a sub-topic is setTopicParent with the chosen topic moved under this one', async () => {
+  const { dane, other, voting, budget } = await forum();
+  // Budget was added by another member: only they or an admin may move it.
+  await assert.rejects(setTopicParent(dane, budget.id, voting.id, DANE, 'wavecenter'), /Only the member who added "Budget", or an admin, can move it/);
+  assert.equal((await setTopicParent(other, budget.id, voting.id, OTHER, 'wavecenter')).parentId, voting.id);
+  assert.equal((await setTopicParent(dane, budget.id, null, ADMIN, 'wavecenter')).parentId, null);
+});
+
+test('setTopicParent refuses itself, a loop at any depth, a missing topic or parent, and no tool', async () => {
+  const { dane, voting, quorum } = await forum();
+  const sub = await addForumEntry(dane, 'topic', 'Quorum size', 'wavecenter');
+  await setTopicParent(dane, quorum.id, voting.id, DANE, 'wavecenter');
+  await setTopicParent(dane, sub.id, quorum.id, DANE, 'wavecenter');
+  await assert.rejects(setTopicParent(dane, voting.id, voting.id, DANE, 'wavecenter'), /cannot be its own parent/);
+  await assert.rejects(setTopicParent(dane, voting.id, sub.id, DANE, 'wavecenter'), /"Quorum size" is already under "Voting rules"/);
+  await assert.rejects(setTopicParent(dane, 'gone', voting.id, DANE, 'wavecenter'), /topic was not found/);
+  await assert.rejects(setTopicParent(dane, voting.id, 'gone', DANE, 'wavecenter'), /parent topic was not found/);
+  await assert.rejects(setTopicParent(dane, voting.id, null, DANE, ''), /must name the tool/);
+  assert.equal((await dane.listTopics()).find((t) => t.id === voting.id)?.parentId, null);
+});
+
+test('possibleSubTopics leaves out the topic itself, its direct sub-topics and everything above it', async () => {
+  const { dane, voting, quorum } = await forum();
+  const sub = await addForumEntry(dane, 'topic', 'Quorum size', 'wavecenter');
+  await setTopicParent(dane, quorum.id, voting.id, DANE, 'wavecenter');
+  await setTopicParent(dane, sub.id, quorum.id, DANE, 'wavecenter');
+  const all = await dane.listTopics();
+  // Voting may adopt Quorum size (a grandchild, moved up) and Budget, not Quorum (already its child).
+  assert.deepEqual(possibleSubTopics(all, voting.id).map((t) => t.name).sort(), ['Budget', 'Quorum size']);
+  // Quorum size sits under Quorum under Voting rules, so it may adopt only Budget.
+  assert.deepEqual(possibleSubTopics(all, sub.id).map((t) => t.name), ['Budget']);
 });
