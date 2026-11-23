@@ -115,7 +115,7 @@ export default async function Admin() {
             <h2>AI task ratings</h2>
             <p className="note">
               Every {RATING_LANE_INTERVAL_MINUTES} minutes, a lane on the Mac Mini asks the AI, through Claude Code under
-              Dane&apos;s plan, to rate each open task on scope, difficulty, relevance and demand, 1 to 5, with a reason for
+              the operator&apos;s plan, to rate each open task on scope, difficulty, relevance and demand, 1 to 5, with a reason for
               every rating. Two models ({RATING_MODELS.join(" and ")}) rate each task separately; WaveCenter averages
               them and works out the task&apos;s AI score, 1 to 50, with the formula S × D × (R + M) ÷ 5, which is part of
               the task&apos;s final score. The AI reads the task&apos;s title, details, priority, parent, sub-tasks and file
