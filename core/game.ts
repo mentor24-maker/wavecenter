@@ -56,6 +56,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'changed_a_home_box',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -174,6 +175,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // seventh of its rows, so a fresh database puts it after the 25 above and
+  // the six second-sweep rows before it.
+  { kind: 'changed_a_home_box', name: 'Changed a Home box', description: 'Changed the words in one of the boxes on the Home page.', criteria: 'A saved change to a Home box\'s words.', points: 1, position: 32 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -367,6 +372,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  changed_a_home_box: {
+    fn: 'saveHomeBox', file: 'core/homeBoxes.ts', database: 'home_boxes_score',
+    test: 'changing a Home box records one engagement for the member who saved it, naming the tool; the same words again, a refused save or a service-key save records none', testFile: 'core/homeBoxes.test.ts',
   },
 };
 

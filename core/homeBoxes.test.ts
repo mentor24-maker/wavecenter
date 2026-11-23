@@ -5,6 +5,7 @@ import { HOME_BOXES, HOME_BOX_MAX, homeBoxWords, isHomeBox, mayEditHomeBoxes, sa
 import { ROLES } from './members.ts';
 import { MemoryHomeBoxStore } from './memoryHomeBoxStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 const TOOL = 'wavecenter';
 
@@ -83,4 +84,41 @@ test('a save that does not come back is reported as failed (rule 6)', async () =
   const deps = setup();
   deps.boxes.failNextSave = true;
   await assert.rejects(saveHomeBox(deps, { actorId: 'dane', box: 'about', body: 'New' }, TOOL), /did not save/);
+});
+
+test('changing a Home box records one engagement for the member who saved it, naming the tool; the same words again, a refused save or a service-key save records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const deps = setup();
+  const boxes = new MemoryHomeBoxStore(ledger, 'dane');
+  const scored = () => ledger.rows.filter((e) => e.kind === 'changed_a_home_box');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'changed_a_home_box')?.points;
+
+  await saveHomeBox({ ...deps, boxes }, { actorId: 'dane', box: 'about', body: 'New words' }, TOOL);
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', TOOL, worth, null]]);
+
+  // The same words again change nothing, so they score nothing.
+  await saveHomeBox({ ...deps, boxes }, { actorId: 'dane', box: 'about', body: '  New words ' }, TOOL);
+  // A role without home.edit is refused, and a refused save scores nothing.
+  await assert.rejects(saveHomeBox({ ...deps, boxes }, { actorId: 'vee', box: 'about', body: 'Hijacked' }, TOOL), /may not change/);
+  boxes.failNextSave = true;
+  await assert.rejects(saveHomeBox({ ...deps, boxes }, { actorId: 'dane', box: 'deo', body: 'Lost' }, TOOL), /did not save/);
+  assert.equal(scored().length, 1);
+
+  // Each box changed is its own change, credited to whoever saved it.
+  boxes.signedIn = 'eddie';
+  await saveHomeBox({ ...deps, boxes, grants: { editor: ['home.edit'] } }, { actorId: 'eddie', box: 'deo', body: 'Edited' }, 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', TOOL], ['eddie', 'mcp']]);
+
+  // A save with nobody signed in (the service key) is saved and scores nothing.
+  boxes.signedIn = null;
+  assert.equal((await boxes.save('about', 'By the service key', TOOL))?.body, 'By the service key');
+  assert.equal(scored().length, 2);
+
+  // If the engagement cannot be written, the words are not saved either.
+  boxes.signedIn = 'dane';
+  ledger.failInsert = true;
+  await assert.rejects(saveHomeBox({ ...deps, boxes }, { actorId: 'dane', box: 'about', body: 'Unscored' }, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(boxes.rows.get('about')?.body, 'By the service key');
+  assert.equal(scored().length, 2);
 });
