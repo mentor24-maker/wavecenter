@@ -1071,6 +1071,12 @@ table.forum-topics th:nth-child(3), table.forum-topics td:nth-child(3) { width: 
 table.forum-topics th:nth-child(4), table.forum-topics td:nth-child(4) { width: 7.5rem; }
 table.forum-topics th:nth-child(5), table.forum-topics td:nth-child(5) { width: 10rem; padding-left: 1rem; }
 table.forum-topics th .sort { white-space: nowrap; }
+/* The Tags table (WC-186): Tag, Related Tags, Added by, Added, Actions. */
+table.forum-tags th:nth-child(2), table.forum-tags td:nth-child(2) { width: 24%; }
+table.forum-tags th:nth-child(3), table.forum-tags td:nth-child(3) { width: 13%; }
+table.forum-tags th:nth-child(4), table.forum-tags td:nth-child(4) { width: 6.5rem; }
+table.forum-tags th:nth-child(5), table.forum-tags td:nth-child(5) { width: 9rem; padding-left: 0.5rem; }
+table.forum-tags th .sort { white-space: nowrap; }
 td.forum-actions > * + * { margin-left: 0.6rem; }
 td.forum-actions button.link.danger { color: var(--error); }
 td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
@@ -1087,3 +1093,8 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-form .hint { font-weight: normal; }
 .topic-form .comment-editor textarea { min-height: 10rem; }
 .topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
+/* A tag's edit form: its related tags as a list of tick boxes. */
+.tag-related { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin: 0; }
+.tag-related legend { font-weight: 600; padding: 0 0.25rem; }
+.tag-related ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.25rem 1rem; }
+.topic-form .tag-related label { display: flex; gap: 0.4rem; align-items: center; font-weight: normal; }

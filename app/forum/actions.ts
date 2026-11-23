@@ -2,7 +2,7 @@
 
 /**
  * Adding a topic or a tag to the Forum, and changing or deleting a topic
- * (WC-183), run on the server through core (core/forum.ts) as the tool
+ * (WC-183) or a tag (WC-186), run on the server through core (core/forum.ts) as the tool
  * `wavecenter`, acting as the signed-in member.
  *
  * Returns `{ ok: true }` only after the database confirmed the write.
@@ -10,10 +10,17 @@
  * screen shows it and keeps what was typed (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
-import { addForumEntry, deleteTopic as deleteTopicRule, editTopic as editTopicRule, type ForumKind } from "../../core/forum.ts";
+import {
+  addForumEntry,
+  deleteTag as deleteTagRule,
+  deleteTopic as deleteTopicRule,
+  editTag as editTagRule,
+  editTopic as editTopicRule,
+  type ForumKind,
+} from "../../core/forum.ts";
 import { mayOpenAdmin } from "../../core/members.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
-import { supabaseForumStore, supabaseTopicStore } from "../lib/forumStore";
+import { supabaseForumStore, supabaseTagStore, supabaseTopicStore } from "../lib/forumStore";
 import { myRole } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
@@ -26,6 +33,15 @@ export interface TopicForm {
   description: string;
   details: string;
   parentId: string;
+}
+
+/** What a tag's edit page sends: the four fields and the ids of its related tags. */
+export interface TagForm {
+  name: string;
+  slug: string;
+  description: string;
+  details: string;
+  relatedIds: string[];
 }
 
 type Signed = { ok: false; error: string } | { ok: true; supabase: NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>; memberId: string };
@@ -77,5 +93,19 @@ export async function deleteTopic(id: string): Promise<ForumSaveResult> {
   return run("delete the topic", "Nothing was deleted", async ({ supabase, memberId }) => {
     const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
     await deleteTopicRule(supabaseTopicStore(supabase), id, actor, WAVECENTER_TOOL);
+  });
+}
+
+export async function editTag(id: string, form: TagForm): Promise<ForumSaveResult> {
+  return run("save the tag", "Nothing was saved", async ({ supabase, memberId }) => {
+    const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
+    await editTagRule(supabaseTagStore(supabase), id, form, actor, WAVECENTER_TOOL);
+  });
+}
+
+export async function deleteTag(id: string): Promise<ForumSaveResult> {
+  return run("delete the tag", "Nothing was deleted", async ({ supabase, memberId }) => {
+    const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
+    await deleteTagRule(supabaseTagStore(supabase), id, actor, WAVECENTER_TOOL);
   });
 }
