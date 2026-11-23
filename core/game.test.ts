@@ -57,7 +57,7 @@ const SWEEP_2_WIRING_MIGRATIONS = ['20261123160000_score_made_a_proposal.sql'];
 /** Each wired second-sweep action's factors and reasons, as its migration stores them. */
 function sweep2FactorRows() {
   const quoted = String.raw`'((?:[^']|'')*)'`;
-  const row = new RegExp(String.raw`set effort = (\d), value = (\d), rarity = (\d), farm_risk = (\d),\s*effort_reason = ${quoted},\s*value_reason = ${quoted},\s*rarity_reason = ${quoted},\s*farm_risk_reason = ${quoted}\s*where kind = '([a-z_]+)'`, 'g');
+  const row = new RegExp(String.raw`set effort = (\d), value = (\d), rarity = (\d), farm_risk = (\d),\s*effort_reason = coalesce\(effort_reason, ${quoted}\),\s*value_reason = coalesce\(value_reason, ${quoted}\),\s*rarity_reason = coalesce\(rarity_reason, ${quoted}\),\s*farm_risk_reason = coalesce\(farm_risk_reason, ${quoted}\)\s*where kind = '([a-z_]+)'`, 'g');
   const text = (t: string) => t.replaceAll("''", "'");
   return SWEEP_2_WIRING_MIGRATIONS.flatMap((file) => [...readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8').matchAll(row)].map((m) => ({
     kind: m[9],
@@ -688,6 +688,10 @@ test('each wired second-sweep action\'s migration stores the factors and reasons
     const code = readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8').replace(/--.*$/gm, '');
     assert.doesNotMatch(code, /\bpoints\s*=/i, `${file} changes no points`);
     assert.match(code, /and effort is null and value is null and rarity is null and farm_risk is null;/, `${file} never overwrites an admin's scores`);
+    for (const col of ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason']) {
+      assert.match(code, new RegExp(String.raw`\b${col} = coalesce\(${col}, '`), `${file} never overwrites a ${col} an admin wrote`);
+      assert.doesNotMatch(code, new RegExp(String.raw`\b${col} = '`), `${file} sets ${col} only through coalesce`);
+    }
   }
 });
 

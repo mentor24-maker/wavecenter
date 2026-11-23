@@ -1335,11 +1335,10 @@ try {
         JSON.stringify(proposalRule));
       const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: PROPOSAL_KIND, points: 1, tool: TOOL } });
       const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: PROPOSAL_KIND, p_tool: TOOL, p_task: null } });
-      const forgeTrigger = await call('/rest/v1/rpc/proposals_score', { method: 'POST', token: b.token, body: {} });
       const pb3 = await proposalRows(b);
-      check('a member cannot forge a "Made a proposal" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
-        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && pb3.length === pb.length,
-        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, proposals_score HTTP ${forgeTrigger.status}, B now ${pb3.length}`);
+      check('a member cannot forge a "Made a proposal" engagement: not in the ledger, not through the ledger\u2019s function',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && pb3.length === pb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, B now ${pb3.length}`);
       const svc = await admin('/rest/v1/proposals', { method: 'POST', prefer: 'return=representation', body: { title: `${title} by service key`, owner_id: a.id } });
       if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
       const pa4 = await proposalRows(a);

@@ -49,14 +49,16 @@ create trigger proposals_score
 
 revoke execute on function public.proposals_score() from public, anon, authenticated;
 
--- Its factors and reasons, as the document gives them. Only a row with none
--- yet is filled, so an admin's own scores are never overwritten.
+-- Its factors and reasons, as the document gives them. Only a row with no
+-- factors yet is filled, and each reason only where an admin has not written
+-- one (set_scoring_factor_reasons saves reasons without factors), so an
+-- admin's own scores and reasons are never overwritten.
 update public.game_scoring_rules
    set effort = 1, value = 2, rarity = 0, farm_risk = 3,
-       effort_reason = 'Typing a title and saving it is a short form: under a minute.',
-       value_reason = 'Puts an idea the other members can read on the Proposals page, and it could become a task.',
-       rarity_reason = 'Members can make proposals many times a day.',
-       farm_risk_reason = 'Paired with deleting it, so make-and-delete loops.'
+       effort_reason = coalesce(effort_reason, 'Typing a title and saving it is a short form: under a minute.'),
+       value_reason = coalesce(value_reason, 'Puts an idea the other members can read on the Proposals page, and it could become a task.'),
+       rarity_reason = coalesce(rarity_reason, 'Members can make proposals many times a day.'),
+       farm_risk_reason = coalesce(farm_risk_reason, 'Paired with deleting it, so make-and-delete loops.')
  where kind = 'made_a_proposal'
    and effort is null and value is null and rarity is null and farm_risk is null;
 

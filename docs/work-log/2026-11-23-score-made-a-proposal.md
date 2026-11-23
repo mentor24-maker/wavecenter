@@ -19,3 +19,9 @@ task, something members can do many times a day, and it can loop because a
 proposal can be deleted and made again). The formula proposes 6 points, the
 same as making a task. It stays at 1 until an admin puts the new values
 live from the Admin page, the same way as for every other swept action.
+
+After review, one safety catch was tightened: when the update fills in those
+reasons, it now only writes a reason where an admin has not already typed
+one on Game > Manage, so nothing an admin wrote can be quietly replaced. The
+data model's note on proposals now says making one is scored, and the
+database check no longer claims a test that could not actually fail.
