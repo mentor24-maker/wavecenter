@@ -24,7 +24,10 @@
  * read for themselves, which clears its unread count for them alone
  * (`mark_chat_read`, `my_chat_unread`); that every member reads the teams and their
  * members (each shown only as their profile allows) but only an admin or an
- * editor changes them (`public.teams`, `public.team_members`); that a task
+ * editor changes them (`public.teams`, `public.team_members`); that every
+ * member sees the teams' meetings and who is invited, but only a member of a
+ * meeting's team plans, changes or deletes it and invites anyone
+ * (`public.meetings`, `public.meeting_invites`); that a task
  * added by anyone but an admin is Proposed, stays so, never goes to AI agents,
  * and only an admin approves it (`approve_task`); and that the game layer
  * scores every change while letting each member read only their own
@@ -71,6 +74,7 @@ import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.t
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
 import { setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
+import { createMeeting, deleteMeeting, setMeetingInvites, updateMeeting } from '../core/meetings.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
 import { attachFile, commentFilePath, deleteTaskWithFiles, filePath, removeCommentWithFiles, removeFile } from '../core/files.ts';
 import { approveTask, createTask, deleteTask, updateTask } from '../core/tasks.ts';
@@ -1042,6 +1046,110 @@ try {
     JSON.stringify(deletedTeamB.json) === JSON.stringify([{ points: 1, tool: TOOL, task_id: null }]) && deletedTeamA.json?.length === 0,
     `B ${JSON.stringify(deletedTeamB.json)}, A ${JSON.stringify(deletedTeamA.json)}`);
   await setMemberRole(roleStore(a), { actorId: a.id, memberId: b.id, role: 'viewer' }, TOOL);
+
+  // Meetings (20261123120000_meetings.sql, WC-204): every role that views
+  // teams reads every meeting and who is invited; only a member of the
+  // meeting's team (Dane, "B") makes, changes or deletes it and invites
+  // anyone, through core or straight at the tables. A is an admin and B a
+  // viewer; A is on the team, B starts off it.
+  {
+    const meetingStore = (member) => {
+      const fromRow = (r) => r && {
+        id: r.id, teamId: r.team_id, title: r.title, date: r.meets_on, startTime: String(r.start_time ?? '').slice(0, 5),
+        venue: r.venue, notes: r.notes, tool: r.tool, createdAt: r.created_at, createdBy: r.created_by,
+      };
+      const toRow = (f, tool) => ({ title: f.title, meets_on: f.date, start_time: f.startTime, venue: f.venue, notes: f.notes, tool });
+      const sure = (got, what) => {
+        if (got.status >= 300) throw new Error(`meetings ${what} failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+        return Array.isArray(got.json) ? got.json : [];
+      };
+      const opts = (method, body) => ({ method, token: member.token, prefer: 'return=representation', body });
+      return {
+        async get(id) { return fromRow(sure(await call(`/rest/v1/meetings?id=eq.${id}`, { token: member.token }), 'read')[0]) ?? null; },
+        async insert(teamId, f, tool) { return fromRow(sure(await call('/rest/v1/meetings', opts('POST', { team_id: teamId, ...toRow(f, tool) })), 'insert')[0]) ?? null; },
+        async update(id, f, tool) { return fromRow(sure(await call(`/rest/v1/meetings?id=eq.${id}`, opts('PATCH', toRow(f, tool))), 'update')[0]) ?? null; },
+        async remove(id) { return sure(await call(`/rest/v1/meetings?id=eq.${id}`, opts('DELETE')), 'delete').length > 0; },
+        async invitees(id) { return sure(await call(`/rest/v1/meeting_invites?meeting_id=eq.${id}&select=member_id`, { token: member.token }), 'invites read').map((r) => r.member_id); },
+        async invite(id, memberId, tool) { return sure(await call('/rest/v1/meeting_invites', opts('POST', { meeting_id: id, member_id: memberId, tool })), 'invite').length > 0; },
+        async uninvite(id, memberId) { return sure(await call(`/rest/v1/meeting_invites?meeting_id=eq.${id}&member_id=eq.${memberId}`, opts('DELETE')), 'uninvite').length > 0; },
+      };
+    };
+    const meetingDeps = (member) => ({ meetings: meetingStore(member), teams: teamStore(member) });
+    // The teams and their member lists are set up with the service key, so
+    // nothing here is scored and the points tallies later in this script hold.
+    const meetSlug = `rls-meet-${randomUUID().slice(0, 8)}`;
+    const madeTeams = await admin('/rest/v1/teams', { method: 'POST', prefer: 'return=representation', body: [
+      { name: 'RLS meeting team', slug: meetSlug, tool: TOOL }, { name: 'RLS other team', slug: `${meetSlug}-o`, tool: TOOL },
+    ] });
+    if (madeTeams.status >= 300 || madeTeams.json?.length !== 2) throw new Error(`could not make the meeting check's teams: HTTP ${madeTeams.status} ${JSON.stringify(madeTeams.json)}`);
+    const [meetTeam, otherTeam] = madeTeams.json;
+    teamIds.push(meetTeam.id, otherTeam.id);
+    const putOnTeam = async (memberId) => {
+      const got = await admin('/rest/v1/team_members', { method: 'POST', body: { team_id: meetTeam.id, member_id: memberId, tool: TOOL } });
+      if (got.status >= 300) throw new Error(`could not put a member on the meeting check's team: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+    };
+    await putOnTeam(a.id);
+    const plan = { title: 'RLS kickoff', date: '2026-12-01', startTime: '10:00', venue: 'Zoom', notes: null };
+
+    const made = await createMeeting(meetingDeps(a), { actorId: a.id, teamId: meetTeam.id, ...plan }, TOOL);
+    check('a member of a team plans its meeting through core; the database stamps who and keeps the Mountain date and time as typed',
+      made.teamId === meetTeam.id && made.createdBy === a.id && made.tool === TOOL && made.date === '2026-12-01' && made.startTime === '10:00' && made.venue === 'Zoom',
+      JSON.stringify(made));
+    const forgedMaker = await call('/rest/v1/meetings', { method: 'POST', token: a.token, prefer: 'return=representation', body: { team_id: meetTeam.id, title: 'Forged', meets_on: '2026-12-02', start_time: '09:00', created_by: b.id } });
+    check('nobody can record someone else as a meeting’s maker', forgedMaker.status >= 400, `HTTP ${forgedMaker.status} ${JSON.stringify(forgedMaker.json)}`);
+    const offTeamA = await call('/rest/v1/meetings', { method: 'POST', token: a.token, body: { team_id: otherTeam.id, title: 'Not mine', meets_on: '2026-12-02', start_time: '09:00' } });
+    check('even an admin cannot plan a meeting for a team they are not on, straight at the table', offTeamA.status >= 400, `HTTP ${offTeamA.status} ${offTeamA.json?.message ?? ''}`);
+    const moved = await call(`/rest/v1/meetings?id=eq.${made.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { team_id: otherTeam.id } });
+    check('a meeting cannot be moved to another team', moved.status >= 400, `HTTP ${moved.status} ${JSON.stringify(moved.json)}`);
+
+    const readB = await call(`/rest/v1/meetings?id=eq.${made.id}&select=title`, { token: b.token });
+    check('a viewer who is not on the team still sees its meeting', readB.status === 200 && readB.json?.[0]?.title === 'RLS kickoff', `HTTP ${readB.status} ${JSON.stringify(readB.json)}`);
+    const viaCoreB = await createMeeting(meetingDeps(b), { actorId: b.id, teamId: meetTeam.id, ...plan }, TOOL).then(() => '', (e) => e.message);
+    check('someone not on the team cannot plan its meeting through core', /Only a member of this team/.test(viaCoreB), viaCoreB || 'the meeting was made');
+    const forgedB = await call('/rest/v1/meetings', { method: 'POST', token: b.token, body: { team_id: meetTeam.id, title: 'Sneaky', meets_on: '2026-12-03', start_time: '09:00' } });
+    check('someone not on the team cannot plan its meeting straight at the table', forgedB.status >= 400, `HTTP ${forgedB.status} ${forgedB.json?.message ?? ''}`);
+    const renameB = await call(`/rest/v1/meetings?id=eq.${made.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { title: 'Hijacked' } });
+    const dropB = await call(`/rest/v1/meetings?id=eq.${made.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    check('someone not on the team cannot change or delete its meeting',
+      (renameB.status >= 400 || renameB.json?.length === 0) && (dropB.status >= 400 || dropB.json?.length === 0),
+      `change HTTP ${renameB.status} ${JSON.stringify(renameB.json)}, delete HTTP ${dropB.status} ${JSON.stringify(dropB.json)}`);
+
+    const invited = await setMeetingInvites(meetingDeps(a), { actorId: a.id, meetingId: made.id, memberIds: [b.id] }, TOOL);
+    const inviteRow = await admin(`/rest/v1/meeting_invites?meeting_id=eq.${made.id}&select=member_id,invited_by,tool`);
+    check('a team member invites someone who is not on the team; the database stamps who invited them',
+      invited.length === 1 && invited[0] === b.id && JSON.stringify(inviteRow.json) === JSON.stringify([{ member_id: b.id, invited_by: a.id, tool: TOOL }]),
+      `${JSON.stringify(invited)} ${JSON.stringify(inviteRow.json)}`);
+    const seenByB = await call(`/rest/v1/meeting_invites?meeting_id=eq.${made.id}&select=member_id`, { token: b.token });
+    check('a viewer sees who is invited', seenByB.status === 200 && seenByB.json?.length === 1, `HTTP ${seenByB.status} ${JSON.stringify(seenByB.json)}`);
+    const selfInvite = await call('/rest/v1/meeting_invites', { method: 'POST', token: b.token, body: { meeting_id: made.id, member_id: a.id } });
+    const unInviteB = await call(`/rest/v1/meeting_invites?meeting_id=eq.${made.id}&member_id=eq.${b.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    check('someone not on the team cannot invite or uninvite, straight at the table',
+      selfInvite.status >= 400 && (unInviteB.status >= 400 || unInviteB.json?.length === 0),
+      `invite HTTP ${selfInvite.status}, uninvite HTTP ${unInviteB.status} ${JSON.stringify(unInviteB.json)}`);
+
+    const anonMeetings = await call('/rest/v1/meetings?select=id');
+    const anonInvites = await call('/rest/v1/meeting_invites?select=meeting_id');
+    check('a signed-out visitor sees no meetings and no invitations',
+      (anonMeetings.status >= 400 || anonMeetings.json?.length === 0) && (anonInvites.status >= 400 || anonInvites.json?.length === 0),
+      `meetings HTTP ${anonMeetings.status}, invites HTTP ${anonInvites.status}`);
+
+    // Put B on the team: any member of it may now change the meeting, whatever their role.
+    await putOnTeam(b.id);
+    const changedB = await updateMeeting(meetingDeps(b), { actorId: b.id, meetingId: made.id, ...plan, venue: 'Google Meet' }, TOOL);
+    check('a viewer who is on the team changes its meeting through core', changedB.venue === 'Google Meet', JSON.stringify(changedB));
+    const keptA = await setMeetingInvites(meetingDeps(b), { actorId: b.id, meetingId: made.id, memberIds: [a.id] }, TOOL);
+    check('a team member changes who is invited', keptA.length === 1 && keptA[0] === a.id, JSON.stringify(keptA));
+    await deleteMeeting(meetingDeps(b), { actorId: b.id, meetingId: made.id }, TOOL);
+    const goneMeeting = await admin(`/rest/v1/meetings?id=eq.${made.id}&select=id`);
+    const goneInvites = await admin(`/rest/v1/meeting_invites?meeting_id=eq.${made.id}&select=member_id`);
+    check('a team member deletes the meeting, and its invitations go with it', goneMeeting.json?.length === 0 && goneInvites.json?.length === 0,
+      `meeting ${JSON.stringify(goneMeeting.json)}, invites ${JSON.stringify(goneInvites.json)}`);
+
+    const second = await createMeeting(meetingDeps(a), { actorId: a.id, teamId: meetTeam.id, ...plan }, TOOL);
+    await admin(`/rest/v1/teams?id=in.(${meetTeam.id},${otherTeam.id})`, { method: 'DELETE' });
+    const cascaded = await admin(`/rest/v1/meetings?id=eq.${second.id}&select=id`);
+    check('deleting a team takes its meetings with it', cascaded.json?.length === 0, JSON.stringify(cascaded.json));
+  }
 
   // Home's boxes (20261102130000_home_boxes.sql): every member reads their
   // words; only a role with home.edit (admin; A is one, B a viewer) changes
