@@ -56,6 +56,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'deleted_a_token_size',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -174,6 +175,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // thirteenth of its rows, so a fresh database puts it after the 25 above
+  // and the twelve second-sweep rows before it.
+  { kind: 'deleted_a_token_size', name: 'Deleted a token size', description: 'Removed a token size.', criteria: 'A token size is deleted.', points: 1, position: 38 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -367,6 +372,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  deleted_a_token_size: {
+    fn: 'removeTokenSize', file: 'core/tokens.ts', database: 'token_sizes_score_delete',
+    test: 'deleting a token size records one engagement for the admin who deleted it, naming the tool; a refused or failed one, an add, a change or a service-key delete records none', testFile: 'core/tokens.test.ts',
   },
 };
 

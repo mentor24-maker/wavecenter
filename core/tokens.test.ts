@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { GameActor } from './game.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryTokenStore } from './memoryTokenStore.ts';
 import {
   TOKEN_DIAMETER_MAX,
@@ -125,6 +126,59 @@ test('a write that fails says so', async () => {
 test('every change names its tool', async () => {
   const store = await seeded();
   await assert.rejects(addTokenSize(store, ADMIN, { ...small, minPoints: 2 }, ' '), /tool/i);
+});
+
+test('deleting a token size records one engagement for the admin who deleted it, naming the tool; a refused or failed one, an add, a change or a service-key delete records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const store = new MemoryTokenStore(ledger);
+  const deleted = () => ledger.rows.filter((e) => e.kind === 'deleted_a_token_size');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'deleted_a_token_size')!.points;
+  assert.equal(worth, 1);
+
+  // A service-key delete (nobody signed in) removes the size and scores nothing.
+  const s = await addTokenSize(store, ADMIN, small, TOOL);
+  const m = await addTokenSize(store, ADMIN, medium, TOOL);
+  await removeTokenSize(store, ADMIN, s.id, TOOL);
+  assert.equal(store.rows.has(s.id), false);
+  assert.equal(deleted().length, 0);
+
+  // Adding a size and changing one are not this action.
+  store.signedIn = 'dane';
+  const l = await addTokenSize(store, ADMIN, large, TOOL);
+  await changeTokenSize(store, ADMIN, l.id, { ...large, diameter: 30 }, TOOL);
+  assert.equal(deleted().length, 0);
+
+  await removeTokenSize(store, ADMIN, m.id, 'size-tool');
+  assert.deepEqual(deleted().map((e) => [e.memberId, e.points, e.tool, e.taskId]), [['dane', worth, 'size-tool', null]]);
+
+  // Refused or failed: nothing is recorded, and the size stays.
+  store.signedIn = 'vee';
+  await assert.rejects(removeTokenSize(store, EDITOR, l.id, TOOL), /Only an admin/);
+  store.signedIn = 'dane';
+  await assert.rejects(removeTokenSize(store, ADMIN, l.id, ' '), /tool/i);
+  await assert.rejects(removeTokenSize(store, ADMIN, m.id, TOOL), /was not removed/);
+  store.failNextWrite = true;
+  await assert.rejects(removeTokenSize(store, ADMIN, l.id, TOOL), /was not removed/);
+  assert.equal(store.rows.has(l.id), true);
+  assert.equal(deleted().length, 1);
+
+  // If the engagement cannot be written, the size is not deleted either.
+  ledger.failInsert = true;
+  await assert.rejects(removeTokenSize(store, ADMIN, l.id, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(store.rows.has(l.id), true);
+  assert.equal(deleted().length, 1);
+
+  await removeTokenSize(store, ADMIN, l.id, TOOL);
+  assert.equal(deleted().length, 2);
+});
+
+test('the database scores a token size delete only for the signed-in member who made it, naming the delete’s own tool', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124020000_score_deleted_a_token_size.sql', import.meta.url), 'utf8');
+  assert.match(sql, /v_member uuid := auth\.uid\(\);/);
+  assert.match(sql, /if v_member is not null then\s+perform public\.record_engagement\(v_member, 'deleted_a_token_size', public\.engagement_tool\(old\.tool\), null\);/);
+  assert.match(sql, /create trigger token_sizes_score_delete\s+after delete on public\.token_sizes\s+for each row\s+execute function public\.token_sizes_score_delete\(\);/);
+  assert.match(sql, /revoke execute on function public\.token_sizes_score_delete\(\) from public, anon, authenticated/);
 });
 
 test('the migration turns on row-level security and checks the same limits core does', () => {
