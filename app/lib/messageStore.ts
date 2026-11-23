@@ -6,7 +6,9 @@
  * address, `record_message_email` records how the email went. The address
  * comes from the server's own lookup (messageAddressBook.ts), never this
  * session. Reading goes straight to the table, and its row-level
- * security lets only a message's sender and recipient read it.
+ * security lets only a message's sender and recipient read it. A member's
+ * own Star and Trash marks are read from `message_marks` (row-level security
+ * shows each member only theirs) and changed only through `set_message_mark`.
  *
  * It only translates names and turns a failed database call into a thrown
  * error. Server only.
@@ -46,6 +48,26 @@ export function supabaseMessageStore(supabase: Client): MessageStore {
         body: r.body,
         sentAt: r.created_at,
       }));
+    },
+    async listMarks(memberId) {
+      const { data, error } = await supabase
+        .from("message_marks")
+        .select("message_id,starred,trashed_at")
+        .eq("member_id", memberId);
+      if (error) throw new Error(`The database refused to read your stars and trash: ${error.message}`);
+      return (data ?? []).map((r) => ({ messageId: r.message_id, starred: r.starred === true, trashedAt: r.trashed_at ?? null }));
+    },
+    async setMark(messageId, change, tool) {
+      const { data, error } = await supabase.rpc("set_message_mark", {
+        message: messageId,
+        star: change.starred ?? null,
+        trash: change.trashed ?? null,
+        tool,
+      });
+      if (error) throw new Error(`The database refused the change: ${error.message}`);
+      const row = (Array.isArray(data) ? data[0] : data) as { message_id?: string; starred?: boolean; trashed_at?: string | null } | null;
+      if (!row?.message_id) throw new Error("The database did not confirm the change was saved.");
+      return { messageId: row.message_id, starred: row.starred === true, trashedAt: row.trashed_at ?? null };
     },
   };
 }

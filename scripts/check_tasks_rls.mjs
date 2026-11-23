@@ -15,7 +15,9 @@
  * (`public.member_roles`); that every member, a viewer too, sends a message
  * only through send_message, only its sender and recipient read it, and no
  * member's session is ever handed an email address (`public.messages`,
- * `message_recipient_email`); that any two members chat only through
+ * `message_recipient_email`); that a member stars and trashes only messages
+ * they sent or received, only through set_message_mark, and reads only their
+ * own marks (`public.message_marks`); that any two members chat only through
  * start_chat and send_chat_message, and a member reads a chat, its members
  * and its messages only when they are in it (`public.chats`,
  * `public.chat_members`, `public.chat_messages`), and only they mark a chat
@@ -739,6 +741,54 @@ try {
   const afterSent = await lookup({ key: SERVICE }, toBRow?.id, a.id);
   check('once a message is emailed, its address is no longer looked up', afterSent.status === 200 && afterSent.json === null, `HTTP ${afterSent.status} ${JSON.stringify(afterSent.json)?.replace(/[^@\s"]+@/g, '…@')}`);
   check('a note to oneself is saved too', !!toSelfRow?.id, JSON.stringify(toSelf.json)?.replace(/[^@\s"]+@/g, '…@'));
+
+  {
+    // Star and Trash (20261122120000_message_marks.sql): each member's own
+    // marks on a message they sent or received, changed only through
+    // set_message_mark, read only by them; the message and the other member's
+    // marks never change.
+    const starRpc = (who, body) => call('/rest/v1/rpc/set_message_mark', { method: 'POST', token: who.token, body: { tool: TOOL, star: null, trash: null, ...body } });
+    const starRow = (r) => (Array.isArray(r.json) ? r.json[0] : null);
+    const bStars = await starRpc(b, { message: toBRow?.id, star: true });
+    const bTrashes = await starRpc(b, { message: toBRow?.id, trash: true });
+    check('the recipient stars a message and puts it in their trash; the star stays when trashed', bStars.status === 200 && starRow(bStars)?.starred === true && starRow(bStars)?.trashed_at === null
+      && bTrashes.status === 200 && starRow(bTrashes)?.starred === true && typeof starRow(bTrashes)?.trashed_at === 'string',
+      `star HTTP ${bStars.status} ${JSON.stringify(bStars.json)}, trash HTTP ${bTrashes.status} ${JSON.stringify(bTrashes.json)}`);
+    const aStars = await starRpc(a, { message: toBRow?.id, star: true });
+    const aSelf = await starRpc(a, { message: toSelfRow?.id, trash: true });
+    check('the sender marks their own copy too, and a note to oneself', aStars.status === 200 && starRow(aStars)?.trashed_at === null && aSelf.status === 200 && typeof starRow(aSelf)?.trashed_at === 'string',
+      `star HTTP ${aStars.status} ${JSON.stringify(aStars.json)}, note HTTP ${aSelf.status} ${JSON.stringify(aSelf.json)}`);
+    const bOnSelf = await starRpc(b, { message: toSelfRow?.id, star: true });
+    const noMessage = await starRpc(b, { message: randomUUID(), star: true });
+    const anonMark = await call('/rest/v1/rpc/set_message_mark', { method: 'POST', body: { message: toBRow?.id, star: true, trash: null, tool: TOOL } });
+    check('nobody marks a message they neither sent nor received, or one that does not exist, and a signed-out visitor marks nothing', bOnSelf.status >= 400 && noMessage.status >= 400 && anonMark.status >= 400,
+      `B on A's note HTTP ${bOnSelf.status}, no message HTTP ${noMessage.status}, signed out HTTP ${anonMark.status}`);
+    const emptyMark = await starRpc(b, { message: toBRow?.id });
+    const noToolMark = await starRpc(b, { message: toBRow?.id, star: false, tool: ' ' });
+    check('a mark with nothing to change or no tool name is refused', emptyMark.status >= 400 && noToolMark.status >= 400, `nothing HTTP ${emptyMark.status}, no tool HTTP ${noToolMark.status}`);
+    const marksB = await call('/rest/v1/message_marks?select=message_id,member_id,starred,trashed_at,tool', { token: b.token });
+    const marksA = await call('/rest/v1/message_marks?select=message_id,member_id,starred,trashed_at', { token: a.token });
+    const anonMarks = await call('/rest/v1/message_marks?select=message_id');
+    check('each member reads only their own marks: B sees one, trashed and starred, and A\'s are not among them; a signed-out visitor reads none',
+      marksB.json?.length === 1 && marksB.json[0].member_id === b.id && marksB.json[0].starred === true && !!marksB.json[0].trashed_at && marksB.json[0].tool === TOOL
+        && marksA.json?.length === 2 && marksA.json.every((m) => m.member_id === a.id)
+        && marksA.json.find((m) => m.message_id === toBRow?.id)?.trashed_at === null
+        && (anonMarks.status >= 400 || anonMarks.json?.length === 0),
+      `B ${JSON.stringify(marksB.json)}, A ${JSON.stringify(marksA.json)}, signed out HTTP ${anonMarks.status}`);
+    const forgeMark = await call('/rest/v1/message_marks', { method: 'POST', token: b.token, body: { message_id: toSelfRow?.id, member_id: a.id, starred: true, tool: TOOL } });
+    const editMark = await call(`/rest/v1/message_marks?message_id=eq.${toBRow?.id}&member_id=eq.${a.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { starred: false } });
+    const editOwnMark = await call(`/rest/v1/message_marks?message_id=eq.${toBRow?.id}&member_id=eq.${b.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { trashed_at: null } });
+    const wipeMark = await call(`/rest/v1/message_marks?message_id=eq.${toBRow?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+    const aStill = await admin(`/rest/v1/message_marks?message_id=eq.${toBRow?.id}&member_id=eq.${a.id}&select=starred`);
+    check('nobody writes, changes or deletes a mark directly, their own or another member\'s', forgeMark.status >= 400
+      && [editMark, editOwnMark, wipeMark].every((r) => r.status >= 400 || r.json?.length === 0) && aStill.json?.[0]?.starred === true,
+      `forge HTTP ${forgeMark.status}, edit other HTTP ${editMark.status}, edit own HTTP ${editOwnMark.status}, delete HTTP ${wipeMark.status}, A's star ${JSON.stringify(aStill.json)}`);
+    const bRestores = await starRpc(b, { message: toBRow?.id, trash: false });
+    const stillThere = await admin(`/rest/v1/messages?id=eq.${toBRow?.id}&select=subject,body`);
+    check('restoring clears only the trash, and trashing never touched the message itself', bRestores.status === 200 && starRow(bRestores)?.trashed_at === null && starRow(bRestores)?.starred === true
+      && stillThere.json?.[0]?.subject === 'Hi B' && stillThere.json?.[0]?.body === 'Hello B',
+      `restore HTTP ${bRestores.status} ${JSON.stringify(bRestores.json)}, message ${JSON.stringify(stillThere.json)}`);
+  }
   // One member may have 20 messages emailed an hour, counting every message
   // they saved in that hour; past that the lookup
   // refuses with WC429 and the message stays saved. B (a viewer) sends 20 to
