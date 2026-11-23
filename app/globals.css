@@ -1087,3 +1087,8 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-form .hint { font-weight: normal; }
 .topic-form .comment-editor textarea { min-height: 10rem; }
 .topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
+
+/* Admin → Website: the New page form (WC-206). */
+.site-page-form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.5rem 0.75rem; align-items: center; margin-top: 0.5rem; max-width: 36rem; }
+.site-page-form .note, .site-page-form button { grid-column: 1 / -1; margin: 0; }
+.site-page-form button { justify-self: start; }

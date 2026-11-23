@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { mayManageScoring } from "../../core/game.ts";
 import { mayOpenAdmin, ROLES } from "../../core/members.ts";
 import { RATING_LANE_INTERVAL_MINUTES, RATING_MODELS, RATING_RUN_MAX_TASKS } from "../../core/aiTaskRater.ts";
+import { mayManageWebsite } from "../../core/website.ts";
 import { newestRatingPass } from "../lib/aiTaskRating";
 import { headerPoints, supabaseScoringPhaseStore } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
@@ -29,6 +30,8 @@ import ScoringPhase from "./ScoringPhase";
  * switch that makes points final. Last, "AI task ratings" (RatingLane) shows
  * what the AI rating lane on the Mac Mini did in its last pass
  * (docs/GLOBULAR_SCORING_ALGORITHM.md); the website never calls the AI.
+ * Above them, a role with "Manage website" gets a Website link to the website
+ * manager, `/admin/website` (WC-206).
  * Signed-out visitors are sent to sign in.
  */
 
@@ -70,12 +73,24 @@ export default async function Admin() {
   ]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
   const mayScore = isAdmin && mayManageScoring({ role: role.value, grants: role.grants });
+  const mayWebsite = isAdmin && mayManageWebsite(role.value, role.grants);
 
   return (
     <>
       <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main>
         <h1>Admin</h1>
+        {mayWebsite && (
+          <div className="panel">
+            <h2>
+              <Link href="/admin/website">Website</Link>
+            </h2>
+            <p className="note">
+              The website manager: make and list the pages of WaveCenter&apos;s website. Building a page&apos;s sections
+              and publishing it come next.
+            </p>
+          </div>
+        )}
         {role.error !== null ? (
           <p className="error" role="alert">Your role could not be loaded: {role.error}. Try reloading the page.</p>
         ) : !isAdmin ? (
