@@ -2,12 +2,15 @@ import Link from "next/link";
 import RichText from "../../../tasks/RichText";
 import { DATE } from "../../forumClient";
 import { loadTopic, TopicShell } from "../loadTopic";
+import { TOPIC_PODS } from "../../topicPods";
 
 /**
  * One Forum topic on its own page (WC-183): its name, slug, parent,
  * description and details (rich text, drawn safely by RichText), who added it
  * and when, and when it last changed. Its adder or an admin sees an Edit
- * link. Anything missing says so rather than leaving a blank (rule 7).
+ * link. Below them, six dashboard pods in Dane's order (WC-205), each saying
+ * why it is empty until threads, tasks and proposals link to topics. Anything
+ * missing says so rather than leaving a blank (rule 7).
  */
 export default async function TopicPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,7 +18,7 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
   if (!load.ok) {
     return (
       <TopicShell header={load.header}>
-        <h1>Topic</h1>
+        <h1>{load.notFound ? "No such topic" : "Topic"}</h1>
         <p className="error" role="alert">{load.problem}</p>
       </TopicShell>
     );
@@ -56,6 +59,15 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
       ) : (
         <p className="note">Only the member who added this topic, or an admin, can change it.</p>
       )}
+      <section className="pods topic-pods" aria-label="About this topic">
+        {TOPIC_PODS.map((pod) => (
+          <section key={pod.key} id={`pod-${pod.key}`} className="pod" aria-labelledby={`pod-${pod.key}-title`}>
+            <h2 id={`pod-${pod.key}-title`}>{pod.title}</h2>
+            <p className="note">{pod.purpose}</p>
+            <p>{pod.emptyBecause}</p>
+          </section>
+        ))}
+      </section>
     </TopicShell>
   );
 }

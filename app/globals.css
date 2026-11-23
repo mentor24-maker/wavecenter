@@ -1087,3 +1087,4 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-form .hint { font-weight: normal; }
 .topic-form .comment-editor textarea { min-height: 10rem; }
 .topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
+.topic-pods { margin-top: calc(var(--space) * 1.5); }
