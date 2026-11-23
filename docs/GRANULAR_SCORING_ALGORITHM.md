@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Made a proposal | 1 | 1 | 2 | 0 | 3 | **6** | Puts an idea in front of the other members that could become a task; paired with deleting it, so it loops. Same as making a task. (`supabase/migrations/20261123160000_score_made_a_proposal.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Made a proposal | Effort | 1 | Typing a title and saving it is a short form: under a minute. |
+| Made a proposal | Value | 2 | Puts an idea the other members can read on the Proposals page, and it could become a task. |
+| Made a proposal | Rarity | 0 | Members can make proposals many times a day. |
+| Made a proposal | Farm risk | 3 | Paired with deleting it, so make-and-delete loops. |
 
 ## Scoring an action added later
 
