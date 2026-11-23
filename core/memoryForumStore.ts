@@ -5,8 +5,11 @@
  * stamps the time, refuses a name or slug already on the list, gives a new
  * topic a slug made from its name, and clears the parent of a deleted
  * topic's sub-topics. Two stores given the same `rows` are two members
- * looking at one Forum.
+ * looking at one Forum. Given an engagement store, a new topic is scored
+ * for the member who added it, as `forum_topics_score` does; if the
+ * engagement cannot be written, the topic is not saved either.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import { CoreError } from './tool.ts';
 import {
   findForumEntryByName,
@@ -29,10 +32,12 @@ const isTopic = (r: ForumEntry): r is ForumTopic => r.kind === 'topic';
 export class MemoryForumStore implements ForumStore, TopicStore {
   readonly rows: ForumEntry[];
   private readonly memberId: string;
+  private readonly engagements: EngagementStore | null;
 
-  constructor(memberId = 'member-1', rows: ForumEntry[] = []) {
+  constructor(memberId = 'member-1', rows: ForumEntry[] = [], engagements: EngagementStore | null = null) {
     this.memberId = memberId;
     this.rows = rows;
+    this.engagements = engagements;
   }
 
   async insert(kind: ForumKind, row: NewForumEntryRow): Promise<ForumEntry> {
@@ -51,6 +56,10 @@ export class MemoryForumStore implements ForumStore, TopicStore {
       updatedAt: now,
     });
     const entry: ForumEntry = kind === 'topic' ? topic() : base;
+    // Scored in the same save, before it lands: no engagement, no topic.
+    if (kind === 'topic' && this.engagements) {
+      await recordEngagement(this.engagements, { memberId: this.memberId, kind: 'added_a_forum_topic', tool: row.tool });
+    }
     this.rows.push(entry);
     return { ...entry };
   }
