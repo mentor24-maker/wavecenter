@@ -949,7 +949,7 @@ signed-in member reads every proposal; a member adds, changes and deletes
 only their own; signed-out visitors read nothing. Making, changing and
 deleting a proposal is not scored yet. `check:tasks-rls` proves each rule.
 
-## The Forum's topics and tags: `forum_topics` and `forum_tags`
+## The Forum's topics and tags: `forum_topics`, `forum_tags` and `forum_tag_relations`
 
 The Forum (`/forum`) is where members curate topics, tags and threads to
 discuss ideas, aiming at proposals (Dane, 2026-11-04). Its first section
@@ -977,14 +977,38 @@ A topic also has its own page and can be changed and deleted (WC-183,
 | `parent_id` | The topic it sits under, or empty. A topic is never its own parent, nor under one of its own sub-topics at any depth. Deleting a parent leaves its sub-topics in place with no parent. |
 | `updated_at` | When it was last changed; the database stamps it. |
 
-Row-level security is on from the migration that made the tables: every
-signed-in member reads every topic and tag and adds one in their own name;
-signed-out visitors read nothing. Nobody changes or deletes a tag. A topic's
-name, slug, description, details and parent are changed, and the topic
-deleted, only by the member who added it or an admin (Dane's choice "A" on
-WC-183); nothing else about a topic can be changed. Attaching tags to
-topics, threads, and scoring are later tickets. `check:tasks-rls` proves
-each rule.
+A tag also has its own page and can be changed and deleted (WC-186,
+2026-11-22). Dane chose "B" on the ticket: a tag has the same fields as a
+topic, so `forum_tags` gains `slug`, `description`, `details` and
+`updated_at`, with the same rules as the topic columns above (a tag's slug is
+unique among tags, and is `tag` if the name leaves nothing). In place of a
+parent, a tag has **related tags**, kept in their own table:
+
+**`forum_tag_relations`**: two tags that belong together.
+
+| Column | What it holds |
+|---|---|
+| `tag_id` | One of the two tags. Always the smaller of the two ids. |
+| `related_tag_id` | The other tag. Always the larger id. |
+| `created_by` | The member who related them; set by the database to whoever is signed in. |
+| `created_at` | When they were related; the database stamps it. |
+
+A relation is two-way and stored **once**: relate Voting to Budget and
+Budget shows Voting too, read from the same row. Keeping the smaller id first
+means the same pair can never be stored twice, and a tag can never be related
+to itself. Deleting either tag deletes the relation. A tag's edit page saves
+its words and its related tags together through `forum_tag_save()`, which
+runs as the member and saves all or nothing.
+
+Row-level security is on from the migration that made each table: every
+signed-in member reads every topic, tag and relation, and adds a topic or tag
+in their own name; signed-out visitors read nothing. A topic's name, slug,
+description, details and parent are changed, and the topic deleted, only by
+the member who added it or an admin (Dane's choice "A" on WC-183); a tag's
+name, slug, description and details the same way (WC-186). Nothing else
+about either can be changed. A relation is added or removed only by a member
+who may change one of its two tags. Attaching tags to topics, threads, and
+scoring are later tickets. `check:tasks-rls` proves each rule.
 
 ## Why the four fields are there from day one
 
