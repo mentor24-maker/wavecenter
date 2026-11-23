@@ -4,19 +4,30 @@
  * behaves like the real table on the points that matter (owner set for you,
  * timestamps kept, only the member's own proposals changed or deleted,
  * sub-proposals kept as top-level when their parent is deleted). Two stores
- * given the same `rows` are two members looking at one table.
+ * given the same `rows` are two members looking at one table. Given an
+ * engagement store, a change to a proposal's title, notes, points, priority,
+ * status or parent is scored for the member who made it, as
+ * `proposals_score_changed` does; a save that changes none of those scores
+ * nothing, and if the engagement cannot be written, the change is not saved
+ * either.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewProposalRow, Proposal, ProposalRowChanges, ProposalStore } from './proposals.ts';
 
 let next = 1;
 
+/** The fields whose change counts as "Changed a proposal" (a reorder alone does not). */
+const SCORED_FIELDS = ['title', 'notes', 'points', 'priority', 'status', 'parentProposalId'] as const;
+
 export class MemoryProposalStore implements ProposalStore {
   readonly rows: Map<string, Proposal>;
   private readonly ownerId: string;
+  private readonly engagements: EngagementStore | null;
 
-  constructor(ownerId = 'member-1', rows: Map<string, Proposal> = new Map()) {
+  constructor(ownerId = 'member-1', rows: Map<string, Proposal> = new Map(), engagements: EngagementStore | null = null) {
     this.ownerId = ownerId;
     this.rows = rows;
+    this.engagements = engagements;
   }
 
   private own(id: string): Proposal | null {
@@ -40,6 +51,10 @@ export class MemoryProposalStore implements ProposalStore {
     const proposal = this.own(id);
     if (!proposal) return null;
     const updated: Proposal = { ...proposal, ...changes, updatedAt: new Date().toISOString() };
+    // Scored in the same save, before it lands: no engagement, no change.
+    if (this.engagements && SCORED_FIELDS.some((f) => updated[f] !== proposal[f])) {
+      await recordEngagement(this.engagements, { memberId: this.ownerId, kind: 'changed_a_proposal', tool: updated.tool });
+    }
     this.rows.set(id, updated);
     return { ...updated };
   }

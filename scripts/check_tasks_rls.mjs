@@ -1299,6 +1299,79 @@ try {
     }
   }
 
+  // Changing a proposal earns its point
+  // (20261123170000_score_changed_a_proposal.sql, WC-193): a saved change to
+  // a proposal's title, notes, points, priority, status or parent is scored
+  // once for the member who made it, naming the tool the change sent; a save
+  // that changes nothing, a reorder, a refused change, a sub-proposal losing a
+  // deleted parent and a service-key change score nothing; nobody can write
+  // the engagement themselves. Counts are taken at the start of the block, so
+  // the change the proposals check above made (one, for A) does not matter here.
+  let changedProposalPointsA = 0;
+  {
+    const PROPOSAL_KIND = 'changed_a_proposal';
+    const proposalRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${PROPOSAL_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const proposalRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${PROPOSAL_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    const patch = (id, member, body) => call(`/rest/v1/proposals?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body });
+    try {
+      const [pa, pb] = [await proposalRows(a), await proposalRows(b)];
+      check('the proposal change A made above recorded one engagement for them, worth what the rule says, naming its tool',
+        pa.length >= 1 && pa.every((e) => e.points === proposalRule?.points && e.tool === TOOL && e.task_id === null),
+        `A ${JSON.stringify(pa)}, B ${JSON.stringify(pb)}, rule ${proposalRule?.points}`);
+      const title = `RLS changed proposal ${randomUUID().slice(0, 8)}`;
+      const made = await call('/rest/v1/proposals', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title } });
+      const id = made.json?.[0]?.id;
+      if (id) ids.push(id);
+      const parent = await call('/rest/v1/proposals', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title: `${title} parent` } });
+      const parentId = parent.json?.[0]?.id;
+      if (parentId) ids.push(parentId);
+      const afterMaking = await proposalRows(a);
+      const changed = id ? await patch(id, a, { title: `${title}, changed`, tool: 'rls-check-proposal-tool' }) : { status: 0 };
+      const notes = id ? await patch(id, a, { notes: 'why', points: 2, priority: 'high', status: 'doing', tool: TOOL }) : { status: 0 };
+      const reparent = id && parentId ? await patch(id, a, { parent_proposal_id: parentId, tool: TOOL }) : { status: 0 };
+      const pa2 = await proposalRows(a);
+      check('changing a proposal records exactly one engagement per saved change for the member who made it, naming the tool it sent; making one records none',
+        made.status === 201 && afterMaking.length === pa.length && changed.status === 200 && notes.status === 200 && reparent.status === 200
+          && pa2.length === pa.length + 3 && pa2.at(-3)?.tool === 'rls-check-proposal-tool' && pa2.at(-1)?.tool === TOOL && pa2.slice(-3).every((e) => e.points === proposalRule?.points),
+        `made HTTP ${made.status}, change HTTP ${changed.status}/${notes.status}/${reparent.status}, A had ${pa.length} (${afterMaking.length} after making) now ${JSON.stringify(pa2)}`);
+      const same = id ? await patch(id, a, { title: `${title}, changed`, points: 2, tool: TOOL }) : { status: 0 };
+      const moved = id ? await patch(id, a, { position: 42 }) : { status: 0 };
+      const blank = id ? await patch(id, a, { title: ' \n ' }) : { status: 0 };
+      const hijack = id ? await patch(id, b, { title: 'Hijacked' }) : { status: 0 };
+      const [pa3, pb3] = [await proposalRows(a), await proposalRows(b)];
+      check('a save that changes nothing, a reorder, a refused change and another member\u2019s attempt record nothing',
+        same.status === 200 && moved.status === 200 && blank.status >= 400 && hijack.status === 200 && hijack.json?.length === 0 && pa3.length === pa2.length && pb3.length === pb.length,
+        `same HTTP ${same.status}, reorder HTTP ${moved.status}, blank HTTP ${blank.status}, B's HTTP ${hijack.status} ${JSON.stringify(hijack.json)}, A had ${pa2.length} now ${pa3.length}, B had ${pb.length} now ${pb3.length}`);
+      check('"Changed a proposal" is active at 1 point with its four factors and a reason for each',
+        proposalRule?.name === 'Changed a proposal' && proposalRule.points === 1 && proposalRule.effort === 1 && proposalRule.value === 1 && proposalRule.rarity === 0 && proposalRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof proposalRule[k] === 'string' && proposalRule[k].length > 0),
+        JSON.stringify(proposalRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: PROPOSAL_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: PROPOSAL_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/proposals_score_changed', { method: 'POST', token: b.token, body: {} });
+      const pb4 = await proposalRows(b);
+      check('a member cannot forge a "Changed a proposal" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && pb4.length === pb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, proposals_score_changed HTTP ${forgeTrigger.status}, B now ${pb4.length}`);
+      const svc = id ? await admin(`/rest/v1/proposals?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation', body: { title: `${title} by service key` } }) : { status: 0 };
+      const pa5 = await proposalRows(a);
+      check('a change made with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 200 && svc.json?.[0]?.title === `${title} by service key` && pa5.length === pa3.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${pa3.length} now ${pa5.length}`);
+      if (parentId) {
+        const del = await call(`/rest/v1/proposals?id=eq.${parentId}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+        const child = id ? (await admin(`/rest/v1/proposals?id=eq.${id}&select=parent_proposal_id`)).json?.[0] : null;
+        const pa6 = await proposalRows(a);
+        check('deleting a proposal records no "Changed a proposal", not even for the sub-proposal that loses it as parent',
+          del.json?.length === 1 && child?.parent_proposal_id === null && pa6.length === pa5.length, `delete ${JSON.stringify(del.json)}, child ${JSON.stringify(child)}, A had ${pa5.length} now ${pa6.length}`);
+      }
+      changedProposalPointsA = (await proposalRows(a)).reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -1562,8 +1635,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages and chat messages were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages and changed proposals were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},changed_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1586,7 +1659,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + changedProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
