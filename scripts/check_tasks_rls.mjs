@@ -44,9 +44,12 @@
  * `record_ai_task_rating`, nobody changes or deletes one, and the save refuses
  * a pass off the scale or without its reasons (`public.ai_task_ratings`,
  * `public.ai_task_model_ratings`); and that every member reads and adds Forum
- * topics and tags, nobody changes a tag, and only a topic's adder or an
- * admin changes or deletes a topic, with its slug, details and parent kept
- * well formed and free of loops (`public.forum_topics`, `public.forum_tags`).
+ * topics and tags, and only a topic's adder or an admin changes or deletes
+ * a topic, with its slug, details and parent kept well formed and free of
+ * loops (`public.forum_topics`); and the same for a tag, whose related tags
+ * are two-way, never itself, changed only by whoever may change one of the
+ * two tags and gone when either tag is (`public.forum_tags`,
+ * `public.forum_tag_relations`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -1213,8 +1216,8 @@ try {
   }
 
   // Forum topics and tags (20261115210000_forum_topics_tags.sql): every
-  // member reads and adds them, in their own name; nobody changes or deletes
-  // a tag, and only a topic's adder or an admin a topic (next block); a name
+  // member reads and adds them, in their own name; only the adder or an
+  // admin changes or deletes one (the next two blocks); a name
   // is unique ignoring capitals and spaces. The test rows are
   // removed at the end (created_by is set null, not cascaded, when an
   // account goes).
@@ -1238,14 +1241,13 @@ try {
         const long = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, body: { name: 'x'.repeat(81) } });
         check(`${table} refuses a forged adder, a blank name and one over 80 characters`, forge.status >= 400 && blank.status >= 400 && long.status >= 400,
           `forge HTTP ${forge.status}, blank HTTP ${blank.status}, long HTTP ${long.status}`);
-        // Tags: nobody changes or deletes one, not even its adder. Topics
-        // (WC-183): their adder or an admin may, so B, neither, is refused.
-        const who = table === 'forum_tags' ? a : b;
-        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: who.token, prefer: 'return=representation', body: { name: 'changed' } });
-        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: who.token, prefer: 'return=representation' });
+        // Topics (WC-183) and tags (WC-186): their adder or an admin may
+        // change or delete one, so B, neither, is refused.
+        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'changed' } });
+        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
         const still = (await admin(`/rest/v1/${table}?id=eq.${row?.id}&select=name`)).json?.[0];
         const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
-        check(table === 'forum_tags' ? 'nobody changes or deletes a tag, not even its adder' : 'a member who neither added a topic nor is an admin cannot change or delete it',
+        check(`a member who neither added it nor is an admin cannot change or delete a row of ${table}`,
           refused(patch) && refused(del) && still?.name === word, `patch HTTP ${patch.status}, delete HTTP ${del.status}, row ${JSON.stringify(still)}`);
         const anon = await call(`/rest/v1/${table}?select=id`);
         check(`a signed-out visitor sees nothing in ${table}`, anon.status >= 400 || anon.json?.length === 0, `HTTP ${anon.status} ${JSON.stringify(anon.json)}`);
@@ -1334,6 +1336,101 @@ try {
       check('an admin deletes a topic someone else added', adminDel.status === 200 && adminDel.json?.length === 1, `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/forum_topics?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // A Forum tag's details, related tags, changing and deleting it
+  // (20261123010000_forum_tag_relations.sql, WC-186): a new tag gets a slug
+  // from its name; only its adder (B here, a viewer) or an admin (A) changes
+  // or deletes it, or sets its related tags; a relation is stored once and
+  // read both ways, never a tag with itself; forum_tag_save is all or
+  // nothing; deleting a tag deletes its relations.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const add = async (who, name) => {
+      const r = await call('/rest/v1/forum_tags', { method: 'POST', token: who.token, prefer: 'return=representation', body: { name } });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r.json?.[0];
+    };
+    const save = (who, t, related, more = {}) => call('/rest/v1/rpc/forum_tag_save', {
+      method: 'POST', token: who?.token,
+      body: { p_id: t?.id, p_name: t?.name, p_slug: t?.slug, p_description: '', p_details: '', p_related: related, ...more },
+    });
+    const pairs = async () => (await admin(`/rest/v1/forum_tag_relations?or=(tag_id.in.(${ids.join(',')}),related_tag_id.in.(${ids.join(',')}))&select=tag_id,related_tag_id,created_by`)).json ?? [];
+    const row = async (id) => (await admin(`/rest/v1/forum_tags?id=eq.${id}&select=*`)).json?.[0];
+    try {
+      const voting = await add(b, `RLS Voting ${tag}!`);
+      const budget = await add(b, `RLS Budget ${tag}`);
+      const roads = await add(a, `RLS Roads ${tag}`);
+      check('a new tag gets a slug made from its name, and blank description and details', voting?.slug === `rls-voting-${tag}` && voting?.description === '' && voting?.details === '' && !!voting?.updated_at,
+        JSON.stringify(voting));
+
+      const own = await save(b, voting, [budget?.id, roads?.id], { p_description: 'How we vote', p_details: '**Bold**' });
+      const afterOwn = await pairs();
+      const lo = (x, y) => (x < y ? [x, y] : [y, x]);
+      const has = (x, y) => afterOwn.some((p) => p.tag_id === lo(x, y)[0] && p.related_tag_id === lo(x, y)[1]);
+      check('the adder saves their tag’s words and related tags, each relation stored once, smaller id first, in their name',
+        own.status < 300 && (await row(voting?.id))?.description === 'How we vote' && afterOwn.length === 2 && has(voting?.id, budget?.id) && has(voting?.id, roads?.id) && afterOwn.every((p) => p.created_by === b.id),
+        `HTTP ${own.status} ${JSON.stringify(own.json)}, relations ${JSON.stringify(afterOwn)}`);
+      const seen = await call(`/rest/v1/forum_tag_relations?or=(tag_id.eq.${roads?.id},related_tag_id.eq.${roads?.id})&select=tag_id`, { token: a.token });
+      check('every member reads the related tags, from either side', seen.status === 200 && seen.json?.length === 1, `HTTP ${seen.status} ${JSON.stringify(seen.json)}`);
+
+      const notYours = await save(b, roads, [voting?.id], { p_description: 'B was here' });
+      check('a non-admin cannot save a tag someone else added, and nothing of it is saved', notYours.status >= 400 && (await row(roads?.id))?.description === '',
+        `HTTP ${notYours.status} ${JSON.stringify(notYours.json)}`);
+      const patchNot = await call(`/rest/v1/forum_tags?id=eq.${roads?.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { description: 'B' } });
+      const delNot = await call(`/rest/v1/forum_tags?id=eq.${roads?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('a non-admin cannot change or delete a tag someone else added, going around the save', (patchNot.json?.length ?? 0) === 0 && (delNot.json?.length ?? 0) === 0 && !!(await row(roads?.id)),
+        `patch HTTP ${patchNot.status}, delete HTTP ${delNot.status}`);
+
+      // A stranger's relation between two tags B neither added: refused, either way round.
+      const stranger = await add(a, `RLS Stranger ${tag}`);
+      const [x, y] = lo(roads?.id, stranger?.id);
+      const forgeRel = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: x, related_tag_id: y } });
+      const forgeBy = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: lo(voting?.id, stranger?.id)[0], related_tag_id: lo(voting?.id, stranger?.id)[1], created_by: a.id } });
+      const unrelate = await call(`/rest/v1/forum_tag_relations?tag_id=eq.${lo(voting?.id, budget?.id)[0]}&related_tag_id=eq.${lo(voting?.id, budget?.id)[1]}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      check('a member relates two tags only if they may change one of them, never in someone else’s name; an admin removes any relation',
+        forgeRel.status >= 400 && forgeBy.status >= 400 && unrelate.status === 200 && unrelate.json?.length === 1,
+        `stranger HTTP ${forgeRel.status}, forged adder HTTP ${forgeBy.status}, admin unrelate HTTP ${unrelate.status} ${JSON.stringify(unrelate.json)}`);
+      // Voting is B's, Roads is A's: B may still remove the relation between them.
+      const bDelOther = await call(`/rest/v1/forum_tag_relations?tag_id=eq.${lo(voting?.id, roads?.id)[0]}&related_tag_id=eq.${lo(voting?.id, roads?.id)[1]}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('the adder of one of the two tags removes the relation between them', bDelOther.status === 200 && bDelOther.json?.length === 1, `HTTP ${bDelOther.status} ${JSON.stringify(bDelOther.json)}`);
+
+      const self = await save(b, voting, [voting?.id]);
+      const missing = await save(b, voting, [budget?.id, randomUUID()], { p_description: 'should not stick' });
+      const twice = await save(b, voting, [budget?.id, budget?.id]);
+      const afterTwice = await pairs();
+      check('the save refuses a tag related to itself or to a tag that is not there, saving nothing; a repeat counts once',
+        self.status >= 400 && missing.status >= 400 && (await row(voting?.id))?.description === '' && twice.status < 300 && afterTwice.length === 1,
+        `self HTTP ${self.status} ${JSON.stringify(self.json)}, missing HTTP ${missing.status}, twice HTTP ${twice.status}, relations ${JSON.stringify(afterTwice)}`);
+      const rawSelf = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: voting?.id, related_tag_id: voting?.id } });
+      const [hi, low] = lo(voting?.id, budget?.id).reverse();
+      const rawBackwards = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: hi, related_tag_id: low } });
+      check('the table itself refuses a tag related to itself, and the same pair stored the other way round', rawSelf.status >= 400 && rawBackwards.status >= 400,
+        `self HTTP ${rawSelf.status}, backwards HTTP ${rawBackwards.status}`);
+
+      const forged = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'PATCH', token: b.token, body: { created_by: a.id } });
+      const forgedTool = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'PATCH', token: b.token, body: { tool: 'forged' } });
+      const badSlug = await save(b, voting, [], { p_slug: 'Not A Slug' });
+      const dupSlug = await save(b, voting, [], { p_slug: budget?.slug });
+      const twoLines = await save(b, voting, [], { p_description: 'one\ntwo' });
+      check('nobody changes who added a tag or its tool; the database refuses a bad or taken slug and a two-line description',
+        forged.status >= 400 && forgedTool.status >= 400 && badSlug.status >= 400 && dupSlug.status === 409 && twoLines.status >= 400,
+        `created_by ${forged.status}, tool ${forgedTool.status}, bad slug ${badSlug.status}, taken slug ${dupSlug.status}, two lines ${twoLines.status}`);
+
+      const byAdmin = await save(a, voting, [roads?.id], { p_description: 'An admin changed this' });
+      check('an admin saves a tag someone else added', byAdmin.status < 300 && (await row(voting?.id))?.description === 'An admin changed this', `HTTP ${byAdmin.status} ${JSON.stringify(byAdmin.json)}`);
+      const anonSave = await save(null, voting, []);
+      check('a signed-out visitor cannot save a tag', anonSave.status >= 400 && (await pairs()).length === 1, `HTTP ${anonSave.status}`);
+
+      const gone = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('the adder deletes their tag, and its relations go with it', gone.status === 200 && gone.json?.length === 1 && !(await row(voting?.id)) && (await pairs()).length === 0,
+        `HTTP ${gone.status} ${JSON.stringify(gone.json)}, relations ${JSON.stringify(await pairs())}`);
+      const adminDel = await call(`/rest/v1/forum_tags?id=eq.${budget?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      check('an admin deletes a tag someone else added', adminDel.status === 200 && adminDel.json?.length === 1, `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_tags?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
   }
 
