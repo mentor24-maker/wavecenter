@@ -5,10 +5,11 @@ import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
-import { mayChangeTopic } from "../../core/forum.ts";
-import { listForumEntries, listTopics } from "../lib/forumStore";
-import ForumLists, { type ListEntry } from "./ForumLists";
+import { mayChangeTag, mayChangeTopic } from "../../core/forum.ts";
+import { listTags, listTopics } from "../lib/forumStore";
+import ForumLists from "./ForumLists";
 import { forumNamer } from "./forumNames";
+import type { ViewTag } from "./tagView";
 import type { ViewTopic } from "./topicView";
 
 /**
@@ -17,7 +18,8 @@ import type { ViewTopic } from "./topicView";
  * Proposals page (Dane, 2026-11-04). Its first section (WC-178) is Topics
  * on the left and Tags on the right, each a fold-out Add box over a table
  * (ForumLists). Each topic opens on its own page (topics/[id]) and can be
- * changed or deleted by its adder or an admin (WC-183). Threads and the proposal structure come in later sub-tasks.
+ * changed or deleted by its adder or an admin (WC-183); so does each tag,
+ * with its related tags (tags/[id], WC-186). Threads and the proposal structure come in later sub-tasks.
  * A list that could not be read says so, never a blank area (engineering
  * rule 7). It treats visitors as `/proposals` does: signed out
  * goes to sign in; no database settings or a failed sign-in check is said on
@@ -62,10 +64,22 @@ export default async function Forum() {
         mayChange: mayChangeTopic(t, actor),
       }));
     }, message),
-    listForumEntries(supabase, "tag").then(
-      (rows): ListEntry[] | string => rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt, by: namer(r.createdBy) })),
-      message,
-    ),
+    listTags(supabase).then((rows): ViewTag[] | string => {
+      const names = new Map(rows.map((t) => [t.id, t.name]));
+      const words = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+      return rows.map((t) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        description: t.description,
+        related: t.relatedIds
+          .flatMap((id) => (names.has(id) ? [{ id, name: names.get(id)! }] : []))
+          .sort((a, b) => words(a.name, b.name)),
+        by: namer(t.createdBy),
+        createdAt: t.createdAt,
+        mayChange: mayChangeTag(t, actor),
+      }));
+    }, message),
     headerName(supabase, user),
     headerPoints(supabase, user.id),
   ]);
@@ -81,7 +95,7 @@ export default async function Forum() {
           <Link href="/proposals">Proposals</Link> page.
         </p>
         <p className="note">
-          Topics are what members discuss; tags sort the discussions. Any member can add either one; the member who added a topic, or an admin, can change or delete it. Threads come next.
+          Topics are what members discuss; tags sort the discussions. Any member can add either one; the member who added a topic or tag, or an admin, can change or delete it. Threads come next.
         </p>
         <ForumLists topics={topics} tags={tags} />
       </main>
