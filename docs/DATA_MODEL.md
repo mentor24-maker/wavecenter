@@ -966,11 +966,25 @@ the same shape, so the two tables have the same columns. The rules live in
 | `tool` | The tool that added it, such as `wavecenter`. |
 | `created_at` | When it was added; the database stamps it. |
 
+A topic also has its own page and can be changed and deleted (WC-183,
+2026-11-22), so `forum_topics` has five more columns:
+
+| Column | What it holds |
+|---|---|
+| `slug` | The topic's short web-address name: lower-case letters, digits and single hyphens, at most 80 characters, unique. Made from the name when a topic is added without one ("Voting Rules!" becomes `voting-rules`, then `voting-rules-2` if that is taken). |
+| `description` | One plain line, at most 500 characters; empty when none. |
+| `details` | Rich text in the task comments' format (`core/richText.ts`): plain words with marks for bold, italic, lists and links, never HTML. At most 10,000 characters; empty when none. |
+| `parent_id` | The topic it sits under, or empty. A topic is never its own parent, nor under one of its own sub-topics at any depth. Deleting a parent leaves its sub-topics in place with no parent. |
+| `updated_at` | When it was last changed; the database stamps it. |
+
 Row-level security is on from the migration that made the tables: every
 signed-in member reads every topic and tag and adds one in their own name;
-nobody changes or deletes one yet; signed-out visitors read nothing.
-Attaching tags to topics, threads, changing and deleting, and scoring an
-addition are later tickets. `check:tasks-rls` proves each rule.
+signed-out visitors read nothing. Nobody changes or deletes a tag. A topic's
+name, slug, description, details and parent are changed, and the topic
+deleted, only by the member who added it or an admin (Dane's choice "A" on
+WC-183); nothing else about a topic can be changed. Attaching tags to
+topics, threads, and scoring are later tickets. `check:tasks-rls` proves
+each rule.
 
 ## Why the four fields are there from day one
 

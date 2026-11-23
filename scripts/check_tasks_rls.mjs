@@ -43,7 +43,10 @@
  * task rating passes, only the service key saves one, whole, through
  * `record_ai_task_rating`, nobody changes or deletes one, and the save refuses
  * a pass off the scale or without its reasons (`public.ai_task_ratings`,
- * `public.ai_task_model_ratings`).
+ * `public.ai_task_model_ratings`); and that every member reads and adds Forum
+ * topics and tags, nobody changes a tag, and only a topic's adder or an
+ * admin changes or deletes a topic, with its slug, details and parent kept
+ * well formed and free of loops (`public.forum_topics`, `public.forum_tags`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -1173,7 +1176,8 @@ try {
 
   // Forum topics and tags (20261115210000_forum_topics_tags.sql): every
   // member reads and adds them, in their own name; nobody changes or deletes
-  // one; a name is unique ignoring capitals and spaces. The test rows are
+  // a tag, and only a topic's adder or an admin a topic (next block); a name
+  // is unique ignoring capitals and spaces. The test rows are
   // removed at the end (created_by is set null, not cascaded, when an
   // account goes).
   {
@@ -1196,11 +1200,15 @@ try {
         const long = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, body: { name: 'x'.repeat(81) } });
         check(`${table} refuses a forged adder, a blank name and one over 80 characters`, forge.status >= 400 && blank.status >= 400 && long.status >= 400,
           `forge HTTP ${forge.status}, blank HTTP ${blank.status}, long HTTP ${long.status}`);
-        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { name: 'changed' } });
-        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+        // Tags: nobody changes or deletes one, not even its adder. Topics
+        // (WC-183): their adder or an admin may, so B, neither, is refused.
+        const who = table === 'forum_tags' ? a : b;
+        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: who.token, prefer: 'return=representation', body: { name: 'changed' } });
+        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: who.token, prefer: 'return=representation' });
         const still = (await admin(`/rest/v1/${table}?id=eq.${row?.id}&select=name`)).json?.[0];
-        check(`nobody changes or deletes a row of ${table}, not even its adder`, patch.status >= 400 && del.status >= 400 && still?.name === word,
-          `patch HTTP ${patch.status}, delete HTTP ${del.status}, row ${JSON.stringify(still)}`);
+        const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
+        check(table === 'forum_tags' ? 'nobody changes or deletes a tag, not even its adder' : 'a member who neither added a topic nor is an admin cannot change or delete it',
+          refused(patch) && refused(del) && still?.name === word, `patch HTTP ${patch.status}, delete HTTP ${del.status}, row ${JSON.stringify(still)}`);
         const anon = await call(`/rest/v1/${table}?select=id`);
         check(`a signed-out visitor sees nothing in ${table}`, anon.status >= 400 || anon.json?.length === 0, `HTTP ${anon.status} ${JSON.stringify(anon.json)}`);
       }
@@ -1208,6 +1216,86 @@ try {
       for (const [table, ids] of Object.entries(forumIds)) {
         if (ids.length) await admin(`/rest/v1/${table}?id=in.(${ids.join(',')})`, { method: 'DELETE' });
       }
+    }
+  }
+
+  // A Forum topic's details, changing and deleting it
+  // (20261122210000_forum_topic_details.sql, WC-183): a new topic gets a slug
+  // from its name; only its adder (B here, a viewer) or an admin (A) changes
+  // its name, slug, description, details and parent, or deletes it; nothing
+  // else about it can be changed; a bad slug, a duplicate slug and a loop of
+  // parents are refused; deleting a parent leaves its sub-topics with none.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const add = async (who, name) => {
+      const r = await call('/rest/v1/forum_topics', { method: 'POST', token: who.token, prefer: 'return=representation', body: { name } });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r;
+    };
+    const patch = (who, id, body) => call(`/rest/v1/forum_topics?id=eq.${id}`, { method: 'PATCH', token: who?.token, prefer: 'return=representation', body });
+    const row = async (id) => (await admin(`/rest/v1/forum_topics?id=eq.${id}&select=*`)).json?.[0];
+    try {
+      const madeB = await add(b, `RLS Topic B ${tag}!`);
+      const topicB = madeB.json?.[0];
+      check('a new topic gets a slug made from its name, and blank description and details', madeB.status === 201 && topicB?.slug === `rls-topic-b-${tag}` && topicB?.description === '' && topicB?.details === '' && topicB?.parent_id === null,
+        `HTTP ${madeB.status} ${JSON.stringify(madeB.json)}`);
+      const twin = await add(b, `rls topic b ${tag}?`);
+      check('a second topic whose name makes the same slug gets the next free one', twin.json?.[0]?.slug === `rls-topic-b-${tag}-2`, JSON.stringify(twin.json));
+      const topicA = (await add(a, `RLS Topic A ${tag}`)).json?.[0];
+
+      const own = await patch(b, topicB?.id, { name: `RLS Topic B ${tag} changed`, slug: `rls-b-${tag}`, description: 'One line', details: '**Bold** and\n- a list' });
+      check('the adder changes their topic’s name, slug, description and details', own.status === 200 && own.json?.[0]?.slug === `rls-b-${tag}` && own.json?.[0]?.details === '**Bold** and\n- a list',
+        `HTTP ${own.status} ${JSON.stringify(own.json)}`);
+      const stamped = await row(topicB?.id);
+      check('the database stamps when a topic last changed, never its adder or when it was added', stamped?.updated_at > stamped?.created_at && stamped?.created_by === b.id && stamped?.created_at === topicB?.created_at, JSON.stringify(stamped));
+
+      const notYours = await patch(b, topicA?.id, { description: 'B was here' });
+      const notYoursDel = await call(`/rest/v1/forum_topics?id=eq.${topicA?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      const keptA = await row(topicA?.id);
+      check('a non-admin cannot change or delete a topic someone else added', (notYours.json?.length ?? 0) === 0 && (notYoursDel.json?.length ?? 0) === 0 && keptA?.description === '',
+        `patch HTTP ${notYours.status} ${JSON.stringify(notYours.json)}, delete HTTP ${notYoursDel.status}, row ${JSON.stringify(keptA)}`);
+      const byAdmin = await patch(a, topicB?.id, { description: 'An admin changed this' });
+      check('an admin changes a topic someone else added', byAdmin.status === 200 && byAdmin.json?.[0]?.description === 'An admin changed this', `HTTP ${byAdmin.status} ${JSON.stringify(byAdmin.json)}`);
+
+      const forged = await patch(b, topicB?.id, { created_by: a.id });
+      const forgedTool = await patch(b, topicB?.id, { tool: 'forged' });
+      const forgedTime = await patch(b, topicB?.id, { created_at: '2020-01-01T00:00:00Z' });
+      check('nobody changes who added a topic, its tool or when it was added', forged.status >= 400 && forgedTool.status >= 400 && forgedTime.status >= 400,
+        `created_by HTTP ${forged.status}, tool HTTP ${forgedTool.status}, created_at HTTP ${forgedTime.status}`);
+      const badSlug = await patch(b, topicB?.id, { slug: 'Not A Slug' });
+      const dupSlug = await patch(b, topicB?.id, { slug: twin.json?.[0]?.slug });
+      const longDesc = await patch(b, topicB?.id, { description: 'x'.repeat(501) });
+      const twoLines = await patch(b, topicB?.id, { description: 'one\ntwo' });
+      const longDetails = await patch(b, topicB?.id, { details: 'x'.repeat(10001) });
+      check('the database refuses a badly formed or taken slug, a description over 500 characters or on two lines, and details over 10,000',
+        badSlug.status >= 400 && dupSlug.status === 409 && longDesc.status >= 400 && twoLines.status >= 400 && longDetails.status >= 400,
+        `bad slug ${badSlug.status}, taken slug ${dupSlug.status}, long ${longDesc.status}, two lines ${twoLines.status}, long details ${longDetails.status}`);
+
+      // A over B, then B over A would be a loop; and nothing is its own parent.
+      const under = await patch(a, topicA?.id, { parent_id: topicB?.id });
+      check('an admin puts a topic under another', under.status === 200 && under.json?.[0]?.parent_id === topicB?.id, `HTTP ${under.status} ${JSON.stringify(under.json)}`);
+      const loop = await patch(b, topicB?.id, { parent_id: topicA?.id });
+      const self = await patch(b, topicB?.id, { parent_id: topicB?.id });
+      const selfId = randomUUID();
+      const selfInsert = await call('/rest/v1/forum_topics', { method: 'POST', token: b.token, body: { id: selfId, name: `RLS self ${tag}`, parent_id: selfId } });
+      if (selfInsert.status < 300) ids.push(selfId);
+      check('the database refuses a topic under its own sub-topic, or under itself, whether changed or added', loop.status >= 400 && self.status >= 400 && selfInsert.status >= 400 && (await row(topicB?.id))?.parent_id === null,
+        `loop HTTP ${loop.status} ${JSON.stringify(loop.json)}, self HTTP ${self.status}, added as its own parent HTTP ${selfInsert.status}`);
+
+      const anonPatch = await patch(null, topicB?.id, { description: 'anon' });
+      const anonDel = await call(`/rest/v1/forum_topics?id=eq.${topicB?.id}`, { method: 'DELETE', prefer: 'return=representation' });
+      check('a signed-out visitor changes and deletes no topic', (anonPatch.status >= 400 || (anonPatch.json?.length ?? 0) === 0) && (anonDel.status >= 400 || (anonDel.json?.length ?? 0) === 0) && (await row(topicB?.id))?.description === 'An admin changed this',
+        `patch HTTP ${anonPatch.status}, delete HTTP ${anonDel.status}`);
+
+      const gone = await call(`/rest/v1/forum_topics?id=eq.${topicB?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      const orphan = await row(topicA?.id);
+      check('the adder deletes their topic, and its sub-topic stays with no parent', gone.status === 200 && gone.json?.length === 1 && !(await row(topicB?.id)) && orphan && orphan.parent_id === null,
+        `HTTP ${gone.status} ${JSON.stringify(gone.json)}, sub-topic ${JSON.stringify(orphan)}`);
+      const adminDel = await call(`/rest/v1/forum_topics?id=eq.${twin.json?.[0]?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      check('an admin deletes a topic someone else added', adminDel.status === 200 && adminDel.json?.length === 1, `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_topics?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
   }
 

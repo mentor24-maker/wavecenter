@@ -2,19 +2,22 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
-import { headerIsAdmin, listMembers } from "../lib/memberRoleStore";
+import { headerIsAdmin } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
-import type { ForumEntry, ForumKind } from "../../core/forum.ts";
-import { listForumEntries } from "../lib/forumStore";
+import { mayChangeTopic } from "../../core/forum.ts";
+import { listForumEntries, listTopics } from "../lib/forumStore";
 import ForumLists, { type ListEntry } from "./ForumLists";
+import { forumNamer } from "./forumNames";
+import type { ViewTopic } from "./topicView";
 
 /**
  * The Forum: where members collaboratively curate topics, tags and threads
  * to discuss and exchange ideas, with the aim of producing proposals for the
  * Proposals page (Dane, 2026-11-04). Its first section (WC-178) is Topics
  * on the left and Tags on the right, each a fold-out Add box over a table
- * (ForumLists). Threads and the proposal structure come in later sub-tasks.
+ * (ForumLists). Each topic opens on its own page (topics/[id]) and can be
+ * changed or deleted by its adder or an admin (WC-183). Threads and the proposal structure come in later sub-tasks.
  * A list that could not be read says so, never a blank area (engineering
  * rule 7). It treats visitors as `/proposals` does: signed out
  * goes to sign in; no database settings or a failed sign-in check is said on
@@ -40,27 +43,30 @@ export default async function Forum() {
   }
 
   const me = user.id;
-  // Display names as the Members page shows them (each member's privacy
-  // applied by list_members). If that read fails, the lists still show, with
-  // the short id wording.
-  const names = listMembers(supabase).then(
-    (members) => new Map(members.flatMap((m) => (m.displayName?.trim() ? [[m.memberId, m.displayName.trim()] as const] : []))),
-    () => new Map<string, string>(),
-  );
-  const addedBy = (id: string | null, shown: Map<string, string>) =>
-    id === me ? "you" : !id ? "a former member" : shown.get(id) ?? `member ${id.slice(0, 8)}`;
-  const read = (kind: ForumKind) =>
-    Promise.all([listForumEntries(supabase, kind), names]).then(
-      ([rows, shown]): ListEntry[] | string =>
-        rows.map((r: ForumEntry) => ({ id: r.id, name: r.name, createdAt: r.createdAt, by: addedBy(r.createdBy, shown) })),
-      (err: unknown) => (err instanceof Error ? err.message : String(err)),
-    );
+  const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  const [namer, isAdmin] = await Promise.all([forumNamer(supabase, me), headerIsAdmin(supabase, me)]);
+  const actor = { memberId: me, isAdmin };
 
-  const [topics, tags, name, isAdmin, points] = await Promise.all([
-    read("topic"),
-    read("tag"),
+  const [topics, tags, name, points] = await Promise.all([
+    listTopics(supabase).then((rows): ViewTopic[] | string => {
+      const names = new Map(rows.map((t) => [t.id, t.name]));
+      return rows.map((t) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        description: t.description,
+        parentId: t.parentId,
+        parentName: (t.parentId && names.get(t.parentId)) || "",
+        by: namer(t.createdBy),
+        createdAt: t.createdAt,
+        mayChange: mayChangeTopic(t, actor),
+      }));
+    }, message),
+    listForumEntries(supabase, "tag").then(
+      (rows): ListEntry[] | string => rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt, by: namer(r.createdBy) })),
+      message,
+    ),
     headerName(supabase, user),
-    headerIsAdmin(supabase, user.id),
     headerPoints(supabase, user.id),
   ]);
 
@@ -75,7 +81,7 @@ export default async function Forum() {
           <Link href="/proposals">Proposals</Link> page.
         </p>
         <p className="note">
-          Topics are what members discuss; tags sort the discussions. Any member can add either one. Threads come next.
+          Topics are what members discuss; tags sort the discussions. Any member can add either one; the member who added a topic, or an admin, can change or delete it. Threads come next.
         </p>
         <ForumLists topics={topics} tags={tags} />
       </main>
