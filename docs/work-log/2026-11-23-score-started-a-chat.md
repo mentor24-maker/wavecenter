@@ -1,4 +1,4 @@
-## 2026-11-22 — Started a chat earns its point (#180)
+## 2026-11-23 — Started a chat earns its point (#180)
 
 Starting a chat with another member now earns a point. Before this,
 "Started a chat" was on Game > Manage but marked "Not active yet": the
