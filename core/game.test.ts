@@ -458,6 +458,32 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
 
+const SWEEP_2_SQL = readFileSync(new URL('../supabase/migrations/20261122140000_scoring_actions_sweep_2.sql', import.meta.url), 'utf8');
+
+test('the second sweep lists each new action once, under the kind the Add form would make, worth 1, none already on the list', () => {
+  const rows = [...SWEEP_2_SQL.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"), points: Number(m[5]), ord: Number(m[6]),
+  }));
+  assert.deepEqual(rows.map((r) => r.kind), [
+    'started_a_chat', 'added_a_forum_topic', 'added_a_forum_tag', 'made_a_proposal', 'changed_a_proposal', 'deleted_a_proposal',
+    'changed_a_home_box', 'starred_a_message', 'scored_an_action_s_factors', 'gave_a_reason_for_a_factor',
+    'added_a_token_size', 'changed_a_token_size', 'deleted_a_token_size', 'rescored_past_points', 'made_points_final',
+  ]);
+  const already = [...STARTING_SCORING_RULES, ...sweepRows()];
+  rows.forEach((r, i) => {
+    assert.equal(r.kind, kindFromName(r.name), r.name);
+    assert.equal(r.points, 1, r.kind);
+    assert.equal(r.ord, i + 1, `${r.kind} goes after the rows before it`);
+    assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
+    assert.ok(r.description && r.criteria, `${r.kind} says what it is and what counts`);
+    // Listed only (Dane chose B on the first sweep): each is wired by its own ticket.
+    assert.equal(isWired(r.kind), false, `${r.kind} is not active yet`);
+    assert.ok(!already.some((a) => a.kind === r.kind || a.name.toLowerCase() === r.name.toLowerCase()), `${r.kind} is not on the list already`);
+  });
+  assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
+  assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
+});
+
 test('adding a scoring action records one engagement, credited to the admin who added it', async () => {
   const ledger = new MemoryEngagementStore();
   ledger.signedIn = 'dane';

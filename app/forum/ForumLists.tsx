@@ -5,12 +5,19 @@
  * each a fold-out Add box over a table, lined up in columns and rows (Dane,
  * 2026-11-15). On a narrow screen the two stack, Topics first.
  *
+ * The Topics table (WC-183) has headings that sort when clicked, a Parent
+ * column, a filter bar (text and parent topic) and View / Edit / Delete on
+ * each row (TopicsTable.tsx). Tags are still just listed.
+ *
  * A save shows its error and keeps what was typed (engineering rule 6); an
  * empty table says it is empty and how to fill it (rule 7).
  */
 import { useId, useState, useTransition, type FormEvent } from "react";
 import type { ForumKind } from "../../core/forum.ts";
-import { addForum, type ForumSaveResult } from "./actions";
+import { addForum } from "./actions";
+import { attempt, DATE } from "./forumClient";
+import TopicsTable from "./TopicsTable";
+import type { ViewTopic } from "./topicView";
 
 export interface ListEntry {
   id: string;
@@ -19,23 +26,12 @@ export interface ListEntry {
   by: string;
 }
 
-const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again; what you typed is still here.";
-const DATE = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
-
-async function attempt(action: () => Promise<ForumSaveResult>): Promise<ForumSaveResult> {
-  try {
-    return await action();
-  } catch {
-    return { ok: false, error: UNREACHABLE };
-  }
-}
-
 const WORDS: Record<ForumKind, { title: string; one: string; add: string }> = {
   topic: { title: "Topics", one: "topic", add: "Add Topic" },
   tag: { title: "Tags", one: "tag", add: "Add Tag" },
 };
 
-export default function ForumLists({ topics, tags }: { topics: ListEntry[] | string; tags: ListEntry[] | string }) {
+export default function ForumLists({ topics, tags }: { topics: ViewTopic[] | string; tags: ListEntry[] | string }) {
   return (
     <section className="forum-lists" aria-label="Topics and tags">
       <Column kind="topic" entries={topics} />
@@ -45,7 +41,7 @@ export default function ForumLists({ topics, tags }: { topics: ListEntry[] | str
 }
 
 /** One side. `entries` is the list, or the reason it could not be read. */
-function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | string }) {
+function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | ViewTopic[] | string }) {
   const words = WORDS[kind];
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +82,8 @@ function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | str
           <p className="error" role="alert">
             The {words.title.toLowerCase()} could not be loaded: {entries}. Nothing has been lost; try reloading the page.
           </p>
+        ) : kind === "topic" ? (
+          <TopicsTable topics={entries as ViewTopic[]} />
         ) : (
           <table className="game members forum-table">
             <thead>
@@ -103,7 +101,7 @@ function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | str
                   </td>
                 </tr>
               ) : (
-                entries.map((entry) => (
+                (entries as ListEntry[]).map((entry) => (
                   <tr key={entry.id}>
                     <td title={entry.name}>{entry.name}</td>
                     <td className="note">{entry.by}</td>
