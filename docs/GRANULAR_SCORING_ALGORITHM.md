@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Made points final | 1 | 1 | 2 | 2 | 0 | **8** | Ends the provisional phase for good, so every member can rely on the points they have earned; admin only, typed FINAL to confirm, and only once in a DEO's life, so it can never be farmed. (`supabase/migrations/20261124040000_score_made_points_final.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Made points final | Effort | 1 | Reading the warning and typing FINAL to confirm: under a minute. |
+| Made points final | Value | 2 | From then on every member can rely on the points they have earned staying earned. |
+| Made points final | Rarity | 2 | It can happen only once in a DEO's life, and only an admin can do it. |
+| Made points final | Farm risk | 0 | It cannot be repeated or undone, so it can never be farmed. |
 
 ## Scoring an action added later
 

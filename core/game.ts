@@ -56,6 +56,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'made_points_final',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -174,6 +175,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // fifteenth and last of its rows, so a fresh database puts it after the 25
+  // above and the fourteen second-sweep rows before it.
+  { kind: 'made_points_final', name: 'Made points final', description: 'Ended the provisional phase of scoring on the Admin page.', criteria: 'Scoring is declared final. This can happen only once.', points: 1, position: 40 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -367,6 +372,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  made_points_final: {
+    fn: 'makeScoringFinal', file: 'core/game.ts', database: 'game_settings_score_final',
+    test: 'making points final records one engagement for the admin who did it, naming the tool; a refused, repeated or failed one, or a service-key one, records none', testFile: 'core/game.test.ts',
   },
 };
 
