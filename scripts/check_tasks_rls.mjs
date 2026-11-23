@@ -925,6 +925,48 @@ try {
     chatRule?.name === 'Sent a chat message' && chatRule.points === 4 && chatRule.effort === 1 && chatRule.value === 1 && chatRule.rarity === 0 && chatRule.farm_risk === 2
       && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof chatRule[k] === 'string' && chatRule[k].length > 0),
     JSON.stringify(chatRule));
+  // Starting a chat earns its point (20261123130000_score_started_a_chat.sql,
+  // WC-189): a new chat is scored once for the member who started it, naming
+  // the tool from the x-wavecenter-tool header ('supabase-api' when none is
+  // sent); opening a chat already there, a refused start and a service-key
+  // insert score nothing; nobody can write the engagement themselves.
+  let startedChatPointsA = 0;
+  {
+    const STARTED_KIND = 'started_a_chat';
+    const startedRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${STARTED_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const named = await call('/rest/v1/rpc/start_chat', { method: 'POST', token: b.token, body: { other_member: outsider.id, about_task: insA.id }, tool: 'rls-check-chat-tool' });
+    const made = [chatAB.json, chatTask.json, raced[0].json, goneChat.json, plainAfter.json, named.json];
+    const makers = (await admin(`/rest/v1/chats?id=in.(${made.join(',')})&select=id,created_by`)).json ?? [];
+    const startedRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${STARTED_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const [sa, sb, so] = [await startedRows(a), await startedRows(b), await startedRows(outsider)];
+    const madeBy = (m) => makers.filter((c) => c.created_by === m.id).length;
+    check('starting a new chat records one engagement for the member who started it, worth what the rule says; opening one already there or a refused start records none',
+      named.status === 200 && makers.length === 6 && sa.length === madeBy(a) && sb.length === madeBy(b) && so.length === madeBy(outsider)
+        && sb.length === 3 && sa.length + so.length === 3
+        && [...sa, ...sb, ...so].every((e) => e.points === startedRule?.points && e.task_id === null),
+      `A ${JSON.stringify(sa)}, B ${JSON.stringify(sb)}, outsider ${JSON.stringify(so)}, chats ${JSON.stringify(makers)}, rule ${startedRule?.points}`);
+    check('a new chat names the tool its caller sent, and "supabase-api" when none was sent',
+      JSON.stringify(sb.map((e) => e.tool)) === JSON.stringify(['supabase-api', 'supabase-api', 'rls-check-chat-tool']) && [...sa, ...so].every((e) => e.tool === 'supabase-api'),
+      JSON.stringify(sb.map((e) => e.tool)));
+    check('"Started a chat" is active at 1 point with its four factors and a reason for each',
+      startedRule?.name === 'Started a chat' && startedRule.points === 1 && startedRule.effort === 0 && startedRule.value === 1 && startedRule.rarity === 1 && startedRule.farm_risk === 2
+        && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof startedRule[k] === 'string' && startedRule[k].length > 0),
+      JSON.stringify(startedRule));
+    const forgeStarted = await call('/rest/v1/engagements', { method: 'POST', token: outsider.token, body: { member_id: outsider.id, kind: STARTED_KIND, points: 1, tool: TOOL } });
+    const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: outsider.token, body: { p_member: outsider.id, p_kind: STARTED_KIND, p_tool: TOOL, p_task: null } });
+    const forgeTrigger = await call('/rest/v1/rpc/chats_score', { method: 'POST', token: outsider.token, body: {} });
+    const soAfter = await startedRows(outsider);
+    check('a member cannot forge a "Started a chat" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+      forgeStarted.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && soAfter.length === so.length,
+      `ledger HTTP ${forgeStarted.status}, record_engagement HTTP ${forgeRecord.status}, chats_score HTTP ${forgeTrigger.status}, outsider now ${soAfter.length}`);
+    const svcChat = await admin('/rest/v1/chats', { method: 'POST', prefer: 'return=representation', body: { created_by: a.id } });
+    const saAfter = await startedRows(a);
+    check('a chat made with the service key (no signed-in member) is saved and scores nothing',
+      svcChat.status === 201 && Array.isArray(svcChat.json) && svcChat.json.length === 1 && saAfter.length === sa.length,
+      `HTTP ${svcChat.status} ${JSON.stringify(svcChat.json)}, A had ${sa.length} now ${saAfter.length}`);
+    if (svcChat.json?.[0]?.id) await admin(`/rest/v1/chats?id=eq.${svcChat.json[0].id}`, { method: 'DELETE' });
+    startedChatPointsA = sa.reduce((sum, e) => sum + e.points, 0);
+  }
 
   // Unread chat messages (20261113150000_chat_unread.sql): a message is
   // unread for a member when it is newer than their last read and not their
@@ -1562,8 +1604,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages and chat messages were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages and started chats were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1586,7 +1628,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
