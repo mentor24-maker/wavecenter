@@ -8,6 +8,11 @@
 # queue-paced sleeping, heartbeat and usage-limit guard are left out until
 # Spirality has an incident that needs them.
 #
+# It carries Spirality's SP-385 token step (WC-181): every pass signs in to
+# Claude with the long-lived CLAUDE_CODE_OAUTH_TOKEN from Doppler (this
+# project's manifest: wavecenter/dev) when one is stored, and on this
+# machine's own sign-in otherwise (scripts/lib/claude_token.sh).
+#
 # Each iteration is a FRESH headless Claude Code session started in the main
 # checkout. Every loop skill picks the next ticket from the tracker on each run,
 # so there is no state to carry between runs, and a crashed run costs one
@@ -174,6 +179,8 @@ read_model() {
 PASS_OUT="$(mktemp "${TMPDIR:-/tmp}/$SLUG-pass.XXXXXX")"
 trap 'rm -rf "$LOCK" "$PASS_OUT" 2>/dev/null; [ "$(cat "$SYNC_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$SYNC_LOCK"' EXIT
 
+# shellcheck source=lib/claude_token.sh
+source "$REPO/scripts/lib/claude_token.sh"
 # shellcheck source=lib/back_to_main.sh
 source "$REPO/scripts/lib/back_to_main.sh"
 # A pull that changes a file the tracker server loads restarts it, so it runs the new code (SP-150).
@@ -268,10 +275,12 @@ while true; do
   fi
   LAST_REAL_PASS="$(date +%s)"
   read_model
+  read_claude_token
   echo "" >> "$LOG"
   # The START line names the model, so the Settings page (tracker/pipeline.mjs)
   # and the time-in-status report can tell which pass ran on what.
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") START /$SKILL (model: $PASS_MODEL) =====" >> "$LOG"
+  echo "[loop-runner] $(date "+%H:%M:%S") $TOKEN_LINE" >> "$LOG"
   # The pass's output goes to the log as it happens AND to its own file, so
   # the sign-in check below reads this pass only, not an older one.
   # The time limit writes what the pass was running into this file when it has
@@ -279,12 +288,21 @@ while true; do
   # first, so a stop never reports the previous stop's snapshot.
   SNAPSHOT="$LOG_DIR/$SLUG-$SKILL.timeout-snapshot"
   rm -f "$SNAPSHOT"
-  RUN_WITH_TIME_LIMIT_SNAPSHOT="$SNAPSHOT" \
-  "$REPO/scripts/run_with_time_limit.sh" "${LOOP_PASS_LIMIT_SECONDS:-7200}" -- \
-    "$CLAUDE_BIN" -p "/$SKILL" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
-    --allowedTools Bash Edit Write Read Glob Grep Task TodoWrite WebFetch \
-    2>&1 | tee "$PASS_OUT" >> "$LOG"
+  # The token is exported inside this subshell only, so the pass gets it in
+  # its environment and nothing else the runner starts ever does.
+  (
+    if [ -n "$CLAUDE_TOKEN" ]; then export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN"; fi
+    CLAUDE_TOKEN=""
+    RUN_WITH_TIME_LIMIT_SNAPSHOT="$SNAPSHOT" \
+    "$REPO/scripts/run_with_time_limit.sh" "${LOOP_PASS_LIMIT_SECONDS:-7200}" -- \
+      "$CLAUDE_BIN" -p "/$SKILL" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
+      --allowedTools Bash Edit Write Read Glob Grep Task TodoWrite WebFetch
+  ) 2>&1 | tee "$PASS_OUT" >> "$LOG"
   CODE=${PIPESTATUS[0]}
+  # Which sign-in the pass ran on, for the sign-in check below; the value is dropped.
+  USED_TOKEN=""
+  [ -n "$CLAUDE_TOKEN" ] && USED_TOKEN=yes
+  CLAUDE_TOKEN=""
   # `claude -p` exits 0 whenever it produced output, so the code is a fact
   # about the process, not a verdict on the pass. The pass's own report is.
   echo "===== $(date "+%Y-%m-%d %H:%M:%S") END /$SKILL (exit $CODE — not a verdict; the pass's report above is) =====" >> "$LOG"
@@ -301,7 +319,15 @@ while true; do
   # Only Claude's own sign-in errors, and only in this pass's last lines: a
   # pass that merely mentions "not logged in" (gh, supabase) is not one.
   if tail -20 "$PASS_OUT" | grep -qiE "OAuth session expired|Failed to authenticate|Invalid API key|Please run /login"; then
-    echo "[loop-runner] $(date "+%H:%M:%S") THIS PASS COULD NOT SIGN IN TO CLAUDE. Nothing will change until a person signs in on this machine (claude login) and restarts this job: launchctl kickstart -k gui/$(id -u)/$PREFIX.$SKILL" >> "$LOG"
+    # The fix depends on which sign-in failed (SP-385): a lost or ended
+    # long-lived token is replaced, and the next pass reads the new one with no
+    # restart; this machine's own sign-in is renewed in a browser. The token is
+    # stored from Spirality's folder; wavecenter/dev only refers to it.
+    if [ -n "$USED_TOKEN" ]; then
+      echo "[loop-runner] $(date "+%H:%M:%S") THIS PASS COULD NOT SIGN IN TO CLAUDE with $CLAUDE_TOKEN_KEY from Doppler $TOKEN_PROJECT/$TOKEN_CONFIG. Nothing will change until the account holder makes a new token on this machine (claude setup-token) and stores it (bash ~/WebApps/spirality/scripts/claude_token_to_doppler.sh); the next pass reads it, or restart this job now: launchctl kickstart -k gui/$(id -u)/$PREFIX.$SKILL" >> "$LOG"
+    else
+      echo "[loop-runner] $(date "+%H:%M:%S") THIS PASS COULD NOT SIGN IN TO CLAUDE. Nothing will change until a person signs in on this machine. Best: make a long-lived token for unattended jobs (claude setup-token) and store it (bash ~/WebApps/spirality/scripts/claude_token_to_doppler.sh), which the next pass reads; or sign in again (claude login) and restart this job: launchctl kickstart -k gui/$(id -u)/$PREFIX.$SKILL" >> "$LOG"
+    fi
   fi
 
   read_wake_time

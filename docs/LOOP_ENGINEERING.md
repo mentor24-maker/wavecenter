@@ -172,6 +172,19 @@ as itself (`loop-build`, `loop-review`, `loop-intake`, `relay`). The scripts
 are in `scripts/` (`install_loop_runner.sh`, `loop_runner.sh`, `run_relay.sh`
 and their helpers), copied from Spirality (`loop/README.md`).
 
+**Where the lanes' Claude sign-in comes from (WC-181).** Every pass signs in
+to Claude with `CLAUDE_CODE_OAUTH_TOKEN` from Doppler `wavecenter/dev` (the
+project and config in `spirality.project.json`) when one is stored. In
+`wavecenter/dev` that secret is a Doppler reference to Spirality's,
+`${spirality.dev.CLAUDE_CODE_OAUTH_TOKEN}`, so there is one token to rotate.
+The token is made by Dane on the Mini (`claude setup-token`, a browser login;
+it lasts about a year) and stored from Spirality's folder
+(`bash ~/WebApps/spirality/scripts/claude_token_to_doppler.sh`). With no token
+stored, a pass runs on the Mini's own browser sign-in, as before. Either way
+the line after each `START` in the lane's log says which one it used, and the
+token's value never appears in a log or on a command line: only the `claude`
+process gets it, in its environment (`scripts/lib/claude_token.sh`).
+
 ```bash
 /Users/daneofearth/WebApps/wavecenter/scripts/install_loop_runner.sh --status     # loaded? running? last pass?
 /Users/daneofearth/WebApps/wavecenter/scripts/install_loop_runner.sh              # install, or reinstall after a change
