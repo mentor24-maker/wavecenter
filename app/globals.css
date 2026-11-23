@@ -1065,3 +1065,25 @@ table.forum-table th:nth-child(3), table.forum-table td:nth-child(3) { width: 7.
 table.forum-table tbody tr { height: 2.6rem; }
 table.forum-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 table.forum-table th:last-child, table.forum-table td:last-child { padding-right: 0.5rem; }
+/* The Topics table (WC-183): Topic, Parent, Added by, Added, Actions. */
+table.forum-topics th:nth-child(2), table.forum-topics td:nth-child(2) { width: 22%; }
+table.forum-topics th:nth-child(3), table.forum-topics td:nth-child(3) { width: 18%; }
+table.forum-topics th:nth-child(4), table.forum-topics td:nth-child(4) { width: 7.5rem; }
+table.forum-topics th:nth-child(5), table.forum-topics td:nth-child(5) { width: 10rem; padding-left: 1rem; }
+table.forum-topics th .sort { white-space: nowrap; }
+td.forum-actions > * + * { margin-left: 0.6rem; }
+td.forum-actions button.link.danger { color: var(--error); }
+td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
+.forum-filters { margin-top: 0; }
+/* One topic's page and its edit form. */
+.topic-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0 0 var(--space); }
+.topic-facts dt { font-weight: 600; }
+.topic-facts dd { margin: 0; }
+.topic-details { margin: 0 0 var(--space); }
+.topic-details p { white-space: pre-wrap; margin: 0 0 0.4rem; }
+.topic-details ul, .topic-details ol { margin: 0 0 0.4rem; padding-left: 1.5rem; }
+.topic-form { display: grid; gap: 0.9rem; max-width: 46rem; }
+.topic-form label { display: grid; gap: 0.3rem; font-weight: 600; }
+.topic-form .hint { font-weight: normal; }
+.topic-form .comment-editor textarea { min-height: 10rem; }
+.topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
