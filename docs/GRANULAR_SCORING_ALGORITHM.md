@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Deleted a proposal | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. Same as deleting a task. (`supabase/migrations/20261123180000_score_deleted_a_proposal.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Deleted a proposal | Effort | 0 | One click. |
+| Deleted a proposal | Value | 1 | Housekeeping worth having: it tidies up the Proposals page. |
+| Deleted a proposal | Rarity | 0 | Proposals can be deleted many times a day. |
+| Deleted a proposal | Farm risk | 3 | The undo half of the make-and-delete loop. |
 
 ## Scoring an action added later
 

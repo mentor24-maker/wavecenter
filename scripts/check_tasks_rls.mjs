@@ -434,8 +434,8 @@ function proposalStore(member) {
     async update(id, changes) {
       return fromRow(sure(await call(mine(id), { method: 'PATCH', token: member.token, prefer: 'return=representation', body: toRow(changes) }), 'update')[0]) ?? null;
     },
-    async remove(id) {
-      return sure(await call(mine(id), { method: 'DELETE', token: member.token, prefer: 'return=representation' }), 'delete').length > 0;
+    async remove(id, tool) {
+      return sure(await call(mine(id), { method: 'DELETE', token: member.token, prefer: 'return=representation', tool }), 'delete').length > 0;
     },
   };
 }
@@ -1299,6 +1299,71 @@ try {
     }
   }
 
+  // Deleting a proposal earns its point
+  // (20261123180000_score_deleted_a_proposal.sql, WC-194): a proposal its
+  // owner deletes is scored once for them, naming the tool the delete sent;
+  // a refused delete, a sub-proposal losing its parent and a service-key
+  // delete score nothing; nobody can write the engagement themselves. Counts
+  // are taken at the start of the block, so the delete the proposals check
+  // above made (one, for A) does not matter here.
+  let deletedProposalPointsA = 0;
+  {
+    const DELETED_KIND = 'deleted_a_proposal';
+    const deletedRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${DELETED_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const deletedRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${DELETED_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    const make = async (member, body) => {
+      const made = await call('/rest/v1/proposals', { method: 'POST', token: member.token, prefer: 'return=representation', body });
+      const id = made.json?.[0]?.id;
+      if (id) ids.push(id);
+      return { status: made.status, id };
+    };
+    const remove = (id, member, tool) => call(`/rest/v1/proposals?id=eq.${id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation', tool });
+    try {
+      const [pa, pb] = [await deletedRows(a), await deletedRows(b)];
+      check('the proposal A deleted through core above recorded one engagement for them, worth what the rule says, naming its tool',
+        pa.length >= 1 && pa.every((e) => e.points === deletedRule?.points && e.tool === TOOL && e.task_id === null),
+        `A ${JSON.stringify(pa)}, B ${JSON.stringify(pb)}, rule ${deletedRule?.points}`);
+      const title = `RLS deleted proposal ${randomUUID().slice(0, 8)}`;
+      const parent = await make(a, { title: `${title} parent` });
+      const child = await make(a, { title: `${title} child`, parent_proposal_id: parent.id });
+      const plain = await make(a, { title });
+      const theirs = await make(b, { title: `${title} B's` });
+      const afterMaking = await deletedRows(a);
+      const hijack = theirs.id ? await remove(theirs.id, a, TOOL) : { status: 0 };
+      const afterHijack = [await deletedRows(a), await deletedRows(b)];
+      const del = plain.id ? await remove(plain.id, a, 'rls-check-proposal-tool') : { status: 0 };
+      const delParent = parent.id ? await remove(parent.id, a, TOOL) : { status: 0 };
+      const orphan = child.id ? (await admin(`/rest/v1/proposals?id=eq.${child.id}&select=parent_proposal_id`)).json?.[0] : null;
+      const pa2 = await deletedRows(a);
+      check('deleting a proposal records exactly one engagement for the member who deleted it, naming the tool it sent; making one, or its sub-proposal losing it, records none',
+        plain.status === 201 && afterMaking.length === pa.length && del.json?.length === 1 && delParent.json?.length === 1 && orphan?.parent_proposal_id === null
+          && pa2.length === pa.length + 2 && pa2.at(-2)?.tool === 'rls-check-proposal-tool' && pa2.at(-1)?.tool === TOOL && pa2.slice(-2).every((e) => e.points === deletedRule?.points),
+        `made HTTP ${plain.status}, delete ${JSON.stringify(del.json)}, parent ${JSON.stringify(delParent.json)}, child ${JSON.stringify(orphan)}, A had ${pa.length} (${afterMaking.length} after making) now ${JSON.stringify(pa2)}`);
+      check('another member\u2019s attempt to delete a proposal deletes nothing and records nothing',
+        hijack.status === 200 && hijack.json?.length === 0 && afterHijack[0].length === pa.length && afterHijack[1].length === pb.length,
+        `HTTP ${hijack.status} ${JSON.stringify(hijack.json)}, A had ${pa.length} now ${afterHijack[0].length}, B had ${pb.length} now ${afterHijack[1].length}`);
+      check('"Deleted a proposal" is active at 1 point with its four factors and a reason for each',
+        deletedRule?.name === 'Deleted a proposal' && deletedRule.points === 1 && deletedRule.effort === 0 && deletedRule.value === 1 && deletedRule.rarity === 0 && deletedRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof deletedRule[k] === 'string' && deletedRule[k].length > 0),
+        JSON.stringify(deletedRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: DELETED_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: DELETED_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/proposals_score_delete', { method: 'POST', token: b.token, body: {} });
+      const pb3 = await deletedRows(b);
+      check('a member cannot forge a "Deleted a proposal" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && pb3.length === pb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, proposals_score_delete HTTP ${forgeTrigger.status}, B now ${pb3.length}`);
+      const svc = child.id ? await admin(`/rest/v1/proposals?id=eq.${child.id}`, { method: 'DELETE', prefer: 'return=representation' }) : { status: 0 };
+      const pa4 = await deletedRows(a);
+      check('a delete made with the service key (no signed-in member) goes through and scores nothing',
+        svc.status === 200 && svc.json?.length === 1 && pa4.length === pa2.length, `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${pa2.length} now ${pa4.length}`);
+      deletedProposalPointsA = (await deletedRows(a)).reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -1562,8 +1627,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages and chat messages were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages and deleted proposals were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},deleted_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1586,7 +1651,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + deletedProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
