@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Starred a message | 1 | 0 | 0 | 0 | 3 | **1** | One click on a private mark nobody else sees; can be unstarred and starred again. Same as switching the AI agents on or off. (`supabase/migrations/20261123200000_score_starred_a_message.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Starred a message | Effort | 0 | One click on the Star. |
+| Starred a message | Value | 0 | A private mark: nobody else sees it, so it does nothing for anyone else. |
+| Starred a message | Rarity | 0 | Members can star messages many times a day. |
+| Starred a message | Farm risk | 3 | A star can be taken off and put back, so it loops. |
 
 ## Scoring an action added later
 
