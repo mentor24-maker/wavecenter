@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Gave a reason for a factor | 1 | 1 | 2 | 1 | 3 | **7** | Every member can read why an action is worth what it is; a reason can be changed straight back. Admin only. (`supabase/migrations/20261123220000_score_gave_a_reason_for_a_factor.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Gave a reason for a factor | Effort | 1 | One sentence on why a factor got its score: under a minute. |
+| Gave a reason for a factor | Value | 2 | Every member can read on Game > Manage why an action is worth what it is. |
+| Gave a reason for a factor | Rarity | 1 | Reasons change a few times a week at most, and only an admin can write one. |
+| Gave a reason for a factor | Farm risk | 3 | A reason can be changed straight back, so it loops. |
 
 ## Scoring an action added later
 
