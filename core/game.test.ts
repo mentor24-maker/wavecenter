@@ -38,6 +38,34 @@ const SWEEP_SQL = readFileSync(new URL('../supabase/migrations/20261102120000_sc
 /** Actions listed after the formula was written, each worth its formula value from the start, by the migration that wires it. */
 const LATER_ACTION_MIGRATIONS = ['20261112120000_chats.sql'];
 
+const SWEEP_2_SQL = readFileSync(new URL('../supabase/migrations/20261122140000_scoring_actions_sweep_2.sql', import.meta.url), 'utf8');
+
+/** The second sweep's rows, in its order. */
+function sweep2Rows() {
+  return [...SWEEP_2_SQL.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
+    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"), points: Number(m[5]), ord: Number(m[6]),
+  }));
+}
+
+/**
+ * The migrations that wire a second-sweep action (one "earns its point"
+ * ticket each). Each fills its row's four factors and four reasons with one
+ * update, as the document gives them; its points stay at 1.
+ */
+const SWEEP_2_WIRING_MIGRATIONS = ['20261124010000_score_changed_a_token_size.sql'];
+
+/** Each wired second-sweep action's factors and reasons, as its migration stores them. */
+function sweep2FactorRows() {
+  const quoted = String.raw`'((?:[^']|'')*)'`;
+  const row = new RegExp(String.raw`set effort = (\d), value = (\d), rarity = (\d), farm_risk = (\d),\s*effort_reason = ${quoted},\s*value_reason = ${quoted},\s*rarity_reason = ${quoted},\s*farm_risk_reason = ${quoted}\s*where kind = '([a-z_]+)'`, 'g');
+  const text = (t: string) => t.replaceAll("''", "'");
+  return SWEEP_2_WIRING_MIGRATIONS.flatMap((file) => [...readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8').matchAll(row)].map((m) => ({
+    kind: m[9],
+    factors: { effort: Number(m[1]), value: Number(m[2]), rarity: Number(m[3]), farmRisk: Number(m[4]) } as ScoringFactors,
+    reasons: { effort: text(m[5]), value: text(m[6]), rarity: text(m[7]), farmRisk: text(m[8]) } as FactorReasons,
+  })));
+}
+
 /** Each later action's row: its rule, its four factors and its four reasons, as its migration lists it. */
 function laterRows() {
   const quoted = String.raw`'((?:[^']|'')*)'`;
@@ -84,7 +112,11 @@ test('the migrations seed exactly the starting rules core knows', () => {
   // Each later action goes after everything listed before it.
   const afterSweep = Math.max(last, ...swept.map((r) => r.position));
   const later = laterRows().map(({ ord, factors, reasons, ...r }) => ({ ...r, position: afterSweep + ord }));
-  assert.deepEqual([...seeded, ...swept, ...later], STARTING_SCORING_RULES);
+  // The second sweep's rows go after all of those; the ones wired since are starting rules too.
+  const afterLater = Math.max(afterSweep, ...later.map((r) => r.position));
+  const swept2 = sweep2Rows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: afterLater + ord }));
+  assert.ok(swept2.length >= 1);
+  assert.deepEqual([...seeded, ...swept, ...later, ...swept2], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {
@@ -458,12 +490,8 @@ test('the sweep lists each new action once, under the kind the Add form would ma
   assert.doesNotMatch(SWEEP_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
 
-const SWEEP_2_SQL = readFileSync(new URL('../supabase/migrations/20261122140000_scoring_actions_sweep_2.sql', import.meta.url), 'utf8');
-
 test('the second sweep lists each new action once, under the kind the Add form would make, worth 1, none already on the list', () => {
-  const rows = [...SWEEP_2_SQL.matchAll(/^\s*\('([a-z_]+)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',\s*(\d+),\s*(\d+)\)/gm)].map((m) => ({
-    kind: m[1], name: m[2].replaceAll("''", "'"), description: m[3].replaceAll("''", "'"), criteria: m[4].replaceAll("''", "'"), points: Number(m[5]), ord: Number(m[6]),
-  }));
+  const rows = sweep2Rows();
   assert.deepEqual(rows.map((r) => r.kind), [
     'started_a_chat', 'added_a_forum_topic', 'added_a_forum_tag', 'made_a_proposal', 'changed_a_proposal', 'deleted_a_proposal',
     'changed_a_home_box', 'starred_a_message', 'scored_an_action_s_factors', 'gave_a_reason_for_a_factor',
@@ -476,10 +504,13 @@ test('the second sweep lists each new action once, under the kind the Add form w
     assert.equal(r.ord, i + 1, `${r.kind} goes after the rows before it`);
     assert.ok(r.name.length <= RULE_NAME_MAX && r.description.length <= RULE_TEXT_MAX && r.criteria.length <= RULE_TEXT_MAX, r.kind);
     assert.ok(r.description && r.criteria, `${r.kind} says what it is and what counts`);
-    // Listed only (Dane chose B on the first sweep): each is wired by its own ticket.
-    assert.equal(isWired(r.kind), false, `${r.kind} is not active yet`);
-    assert.ok(!already.some((a) => a.kind === r.kind || a.name.toLowerCase() === r.name.toLowerCase()), `${r.kind} is not on the list already`);
+    // Listed only (Dane chose B on the first sweep): each is wired by its own
+    // ticket, and is a starting rule exactly when it is wired.
+    const before = already.filter((a) => a.kind !== r.kind || !isWired(r.kind));
+    assert.ok(!before.some((a) => a.kind === r.kind || a.name.toLowerCase() === r.name.toLowerCase()), `${r.kind} is not on the list already`);
+    assert.equal(STARTING_SCORING_RULES.some((s) => s.kind === r.kind), isWired(r.kind), `${r.kind} is a starting rule exactly when it is wired`);
   });
+  assert.equal(isWired('changed_a_token_size'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
@@ -533,7 +564,7 @@ function documentRows() {
 
 test('the formula gives the Proposed column of every row in the document', () => {
   const rows = documentRows();
-  assert.equal(rows.length, 24 + laterRows().length);
+  assert.equal(rows.length, 24 + laterRows().length + sweep2FactorRows().length);
   for (const r of rows) assert.equal(granularPoints(r.factors), r.proposed, r.name);
 });
 
@@ -597,7 +628,7 @@ test('the migration fills every action the document scores, with the same factor
   const filled = [...sql.matchAll(/^\s*\('([a-z_]+)',\s*(\d), (\d), (\d), (\d)\)/gm)].map((m) => ({
     kind: m[1], factors: { effort: Number(m[2]), value: Number(m[3]), rarity: Number(m[4]), farmRisk: Number(m[5]) },
   }));
-  const later = new Set(laterRows().map((r) => r.kind));
+  const later = new Set([...laterRows(), ...sweep2FactorRows()].map((r) => r.kind));
   assert.deepEqual(filled, documentRows().filter((r) => !later.has(r.kind)).map((r) => ({ kind: r.kind, factors: r.factors })));
 });
 
@@ -633,12 +664,31 @@ test('the reasons migration stores the document\'s 96 reasons word for word, and
   const filled = [...sql.matchAll(new RegExp(String.raw`^\s*\('([a-z_]+)',\s*${quoted},\s*${quoted},\s*${quoted},\s*${quoted}\)`, 'gm'))].map((m) => [
     m[1], m.slice(2, 6).map((t) => t.replaceAll("''", "'")),
   ]);
-  const reasons = [...documentReasons()].filter(([kind]) => !laterRows().some((r) => r.kind === kind));
+  const reasons = [...documentReasons()].filter(([kind]) => ![...laterRows(), ...sweep2FactorRows()].some((r) => r.kind === kind));
   assert.equal(reasons.length * 4, 96);
   assert.deepEqual(filled, reasons.map(([kind, r]) => [kind, (['effort', 'value', 'rarity', 'farmRisk'] as const).map((k) => r.reasons[k])]));
   const code = sql.replace(/--.*$/gm, '');
   assert.doesNotMatch(code, /set[^;]*\b(points|effort|value|rarity|farm_risk)\s*=/i, 'the migration changes no points and no factor');
   assert.doesNotMatch(code, /grant (insert|update|delete|all)[^;]*on public\.game_scoring_rules/i, 'members never write the table directly');
+});
+
+test('each wired second-sweep action\'s migration stores the factors and reasons the document gives it, and keeps its points', () => {
+  const rows = documentRows();
+  const reasons = documentReasons();
+  const filled = sweep2FactorRows();
+  assert.deepEqual(filled.map((r) => r.kind), sweep2Rows().filter((r) => isWired(r.kind)).map((r) => r.kind), 'every wired one, in sweep order');
+  for (const r of filled) {
+    const doc = rows.find((d) => d.kind === r.kind);
+    assert.deepEqual(doc?.factors, r.factors, `${r.kind}: the document's table`);
+    assert.equal(doc?.now, 1, `${r.kind}: worth 1 until an admin puts the formula live`);
+    assert.equal(STARTING_SCORING_RULES.find((s) => s.kind === r.kind)?.points, 1, r.kind);
+    assert.deepEqual(reasons.get(r.kind)?.reasons, r.reasons, `${r.kind}: the document's reasons, word for word`);
+  }
+  for (const file of SWEEP_2_WIRING_MIGRATIONS) {
+    const code = readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8').replace(/--.*$/gm, '');
+    assert.doesNotMatch(code, /\bpoints\s*=/i, `${file} changes no points`);
+    assert.match(code, /and effort is null and value is null and rarity is null and farm_risk is null;/, `${file} never overwrites an admin's scores`);
+  }
 });
 
 function scoredLedger() {
