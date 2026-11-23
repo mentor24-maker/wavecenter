@@ -18,9 +18,12 @@ later never rewrites what someone already earned (`docs/DATA_MODEL.md`,
 "The game layer"). The one way past points move is a rescore, which adds
 correction rows instead ([Rescoring past points](#rescoring-past-points)).
 
-24 actions are listed. Ten earn points today; the other fourteen show "Not
-active yet" on Game → Manage until each is wired up
-(`docs/GRANULAR_SCORING_ALGORITHM.md`, "The table").
+40 actions are listed on a fresh database. Twenty-five earn points today;
+the other fifteen, found by the second sweep of the app on 2026-11-22
+(WC-188, `supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`),
+show "Not active yet" on Game → Manage until each is wired up by its own
+"earns its point" ticket (`docs/GRANULAR_SCORING_ALGORITHM.md`, "The
+table").
 
 ## Rescoring past points
 
