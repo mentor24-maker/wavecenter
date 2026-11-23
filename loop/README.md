@@ -45,6 +45,15 @@ Two runner files are WaveCenter's own and are not straight copies:
   the newer runner treats a lane with no pause switch as paused, so it keeps
   its fixed ten-minute timer as before.
 
+Both runners also carry Spirality's SP-385 token step (WC-181), lifted from a
+newer Spirality runner than the `e5d86e4` copy: every pass signs in to Claude
+with the long-lived `CLAUDE_CODE_OAUTH_TOKEN` from Doppler `wavecenter/dev`
+when one is stored (there it is a Doppler reference to Spirality's token, so
+one token serves both), and on the Mini's own sign-in otherwise. The step
+lives in `scripts/lib/claude_token.sh`, which both runners source, and its
+tests are `scripts/lib/claudeToken.test.mjs`. A later recopy of the runner
+from Spirality must keep it.
+
 Spirality's tests for the new helpers (`wakeSetting`, `modelSetting`,
 `workCheck`, `pauseCheck`) are not copied: they import Spirality's own
 tracker code and test helpers, which WaveCenter does not have, and Spirality's
