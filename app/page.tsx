@@ -142,7 +142,7 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
             <p className="note">See the evolution of WaveCenter, from the very first instruction to it&rsquo;s current version &mdash; task by task. Then get busy helping build WaveCenter yourself!</p>
             {evolution.error !== null || evolution.value.error ? (
               <p className="error" role="alert">
-                The changes and Dane&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
+                The changes and the operator&rsquo;s words for them could not be loaded: {evolution.error ?? evolution.value?.error}. Nothing has been lost; try reloading the page.
               </p>
             ) : evolution.value.recorded === 0 ? (
               <p className="note" role="status">No changes have been captured yet: the screenshot taker has not run.</p>
