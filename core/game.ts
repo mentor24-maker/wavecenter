@@ -56,6 +56,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'scored_an_action_s_factors',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -174,6 +175,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // ninth of its rows, so a fresh database puts it after the 25 above and
+  // the eight second-sweep rows before it.
+  { kind: 'scored_an_action_s_factors', name: 'Scored an action\'s factors', description: 'Gave an action its four factor scores on Game > Manage.', criteria: 'A saved change to an action\'s factors.', points: 1, position: 34 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -367,6 +372,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  scored_an_action_s_factors: {
+    fn: 'changeScoringFactors', file: 'core/game.ts', database: 'game_scoring_rules_score_factors',
+    test: 'scoring an action records one engagement for the admin who changed its factors, naming the tool; a save that changes no factor, a refused or failed one, or a service-key write records none', testFile: 'core/game.test.ts',
   },
 };
 

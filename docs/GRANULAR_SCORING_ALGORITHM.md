@@ -218,6 +218,19 @@ formula's.
 |---|---|---|---|---|---|---|---|
 | Sent a chat message | 4 | 1 | 1 | 0 | 2 | **4** | Helps the other member in the chat, like a message; each needs words, and a chat message cannot be edited or deleted, so it cannot loop. (`supabase/migrations/20261112120000_chats.sql`) |
 
+### The second sweep's actions, scored as each is wired
+
+The second sweep (WC-188,
+`supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) listed
+fifteen more actions at 1 point each. Each is scored here in the pull
+request that wires it, and its migration stores the same factors and
+reasons on its row. Its points stay at 1 ("Now") until an admin puts the
+formula's value live from the Admin page, as for the first sweep's.
+
+| Action | Now | E | V | R | F | Proposed | Why |
+|---|---|---|---|---|---|---|---|
+| Scored an action's factors | 1 | 1 | 2 | 1 | 3 | **7** | Sets what the Admin page's batch proposes each action be worth; can be changed straight back. Admin only. Same as changing a scoring rule. (`supabase/migrations/20261123210000_score_scored_an_action_s_factors.sql`) |
+
 ### Why each factor got its score
 
 The "Why" lines above cover all four factors at once. Below, each action's
@@ -331,6 +344,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Scored an action's factors | Effort | 1 | Weighing an action and picking its four scores: about a minute. |
+| Scored an action's factors | Value | 2 | Sets what the batch proposes each action be worth, which every member earns by. |
+| Scored an action's factors | Rarity | 1 | Factors change a few times a week at most, and only an admin can change them. |
+| Scored an action's factors | Farm risk | 3 | Factors can be changed straight back, so it loops. |
 
 ## Scoring an action added later
 
