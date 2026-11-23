@@ -82,6 +82,80 @@ export interface MessageStore {
   recordEmail(messageId: string, status: 'sent' | 'failed'): Promise<string | null>;
   /** Every message `memberId` sent or received, in any order. Throws if the read is refused. */
   list(memberId: string): Promise<SavedMessage[]>;
+  /** The signed-in member's own Star and Trash marks, in any order. Throws if the read is refused. */
+  listMarks(memberId: string): Promise<MessageMark[]>;
+  /**
+   * Change the signed-in member's own mark on a message they sent or
+   * received; a part left out stays as it is. Returns the mark as now saved.
+   * Throws if the write is refused.
+   */
+  setMark(messageId: string, change: MarkChange, tool: string): Promise<MessageMark>;
+}
+
+/**
+ * One member's own marks on one message (WC-180; Dane's "A", 2026-11-22):
+ * private to that member, so the other member sees no change. A Star says the
+ * message matters to them ("Flag is intended to mean as 'important', not
+ * 'bad'"); Trash hides it from their own list until they restore it, and
+ * never deletes it.
+ */
+export interface MessageMark {
+  messageId: string;
+  starred: boolean;
+  /** When they put it in their trash, as an ISO date; null when it is not in the trash. */
+  trashedAt: string | null;
+}
+
+/** What a click changes: star or unstar, trash or restore. */
+export type MarkChange = { starred?: boolean; trashed?: boolean };
+
+/** A message nobody has marked. */
+export function unmarked(messageId: string): MessageMark {
+  return { messageId, starred: false, trashedAt: null };
+}
+
+/**
+ * The signed-in member's marks, by message id. Marks on messages they neither
+ * sent nor received cannot exist (the database refuses them), and any the
+ * store hands back for another member's id are dropped. A failed read throws.
+ */
+export async function listMessageMarks(store: MessageStore, memberId: string): Promise<Map<string, MessageMark>> {
+  if (!memberId) throw new CoreError('You are signed out, so there are no messages to show.');
+  const rows = await store.listMarks(memberId);
+  return new Map(rows.map((m) => [m.messageId, m]));
+}
+
+/**
+ * `memberId` stars, unstars, trashes or restores one of their messages, on
+ * behalf of `tool`. Throws a CoreError if nothing is asked, if they are
+ * signed out, or if what the store saved is not what was asked (engineering
+ * rule 6: never report a change that did not stick). A refused write throws
+ * too.
+ */
+export async function markMessage(
+  store: MessageStore,
+  memberId: string,
+  messageId: string,
+  change: MarkChange,
+  tool: string,
+): Promise<MessageMark> {
+  const named = requireTool(tool);
+  if (!memberId) throw new CoreError('You are signed out, so nothing was changed.');
+  if (!messageId) throw new CoreError('No message was named, so nothing was changed.');
+  const asked: MarkChange = {};
+  if (typeof change.starred === 'boolean') asked.starred = change.starred;
+  if (typeof change.trashed === 'boolean') asked.trashed = change.trashed;
+  if (asked.starred === undefined && asked.trashed === undefined) throw new CoreError('Nothing to change was given.');
+  const saved = await store.setMark(messageId, asked, named);
+  if (
+    !saved ||
+    saved.messageId !== messageId ||
+    (asked.starred !== undefined && saved.starred !== asked.starred) ||
+    (asked.trashed !== undefined && (saved.trashedAt !== null) !== asked.trashed)
+  ) {
+    throw new CoreError('The change did not save. Nothing was changed; try again.');
+  }
+  return saved;
 }
 
 /** A saved message, as the sender and the recipient read it. Never carries an email address. */
