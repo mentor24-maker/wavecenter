@@ -8,9 +8,9 @@
  * and a tag have the same shape: a name, who added it, the tool, and when.
  *
  * Every member reads every topic and tag and may add one. Names are unique
- * without regard to capitals or surrounding spaces. Tags are only listed for
- * now; attaching a tag to a topic, threads, and changing or deleting either
- * one come later. Core does not know about Supabase: it talks to a
+ * without regard to capitals or surrounding spaces. A topic can be opened,
+ * changed and deleted, and can have a parent topic (WC-183, below); tags are
+ * only listed for now. Attaching a tag to a topic and threads come later. Core does not know about Supabase: it talks to a
  * `ForumStore`, a thin adapter a client supplies. The plain-words description
  * of the tables is docs/DATA_MODEL.md.
  */
@@ -88,4 +88,209 @@ export async function addForumEntry(store: ForumStore, kind: ForumKind, name: un
   const existing = await store.findByName(k, row.name);
   if (existing) throw new CoreError(`There is already a ${k} called "${existing.name}".`);
   return store.insert(k, row);
+}
+
+// ---------------------------------------------------------------------------
+// A topic's details, changing it and deleting it (WC-183, 2026-11-22).
+//
+// A topic also has a slug (its short web-address name), a one-line
+// description, rich-text details (core/richText.ts, stored as plain words)
+// and a parent topic. Who may change or delete a topic: the member who added
+// it, and admins (Dane, 2026-11-22, "A"). Deleting a topic leaves its
+// sub-topics in place with no parent. Tags stay as they are.
+// ---------------------------------------------------------------------------
+
+/** The longest slug, description and details, in characters. */
+export const TOPIC_SLUG_MAX = 80;
+export const TOPIC_DESCRIPTION_MAX = 500;
+export const TOPIC_DETAILS_MAX = 10000;
+
+/** A topic with everything its details page shows. */
+export interface ForumTopic extends ForumEntry {
+  kind: 'topic';
+  slug: string;
+  description: string;
+  /** Rich text in the core/richText.ts format: plain words, never HTML. */
+  details: string;
+  parentId: string | null;
+  updatedAt: string;
+}
+
+/** The columns an edit writes, every one decided here. */
+export interface TopicChangeRow {
+  name: string;
+  slug: string;
+  description: string;
+  details: string;
+  parentId: string | null;
+}
+
+/** What a member types on the edit page. A blank slug means "make one from the name". */
+export interface TopicEdit {
+  name: unknown;
+  slug?: unknown;
+  description?: unknown;
+  details?: unknown;
+  parentId?: unknown;
+}
+
+/** Who is asking: their id, and whether they are an admin. */
+export interface ForumActor {
+  memberId: string;
+  isAdmin: boolean;
+}
+
+/** What core needs from storage to change and delete topics. */
+export interface TopicStore {
+  listTopics(): Promise<ForumTopic[]>;
+  /** Write the change and return the topic as saved. Throws if nothing was saved. */
+  updateTopic(id: string, row: TopicChangeRow): Promise<ForumTopic>;
+  /** Delete the topic; its sub-topics keep going with no parent. Throws if nothing was deleted. */
+  deleteTopic(id: string): Promise<void>;
+}
+
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The slug a name suggests: lower case, every run of anything but a-z and
+ * 0-9 turned into one hyphen, no hyphen at either end, at most 80
+ * characters; "topic" if nothing is left. The database's
+ * forum_topic_slug_from() makes the same one.
+ */
+export function topicSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, TOPIC_SLUG_MAX)
+    .replace(/-+$/, '');
+  return slug || 'topic';
+}
+
+/** `base`, or `base-2`, `base-3`… whichever no slug in `taken` already is. */
+export function uniqueTopicSlug(base: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const slug = `${base.slice(0, TOPIC_SLUG_MAX - suffix.length).replace(/-+$/, '')}${suffix}`;
+    if (!used.has(slug)) return slug;
+  }
+}
+
+/** May this member change or delete this topic? Its adder, or an admin. */
+export function mayChangeTopic(topic: Pick<ForumEntry, 'createdBy'>, actor: ForumActor): boolean {
+  return actor.isAdmin || (topic.createdBy !== null && topic.createdBy === actor.memberId);
+}
+
+/** The ids of every topic under `id`, at any depth (not `id` itself). */
+export function topicDescendants(topics: readonly Pick<ForumTopic, 'id' | 'parentId'>[], id: string): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const t of topics) {
+    if (t.parentId) children.set(t.parentId, [...(children.get(t.parentId) ?? []), t.id]);
+  }
+  const found = new Set<string>();
+  const stack = [...(children.get(id) ?? [])];
+  while (stack.length) {
+    const next = stack.pop()!;
+    if (found.has(next) || next === id) continue;
+    found.add(next);
+    stack.push(...(children.get(next) ?? []));
+  }
+  return found;
+}
+
+/** The topics `id` may have as its parent: every other topic that is not under it. */
+export function possibleParents<T extends Pick<ForumTopic, 'id' | 'parentId'>>(topics: readonly T[], id: string): T[] {
+  const below = topicDescendants(topics, id);
+  return topics.filter((t) => t.id !== id && !below.has(t.id));
+}
+
+function optionalText(value: unknown, what: string, max: number): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new CoreError(`A topic's ${what} must be words.`);
+  const trimmed = value.trim();
+  if ([...trimmed].length > max) {
+    throw new CoreError(`A topic's ${what} can be at most ${max.toLocaleString('en-US')} characters; this one has ${[...trimmed].length.toLocaleString('en-US')}.`);
+  }
+  return trimmed;
+}
+
+function requireTopicSlug(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new CoreError('A slug must be words.');
+  const slug = value.trim();
+  if (slug === '') return null;
+  if (slug.length > TOPIC_SLUG_MAX) throw new CoreError(`A slug can be at most ${TOPIC_SLUG_MAX} characters; this one has ${slug.length}.`);
+  if (!SLUG.test(slug)) {
+    throw new CoreError(`"${slug}" cannot be a slug. Use lower-case letters, digits and single hyphens between them, such as "voting-rules".`);
+  }
+  return slug;
+}
+
+function findTopic(topics: readonly ForumTopic[], id: unknown): ForumTopic {
+  const topic = typeof id === 'string' ? topics.find((t) => t.id === id) : undefined;
+  if (!topic) throw new CoreError('That topic was not found. It may have been deleted.');
+  return topic;
+}
+
+function requireMay(topic: ForumTopic, actor: ForumActor, verb: string): void {
+  if (!mayChangeTopic(topic, actor)) {
+    throw new CoreError(`Only the member who added "${topic.name}", or an admin, can ${verb} it.`);
+  }
+}
+
+/**
+ * Change a topic's name, slug, description, details and parent on behalf of
+ * `tool`. Refuses, in plain words: someone who may not, a name or slug
+ * another topic has, a badly formed slug, over-long words, a parent that is
+ * not there, and a parent that would make a loop (the topic itself, or one
+ * of its own sub-topics at any depth).
+ */
+export async function editTopic(store: TopicStore, id: string, edit: TopicEdit, actor: ForumActor, tool: string): Promise<ForumTopic> {
+  requireTool(tool);
+  const topics = await store.listTopics();
+  const topic = findTopic(topics, id);
+  requireMay(topic, actor, 'change');
+  const others = topics.filter((t) => t.id !== topic.id);
+
+  const name = requireForumName('topic', edit.name);
+  const twin = findForumEntryByName(others, name);
+  if (twin) throw new CoreError(`There is already a topic called "${twin.name}".`);
+
+  const typedSlug = requireTopicSlug(edit.slug);
+  const slugs = others.map((t) => t.slug);
+  let slug: string;
+  if (typedSlug === null) {
+    slug = uniqueTopicSlug(topicSlug(name), slugs);
+  } else {
+    const holder = others.find((t) => t.slug === typedSlug);
+    if (holder) throw new CoreError(`The slug "${typedSlug}" is already used by the topic "${holder.name}".`);
+    slug = typedSlug;
+  }
+
+  const description = optionalText(edit.description, 'description', TOPIC_DESCRIPTION_MAX);
+  if (/[\r\n]/.test(description)) throw new CoreError("A topic's description is one line; put longer words in its details.");
+  const details = optionalText(edit.details, 'details', TOPIC_DETAILS_MAX);
+
+  let parentId: string | null = null;
+  if (edit.parentId !== undefined && edit.parentId !== null && edit.parentId !== '') {
+    if (edit.parentId === topic.id) throw new CoreError('A topic cannot be its own parent.');
+    const parent = topics.find((t) => t.id === edit.parentId);
+    if (!parent) throw new CoreError('The chosen parent topic was not found. It may have been deleted; choose another.');
+    if (topicDescendants(topics, topic.id).has(parent.id)) {
+      throw new CoreError(`"${parent.name}" is already under "${topic.name}", so it cannot also be its parent.`);
+    }
+    parentId = parent.id;
+  }
+
+  return store.updateTopic(topic.id, { name, slug, description, details, parentId });
+}
+
+/** Delete a topic on behalf of `tool`. Its sub-topics stay, with no parent. Only its adder or an admin may. */
+export async function deleteTopic(store: TopicStore, id: string, actor: ForumActor, tool: string): Promise<void> {
+  requireTool(tool);
+  const topic = findTopic(await store.listTopics(), id);
+  requireMay(topic, actor, 'delete');
+  await store.deleteTopic(topic.id);
 }

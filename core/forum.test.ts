@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addForumEntry, findForumEntryByName, FORUM_NAME_MAX, type ForumEntry } from './forum.ts';
+import {
+  addForumEntry, deleteTopic, editTopic, findForumEntryByName, FORUM_NAME_MAX, mayChangeTopic, possibleParents, topicSlug, uniqueTopicSlug,
+  type ForumEntry, type ForumTopic,
+} from './forum.ts';
 import { MemoryForumStore } from './memoryForumStore.ts';
 
 test('addForumEntry adds a topic and a tag, trimmed, in the member’s name, naming the tool', async () => {
@@ -50,4 +53,96 @@ test('no character in a name is a wildcard: "Q*", "100%" and "a_b" are their own
   const star = await addForumEntry(store, 'topic', 'Q*', 'wavecenter');
   assert.equal(star.name, 'Q*');
   await assert.rejects(addForumEntry(store, 'topic', 'q*', 'wavecenter'), /already a topic called "Q\*"/);
+});
+
+// --- WC-183: a topic's details, changing it and deleting it ----------------
+
+const DANE = { memberId: 'dane', isAdmin: false };
+const OTHER = { memberId: 'other', isAdmin: false };
+const ADMIN = { memberId: 'boss', isAdmin: true };
+
+async function forum() {
+  const rows: never[] = [];
+  const dane = new MemoryForumStore('dane', rows);
+  const other = new MemoryForumStore('other', rows);
+  const voting = await addForumEntry(dane, 'topic', 'Voting rules', 'wavecenter');
+  const quorum = await addForumEntry(dane, 'topic', 'Quorum', 'wavecenter');
+  const budget = await addForumEntry(other, 'topic', 'Budget', 'wavecenter');
+  return { rows: rows as ForumTopic[], dane, other, voting, quorum, budget };
+}
+const edit = (name: string, more: Record<string, unknown> = {}) => ({ name, slug: '', description: '', details: '', parentId: null, ...more });
+
+test('a slug is made from the name: lower case, hyphens, never blank, made unique', async () => {
+  assert.equal(topicSlug('  Voting Rules!  2026 '), 'voting-rules-2026');
+  assert.equal(topicSlug('Café & co'), 'caf-co');
+  assert.equal(topicSlug('***'), 'topic');
+  assert.equal(topicSlug('x'.repeat(100)).length, 80);
+  assert.equal(uniqueTopicSlug('voting', ['voting', 'voting-2']), 'voting-3');
+  assert.equal(uniqueTopicSlug('x'.repeat(80), ['x'.repeat(80)]), `${'x'.repeat(78)}-2`);
+  const { rows } = await forum();
+  assert.deepEqual(rows.map((t) => t.slug), ['voting-rules', 'quorum', 'budget']);
+  assert.deepEqual([rows[0].description, rows[0].details, rows[0].parentId], ['', '', null]);
+});
+
+test('editTopic changes the name, slug, description, details and parent, trimmed', async () => {
+  const { dane, voting, quorum } = await forum();
+  const saved = await editTopic(dane, quorum.id, edit(' Quorum size ', { slug: 'quorum-size', description: ' How many must vote ', details: '**Bold** words\n- one', parentId: voting.id }), DANE, 'wavecenter');
+  assert.deepEqual([saved.name, saved.slug, saved.description, saved.details, saved.parentId], ['Quorum size', 'quorum-size', 'How many must vote', '**Bold** words\n- one', voting.id]);
+  const blankSlug = await editTopic(dane, quorum.id, edit('Quorum Rules'), DANE, 'wavecenter');
+  assert.equal(blankSlug.slug, 'quorum-rules');
+  assert.equal(blankSlug.parentId, null);
+});
+
+test('only the topic’s adder or an admin may change or delete it', async () => {
+  const { dane, other, voting, budget } = await forum();
+  assert.equal(mayChangeTopic(voting, DANE), true);
+  assert.equal(mayChangeTopic(voting, OTHER), false);
+  assert.equal(mayChangeTopic(voting, ADMIN), true);
+  assert.equal(mayChangeTopic({ createdBy: null }, { memberId: '', isAdmin: false }), false);
+  await assert.rejects(editTopic(other, voting.id, edit('Mine now'), OTHER, 'wavecenter'), /Only the member who added "Voting rules", or an admin, can change it/);
+  await assert.rejects(deleteTopic(other, voting.id, OTHER, 'wavecenter'), /can delete it/);
+  const byAdmin = await editTopic(other, voting.id, edit('Voting'), ADMIN, 'wavecenter');
+  assert.equal(byAdmin.name, 'Voting');
+  await deleteTopic(dane, budget.id, ADMIN, 'wavecenter');
+  assert.equal((await dane.listTopics()).some((t) => t.id === budget.id), false);
+});
+
+test('a duplicate name or slug, a badly formed slug and over-long words are refused in plain words', async () => {
+  const { dane, voting, quorum } = await forum();
+  await assert.rejects(editTopic(dane, quorum.id, edit(' VOTING RULES '), DANE, 'wavecenter'), /already a topic called "Voting rules"/);
+  await assert.rejects(editTopic(dane, quorum.id, edit('Quorum', { slug: 'voting-rules' }), DANE, 'wavecenter'), /slug "voting-rules" is already used by the topic "Voting rules"/);
+  for (const slug of ['Has Caps', 'two--hyphens', '-start', 'end-', 'under_score', 'q*']) {
+    await assert.rejects(editTopic(dane, quorum.id, edit('Quorum', { slug }), DANE, 'wavecenter'), /cannot be a slug/, slug);
+  }
+  await assert.rejects(editTopic(dane, quorum.id, edit('Quorum', { description: 'x'.repeat(501) }), DANE, 'wavecenter'), /at most 500 characters/);
+  await assert.rejects(editTopic(dane, quorum.id, edit('Quorum', { description: 'one\ntwo' }), DANE, 'wavecenter'), /description is one line/);
+  await assert.rejects(editTopic(dane, quorum.id, edit('Quorum', { details: 'x'.repeat(10001) }), DANE, 'wavecenter'), /at most 10,000 characters/);
+  await assert.rejects(editTopic(dane, quorum.id, edit('  '), DANE, 'wavecenter'), /A topic needs a name/);
+  await assert.rejects(editTopic(dane, 'nope', edit('Quorum'), DANE, 'wavecenter'), /topic was not found/);
+  await assert.rejects(editTopic(dane, quorum.id, edit('Quorum'), DANE, ''), /must name the tool/);
+  // Its own name and slug are fine to keep.
+  assert.equal((await editTopic(dane, voting.id, edit('Voting rules', { slug: 'voting-rules' }), DANE, 'wavecenter')).slug, 'voting-rules');
+});
+
+test('a parent that is missing, the topic itself or one of its own sub-topics is refused', async () => {
+  const { dane, voting, quorum } = await forum();
+  const sub = await addForumEntry(dane, 'topic', 'Quorum size', 'wavecenter');
+  await editTopic(dane, quorum.id, edit('Quorum', { parentId: voting.id }), DANE, 'wavecenter');
+  await editTopic(dane, sub.id, edit('Quorum size', { parentId: quorum.id }), DANE, 'wavecenter');
+  await assert.rejects(editTopic(dane, voting.id, edit('Voting rules', { parentId: voting.id }), DANE, 'wavecenter'), /cannot be its own parent/);
+  await assert.rejects(editTopic(dane, voting.id, edit('Voting rules', { parentId: quorum.id }), DANE, 'wavecenter'), /"Quorum" is already under "Voting rules"/);
+  await assert.rejects(editTopic(dane, voting.id, edit('Voting rules', { parentId: sub.id }), DANE, 'wavecenter'), /"Quorum size" is already under "Voting rules"/);
+  await assert.rejects(editTopic(dane, voting.id, edit('Voting rules', { parentId: 'gone' }), DANE, 'wavecenter'), /parent topic was not found/);
+  const all = await dane.listTopics();
+  assert.deepEqual(possibleParents(all, voting.id).map((t) => t.name), ['Budget']);
+  assert.deepEqual(possibleParents(all, sub.id).map((t) => t.name).sort(), ['Budget', 'Quorum', 'Voting rules']);
+});
+
+test('deleting a topic keeps its sub-topics, with no parent', async () => {
+  const { dane, voting, quorum } = await forum();
+  await editTopic(dane, quorum.id, edit('Quorum', { parentId: voting.id }), DANE, 'wavecenter');
+  await deleteTopic(dane, voting.id, DANE, 'wavecenter');
+  const left = await dane.listTopics();
+  assert.deepEqual(left.map((t) => [t.name, t.parentId]), [['Quorum', null], ['Budget', null]]);
+  await assert.rejects(deleteTopic(dane, voting.id, DANE, 'wavecenter'), /topic was not found/);
 });
