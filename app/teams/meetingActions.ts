@@ -7,8 +7,10 @@
  * Returns `{ ok: true }` only after the database confirmed the change.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it without calling anything saved (engineering rule 6). When
- * a new meeting saved but its invitations did not, the answer says exactly
- * that and carries the meeting's id, so the screen can keep editing it.
+ * a meeting saved but its invitations did not, the answer is marked
+ * `invitesFailed` and carries the meeting's id, so the screen says the meeting
+ * saved (never "not saved") and the next Save changes it rather than making
+ * another.
  */
 import { revalidatePath } from "next/cache";
 import {
@@ -18,8 +20,9 @@ import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { supabaseMeetingStore } from "../lib/meetingStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import { supabaseTeamStore } from "../lib/teamStore";
+import type { MeetingSaveFailure } from "./meetingView";
 
-export type MeetingSaveResult = { ok: true; meetingId: string } | { ok: false; error: string; meetingId?: string };
+export type MeetingSaveResult = { ok: true; meetingId: string } | MeetingSaveFailure;
 export type MeetingDeleteResult = { ok: true } | { ok: false; error: string };
 
 type Signed = { deps: MeetingDeps; actorId: string } | { error: string };
@@ -77,8 +80,14 @@ export async function saveMeetingAction(
   try {
     await setMeetingInvites(deps, { actorId, meetingId: savedId, memberIds: invitees }, WAVECENTER_TOOL);
   } catch (err) {
-    const why = err instanceof CoreError ? err.message : plain(err, "invitations");
-    return { ok: false, meetingId: savedId, error: `The meeting saved, but the invitations did not. ${why}` };
+    // The meeting itself is saved, so this answer must not say "nothing was saved".
+    let why: string;
+    if (err instanceof CoreError) why = err.message;
+    else {
+      console.error("meetings: the invitations failed:", err);
+      why = "the database did not take them";
+    }
+    return { ok: false, meetingId: savedId, invitesFailed: true, error: why };
   }
   return { ok: true, meetingId: savedId };
 }

@@ -15,3 +15,9 @@ Times are Mountain time.
 This is the first piece of scheduling in WaveCenter, a step toward the
 project-management tool: teams can now agree when and where they meet,
 inside the same platform where their work is tracked.
+
+If a meeting saves but its invitations do not, the pop-up now says just
+that: "The meeting saved, but the invitations did not ... Save again to
+retry the invitations." Before, it said "Not saved" and "Nothing was saved"
+about a meeting that had in fact saved, which would have led a member to
+make the same meeting twice.

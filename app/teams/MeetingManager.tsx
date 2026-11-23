@@ -19,6 +19,7 @@ import {
   MEETING_NOTES_MAX, MEETING_TITLE_MAX, MEETING_VENUE_MAX, clockTime, monthGrid, shiftMonth, type Meeting,
 } from "../../core/meetings.ts";
 import { deleteMeetingAction, saveMeetingAction, type MeetingDeleteResult, type MeetingSaveResult } from "./meetingActions";
+import { saveFailureText } from "./meetingView";
 
 /** A team as the Meeting Manager needs it: `mine` when the viewer is on it, so may plan its meetings. */
 export type MeetingTeam = { id: string; name: string; mine: boolean };
@@ -341,7 +342,7 @@ function MeetingForm({
       else {
         // A new meeting that saved without its invitations now exists: the next Save changes it.
         if ("meetingId" in result && result.meetingId) setSavedId(result.meetingId);
-        setError(`Not saved. ${result.error}`);
+        setError(saveFailureText(result));
       }
     });
   }
