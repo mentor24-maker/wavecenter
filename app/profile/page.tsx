@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { mayDo, mayOpenAdmin, ROLES, STARTING_ROLE_PERMISSIONS, type RoleKey } from "../../core/members.ts";
-import { listMessages, type SavedMessage } from "../../core/messages.ts";
+import { listMessageMarks, listMessages, unmarked, type MessageMark, type SavedMessage } from "../../core/messages.ts";
 import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
 import { shownName } from "../members/memberView";
 import { headerPoints } from "../lib/engagementStore";
@@ -41,12 +41,24 @@ function recipientsFrom(members: MemberRow[], me: string): Recipient[] {
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base", numeric: true }));
 }
 
-function shownMessages(messages: SavedMessage[], me: string, members: MemberRow[] | null): ShownMessage[] {
+function shownMessages(messages: SavedMessage[], me: string, members: MemberRow[] | null, marks: Map<string, MessageMark>): ShownMessage[] {
   const byId = new Map((members ?? []).map((m) => [m.memberId, shownName(m)]));
   return messages.map((m) => {
     const direction = m.senderId === me && m.recipientId === me ? "self" : m.senderId === me ? "to" : "from";
     const otherId = direction === "from" ? m.senderId : m.recipientId;
-    return { id: m.id, direction, other: byId.get(otherId) ?? "a member", subject: m.subject, body: m.body, when: WHEN.format(new Date(m.sentAt)) };
+    const mark = marks.get(m.id) ?? unmarked(m.id);
+    return {
+      id: m.id,
+      direction,
+      otherId,
+      other: byId.get(otherId) ?? "a member",
+      subject: m.subject,
+      body: m.body,
+      sentAt: m.sentAt,
+      when: WHEN.format(new Date(m.sentAt)),
+      starred: mark.starred,
+      trashed: mark.trashedAt !== null,
+    };
   });
 }
 
@@ -89,11 +101,13 @@ export default async function Profile() {
     );
   }
 
-  const [role, lists, members, messages, points] = await Promise.all([
+  const messageStore = supabaseMessageStore(supabase);
+  const [role, lists, members, messages, marks, points] = await Promise.all([
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     read(() => listMembers(supabase)),
-    read(() => listMessages(supabaseMessageStore(supabase), user.id)),
+    read(() => listMessages(messageStore, user.id)),
+    read(() => listMessageMarks(messageStore, user.id)),
     headerPoints(supabase, user.id),
   ]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
@@ -102,8 +116,9 @@ export default async function Profile() {
   const grants = lists.value?.grants ?? STARTING_ROLE_PERMISSIONS;
   const messaging = (
     <Messaging
-      messages={messages.value ? shownMessages(messages.value, user.id, members.value) : []}
+      messages={messages.value ? shownMessages(messages.value, user.id, members.value, marks.value ?? new Map()) : []}
       readError={messages.error}
+      marksError={marks.error}
       recipients={members.value ? recipientsFrom(members.value, user.id) : []}
       sendBlocked={sendBlockedBy(role, grants, members)}
     />

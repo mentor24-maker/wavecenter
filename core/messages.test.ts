@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { ANONYMOUS_SENDER, BODY_MAX, messageEnvelopeNote, REPLY_URL, SUBJECT_MAX, listMessages, messageEmail, messageProblem, senderName, sendMessage, type Mailer } from './messages.ts';
+import { ANONYMOUS_SENDER, BODY_MAX, messageEnvelopeNote, REPLY_URL, SUBJECT_MAX, listMessageMarks, listMessages, markMessage, unmarked, messageEmail, messageProblem, senderName, sendMessage, type Mailer } from './messages.ts';
 import { CoreError } from './tool.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryMessageStore } from './memoryMessageStore.ts';
@@ -356,4 +356,73 @@ test('a failed read throws, so the screen can say it could not load them', async
   messages.failNextList = true;
   await assert.rejects(listMessages(messages, 'dane'), /refused to read/);
   await assert.rejects(listMessages(messages, ''), /signed out/);
+});
+
+// Star and Trash (WC-180): each member's own marks, never the other member's.
+async function twoMessages() {
+  const { stores, messages } = setup();
+  await sendMessage(stores, null, hello, TOOL);
+  await sendMessage(stores, null, { ...hello, subject: 'Second' }, TOOL);
+  return messages;
+}
+
+test('a member stars a message and unstars it; the saved mark comes back', async () => {
+  const messages = await twoMessages();
+  assert.deepEqual(await markMessage(messages, 'dane', 'message-1', { starred: true }, TOOL), { messageId: 'message-1', starred: true, trashedAt: null });
+  assert.deepEqual([...(await listMessageMarks(messages, 'dane')).values()], [{ messageId: 'message-1', starred: true, trashedAt: null }]);
+  assert.deepEqual(await markMessage(messages, 'dane', 'message-1', { starred: false }, TOOL), unmarked('message-1'));
+  assert.equal(messages.marks.get('dane message-1')?.tool, TOOL);
+});
+
+test('trash keeps the star, restore clears only the trash, and the message itself is never touched', async () => {
+  const messages = await twoMessages();
+  const before = JSON.stringify(messages.rows);
+  await markMessage(messages, 'dane', 'message-2', { starred: true }, TOOL);
+  const trashed = await markMessage(messages, 'dane', 'message-2', { trashed: true }, TOOL);
+  assert.equal(trashed.starred, true);
+  assert.equal(typeof trashed.trashedAt, 'string');
+  const restored = await markMessage(messages, 'dane', 'message-2', { trashed: false }, TOOL);
+  assert.deepEqual(restored, { messageId: 'message-2', starred: true, trashedAt: null });
+  assert.equal(JSON.stringify(messages.rows), before);
+});
+
+test('one member\'s marks change nothing for the other member', async () => {
+  const messages = await twoMessages();
+  await markMessage(messages, 'dane', 'message-1', { starred: true, trashed: true }, TOOL);
+  messages.signedIn = 'kim';
+  assert.equal((await listMessageMarks(messages, 'kim')).size, 0);
+  assert.equal((await listMessages(messages, 'kim')).length, 2);
+});
+
+test('a member cannot mark a message they neither sent nor received', async () => {
+  const messages = await twoMessages();
+  messages.signedIn = 'lee';
+  await assert.rejects(() => markMessage(messages, 'lee', 'message-1', { starred: true }, TOOL), /did not send or receive/);
+  assert.equal(messages.marks.size, 0);
+});
+
+test('a mark with nothing asked, no member, no message or no tool is refused, with nothing saved', async () => {
+  const messages = await twoMessages();
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-1', {}, TOOL), CoreError);
+  await assert.rejects(() => markMessage(messages, '', 'message-1', { starred: true }, TOOL), CoreError);
+  await assert.rejects(() => markMessage(messages, 'dane', '', { starred: true }, TOOL), CoreError);
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-1', { starred: true }, ' '), CoreError);
+  assert.equal(messages.marks.size, 0);
+});
+
+test('a refused mark throws, and a store that says yes without saving is reported as not saved (rule 6)', async () => {
+  const messages = await twoMessages();
+  messages.failNextMark = true;
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-1', { starred: true }, TOOL), /refused/);
+  messages.ignoreNextMark = true;
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-1', { trashed: true }, TOOL), /did not save/);
+});
+
+test('the marks table turns on row-level security in the migration that makes it', () => {
+  const dir = new URL('../supabase/migrations/', import.meta.url);
+  const file = readdirSync(dir).find((f) => readFileSync(new URL(f, dir), 'utf8').includes('create table if not exists public.message_marks'));
+  assert.ok(file, 'a migration makes message_marks');
+  const sql = readFileSync(new URL(file, dir), 'utf8');
+  assert.match(sql, /alter table public\.message_marks enable row level security/);
+  assert.doesNotMatch(sql, /for (insert|update|delete|all)/);
 });
