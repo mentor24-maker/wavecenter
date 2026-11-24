@@ -235,6 +235,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Made a proposal | 1 | 1 | 2 | 0 | 3 | **6** | Puts an idea in front of the other members that could become a task; paired with deleting it, so it loops. Same as making a task. (`supabase/migrations/20261123160000_score_made_a_proposal.sql`) |
 | Changed a proposal | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a proposal accurate; any edit can be changed straight back, so it loops. Same as changing a task. (`supabase/migrations/20261123170000_score_changed_a_proposal.sql`) |
 | Deleted a proposal | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. Same as deleting a task. (`supabase/migrations/20261123180000_score_deleted_a_proposal.sql`) |
+| Changed a Home box | 1 | 1 | 2 | 1 | 3 | **7** | Words every member reads on Home; can be changed straight back. Only a role with Edit Home boxes (admin, to start). Same as changing a scoring rule. (`supabase/migrations/20261123190000_score_changed_a_home_box.sql`) |
 
 ### Why each factor got its score
 
@@ -373,6 +374,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Deleted a proposal | Value | 1 | Housekeeping worth having: it tidies up the Proposals page. |
 | Deleted a proposal | Rarity | 0 | Proposals can be deleted many times a day. |
 | Deleted a proposal | Farm risk | 3 | The undo half of the make-and-delete loop. |
+| Changed a Home box | Effort | 1 | Rewording a box and saving it is one short form. |
+| Changed a Home box | Value | 2 | Every member reads these words each time they open Home. |
+| Changed a Home box | Rarity | 1 | Home's words change a few times a week at most, and only a role with Edit Home boxes may. |
+| Changed a Home box | Farm risk | 3 | The words can be changed straight back, so it loops. |
 
 ## Scoring an action added later
 
