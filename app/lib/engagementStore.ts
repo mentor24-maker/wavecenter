@@ -32,6 +32,7 @@ import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
 import type { supabaseForRequest } from "./supabase";
 import { listTokenSizes } from "./tokenStore";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -217,7 +218,9 @@ export function supabaseScoringPhaseStore(supabase: Client): ScoringPhaseStore {
       return phaseFromRow(data);
     },
     async makeFinal(tool) {
-      const { data, error } = await supabase.rpc("make_scoring_final", { tool });
+      // The tool also rides as a header: the game_settings trigger that scores
+      // "Made points final" reads it there (the table has no tool column).
+      const { data, error } = await supabase.rpc("make_scoring_final", { tool }).setHeader(TOOL_HEADER, tool);
       if (error) throw new Error(`The database refused to make points final: ${error.message}`);
       // It may have saved: never say it did not (engineering rule 6).
       if (!data || typeof data !== "object" || !("provisional" in data)) {
