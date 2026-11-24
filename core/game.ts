@@ -69,6 +69,7 @@ export const ENGAGEMENT_KINDS = [
   'added_a_token_size',
   'changed_a_token_size',
   'deleted_a_token_size',
+  'rescored_past_points',
   'made_points_final',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -241,6 +242,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // thirteenth of its rows, so a fresh database puts it after the 25 above
   // and the twelve second-sweep rows before it.
   { kind: 'deleted_a_token_size', name: 'Deleted a token size', description: 'Removed a token size.', criteria: 'A token size is deleted.', points: 1, position: 38 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // fourteenth of its rows, so a fresh database puts it after the 25 above
+  // and the thirteen second-sweep rows before it.
+  { kind: 'rescored_past_points', name: 'Rescored past points', description: 'Brought points already earned up to today\'s values on the Admin page.', criteria: 'A rescore is saved for at least one action.', points: 1, position: 39 },
   // fifteenth and last of its rows, so a fresh database puts it after the 25
   // above and the fourteen second-sweep rows before it.
   { kind: 'made_points_final', name: 'Made points final', description: 'Ended the provisional phase of scoring on the Admin page.', criteria: 'Scoring is declared final. This can happen only once.', points: 1, position: 40 },
@@ -489,6 +494,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   deleted_a_token_size: {
     fn: 'removeTokenSize', file: 'core/tokens.ts', database: 'token_sizes_score_delete',
     test: 'deleting a token size records one engagement for the admin who deleted it, naming the tool; a refused or failed one, an add, a change or a service-key delete records none', testFile: 'core/tokens.test.ts',
+  },
+  rescored_past_points: {
+    fn: 'applyRescore', file: 'core/game.ts', database: 'rescores_score',
+    test: 'a rescore that saves records one engagement for the admin who ran it, naming the tool, and is not itself a correction; one that changes nothing, a refused or failed one, or a service-key rescore records none', testFile: 'core/game.test.ts',
   },
   made_points_final: {
     fn: 'makeScoringFinal', file: 'core/game.ts', database: 'game_settings_score_final',

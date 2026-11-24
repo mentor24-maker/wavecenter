@@ -66,6 +66,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123230000_score_added_a_token_size.sql',
   '20261124010000_score_changed_a_token_size.sql',
   '20261124020000_score_deleted_a_token_size.sql',
+  '20261124030000_score_rescored_past_points.sql',
   '20261124040000_score_made_points_final.sql',
 ];
 
@@ -547,6 +548,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('added_a_token_size'), true);
   assert.equal(isWired('changed_a_token_size'), true);
   assert.equal(isWired('deleted_a_token_size'), true);
+  assert.equal(isWired('rescored_past_points'), true);
   assert.equal(isWired('made_points_final'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
@@ -1112,6 +1114,67 @@ test('the rescore migration works the difference out the way core does, and its 
   assert.match(sql, /count\(\*\) filter \(where e\.rescore_id is null\) \* r\.points - sum\(e\.points\)/, 'times done x points today, minus everything credited');
   assert.match(sql, new RegExp(`'${RESCORE_TOOL}'`), 'correction rows name the rescore tool');
   assert.match(sql, /scoring_provisional/);
+});
+
+test('a rescore that saves records one engagement for the admin who ran it, naming the tool, and is not itself a correction; one that changes nothing, a refused or failed one, or a service-key rescore records none', async () => {
+  const ledger = await earlyLedger();
+  const rescored = () => ledger.rows.filter((e) => e.kind === 'rescored_past_points');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'rescored_past_points')!.points;
+  assert.equal(worth, 1);
+
+  // A service-key rescore (nobody signed in) saves its corrections and scores nothing.
+  setPointsOf(ledger, 'made_task', 2);
+  const unsigned = await applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter');
+  assert.ok(unsigned.rows > 0);
+  assert.equal(rescored().length, 0);
+
+  // A rescore that saves: one engagement for the admin who ran it, at the rule's points, naming the tool.
+  ledger.signedIn = 'dane';
+  setPointsOf(ledger, 'made_task', 3);
+  const saved = await applyRescore(ledger, ADMIN, ['made_task'], 'rescore-tool');
+  assert.equal(saved.rows, 2, 'only the corrections are counted as the rescore\'s rows');
+  assert.deepEqual(rescored().map((e) => [e.memberId, e.points, e.tool, e.taskId, e.rescoreId ?? null]), [['dane', worth, 'rescore-tool', null, null]]);
+
+  // The point is a real action, not a correction, and the run that earned it does not rescore it.
+  const tally = (await ledger.tallies()).find((t) => t.memberId === 'dane' && t.kind === 'rescored_past_points');
+  assert.deepEqual([tally?.actions, tally?.credited], [1, worth]);
+
+  // A rescore that changes nothing saves nothing and earns nothing.
+  const again = await applyRescore(ledger, ADMIN, ['made_task', 'rescored_past_points'], 'wavecenter');
+  assert.deepEqual(again, { rescoreId: null, rows: 0, points: 0 });
+  assert.equal(rescored().length, 1);
+
+  // Refused or failed: nothing is recorded.
+  setPointsOf(ledger, 'made_task', 4);
+  await assert.rejects(applyRescore(ledger, { role: 'viewer' }, ['made_task'], 'wavecenter'), /Only an admin/);
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], ' '), /tool/i);
+  ledger.failNextRescore = true;
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter'), /did not save/);
+  assert.equal(rescored().length, 1);
+
+  // If the engagement cannot be written, the rescore adds nothing either.
+  const before = ledger.rows.length;
+  ledger.failInsert = true;
+  await assert.rejects(applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(ledger.rows.length, before);
+  assert.equal(ledger.rescores.length, 2);
+
+  await applyRescore(ledger, ADMIN, ['made_task'], 'wavecenter');
+  assert.equal(rescored().length, 2);
+});
+
+test('the database scores a rescore once it saves, only for the signed-in admin who ran it, naming its tool', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124030000_score_rescored_past_points.sql', import.meta.url), 'utf8');
+  assert.match(sql, /v_member uuid := auth\.uid\(\);/);
+  assert.match(sql, /if v_member is not null and new\.run_by = v_member then\s+perform public\.record_engagement\(v_member, 'rescored_past_points', new\.tool, null\);/);
+  assert.match(sql, /create trigger rescores_score\s+after update of rows_changed on public\.rescores\s+for each row\s+when \(old\.rows_changed = 0 and new\.rows_changed > 0\)\s+execute function public\.rescores_score\(\);/);
+  assert.match(sql, /revoke execute on function public\.rescores_score\(\) from public, anon, authenticated/);
+  // apply_rescore saves a rescore by setting rows_changed from 0, and deletes one that changed nothing.
+  const apply = readFileSync(new URL('../supabase/migrations/20261103160000_rescore_past_points.sql', import.meta.url), 'utf8');
+  assert.match(apply, /values \(caller, btrim\(tool\), 0, 0\)/);
+  assert.match(apply, /if v_rows = 0 then\s+delete from public\.rescores where id = v_id;/);
+  assert.match(apply, /update public\.rescores set rows_changed = v_rows, points_changed = v_points where id = v_id;/);
 });
 
 test('making points final records one engagement for the admin who did it, naming the tool; a refused, repeated or failed one, or a service-key one, records none', async () => {
