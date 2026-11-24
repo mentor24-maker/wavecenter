@@ -47,7 +47,7 @@ export async function startChatWith(otherMemberId: string, taskId: string | null
   try {
     const me = await signedIn("no chat was started");
     if (!me.ok) return me;
-    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId, taskId });
+    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId, taskId }, WAVECENTER_TOOL);
     revalidatePath("/chat");
     if (taskId) revalidatePath(`/tasks/${taskId}`);
     return { ok: true, id };

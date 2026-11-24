@@ -16,6 +16,7 @@ import {
   deleteTopic as deleteTopicRule,
   editTag as editTagRule,
   editTopic as editTopicRule,
+  setTopicParent as setTopicParentRule,
   type ForumKind,
 } from "../../core/forum.ts";
 import { mayOpenAdmin } from "../../core/members.ts";
@@ -86,6 +87,18 @@ export async function editTopic(id: string, form: TopicForm): Promise<ForumSaveR
   return run("save the topic", "Nothing was saved", async ({ supabase, memberId }) => {
     const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
     await editTopicRule(supabaseTopicStore(supabase), id, form, actor, WAVECENTER_TOOL);
+  });
+}
+
+/**
+ * Set or clear one topic's parent and nothing else (WC-185): the details
+ * page's "Parent topic" dropdown, and its "Adopt a sub-topic" dropdown with
+ * the chosen topic as `topicId` and the page's topic as `parentId`.
+ */
+export async function setTopicParent(topicId: string, parentId: string | null): Promise<ForumSaveResult> {
+  return run("save the parent topic", "Nothing was changed", async ({ supabase, memberId }) => {
+    const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
+    await setTopicParentRule(supabaseTopicStore(supabase), topicId, parentId, actor, WAVECENTER_TOOL);
   });
 }
 
