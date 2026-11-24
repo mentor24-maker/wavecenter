@@ -44,9 +44,12 @@
  * `record_ai_task_rating`, nobody changes or deletes one, and the save refuses
  * a pass off the scale or without its reasons (`public.ai_task_ratings`,
  * `public.ai_task_model_ratings`); and that every member reads and adds Forum
- * topics and tags, nobody changes a tag, and only a topic's adder or an
- * admin changes or deletes a topic, with its slug, details and parent kept
- * well formed and free of loops (`public.forum_topics`, `public.forum_tags`).
+ * topics and tags, and only a topic's adder or an admin changes or deletes
+ * a topic, with its slug, details and parent kept well formed and free of
+ * loops (`public.forum_topics`); and the same for a tag, whose related tags
+ * are two-way, never itself, changed only by whoever may change one of the
+ * two tags and gone when either tag is (`public.forum_tags`,
+ * `public.forum_tag_relations`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -925,6 +928,48 @@ try {
     chatRule?.name === 'Sent a chat message' && chatRule.points === 4 && chatRule.effort === 1 && chatRule.value === 1 && chatRule.rarity === 0 && chatRule.farm_risk === 2
       && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof chatRule[k] === 'string' && chatRule[k].length > 0),
     JSON.stringify(chatRule));
+  // Starting a chat earns its point (20261123130000_score_started_a_chat.sql,
+  // WC-189): a new chat is scored once for the member who started it, naming
+  // the tool from the x-wavecenter-tool header ('supabase-api' when none is
+  // sent); opening a chat already there, a refused start and a service-key
+  // insert score nothing; nobody can write the engagement themselves.
+  let startedChatPointsA = 0;
+  {
+    const STARTED_KIND = 'started_a_chat';
+    const startedRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${STARTED_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const named = await call('/rest/v1/rpc/start_chat', { method: 'POST', token: b.token, body: { other_member: outsider.id, about_task: insA.id }, tool: 'rls-check-chat-tool' });
+    const made = [chatAB.json, chatTask.json, raced[0].json, goneChat.json, plainAfter.json, named.json];
+    const makers = (await admin(`/rest/v1/chats?id=in.(${made.join(',')})&select=id,created_by`)).json ?? [];
+    const startedRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${STARTED_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const [sa, sb, so] = [await startedRows(a), await startedRows(b), await startedRows(outsider)];
+    const madeBy = (m) => makers.filter((c) => c.created_by === m.id).length;
+    check('starting a new chat records one engagement for the member who started it, worth what the rule says; opening one already there or a refused start records none',
+      named.status === 200 && makers.length === 6 && sa.length === madeBy(a) && sb.length === madeBy(b) && so.length === madeBy(outsider)
+        && sb.length === 3 && sa.length + so.length === 3
+        && [...sa, ...sb, ...so].every((e) => e.points === startedRule?.points && e.task_id === null),
+      `A ${JSON.stringify(sa)}, B ${JSON.stringify(sb)}, outsider ${JSON.stringify(so)}, chats ${JSON.stringify(makers)}, rule ${startedRule?.points}`);
+    check('a new chat names the tool its caller sent, and "supabase-api" when none was sent',
+      JSON.stringify(sb.map((e) => e.tool)) === JSON.stringify(['supabase-api', 'supabase-api', 'rls-check-chat-tool']) && [...sa, ...so].every((e) => e.tool === 'supabase-api'),
+      JSON.stringify(sb.map((e) => e.tool)));
+    check('"Started a chat" is active at 1 point with its four factors and a reason for each',
+      startedRule?.name === 'Started a chat' && startedRule.points === 1 && startedRule.effort === 0 && startedRule.value === 1 && startedRule.rarity === 1 && startedRule.farm_risk === 2
+        && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof startedRule[k] === 'string' && startedRule[k].length > 0),
+      JSON.stringify(startedRule));
+    const forgeStarted = await call('/rest/v1/engagements', { method: 'POST', token: outsider.token, body: { member_id: outsider.id, kind: STARTED_KIND, points: 1, tool: TOOL } });
+    const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: outsider.token, body: { p_member: outsider.id, p_kind: STARTED_KIND, p_tool: TOOL, p_task: null } });
+    const forgeTrigger = await call('/rest/v1/rpc/chats_score', { method: 'POST', token: outsider.token, body: {} });
+    const soAfter = await startedRows(outsider);
+    check('a member cannot forge a "Started a chat" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+      forgeStarted.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && soAfter.length === so.length,
+      `ledger HTTP ${forgeStarted.status}, record_engagement HTTP ${forgeRecord.status}, chats_score HTTP ${forgeTrigger.status}, outsider now ${soAfter.length}`);
+    const svcChat = await admin('/rest/v1/chats', { method: 'POST', prefer: 'return=representation', body: { created_by: a.id } });
+    const saAfter = await startedRows(a);
+    check('a chat made with the service key (no signed-in member) is saved and scores nothing',
+      svcChat.status === 201 && Array.isArray(svcChat.json) && svcChat.json.length === 1 && saAfter.length === sa.length,
+      `HTTP ${svcChat.status} ${JSON.stringify(svcChat.json)}, A had ${sa.length} now ${saAfter.length}`);
+    if (svcChat.json?.[0]?.id) await admin(`/rest/v1/chats?id=eq.${svcChat.json[0].id}`, { method: 'DELETE' });
+    startedChatPointsA = sa.reduce((sum, e) => sum + e.points, 0);
+  }
 
   // Unread chat messages (20261113150000_chat_unread.sql): a message is
   // unread for a member when it is newer than their last read and not their
@@ -1175,8 +1220,8 @@ try {
   }
 
   // Forum topics and tags (20261115210000_forum_topics_tags.sql): every
-  // member reads and adds them, in their own name; nobody changes or deletes
-  // a tag, and only a topic's adder or an admin a topic (next block); a name
+  // member reads and adds them, in their own name; only the adder or an
+  // admin changes or deletes one (the next two blocks); a name
   // is unique ignoring capitals and spaces. The test rows are
   // removed at the end (created_by is set null, not cascaded, when an
   // account goes).
@@ -1200,14 +1245,13 @@ try {
         const long = await call(`/rest/v1/${table}`, { method: 'POST', token: a.token, body: { name: 'x'.repeat(81) } });
         check(`${table} refuses a forged adder, a blank name and one over 80 characters`, forge.status >= 400 && blank.status >= 400 && long.status >= 400,
           `forge HTTP ${forge.status}, blank HTTP ${blank.status}, long HTTP ${long.status}`);
-        // Tags: nobody changes or deletes one, not even its adder. Topics
-        // (WC-183): their adder or an admin may, so B, neither, is refused.
-        const who = table === 'forum_tags' ? a : b;
-        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: who.token, prefer: 'return=representation', body: { name: 'changed' } });
-        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: who.token, prefer: 'return=representation' });
+        // Topics (WC-183) and tags (WC-186): their adder or an admin may
+        // change or delete one, so B, neither, is refused.
+        const patch = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { name: 'changed' } });
+        const del = await call(`/rest/v1/${table}?id=eq.${row?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
         const still = (await admin(`/rest/v1/${table}?id=eq.${row?.id}&select=name`)).json?.[0];
         const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
-        check(table === 'forum_tags' ? 'nobody changes or deletes a tag, not even its adder' : 'a member who neither added a topic nor is an admin cannot change or delete it',
+        check(`a member who neither added it nor is an admin cannot change or delete a row of ${table}`,
           refused(patch) && refused(del) && still?.name === word, `patch HTTP ${patch.status}, delete HTTP ${del.status}, row ${JSON.stringify(still)}`);
         const anon = await call(`/rest/v1/${table}?select=id`);
         check(`a signed-out visitor sees nothing in ${table}`, anon.status >= 400 || anon.json?.length === 0, `HTTP ${anon.status} ${JSON.stringify(anon.json)}`);
@@ -1299,6 +1343,264 @@ try {
     }
   }
 
+  // Adding a forum topic earns its point
+  // (20261123140000_score_added_a_forum_topic.sql, WC-190): a new topic is
+  // scored once for the member who added it, naming the row's tool; a tag, a
+  // refused topic and a service-key insert score nothing; nobody can write
+  // the engagement themselves. The two blocks above added two topics each
+  // for A and B, so each already has two.
+  let forumTopicPointsA = 0;
+  {
+    const TOPIC_KIND = 'added_a_forum_topic';
+    const topicRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${TOPIC_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const topicRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${TOPIC_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    const tagIds = [];
+    try {
+      const [ta, tb] = [await topicRows(a), await topicRows(b)];
+      check('each forum topic a member added above recorded one engagement for them, worth what the rule says, naming its tool',
+        ta.length === 2 && tb.length === 2 && [...ta, ...tb].every((e) => e.points === topicRule?.points && e.tool === 'wavecenter' && e.task_id === null),
+        `A ${JSON.stringify(ta)}, B ${JSON.stringify(tb)}, rule ${topicRule?.points}`);
+      const word = `RLS scored topic ${randomUUID().slice(0, 8)}`;
+      const added = await call('/rest/v1/forum_topics', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: word, tool: 'rls-check-forum-tool' } });
+      if (added.json?.[0]?.id) ids.push(added.json[0].id);
+      const twin = await call('/rest/v1/forum_topics', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word.toUpperCase() } });
+      if (twin.json?.[0]?.id) ids.push(twin.json[0].id);
+      const tag = await call('/rest/v1/forum_tags', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word } });
+      if (tag.json?.[0]?.id) tagIds.push(tag.json[0].id);
+      const [ta2, tb2] = [await topicRows(a), await topicRows(b)];
+      check('adding a forum topic records exactly one engagement for the member who added it, naming the tool it sent; a refused topic or a tag records none',
+        added.status === 201 && twin.status === 409 && tag.status === 201 && ta2.length === 3 && ta2[2].tool === 'rls-check-forum-tool' && ta2[2].points === topicRule?.points && tb2.length === tb.length,
+        `added HTTP ${added.status}, twin HTTP ${twin.status}, tag HTTP ${tag.status}, A ${JSON.stringify(ta2)}, B had ${tb.length} now ${tb2.length}`);
+      check('"Added a forum topic" is active at 1 point with its four factors and a reason for each',
+        topicRule?.name === 'Added a forum topic' && topicRule.points === 1 && topicRule.effort === 1 && topicRule.value === 2 && topicRule.rarity === 1 && topicRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof topicRule[k] === 'string' && topicRule[k].length > 0),
+        JSON.stringify(topicRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: TOPIC_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: TOPIC_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/forum_topics_score', { method: 'POST', token: b.token, body: {} });
+      const tb3 = await topicRows(b);
+      check('a member cannot forge an "Added a forum topic" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && tb3.length === tb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, forum_topics_score HTTP ${forgeTrigger.status}, B now ${tb3.length}`);
+      const svc = await admin('/rest/v1/forum_topics', { method: 'POST', prefer: 'return=representation', body: { name: `${word} by service key`, created_by: a.id } });
+      if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
+      const ta4 = await topicRows(a);
+      check('a forum topic added with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 201 && Array.isArray(svc.json) && svc.json.length === 1 && ta4.length === ta2.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${ta2.length} now ${ta4.length}`);
+      forumTopicPointsA = ta4.reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_topics?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+      if (tagIds.length) await admin(`/rest/v1/forum_tags?id=in.(${tagIds.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // A Forum tag's details, related tags, changing and deleting it
+  // (20261123010000_forum_tag_relations.sql, WC-186): a new tag gets a slug
+  // from its name; only its adder (B here, a viewer) or an admin (A) changes
+  // or deletes it, or sets its related tags; a relation is stored once and
+  // read both ways, never a tag with itself; forum_tag_save is all or
+  // nothing; deleting a tag deletes its relations.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const add = async (who, name) => {
+      const r = await call('/rest/v1/forum_tags', { method: 'POST', token: who.token, prefer: 'return=representation', body: { name } });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r.json?.[0];
+    };
+    const save = (who, t, related, more = {}) => call('/rest/v1/rpc/forum_tag_save', {
+      method: 'POST', token: who?.token,
+      body: { p_id: t?.id, p_name: t?.name, p_slug: t?.slug, p_description: '', p_details: '', p_related: related, ...more },
+    });
+    const pairs = async () => (await admin(`/rest/v1/forum_tag_relations?or=(tag_id.in.(${ids.join(',')}),related_tag_id.in.(${ids.join(',')}))&select=tag_id,related_tag_id,created_by`)).json ?? [];
+    const row = async (id) => (await admin(`/rest/v1/forum_tags?id=eq.${id}&select=*`)).json?.[0];
+    try {
+      const voting = await add(b, `RLS Voting ${tag}!`);
+      const budget = await add(b, `RLS Budget ${tag}`);
+      const roads = await add(a, `RLS Roads ${tag}`);
+      check('a new tag gets a slug made from its name, and blank description and details', voting?.slug === `rls-voting-${tag}` && voting?.description === '' && voting?.details === '' && !!voting?.updated_at,
+        JSON.stringify(voting));
+
+      const own = await save(b, voting, [budget?.id, roads?.id], { p_description: 'How we vote', p_details: '**Bold**' });
+      const afterOwn = await pairs();
+      const lo = (x, y) => (x < y ? [x, y] : [y, x]);
+      const has = (x, y) => afterOwn.some((p) => p.tag_id === lo(x, y)[0] && p.related_tag_id === lo(x, y)[1]);
+      check('the adder saves their tag’s words and related tags, each relation stored once, smaller id first, in their name',
+        own.status < 300 && (await row(voting?.id))?.description === 'How we vote' && afterOwn.length === 2 && has(voting?.id, budget?.id) && has(voting?.id, roads?.id) && afterOwn.every((p) => p.created_by === b.id),
+        `HTTP ${own.status} ${JSON.stringify(own.json)}, relations ${JSON.stringify(afterOwn)}`);
+      const seen = await call(`/rest/v1/forum_tag_relations?or=(tag_id.eq.${roads?.id},related_tag_id.eq.${roads?.id})&select=tag_id`, { token: a.token });
+      check('every member reads the related tags, from either side', seen.status === 200 && seen.json?.length === 1, `HTTP ${seen.status} ${JSON.stringify(seen.json)}`);
+
+      const notYours = await save(b, roads, [voting?.id], { p_description: 'B was here' });
+      check('a non-admin cannot save a tag someone else added, and nothing of it is saved', notYours.status >= 400 && (await row(roads?.id))?.description === '',
+        `HTTP ${notYours.status} ${JSON.stringify(notYours.json)}`);
+      const patchNot = await call(`/rest/v1/forum_tags?id=eq.${roads?.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { description: 'B' } });
+      const delNot = await call(`/rest/v1/forum_tags?id=eq.${roads?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('a non-admin cannot change or delete a tag someone else added, going around the save', (patchNot.json?.length ?? 0) === 0 && (delNot.json?.length ?? 0) === 0 && !!(await row(roads?.id)),
+        `patch HTTP ${patchNot.status}, delete HTTP ${delNot.status}`);
+
+      // A stranger's relation between two tags B neither added: refused, either way round.
+      const stranger = await add(a, `RLS Stranger ${tag}`);
+      const [x, y] = lo(roads?.id, stranger?.id);
+      const forgeRel = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: x, related_tag_id: y } });
+      const forgeBy = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: lo(voting?.id, stranger?.id)[0], related_tag_id: lo(voting?.id, stranger?.id)[1], created_by: a.id } });
+      const unrelate = await call(`/rest/v1/forum_tag_relations?tag_id=eq.${lo(voting?.id, budget?.id)[0]}&related_tag_id=eq.${lo(voting?.id, budget?.id)[1]}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      check('a member relates two tags only if they may change one of them, never in someone else’s name; an admin removes any relation',
+        forgeRel.status >= 400 && forgeBy.status >= 400 && unrelate.status === 200 && unrelate.json?.length === 1,
+        `stranger HTTP ${forgeRel.status}, forged adder HTTP ${forgeBy.status}, admin unrelate HTTP ${unrelate.status} ${JSON.stringify(unrelate.json)}`);
+      // Voting is B's, Roads is A's: B may still remove the relation between them.
+      const bDelOther = await call(`/rest/v1/forum_tag_relations?tag_id=eq.${lo(voting?.id, roads?.id)[0]}&related_tag_id=eq.${lo(voting?.id, roads?.id)[1]}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('the adder of one of the two tags removes the relation between them', bDelOther.status === 200 && bDelOther.json?.length === 1, `HTTP ${bDelOther.status} ${JSON.stringify(bDelOther.json)}`);
+
+      const self = await save(b, voting, [voting?.id]);
+      const missing = await save(b, voting, [budget?.id, randomUUID()], { p_description: 'should not stick' });
+      const twice = await save(b, voting, [budget?.id, budget?.id]);
+      const afterTwice = await pairs();
+      check('the save refuses a tag related to itself or to a tag that is not there, saving nothing; a repeat counts once',
+        self.status >= 400 && missing.status >= 400 && (await row(voting?.id))?.description === '' && twice.status < 300 && afterTwice.length === 1,
+        `self HTTP ${self.status} ${JSON.stringify(self.json)}, missing HTTP ${missing.status}, twice HTTP ${twice.status}, relations ${JSON.stringify(afterTwice)}`);
+      const rawSelf = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: voting?.id, related_tag_id: voting?.id } });
+      const [hi, low] = lo(voting?.id, budget?.id).reverse();
+      const rawBackwards = await call('/rest/v1/forum_tag_relations', { method: 'POST', token: b.token, body: { tag_id: hi, related_tag_id: low } });
+      check('the table itself refuses a tag related to itself, and the same pair stored the other way round', rawSelf.status >= 400 && rawBackwards.status >= 400,
+        `self HTTP ${rawSelf.status}, backwards HTTP ${rawBackwards.status}`);
+
+      const forged = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'PATCH', token: b.token, body: { created_by: a.id } });
+      const forgedTool = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'PATCH', token: b.token, body: { tool: 'forged' } });
+      const badSlug = await save(b, voting, [], { p_slug: 'Not A Slug' });
+      const dupSlug = await save(b, voting, [], { p_slug: budget?.slug });
+      const twoLines = await save(b, voting, [], { p_description: 'one\ntwo' });
+      check('nobody changes who added a tag or its tool; the database refuses a bad or taken slug and a two-line description',
+        forged.status >= 400 && forgedTool.status >= 400 && badSlug.status >= 400 && dupSlug.status === 409 && twoLines.status >= 400,
+        `created_by ${forged.status}, tool ${forgedTool.status}, bad slug ${badSlug.status}, taken slug ${dupSlug.status}, two lines ${twoLines.status}`);
+
+      const byAdmin = await save(a, voting, [roads?.id], { p_description: 'An admin changed this' });
+      check('an admin saves a tag someone else added', byAdmin.status < 300 && (await row(voting?.id))?.description === 'An admin changed this', `HTTP ${byAdmin.status} ${JSON.stringify(byAdmin.json)}`);
+      const anonSave = await save(null, voting, []);
+      check('a signed-out visitor cannot save a tag', anonSave.status >= 400 && (await pairs()).length === 1, `HTTP ${anonSave.status}`);
+
+      const gone = await call(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      check('the adder deletes their tag, and its relations go with it', gone.status === 200 && gone.json?.length === 1 && !(await row(voting?.id)) && (await pairs()).length === 0,
+        `HTTP ${gone.status} ${JSON.stringify(gone.json)}, relations ${JSON.stringify(await pairs())}`);
+      const adminDel = await call(`/rest/v1/forum_tags?id=eq.${budget?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      check('an admin deletes a tag someone else added', adminDel.status === 200 && adminDel.json?.length === 1, `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_tags?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Adding a forum tag earns its point
+  // (20261123150000_score_added_a_forum_tag.sql, WC-191): a new tag is
+  // scored once for the member who added it, naming the row's tool; a topic,
+  // a refused tag and a service-key insert score nothing; nobody can write
+  // the engagement themselves. Counts are taken at the start of the block,
+  // so tags added by the checks above (A's one, so far) do not matter here.
+  let forumTagPointsA = 0;
+  {
+    const TAG_KIND = 'added_a_forum_tag';
+    const tagRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${TAG_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const tagRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${TAG_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    const topicIds = [];
+    try {
+      const [ta, tb] = [await tagRows(a), await tagRows(b)];
+      check('each forum tag a member added above recorded one engagement for them, worth what the rule says, naming its tool',
+        ta.length >= 1 && [...ta, ...tb].every((e) => e.points === tagRule?.points && e.tool === 'wavecenter' && e.task_id === null),
+        `A ${JSON.stringify(ta)}, B ${JSON.stringify(tb)}, rule ${tagRule?.points}`);
+      const word = `RLS scored tag ${randomUUID().slice(0, 8)}`;
+      const added = await call('/rest/v1/forum_tags', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: word, tool: 'rls-check-forum-tool' } });
+      if (added.json?.[0]?.id) ids.push(added.json[0].id);
+      const twin = await call('/rest/v1/forum_tags', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word.toUpperCase() } });
+      if (twin.json?.[0]?.id) ids.push(twin.json[0].id);
+      const topic = await call('/rest/v1/forum_topics', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word } });
+      if (topic.json?.[0]?.id) topicIds.push(topic.json[0].id);
+      const [ta2, tb2] = [await tagRows(a), await tagRows(b)];
+      check('adding a forum tag records exactly one engagement for the member who added it, naming the tool it sent; a refused tag or a topic records none',
+        added.status === 201 && twin.status === 409 && topic.status === 201 && ta2.length === ta.length + 1 && ta2.at(-1)?.tool === 'rls-check-forum-tool' && ta2.at(-1)?.points === tagRule?.points && tb2.length === tb.length,
+        `added HTTP ${added.status}, twin HTTP ${twin.status}, topic HTTP ${topic.status}, A had ${ta.length} now ${JSON.stringify(ta2)}, B had ${tb.length} now ${tb2.length}`);
+      check('"Added a forum tag" is active at 1 point with its four factors and a reason for each',
+        tagRule?.name === 'Added a forum tag' && tagRule.points === 1 && tagRule.effort === 1 && tagRule.value === 1 && tagRule.rarity === 1 && tagRule.farm_risk === 2
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof tagRule[k] === 'string' && tagRule[k].length > 0),
+        JSON.stringify(tagRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: TAG_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: TAG_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/forum_tags_score', { method: 'POST', token: b.token, body: {} });
+      const tb3 = await tagRows(b);
+      check('a member cannot forge an "Added a forum tag" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && tb3.length === tb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, forum_tags_score HTTP ${forgeTrigger.status}, B now ${tb3.length}`);
+      const svc = await admin('/rest/v1/forum_tags', { method: 'POST', prefer: 'return=representation', body: { name: `${word} by service key`, created_by: a.id } });
+      if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
+      const ta4 = await tagRows(a);
+      check('a forum tag added with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 201 && Array.isArray(svc.json) && svc.json.length === 1 && ta4.length === ta2.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${ta2.length} now ${ta4.length}`);
+      forumTagPointsA = ta4.reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_tags?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+      if (topicIds.length) await admin(`/rest/v1/forum_topics?id=in.(${topicIds.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Making a proposal earns its point
+  // (20261123160000_score_made_a_proposal.sql, WC-192): a new proposal is
+  // scored once for the member who made it, naming the row's tool; a refused
+  // proposal, a change, a delete and a service-key insert score nothing;
+  // nobody can write the engagement themselves. Counts are taken at the start
+  // of the block, so proposals made by the checks above (one each for A and
+  // B, so far) do not matter here.
+  let madeProposalPointsA = 0;
+  {
+    const PROPOSAL_KIND = 'made_a_proposal';
+    const proposalRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${PROPOSAL_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const proposalRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${PROPOSAL_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    try {
+      const [pa, pb] = [await proposalRows(a), await proposalRows(b)];
+      check('each proposal a member made above recorded one engagement for them, worth what the rule says, naming its tool',
+        pa.length >= 1 && pb.length >= 1 && [...pa, ...pb].every((e) => e.points === proposalRule?.points && e.tool === TOOL && e.task_id === null),
+        `A ${JSON.stringify(pa)}, B ${JSON.stringify(pb)}, rule ${proposalRule?.points}`);
+      const title = `RLS scored proposal ${randomUUID().slice(0, 8)}`;
+      const made = await call('/rest/v1/proposals', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title, tool: 'rls-check-proposal-tool' } });
+      if (made.json?.[0]?.id) ids.push(made.json[0].id);
+      const blank = await call('/rest/v1/proposals', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: ' \n ' } });
+      const inAsName = await call('/rest/v1/proposals', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title, owner_id: a.id } });
+      const changed = made.json?.[0]?.id
+        ? await call(`/rest/v1/proposals?id=eq.${made.json[0].id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { title: `${title}, changed` } })
+        : { status: 0 };
+      const [pa2, pb2] = [await proposalRows(a), await proposalRows(b)];
+      check('making a proposal records exactly one engagement for the member who made it, naming the tool it sent; a refused one or a change records none',
+        made.status === 201 && blank.status >= 400 && inAsName.status >= 400 && changed.status === 200 && pa2.length === pa.length + 1 && pa2.at(-1)?.tool === 'rls-check-proposal-tool' && pa2.at(-1)?.points === proposalRule?.points && pb2.length === pb.length,
+        `made HTTP ${made.status}, blank HTTP ${blank.status}, in A's name HTTP ${inAsName.status}, change HTTP ${changed.status}, A had ${pa.length} now ${JSON.stringify(pa2)}, B had ${pb.length} now ${pb2.length}`);
+      check('"Made a proposal" is active at 1 point with its four factors and a reason for each',
+        proposalRule?.name === 'Made a proposal' && proposalRule.points === 1 && proposalRule.effort === 1 && proposalRule.value === 2 && proposalRule.rarity === 0 && proposalRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof proposalRule[k] === 'string' && proposalRule[k].length > 0),
+        JSON.stringify(proposalRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: PROPOSAL_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: PROPOSAL_KIND, p_tool: TOOL, p_task: null } });
+      const pb3 = await proposalRows(b);
+      check('a member cannot forge a "Made a proposal" engagement: not in the ledger, not through the ledger\u2019s function',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && pb3.length === pb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, B now ${pb3.length}`);
+      const svc = await admin('/rest/v1/proposals', { method: 'POST', prefer: 'return=representation', body: { title: `${title} by service key`, owner_id: a.id } });
+      if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
+      const pa4 = await proposalRows(a);
+      check('a proposal made with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 201 && Array.isArray(svc.json) && svc.json.length === 1 && pa4.length === pa2.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${pa2.length} now ${pa4.length}`);
+      if (made.json?.[0]?.id) {
+        await call(`/rest/v1/proposals?id=eq.${made.json[0].id}`, { method: 'DELETE', token: a.token });
+        const pa5 = await proposalRows(a);
+        check('deleting a proposal records no "Made a proposal" engagement', pa5.length === pa4.length, `A had ${pa4.length} now ${pa5.length}`);
+      }
+      madeProposalPointsA = (await proposalRows(a)).reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
   // Changing a proposal earns its point
   // (20261123170000_score_changed_a_proposal.sql, WC-193): a saved change to
   // a proposal's title, notes, points, priority, status or parent is scored
@@ -1306,7 +1608,8 @@ try {
   // that changes nothing, a reorder, a refused change, a sub-proposal losing a
   // deleted parent and a service-key change score nothing; nobody can write
   // the engagement themselves. Counts are taken at the start of the block, so
-  // the change the proposals check above made (one, for A) does not matter here.
+  // the changes the checks above made (the proposals check's one and the
+  // "Made a proposal" block's one, both for A) do not matter here.
   let changedProposalPointsA = 0;
   {
     const PROPOSAL_KIND = 'changed_a_proposal';
@@ -1316,8 +1619,10 @@ try {
     const patch = (id, member, body) => call(`/rest/v1/proposals?id=eq.${id}`, { method: 'PATCH', token: member.token, prefer: 'return=representation', body });
     try {
       const [pa, pb] = [await proposalRows(a), await proposalRows(b)];
-      check('the proposal change A made above recorded one engagement for them, worth what the rule says, naming its tool',
-        pa.length >= 1 && pa.every((e) => e.points === proposalRule?.points && e.tool === TOOL && e.task_id === null),
+      // The "Made a proposal" block above changes its proposal without sending a
+      // tool, so that change keeps the row's own tool, rls-check-proposal-tool.
+      check('each proposal change A made above recorded one engagement for them, worth what the rule says, naming its tool',
+        pa.length >= 2 && pa.every((e) => e.points === proposalRule?.points && [TOOL, 'rls-check-proposal-tool'].includes(e.tool) && e.task_id === null),
         `A ${JSON.stringify(pa)}, B ${JSON.stringify(pb)}, rule ${proposalRule?.points}`);
       const title = `RLS changed proposal ${randomUUID().slice(0, 8)}`;
       const made = await call('/rest/v1/proposals', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title } });
@@ -1367,6 +1672,9 @@ try {
           del.json?.length === 1 && child?.parent_proposal_id === null && pa6.length === pa5.length, `delete ${JSON.stringify(del.json)}, child ${JSON.stringify(child)}, A had ${pa5.length} now ${pa6.length}`);
       }
       changedProposalPointsA = (await proposalRows(a)).reduce((sum, e) => sum + e.points, 0);
+      // The two proposals this block made scored "Made a proposal" for A after
+      // that block took its total, so take it again.
+      madeProposalPointsA = ((await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_a_proposal&select=points`)).json ?? []).reduce((sum, e) => sum + e.points, 0);
     } finally {
       if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
@@ -1635,8 +1943,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages and changed proposals were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},changed_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals and changed proposals were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1659,7 +1967,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + changedProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).

@@ -5,11 +5,12 @@
  * timestamps kept, only the member's own proposals changed or deleted,
  * sub-proposals kept as top-level when their parent is deleted). Two stores
  * given the same `rows` are two members looking at one table. Given an
- * engagement store, a change to a proposal's title, notes, points, priority,
- * status or parent is scored for the member who made it, as
+ * engagement store, a new proposal is scored for the member who made it, as
+ * `proposals_score` does, and a change to a proposal's title, notes, points,
+ * priority, status or parent is scored for the member who made it, as
  * `proposals_score_changed` does; a save that changes none of those scores
- * nothing, and if the engagement cannot be written, the change is not saved
- * either.
+ * nothing, and if the engagement cannot be written, neither the proposal nor
+ * the change is saved.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewProposalRow, Proposal, ProposalRowChanges, ProposalStore } from './proposals.ts';
@@ -38,6 +39,10 @@ export class MemoryProposalStore implements ProposalStore {
   async insert(row: NewProposalRow): Promise<Proposal> {
     const now = new Date().toISOString();
     const proposal: Proposal = { ...row, id: `proposal-${next++}`, ownerId: this.ownerId, createdAt: now, updatedAt: now };
+    // Scored in the same save, before it lands: no engagement, no proposal.
+    if (this.engagements) {
+      await recordEngagement(this.engagements, { memberId: this.ownerId, kind: 'made_a_proposal', tool: row.tool });
+    }
     this.rows.set(proposal.id, proposal);
     return { ...proposal };
   }
