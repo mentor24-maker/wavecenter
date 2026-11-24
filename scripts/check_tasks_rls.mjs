@@ -52,7 +52,9 @@
  * loops (`public.forum_topics`); and the same for a tag, whose related tags
  * are two-way, never itself, changed only by whoever may change one of the
  * two tags and gone when either tag is (`public.forum_tags`,
- * `public.forum_tag_relations`).
+ * `public.forum_tag_relations`); and that only a role with Manage website adds
+ * a page of the website, as an empty draft only it sees, nobody changes or
+ * deletes one yet, and a published page is seen by anyone (`public.site_pages`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -2099,6 +2101,61 @@ try {
       madeProposalPointsA = (await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=eq.made_a_proposal&select=points`)).json?.reduce((sum, e) => sum + e.points, 0) ?? madeProposalPointsA;
     } finally {
       if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // The website's pages (20261124120000_site_pages.sql, WC-206): only a role
+  // with site.edit (admin; A is one, B a viewer) adds a page, in their own
+  // name, always an empty draft; a draft is seen only by such a role, a
+  // published page by anyone; an address is unique and well formed; nobody
+  // changes or deletes a page yet. The test rows are removed at the end.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const add = async (who, body) => {
+      const r = await call('/rest/v1/site_pages', { method: 'POST', token: who?.token, prefer: 'return=representation', body });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r;
+    };
+    try {
+      const made = await add(a, { name: `RLS page ${tag}`, slug: `rls-page-${tag}` });
+      const page = made.json?.[0];
+      check('a website manager adds a page, stamped as theirs, an empty draft naming the tool',
+        made.status === 201 && page?.created_by === a.id && page?.is_published === false && JSON.stringify(page?.layout_sections) === '[]' && page?.tool === 'wavecenter',
+        `HTTP ${made.status} ${JSON.stringify(made.json)}`);
+      const byB = await add(b, { name: `RLS page B ${tag}`, slug: `rls-page-b-${tag}` });
+      const anonAdd = await add(null, { name: `RLS page anon ${tag}`, slug: `rls-page-anon-${tag}` });
+      check('a member without Manage website, or a signed-out visitor, cannot add a page', byB.status >= 400 && anonAdd.status >= 400, `viewer HTTP ${byB.status}, signed out HTTP ${anonAdd.status}`);
+      const forged = await add(a, { name: `RLS forged ${tag}`, slug: `rls-forged-${tag}`, is_published: true });
+      const forgedBy = await add(a, { name: `RLS forged by ${tag}`, slug: `rls-forged-by-${tag}`, created_by: b.id });
+      const forgedLayout = await add(a, { name: `RLS forged layout ${tag}`, slug: `rls-forged-layout-${tag}`, layout_sections: [{ id: 'x' }] });
+      check('nobody adds a page already published, made in someone else’s name, or with sections', forged.status >= 400 && forgedBy.status >= 400 && forgedLayout.status >= 400,
+        `published HTTP ${forged.status}, created_by HTTP ${forgedBy.status}, layout HTTP ${forgedLayout.status}`);
+      const twin = await add(a, { name: `RLS twin ${tag}`, slug: `rls-page-${tag}` });
+      const badSlug = await add(a, { name: `RLS bad ${tag}`, slug: 'Not A Slug' });
+      const blank = await add(a, { name: ' \n ', slug: `rls-blank-${tag}` });
+      const long = await add(a, { name: 'x'.repeat(81), slug: `rls-long-${tag}` });
+      check('the database refuses a taken or badly formed address, a blank name and one over 80 characters',
+        twin.status === 409 && badSlug.status >= 400 && blank.status >= 400 && long.status >= 400,
+        `twin HTTP ${twin.status}, bad slug HTTP ${badSlug.status}, blank HTTP ${blank.status}, long HTTP ${long.status}`);
+      const draftB = await call(`/rest/v1/site_pages?id=eq.${page?.id}&select=id`, { token: b.token });
+      const draftAnon = await call(`/rest/v1/site_pages?id=eq.${page?.id}&select=id`);
+      check('a draft is hidden from a member without Manage website and from a signed-out visitor',
+        draftB.status === 200 && draftB.json?.length === 0 && draftAnon.status === 200 && draftAnon.json?.length === 0,
+        `viewer HTTP ${draftB.status} ${JSON.stringify(draftB.json)}, signed out HTTP ${draftAnon.status} ${JSON.stringify(draftAnon.json)}`);
+      await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { is_published: true } });
+      const pubB = await call(`/rest/v1/site_pages?id=eq.${page?.id}&select=id`, { token: b.token });
+      const pubAnon = await call(`/rest/v1/site_pages?id=eq.${page?.id}&select=id`);
+      check('a published page is seen by every member and by a signed-out visitor', pubB.json?.length === 1 && pubAnon.json?.length === 1,
+        `viewer HTTP ${pubB.status} ${JSON.stringify(pubB.json)}, signed out HTTP ${pubAnon.status} ${JSON.stringify(pubAnon.json)}`);
+      const patchA = await call(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { name: 'changed' } });
+      const delA = await call(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      const still = (await admin(`/rest/v1/site_pages?id=eq.${page?.id}&select=name`)).json?.[0];
+      const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
+      check('nobody changes or deletes a page yet, not even a website manager', refused(patchA) && refused(delA) && still?.name === `RLS page ${tag}`,
+        `patch HTTP ${patchA.status}, delete HTTP ${delA.status}, row ${JSON.stringify(still)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
   }
 

@@ -42,6 +42,7 @@ export const PERMISSIONS = [
   { key: 'game.edit', label: 'Manage game scoring' },
   { key: 'member.message', label: 'Message members' },
   { key: 'home.edit', label: 'Edit Home boxes' },
+  { key: 'site.edit', label: 'Manage website' },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
@@ -54,10 +55,11 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * Only an admin manages the game's scoring rules (core/game.ts,
  * `changeScoringRule`). Every member messages members (Dane, 2026-11-01,
  * "B", on the Messaging section of Your profile; core/messages.ts). Only
- * an admin changes the words in Home's boxes (core/homeBoxes.ts).
+ * an admin changes the words in Home's boxes (core/homeBoxes.ts), and only an
+ * admin manages the website's pages (core/website.ts).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit', 'site.edit'],
   editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message'],
   contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message'],
   reviewer: ['task.read', 'member.read', 'team.read', 'member.message'],
