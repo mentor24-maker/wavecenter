@@ -93,6 +93,13 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
     return { ...topic };
   }
 
+  async setTopicParent(id: string, parentId: string | null): Promise<ForumTopic> {
+    const topic = this.rows.filter(isTopic).find((t) => t.id === id);
+    if (!topic) throw new CoreError('That topic was not found. It may have been deleted.');
+    Object.assign(topic, { parentId, updatedAt: new Date().toISOString() });
+    return { ...topic };
+  }
+
   async deleteTopic(id: string): Promise<void> {
     const at = this.rows.findIndex((r) => isTopic(r) && r.id === id);
     if (at < 0) throw new CoreError('That topic was not found. It may have been deleted.');
