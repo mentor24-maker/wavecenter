@@ -1488,7 +1488,6 @@ try {
       check('an admin deletes a tag someone else added', adminDel.status === 200 && adminDel.json?.length === 1, `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/forum_tags?id=in.(${ids.join(',')})`, { method: 'DELETE' });
-      }
     }
   }
 
