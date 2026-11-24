@@ -61,6 +61,7 @@ export const ENGAGEMENT_KINDS = [
   'added_a_forum_tag',
   'made_a_proposal',
   'changed_a_proposal',
+  'deleted_a_proposal',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -199,6 +200,11 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // "Started a chat", "Added a forum topic", "Added a forum tag" and "Made a
   // proposal".
   { kind: 'changed_a_proposal', name: 'Changed a proposal', description: "Edited a proposal's title, notes, points, priority or status.", criteria: 'A saved change to a proposal.', points: 1, position: 30 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // sixth of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat", "Added a forum topic", "Added a forum tag", "Made a
+  // proposal" and "Changed a proposal".
+  { kind: 'deleted_a_proposal', name: 'Deleted a proposal', description: 'Removed a proposal.', criteria: 'A proposal is deleted.', points: 1, position: 31 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -412,6 +418,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   changed_a_proposal: {
     fn: 'updateProposal', file: 'core/proposals.ts', database: 'proposals_score_changed',
     test: 'changing a proposal records one engagement for the member who changed it, naming the tool; a save that changes nothing or is refused records none', testFile: 'core/proposals.test.ts',
+  },
+  deleted_a_proposal: {
+    fn: 'deleteProposal', file: 'core/proposals.ts', database: 'proposals_score_delete',
+    test: 'deleting a proposal records one engagement for the member who deleted it, naming the tool; a refused delete records none', testFile: 'core/proposals.test.ts',
   },
 };
 

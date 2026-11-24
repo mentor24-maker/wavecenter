@@ -6,11 +6,12 @@
  * sub-proposals kept as top-level when their parent is deleted). Two stores
  * given the same `rows` are two members looking at one table. Given an
  * engagement store, a new proposal is scored for the member who made it, as
- * `proposals_score` does, and a change to a proposal's title, notes, points,
+ * `proposals_score` does; a change to a proposal's title, notes, points,
  * priority, status or parent is scored for the member who made it, as
- * `proposals_score_changed` does; a save that changes none of those scores
- * nothing, and if the engagement cannot be written, neither the proposal nor
- * the change is saved.
+ * `proposals_score_changed` does (a save that changes none of those scores
+ * nothing); and deleting a proposal is scored for the member who deleted it,
+ * as `proposals_score_delete` does. If the engagement cannot be written,
+ * the proposal, the change or the delete is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewProposalRow, Proposal, ProposalRowChanges, ProposalStore } from './proposals.ts';
@@ -64,8 +65,10 @@ export class MemoryProposalStore implements ProposalStore {
     return { ...updated };
   }
 
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string, tool: string): Promise<boolean> {
     if (!this.own(id)) return false;
+    // Scored in the same delete, before it lands: no engagement, no delete.
+    if (this.engagements) await recordEngagement(this.engagements, { memberId: this.ownerId, kind: 'deleted_a_proposal', tool });
     this.rows.delete(id);
     // Like the database's "on delete set null".
     for (const proposal of this.rows.values()) if (proposal.parentProposalId === id) proposal.parentProposalId = null;

@@ -234,6 +234,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Added a forum tag | 1 | 1 | 1 | 1 | 2 | **5** | Gives members a label to sort the Forum by, though tags are not attached to topics yet; a tag cannot be deleted yet, so it cannot loop. (`supabase/migrations/20261123150000_score_added_a_forum_tag.sql`) |
 | Made a proposal | 1 | 1 | 2 | 0 | 3 | **6** | Puts an idea in front of the other members that could become a task; paired with deleting it, so it loops. Same as making a task. (`supabase/migrations/20261123160000_score_made_a_proposal.sql`) |
 | Changed a proposal | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a proposal accurate; any edit can be changed straight back, so it loops. Same as changing a task. (`supabase/migrations/20261123170000_score_changed_a_proposal.sql`) |
+| Deleted a proposal | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. Same as deleting a task. (`supabase/migrations/20261123180000_score_deleted_a_proposal.sql`) |
 
 ### Why each factor got its score
 
@@ -368,6 +369,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Changed a proposal | Value | 1 | Keeps a proposal accurate, which tidies up the Proposals page. |
 | Changed a proposal | Rarity | 0 | Proposals can be edited many times a day. |
 | Changed a proposal | Farm risk | 3 | Any edit can be changed straight back, so it loops. |
+| Deleted a proposal | Effort | 0 | One click. |
+| Deleted a proposal | Value | 1 | Housekeeping worth having: it tidies up the Proposals page. |
+| Deleted a proposal | Rarity | 0 | Proposals can be deleted many times a day. |
+| Deleted a proposal | Farm risk | 3 | The undo half of the make-and-delete loop. |
 
 ## Scoring an action added later
 
