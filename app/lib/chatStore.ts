@@ -3,7 +3,8 @@
  * `chat_members` and `chat_messages` tables. It acts through the member's
  * session, never the service key. Every write goes through a database
  * function that repeats core's rules: `start_chat` finds or makes a chat,
- * `send_chat_message` saves a message (and scores it, in the same save).
+ * `send_chat_message` saves a message (and scores it, in the same save);
+ * a new chat is scored for its starter in the same save too.
  * Reading goes straight to the tables, whose row-level security lets a
  * member read only the chats they are in.
  *
@@ -21,6 +22,7 @@
  */
 import type { Chat, ChatMessage, ChatReadStore, ChatStore } from "../../core/chat.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -29,8 +31,12 @@ const MESSAGE_READ_LIMIT = 500;
 
 export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
   return {
-    async start(otherMemberId, taskId) {
-      const { data, error } = await supabase.rpc("start_chat", { other_member: otherMemberId, about_task: taskId });
+    async start(otherMemberId, taskId, tool) {
+      // The tool rides in a header: start_chat takes none, and chats_score
+      // names it on the new chat's engagement (public.engagement_tool).
+      const { data, error } = await supabase
+        .rpc("start_chat", { other_member: otherMemberId, about_task: taskId })
+        .setHeader(TOOL_HEADER, tool);
       if (error) {
         // Only start_chat's own refusals (raised with these codes, in plain
         // words) are marked as refusals the screen may show. Anything else,

@@ -12,6 +12,7 @@
  */
 import type { NewProposalRow, Proposal, ProposalStore } from "../../core/proposals.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -77,8 +78,9 @@ export function supabaseProposalStore(supabase: Client, memberId: string): Propo
       if (error) failed("save the change", error);
       return data?.[0] ? fromRow(data[0]) : null;
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("proposals").delete().eq("id", id).eq("owner_id", memberId).select("id");
+    async remove(id, tool) {
+      // A delete leaves no row to carry the tool's name; the scoring trigger reads it from this header.
+      const { data, error } = await supabase.from("proposals").delete().eq("id", id).eq("owner_id", memberId).select("id").setHeader(TOOL_HEADER, tool);
       if (error) failed("delete the proposal", error);
       return (data?.length ?? 0) > 0;
     },
