@@ -238,6 +238,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Changed a Home box | 1 | 1 | 2 | 1 | 3 | **7** | Words every member reads on Home; can be changed straight back. Only a role with Edit Home boxes (admin, to start). Same as changing a scoring rule. (`supabase/migrations/20261123190000_score_changed_a_home_box.sql`) |
 | Starred a message | 1 | 0 | 0 | 0 | 3 | **1** | One click on a private mark nobody else sees; can be unstarred and starred again. Same as switching the AI agents on or off. (`supabase/migrations/20261123200000_score_starred_a_message.sql`) |
 | Scored an action's factors | 1 | 1 | 2 | 1 | 3 | **7** | Sets what the Admin page's batch proposes each action be worth; can be changed straight back. Admin only. Same as changing a scoring rule. (`supabase/migrations/20261123210000_score_scored_an_action_s_factors.sql`) |
+| Gave a reason for a factor | 1 | 1 | 2 | 1 | 3 | **7** | Every member can read why an action is worth what it is; a reason can be changed straight back. Admin only. (`supabase/migrations/20261123220000_score_gave_a_reason_for_a_factor.sql`) |
 
 ### Why each factor got its score
 
@@ -388,6 +389,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Scored an action's factors | Value | 2 | Sets what the batch proposes each action be worth, which every member earns by. |
 | Scored an action's factors | Rarity | 1 | Factors change a few times a week at most, and only an admin can change them. |
 | Scored an action's factors | Farm risk | 3 | Factors can be changed straight back, so it loops. |
+| Gave a reason for a factor | Effort | 1 | One sentence on why a factor got its score: under a minute. |
+| Gave a reason for a factor | Value | 2 | Every member can read on Game > Manage why an action is worth what it is. |
+| Gave a reason for a factor | Rarity | 1 | Reasons change a few times a week at most, and only an admin can write one. |
+| Gave a reason for a factor | Farm risk | 3 | A reason can be changed straight back, so it loops. |
 
 ## Scoring an action added later
 
