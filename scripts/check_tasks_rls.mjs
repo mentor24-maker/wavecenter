@@ -1360,6 +1360,10 @@ try {
   const TOKEN_COLUMNS = 'id,name,diameter,color,min_points,tool';
   const tokensBefore = (await admin(`/rest/v1/token_sizes?select=${TOKEN_COLUMNS}&order=min_points`)).json;
   if (!Array.isArray(tokensBefore)) throw new Error(`could not read the token sizes before checking them: ${JSON.stringify(tokensBefore)}`);
+  // Adding a token size is scored (WC-199), so A's ledger list below leaves
+  // that kind out and A's total adds these points back.
+  const TOKEN_SIZE_KIND = 'added_a_token_size';
+  let tokenSizePointsA = 0;
   try {
     const actorA = { role: 'admin' };
     const actorB = { role: 'viewer' };
@@ -1399,6 +1403,40 @@ try {
     await removeTokenSize(tokenStore(a), actorA, addedA.id, TOOL);
     const gone = await admin(`/rest/v1/token_sizes?id=eq.${addedA.id}&select=id`);
     check('an admin removes a token size through core', gone.json?.length === 0, JSON.stringify(gone.json));
+    // Adding a token size earns its point
+    // (20261123230000_score_added_a_token_size.sql, WC-199): each size saved
+    // is scored once for the signed-in member who added it, naming its tool;
+    // a refused add, a change, a removal and a service-key write score
+    // nothing; nobody can write the engagement themselves.
+    {
+      const sizeScores = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${TOKEN_SIZE_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+      const sizeRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${TOKEN_SIZE_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+      const [sa, sb] = [await sizeScores(a), await sizeScores(b)];
+      check('adding a token size above recorded exactly one engagement for the admin who added it, worth what the rule says, naming the tool; the change, the removal and the refused adds recorded none',
+        sa.length === 1 && sa[0].points === sizeRule?.points && sa[0].tool === TOOL && sa[0].task_id === null && sb.length === 0,
+        `A ${JSON.stringify(sa)}, B ${JSON.stringify(sb)}, rule ${sizeRule?.points}`);
+      await addTokenSize(tokenStore(a), actorA, { name: 'RLS check 2', diameter: 12, color: '#abcdef', minPoints: level + 6 }, 'rls-check-size-tool');
+      const sa2 = await sizeScores(a);
+      check('each token size added records one more engagement for the admin, naming the tool it sent',
+        sa2.length === 2 && sa2[1].tool === 'rls-check-size-tool', `A ${JSON.stringify(sa2)}`);
+      const svc = await admin('/rest/v1/token_sizes', { method: 'POST', prefer: 'return=representation', body: { name: 'RLS service', diameter: 12, color: '#fedcba', min_points: level + 7, tool: 'rls-check-service-size' } });
+      const svcScored = (await admin('/rest/v1/engagements?tool=eq.rls-check-service-size&select=id')).json ?? [];
+      check('a token size added with the service key (no signed-in member) is saved and scores nobody',
+        svc.status < 300 && svc.json?.[0]?.name === 'RLS service' && svcScored.length === 0 && (await sizeScores(a)).length === 2,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, scored ${JSON.stringify(svcScored)}`);
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: TOKEN_SIZE_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: TOKEN_SIZE_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/token_sizes_score', { method: 'POST', token: b.token, body: {} });
+      const sb2 = await sizeScores(b);
+      check('a member cannot forge an "Added a token size" engagement: not in the ledger, not through the ledger’s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && sb2.length === 0,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, trigger HTTP ${forgeTrigger.status}, B now ${sb2.length}`);
+      check('"Added a token size" is active at 1 point with its four factors and a reason for each',
+        sizeRule?.name === 'Added a token size' && sizeRule.points === 1 && sizeRule.effort === 1 && sizeRule.value === 2 && sizeRule.rarity === 2 && sizeRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof sizeRule[k] === 'string' && sizeRule[k].length > 0),
+        JSON.stringify(sizeRule));
+      tokenSizePointsA = (await sizeScores(a)).reduce((sum, e) => sum + e.points, 0);
+    }
     const anonTokens = await call('/rest/v1/token_sizes?select=id');
     check('a signed-out visitor sees no token sizes', anonTokens.status >= 400 || anonTokens.json?.length === 0, `HTTP ${anonTokens.status} ${JSON.stringify(anonTokens.json)}`);
   } finally {
@@ -2292,8 +2330,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals, Home box changes and stars were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box,starred_a_message)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals, Home box changes, stars and added token sizes were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box,starred_a_message,${TOKEN_SIZE_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -2316,7 +2354,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA + starredPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA + starredPointsA + tokenSizePointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
