@@ -56,6 +56,8 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'started_a_chat',
+  'added_a_forum_topic',
   'made_a_proposal',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -176,6 +178,12 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
   // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // first of its rows, so a fresh database puts it after the 25 above.
+  { kind: 'started_a_chat', name: 'Started a chat', description: 'Opened a new chat with another member, on its own or about a task.', criteria: 'A new chat is saved. Opening a chat that already exists does not count.', points: 1, position: 26 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // second of its rows, so a fresh database puts it after the 25 above and
+  // "Started a chat".
+  { kind: 'added_a_forum_topic', name: 'Added a forum topic', description: 'Added a topic for members to discuss on the Forum.', criteria: 'A new topic is saved on the Forum.', points: 1, position: 27 },
   // fourth of its rows, so a fresh database puts it after the 25 above,
   // "Started a chat", "Added a forum topic" and "Added a forum tag".
   { kind: 'made_a_proposal', name: 'Made a proposal', description: 'Put forward an idea for a change on the Proposals page.', criteria: 'A new proposal is saved.', points: 1, position: 29 },
@@ -373,6 +381,13 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
   },
+  started_a_chat: {
+    fn: 'startChat', file: 'core/chat.ts', database: 'chats_score',
+    test: 'starting a new chat records one engagement for the member who started it; opening one already there records none', testFile: 'core/chat.test.ts',
+  },
+  added_a_forum_topic: {
+    fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_topics_score',
+    test: 'adding a forum topic records one engagement for the member who added it, naming the tool; a tag or a refused topic records none', testFile: 'core/forum.test.ts',
   made_a_proposal: {
     fn: 'createProposal', file: 'core/proposals.ts', database: 'proposals_score',
     test: 'making a proposal records one engagement for the member who made it, naming the tool; a refused one records none', testFile: 'core/proposals.test.ts',
