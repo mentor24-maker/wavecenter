@@ -64,6 +64,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123210000_score_scored_an_action_s_factors.sql',
   '20261123220000_score_gave_a_reason_for_a_factor.sql',
   '20261123230000_score_added_a_token_size.sql',
+  '20261124010000_score_changed_a_token_size.sql',
   '20261124020000_score_deleted_a_token_size.sql',
 ];
 
@@ -543,6 +544,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('scored_an_action_s_factors'), true);
   assert.equal(isWired('gave_a_reason_for_a_factor'), true);
   assert.equal(isWired('added_a_token_size'), true);
+  assert.equal(isWired('changed_a_token_size'), true);
   assert.equal(isWired('deleted_a_token_size'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
