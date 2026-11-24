@@ -68,6 +68,7 @@ export const ENGAGEMENT_KINDS = [
   'gave_a_reason_for_a_factor',
   'added_a_token_size',
   'changed_a_token_size',
+  'deleted_a_token_size',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -235,6 +236,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // twelfth of its rows, so a fresh database puts it after the 25 above and
   // the eleven second-sweep rows before it.
   { kind: 'changed_a_token_size', name: 'Changed a token size', description: "Edited a token size's name, size, colour or point level.", criteria: 'A saved change to a token size.', points: 1, position: 37 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // thirteenth of its rows, so a fresh database puts it after the 25 above
+  // and the twelve second-sweep rows before it.
+  { kind: 'deleted_a_token_size', name: 'Deleted a token size', description: 'Removed a token size.', criteria: 'A token size is deleted.', points: 1, position: 38 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -476,6 +481,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   changed_a_token_size: {
     fn: 'changeTokenSize', file: 'core/tokens.ts', database: 'token_sizes_score_changed',
     test: 'changing a token size records one engagement for the admin who changed it, naming the tool; a save that changes nothing, a refused or failed one, an add, a removal or a service-key write records none', testFile: 'core/tokens.test.ts',
+  },
+  deleted_a_token_size: {
+    fn: 'removeTokenSize', file: 'core/tokens.ts', database: 'token_sizes_score_delete',
+    test: 'deleting a token size records one engagement for the admin who deleted it, naming the tool; a refused or failed one, an add, a change or a service-key delete records none', testFile: 'core/tokens.test.ts',
   },
 };
 
