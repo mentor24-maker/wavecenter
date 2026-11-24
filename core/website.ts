@@ -15,7 +15,7 @@
  *
  * Who may manage the website is the role's `site.edit` permission
  * (core/members.ts), granted to admins at the start. The database's
- * row-level security repeats it (supabase/migrations/20261123120000_site_pages.sql),
+ * row-level security repeats it (supabase/migrations/20261124120000_site_pages.sql),
  * so a client that went around core still cannot write a page.
  */
 import { STARTING_ROLE_PERMISSIONS, mayDo, roleOf, type MemberRoleStore, type RoleKey } from './members.ts';

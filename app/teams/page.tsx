@@ -1,13 +1,16 @@
 import { redirect } from "next/navigation";
 import { ROLES, STARTING_ROLE_PERMISSIONS } from "../../core/members.ts";
+import { mountainToday } from "../../core/meetings.ts";
 import { mayManageTeams, mayViewTeams } from "../../core/teams.ts";
 import { headerPoints } from "../lib/engagementStore";
+import { listMeetings } from "../lib/meetingStore";
 import { headerName } from "../lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import { listTeamMembers, listTeams } from "../lib/teamStore";
 import { shownName } from "../members/memberView";
 import SiteHeader from "../SiteHeader";
+import MeetingManager, { type Invitable, type MeetingTeam } from "./MeetingManager";
 import TeamManager, { type Candidate, type TeamView } from "./TeamManager";
 
 /** Join dates are shown in Mountain time, Dane's own. */
@@ -30,6 +33,10 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * 2026-10-30, "B") also gets Create, Edit and Delete, and adds and removes a
  * team's members. A role that may not view teams gets a plain message
  * instead of an empty table. Signed-out visitors are sent to sign in.
+ *
+ * Beside the table, the Meeting Manager (WC-204): every team's meetings on a
+ * calendar, which a member of a team plans and changes, inviting anyone
+ * (Dane, WC-204, "B").
  */
 export default async function Teams() {
   const supabase = await supabaseForRequest();
@@ -81,10 +88,12 @@ export default async function Teams() {
 
   // No buttons unless the grants were read: a button must never show to a role that may not use it.
   const manage = lists.value !== null && mayManageTeams(role.value, lists.value.grants);
-  const [teams, links, everyone] = await Promise.all([
+  const [teams, links, everyone, meetings] = await Promise.all([
     read(() => listTeams(supabase)),
     read(() => listTeamMembers(supabase)),
-    manage ? read(() => listMembers(supabase)) : Promise.resolve(null),
+    // Every member may be invited to a meeting, so every viewer needs the list, not only managers.
+    read(() => listMembers(supabase)),
+    read(() => listMeetings(supabase)),
   ]);
 
   const loadError = teams.error ?? links.error;
@@ -98,10 +107,13 @@ export default async function Teams() {
         }))
       : [];
   const candidates: Candidate[] | null =
-    everyone?.value?.map((m) => ({
+    everyone.value?.map((m) => ({
       memberId: m.memberId,
       label: `${shownName(m)}${m.memberId === user.id ? " (you)" : ""} · joined ${DAY.format(new Date(m.joinedAt))}`,
     })) ?? null;
+  const invitable: Invitable[] | null =
+    everyone.value?.map((m, i) => ({ memberId: m.memberId, name: shownName(m), label: candidates![i].label })) ?? null;
+  const meetingTeams: MeetingTeam[] = views.map((t) => ({ id: t.id, name: t.name, mine: t.members.some((m) => m.you) }));
 
   return (
     <>
@@ -116,12 +128,28 @@ export default async function Teams() {
         {loadError !== null ? (
           <p className="error" role="alert">The teams could not be loaded: {loadError}. Try reloading the page.</p>
         ) : (
-          <TeamManager
-            teams={views}
-            manage={manage}
-            candidates={candidates}
-            candidatesError={everyone?.error ?? null}
-          />
+          <div className="teams-layout">
+            <TeamManager
+              teams={views}
+              manage={manage}
+              candidates={manage ? candidates : null}
+              candidatesError={manage ? everyone.error : null}
+            />
+            {meetings.error !== null ? (
+              <div className="panel meeting-manager">
+                <h2>Meeting Manager</h2>
+                <p className="error" role="alert">The meetings could not be loaded: {meetings.error}. Try reloading the page.</p>
+              </div>
+            ) : (
+              <MeetingManager
+                teams={meetingTeams}
+                meetings={meetings.value}
+                people={invitable}
+                peopleError={everyone.error}
+                today={mountainToday()}
+              />
+            )}
+          </div>
         )}
       </main>
     </>

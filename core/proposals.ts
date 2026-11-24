@@ -64,8 +64,13 @@ export interface ProposalStore {
   get(id: string): Promise<Proposal | null>;
   /** Apply `changes` to one of the caller's proposals; null if there is no such proposal. */
   update(id: string, changes: ProposalRowChanges): Promise<Proposal | null>;
-  /** Delete one of the caller's proposals. Its sub-proposals stay and become top-level. False if there is none. */
-  remove(id: string): Promise<boolean>;
+  /**
+   * Delete one of the caller's proposals, naming the tool that deleted it (a
+   * deleted row has nothing left to name it, and the "Deleted a proposal"
+   * engagement does). Its sub-proposals stay and become top-level. False if
+   * there is none.
+   */
+  remove(id: string, tool: string): Promise<boolean>;
 }
 
 export interface NewProposal {
@@ -161,7 +166,7 @@ export async function updateProposal(store: ProposalStore, id: string, changes: 
 /** Delete one of the caller's own proposals on behalf of `tool`. Its sub-proposals are kept and become top-level. */
 export async function deleteProposal(store: ProposalStore, id: string, tool: string): Promise<void> {
   requireTool(tool);
-  if (!(await store.remove(id))) {
+  if (!(await store.remove(id, tool))) {
     throw new CoreError(`No proposal ${id} was found that you may delete. Only the member who made a proposal can delete it.`);
   }
 }

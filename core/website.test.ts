@@ -29,7 +29,7 @@ test('only an admin manages the website at the start; the database grants decide
 });
 
 test('the migration turns on row-level security and checks the same limits core does', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261123120000_site_pages.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261124120000_site_pages.sql', import.meta.url), 'utf8');
   assert.match(sql, /create table if not exists public\.site_pages/);
   assert.match(sql, /alter table public\.site_pages enable row level security/);
   assert.match(sql, new RegExp(`between 1 and ${SITE_PAGE_NAME_MAX}\\)`));

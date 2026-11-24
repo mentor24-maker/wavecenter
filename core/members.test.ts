@@ -29,7 +29,7 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
     read('20261029120000_member_roles.sql'), read('20261029210000_member_permissions.sql'),
     read('20261031120000_teams.sql'), read('20261031140000_game_scoring_admin.sql'), read('20261031150000_messages.sql'),
     read('20261101130000_message_every_member.sql'), read('20261102130000_home_boxes.sql'),
-    read('20261123120000_site_pages.sql'),
+    read('20261124120000_site_pages.sql'),
   ];
   const roles = [...files[0].matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
     .map((m) => ({ key: m[1], name: m[2], description: m[3].replace(/''/g, "'") }));

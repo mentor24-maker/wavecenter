@@ -74,7 +74,7 @@ order.
 
 ## What is built so far (WC-206)
 
-- `site_pages` table (`supabase/migrations/20261123120000_site_pages.sql`):
+- `site_pages` table (`supabase/migrations/20261124120000_site_pages.sql`):
   id, name, slug (the page's address), `layout_sections` (empty until the
   editor exists), `is_published` (false for a new page), who made it, the
   tool, and when. Row-level security is on from the migration that makes it.
