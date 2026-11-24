@@ -239,6 +239,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Starred a message | 1 | 0 | 0 | 0 | 3 | **1** | One click on a private mark nobody else sees; can be unstarred and starred again. Same as switching the AI agents on or off. (`supabase/migrations/20261123200000_score_starred_a_message.sql`) |
 | Scored an action's factors | 1 | 1 | 2 | 1 | 3 | **7** | Sets what the Admin page's batch proposes each action be worth; can be changed straight back. Admin only. Same as changing a scoring rule. (`supabase/migrations/20261123210000_score_scored_an_action_s_factors.sql`) |
 | Gave a reason for a factor | 1 | 1 | 2 | 1 | 3 | **7** | Every member can read why an action is worth what it is; a reason can be changed straight back. Admin only. (`supabase/migrations/20261123220000_score_gave_a_reason_for_a_factor.sql`) |
+| Added a token size | 1 | 1 | 2 | 2 | 3 | **8** | Every member's earned-points tokens use the sizes; they are set a handful of times ever, but a size can be added and removed straight back. Admin only. (`supabase/migrations/20261123230000_score_added_a_token_size.sql`) |
 
 ### Why each factor got its score
 
@@ -393,6 +394,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Gave a reason for a factor | Value | 2 | Every member can read on Game > Manage why an action is worth what it is. |
 | Gave a reason for a factor | Rarity | 1 | Reasons change a few times a week at most, and only an admin can write one. |
 | Gave a reason for a factor | Farm risk | 3 | A reason can be changed straight back, so it loops. |
+| Added a token size | Effort | 1 | A short form (a name, a size, a colour, a point level): under a minute. |
+| Added a token size | Value | 2 | Every member's earned-points tokens are drawn from the sizes. |
+| Added a token size | Rarity | 2 | The sizes are set a handful of times ever, and only an admin can add one. |
+| Added a token size | Farm risk | 3 | A size can be added and removed straight back, so it loops. |
 
 ## Scoring an action added later
 
