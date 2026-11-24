@@ -7,12 +7,22 @@
  * It only translates between core's names and the tables' columns, and turns
  * a failed database call into a thrown error. Every value it writes was
  * decided and checked in core. A topic also reads and writes its details
- * (WC-183); a change or delete that row-level security quietly skipped
+ * (WC-183), and so does a tag, with its related tags (WC-186); a change or
+ * delete that row-level security quietly skipped
  * comes back as zero rows, and that is thrown too, never taken as done
  * (engineering rule 6).
  */
 import { CoreError } from "../../core/tool.ts";
-import { findForumEntryByName, type ForumEntry, type ForumKind, type ForumStore, type ForumTopic, type TopicStore } from "../../core/forum.ts";
+import {
+  findForumEntryByName,
+  type ForumEntry,
+  type ForumKind,
+  type ForumStore,
+  type ForumTag,
+  type ForumTopic,
+  type TagStore,
+  type TopicStore,
+} from "../../core/forum.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -107,6 +117,69 @@ export function supabaseTopicStore(supabase: Client): TopicStore {
       const { data, error } = await supabase.from("forum_topics").delete().eq("id", id).select("id");
       if (error) failed("delete the topic", error);
       if (!data?.length) throw new CoreError("The topic was not deleted: it may already be gone, or you may not be allowed to delete it.");
+    },
+  };
+}
+
+const TAG_COLUMNS = "id, name, slug, description, details, created_by, tool, created_at, updated_at";
+
+/**
+ * Every tag with its details and related tags, A to Z. Each relation is one
+ * row, read both ways. A failed read of either table throws, so a page never
+ * shows "no related tags" when it simply could not tell.
+ */
+export async function listTags(supabase: Client): Promise<ForumTag[]> {
+  const [tags, relations] = await Promise.all([
+    supabase.from("forum_tags").select(TAG_COLUMNS).order("name"),
+    supabase.from("forum_tag_relations").select("tag_id, related_tag_id"),
+  ]);
+  if (tags.error) failed("read the tags", tags.error);
+  if (relations.error) failed("read the related tags", relations.error);
+  const related = new Map<string, string[]>();
+  const relate = (from: string, to: string) => related.set(from, [...(related.get(from) ?? []), to]);
+  for (const r of relations.data ?? []) {
+    relate(r.tag_id, r.related_tag_id);
+    relate(r.related_tag_id, r.tag_id);
+  }
+  return (tags.data ?? []).map((row: any) => ({
+    ...fromRow("tag", row),
+    kind: "tag",
+    slug: row.slug,
+    description: row.description ?? "",
+    details: row.details ?? "",
+    relatedIds: related.get(row.id) ?? [],
+    updatedAt: row.updated_at,
+  }));
+}
+
+export function supabaseTagStore(supabase: Client): TagStore {
+  return {
+    listTags: () => listTags(supabase),
+    async updateTag(id, row) {
+      // One call, so the tag and its related tags are saved together or not at all.
+      const { error } = await supabase.rpc("forum_tag_save", {
+        p_id: id,
+        p_name: row.name,
+        p_slug: row.slug,
+        p_description: row.description,
+        p_details: row.details,
+        p_related: row.relatedIds,
+      });
+      if (error?.code === "23505") {
+        throw new CoreError(/slug/.test(error.message) ? `The slug "${row.slug}" is already used by another tag.` : `There is already a tag called "${row.name}".`);
+      }
+      if (error?.code === "23503") throw new CoreError("One of the chosen related tags was not found. It may have been deleted; reload and choose again.");
+      if (error?.code === "23514" && /forum_tag_relations_once/.test(error.message)) throw new CoreError("A tag cannot be related to itself.");
+      if (error?.code === "P0002") throw new CoreError(error.message);
+      if (error) failed("save the tag", error);
+      const saved = (await listTags(supabase)).find((t) => t.id === id);
+      if (!saved) throw new CoreError("The tag was saved, but it could not be read back: it may have been deleted a moment ago.");
+      return saved;
+    },
+    async deleteTag(id) {
+      const { data, error } = await supabase.from("forum_tags").delete().eq("id", id).select("id");
+      if (error) failed("delete the tag", error);
+      if (!data?.length) throw new CoreError("The tag was not deleted: it may already be gone, or you may not be allowed to delete it.");
     },
   };
 }

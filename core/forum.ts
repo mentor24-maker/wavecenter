@@ -9,8 +9,9 @@
  *
  * Every member reads every topic and tag and may add one. Names are unique
  * without regard to capitals or surrounding spaces. A topic can be opened,
- * changed and deleted, and can have a parent topic (WC-183, below); tags are
- * only listed for now. Attaching a tag to a topic and threads come later. Core does not know about Supabase: it talks to a
+ * changed and deleted, and can have a parent topic (WC-183, below); a tag
+ * can too, and has related tags in place of a parent (WC-186, below).
+ * Attaching a tag to a topic and threads come later. Core does not know about Supabase: it talks to a
  * `ForumStore`, a thin adapter a client supplies. The plain-words description
  * of the tables is docs/DATA_MODEL.md.
  */
@@ -156,17 +157,18 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /**
  * The slug a name suggests: lower case, every run of anything but a-z and
  * 0-9 turned into one hyphen, no hyphen at either end, at most 80
- * characters; "topic" if nothing is left. The database's
- * forum_topic_slug_from() makes the same one.
+ * characters; `fallback` ("topic", or "tag" for a tag) if nothing is left.
+ * The database's forum_topic_slug_from() and forum_tag_slug_from() make the
+ * same one.
  */
-export function topicSlug(name: string): string {
+export function topicSlug(name: string, fallback = 'topic'): string {
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, TOPIC_SLUG_MAX)
     .replace(/-+$/, '');
-  return slug || 'topic';
+  return slug || fallback;
 }
 
 /** `base`, or `base-2`, `base-3`… whichever no slug in `taken` already is. */
@@ -180,7 +182,7 @@ export function uniqueTopicSlug(base: string, taken: Iterable<string>): string {
   }
 }
 
-/** May this member change or delete this topic? Its adder, or an admin. */
+/** May this member change or delete this topic or tag? Its adder, or an admin. */
 export function mayChangeTopic(topic: Pick<ForumEntry, 'createdBy'>, actor: ForumActor): boolean {
   return actor.isAdmin || (topic.createdBy !== null && topic.createdBy === actor.memberId);
 }
@@ -222,12 +224,12 @@ export function subTopicsOf<T extends Pick<ForumTopic, 'parentId'>>(topics: read
   return topics.filter((t) => t.parentId === id);
 }
 
-function optionalText(value: unknown, what: string, max: number): string {
+function optionalText(kind: ForumKind, value: unknown, what: string, max: number): string {
   if (value === undefined || value === null) return '';
-  if (typeof value !== 'string') throw new CoreError(`A topic's ${what} must be words.`);
+  if (typeof value !== 'string') throw new CoreError(`A ${kind}'s ${what} must be words.`);
   const trimmed = value.trim();
   if ([...trimmed].length > max) {
-    throw new CoreError(`A topic's ${what} can be at most ${max.toLocaleString('en-US')} characters; this one has ${[...trimmed].length.toLocaleString('en-US')}.`);
+    throw new CoreError(`A ${kind}'s ${what} can be at most ${max.toLocaleString('en-US')} characters; this one has ${[...trimmed].length.toLocaleString('en-US')}.`);
   }
   return trimmed;
 }
@@ -242,6 +244,32 @@ function requireTopicSlug(value: unknown): string | null {
     throw new CoreError(`"${slug}" cannot be a slug. Use lower-case letters, digits and single hyphens between them, such as "voting-rules".`);
   }
   return slug;
+}
+
+/** The name, slug, description and details an edit asks for, checked against the other entries of its kind. */
+function requireEntryFields(
+  kind: ForumKind,
+  edit: { name: unknown; slug?: unknown; description?: unknown; details?: unknown },
+  others: readonly (ForumEntry & { slug: string })[],
+): { name: string; slug: string; description: string; details: string } {
+  const name = requireForumName(kind, edit.name);
+  const twin = findForumEntryByName(others, name);
+  if (twin) throw new CoreError(`There is already a ${kind} called "${twin.name}".`);
+
+  const typedSlug = requireTopicSlug(edit.slug);
+  let slug: string;
+  if (typedSlug === null) {
+    slug = uniqueTopicSlug(topicSlug(name, kind), others.map((t) => t.slug));
+  } else {
+    const holder = others.find((t) => t.slug === typedSlug);
+    if (holder) throw new CoreError(`The slug "${typedSlug}" is already used by the ${kind} "${holder.name}".`);
+    slug = typedSlug;
+  }
+
+  const description = optionalText(kind, edit.description, 'description', TOPIC_DESCRIPTION_MAX);
+  if (/[\r\n]/.test(description)) throw new CoreError(`A ${kind}'s description is one line; put longer words in its details.`);
+  const details = optionalText(kind, edit.details, 'details', TOPIC_DETAILS_MAX);
+  return { name, slug, description, details };
 }
 
 function findTopic(topics: readonly ForumTopic[], id: unknown): ForumTopic {
@@ -270,27 +298,10 @@ export async function editTopic(store: TopicStore, id: string, edit: TopicEdit, 
   requireMay(topic, actor, 'change');
   const others = topics.filter((t) => t.id !== topic.id);
 
-  const name = requireForumName('topic', edit.name);
-  const twin = findForumEntryByName(others, name);
-  if (twin) throw new CoreError(`There is already a topic called "${twin.name}".`);
-
-  const typedSlug = requireTopicSlug(edit.slug);
-  const slugs = others.map((t) => t.slug);
-  let slug: string;
-  if (typedSlug === null) {
-    slug = uniqueTopicSlug(topicSlug(name), slugs);
-  } else {
-    const holder = others.find((t) => t.slug === typedSlug);
-    if (holder) throw new CoreError(`The slug "${typedSlug}" is already used by the topic "${holder.name}".`);
-    slug = typedSlug;
-  }
-
-  const description = optionalText(edit.description, 'description', TOPIC_DESCRIPTION_MAX);
-  if (/[\r\n]/.test(description)) throw new CoreError("A topic's description is one line; put longer words in its details.");
-  const details = optionalText(edit.details, 'details', TOPIC_DETAILS_MAX);
+  const fields = requireEntryFields('topic', edit, others);
 
   const parentId = requireParent(topics, topic, edit.parentId);
-  return store.updateTopic(topic.id, { name, slug, description, details, parentId });
+  return store.updateTopic(topic.id, { ...fields, parentId });
 }
 
 /** The parent id to write (null for none), or a plain-words refusal: not there, itself, or a loop. */
@@ -327,4 +338,110 @@ export async function deleteTopic(store: TopicStore, id: string, actor: ForumAct
   const topic = findTopic(await store.listTopics(), id);
   requireMay(topic, actor, 'delete');
   await store.deleteTopic(topic.id);
+}
+
+// ---------------------------------------------------------------------------
+// A tag's details, its related tags, changing it and deleting it (WC-186,
+// 2026-11-22).
+//
+// A tag has the same fields as a topic (Dane chose "B" on the ticket): a
+// slug, a one-line description and rich-text details. In place of a parent
+// it has related tags: a two-way list, so relating Voting to Budget shows
+// Voting on Budget too. Who may change or delete a tag is the same as for a
+// topic: its adder, and admins. Deleting a tag takes it off every other
+// tag's related tags.
+// ---------------------------------------------------------------------------
+
+/** A tag with everything its page shows. */
+export interface ForumTag extends ForumEntry {
+  kind: 'tag';
+  slug: string;
+  description: string;
+  /** Rich text in the core/richText.ts format: plain words, never HTML. */
+  details: string;
+  /** The ids of the tags it is related to, both ways. */
+  relatedIds: string[];
+  updatedAt: string;
+}
+
+/** The columns and relations an edit writes, every one decided here. */
+export interface TagChangeRow {
+  name: string;
+  slug: string;
+  description: string;
+  details: string;
+  /** Every tag it is related to after the save, no repeats, never itself. */
+  relatedIds: string[];
+}
+
+/** What a member sends from the edit page. A blank slug means "make one from the name". */
+export interface TagEdit {
+  name: unknown;
+  slug?: unknown;
+  description?: unknown;
+  details?: unknown;
+  relatedIds?: unknown;
+}
+
+/** What core needs from storage to change and delete tags. */
+export interface TagStore {
+  listTags(): Promise<ForumTag[]>;
+  /** Write the change and the related tags together, and return the tag as saved. Throws if nothing was saved. */
+  updateTag(id: string, row: TagChangeRow): Promise<ForumTag>;
+  /** Delete the tag and its relations. Throws if nothing was deleted. */
+  deleteTag(id: string): Promise<void>;
+}
+
+/** May this member change or delete this tag? Its adder, or an admin: the same rule as a topic. */
+export const mayChangeTag = mayChangeTopic;
+
+function findTag(tags: readonly ForumTag[], id: unknown): ForumTag {
+  const tag = typeof id === 'string' ? tags.find((t) => t.id === id) : undefined;
+  if (!tag) throw new CoreError('That tag was not found. It may have been deleted.');
+  return tag;
+}
+
+function requireMayTag(tag: ForumTag, actor: ForumActor, verb: string): void {
+  if (!mayChangeTag(tag, actor)) {
+    throw new CoreError(`Only the member who added "${tag.name}", or an admin, can ${verb} it.`);
+  }
+}
+
+/** The related tags asked for, checked: a list of tags that are there, not this one; a repeat counts once. */
+function requireRelated(tag: ForumTag, tags: readonly ForumTag[], value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new CoreError('Related tags must be a list of tags.');
+  const ids: string[] = [];
+  for (const id of value) {
+    if (id === tag.id) throw new CoreError('A tag cannot be related to itself.');
+    if (typeof id !== 'string' || !tags.some((t) => t.id === id)) {
+      throw new CoreError('One of the chosen related tags was not found. It may have been deleted; reload and choose again.');
+    }
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Change a tag's name, slug, description, details and related tags on behalf
+ * of `tool`. Refuses, in plain words: someone who may not, a name or slug
+ * another tag has, a badly formed slug, over-long words, a related tag that
+ * is not there, and the tag itself as one of its related tags.
+ */
+export async function editTag(store: TagStore, id: string, edit: TagEdit, actor: ForumActor, tool: string): Promise<ForumTag> {
+  requireTool(tool);
+  const tags = await store.listTags();
+  const tag = findTag(tags, id);
+  requireMayTag(tag, actor, 'change');
+  const fields = requireEntryFields('tag', edit, tags.filter((t) => t.id !== tag.id));
+  const relatedIds = requireRelated(tag, tags, edit.relatedIds);
+  return store.updateTag(tag.id, { ...fields, relatedIds });
+}
+
+/** Delete a tag on behalf of `tool`; it leaves every other tag's related tags. Only its adder or an admin may. */
+export async function deleteTag(store: TagStore, id: string, actor: ForumActor, tool: string): Promise<void> {
+  requireTool(tool);
+  const tag = findTag(await store.listTags(), id);
+  requireMayTag(tag, actor, 'delete');
+  await store.deleteTag(tag.id);
 }
