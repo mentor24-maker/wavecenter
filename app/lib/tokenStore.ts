@@ -9,6 +9,7 @@
  */
 import type { TokenSize, TokenSizeFields, TokenStore } from "../../core/tokens.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -41,8 +42,10 @@ export function supabaseTokenStore(supabase: Client): TokenStore {
       if (error) throw refused("change the token size", error);
       return data ? fromRow(data) : null;
     },
-    async remove(id) {
-      const { data, error } = await supabase.from("token_sizes").delete().eq("id", id).select("id");
+    async remove(id, tool) {
+      // The delete's own tool rides in a header for the scoring trigger
+      // (public.engagement_tool), since a deleted row cannot carry it.
+      const { data, error } = await supabase.from("token_sizes").delete().eq("id", id).select("id").setHeader(TOOL_HEADER, tool);
       if (error) throw refused("remove the token size", error);
       return (data ?? []).length > 0;
     },

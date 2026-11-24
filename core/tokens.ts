@@ -49,8 +49,8 @@ export interface TokenStore {
   add(fields: TokenSizeFields, tool: string): Promise<TokenSize | null>;
   /** Change a size. Returns it as stored, or null if there was no such size or nothing was written. */
   change(id: string, fields: TokenSizeFields, tool: string): Promise<TokenSize | null>;
-  /** Remove a size. Returns whether a size was removed. */
-  remove(id: string): Promise<boolean>;
+  /** Remove a size, naming the tool that removed it. Returns whether a size was removed. */
+  remove(id: string, tool: string): Promise<boolean>;
 }
 
 /** A size as an admin typed it: numbers may still be text. */
@@ -134,9 +134,9 @@ export async function changeTokenSize(store: TokenStore, actor: GameActor, id: s
 
 /** Remove a token size. Only an admin may. Throws if nothing was removed. */
 export async function removeTokenSize(store: TokenStore, actor: GameActor, id: string, tool: string): Promise<void> {
-  requireTool(tool);
+  const named = requireTool(tool);
   mayManage(actor);
-  if (!(await store.remove(id))) throw new CoreError('The token size was not removed. Reload the page and try again.');
+  if (!(await store.remove(id, named))) throw new CoreError('The token size was not removed. Reload the page and try again.');
 }
 
 /** One earning, as the header's catch-up needs it: an engagement's id, points and when it happened. */

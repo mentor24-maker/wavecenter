@@ -18,7 +18,7 @@ later never rewrites what someone already earned (`docs/DATA_MODEL.md`,
 "The game layer"). The one way past points move is a rescore, which adds
 correction rows instead ([Rescoring past points](#rescoring-past-points)).
 
-40 actions are listed on a fresh database. Thirty-seven earn points today;
+40 actions are listed on a fresh database. Thirty-eight earn points today;
 the second sweep of the app on 2026-11-22 (WC-188,
 `supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) found
 fifteen more, and each shows "Not active yet" on Game → Manage until it is
@@ -27,8 +27,9 @@ wired up by its own "earns its point" ticket. "Started a chat" (WC-189),
 "Made a proposal" (WC-192), "Changed a proposal" (WC-193), "Deleted a
 proposal" (WC-194), "Changed a Home box" (WC-195), "Starred a
 message" (WC-196), "Scored an action's factors" (WC-197), "Gave a
-reason for a factor" (WC-198), "Added a token size" (WC-199) and
-"Changed a token size" (WC-200) are wired; three are still to come
+reason for a factor" (WC-198), "Added a token size" (WC-199),
+"Changed a token size" (WC-200) and "Deleted a token size" (WC-201) are
+wired; two are still to come
 (`docs/GRANULAR_SCORING_ALGORITHM.md`, "The table").
 
 ## Rescoring past points
