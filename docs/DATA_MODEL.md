@@ -8,6 +8,7 @@ private file-storage bucket; `task_comments`, each task's Discussion; the
 game layer's two, `game_scoring_rules` and `engagements`; and the four that
 hold roles and permissions, `roles`, `permissions`, `role_permissions` and
 `member_roles`; the two that hold teams, `teams` and `team_members`;
+the two that hold teams' meetings, `meetings` and `meeting_invites`;
 `evolution_entries`, the record of how WaveCenter looked after each change;
 `messages`, what admins write to members; and `proposals`, ideas for a
 change that could become a task.
@@ -442,6 +443,34 @@ for each one, its members through the function `list_team_members`. Like
 avatar unless their profile is private, and their name only if it is public.
 No email address leaves the database. `npm run check:tasks-rls` proves all of
 this, on the test database for an unmerged change (`npm run db:test`).
+
+### Teams' meetings: `meetings` and `meeting_invites`
+
+A meeting is one team's planned get-together on one date at one time (Dane,
+2026-11-22, WC-204). Every role that may view teams (`team.read`) sees every
+meeting and who is invited. Only a **member of the meeting's team** plans,
+changes or deletes it and invites people, and they may invite anyone with a
+WaveCenter account (Dane chose "B" on WC-204). An invitation is only
+recorded: nothing is sent, and nothing about meetings is scored yet.
+
+| Table | What it holds |
+|---|---|
+| `meetings` | One row per meeting: its `team_id`, `title` (up to 120 characters), `meets_on` (the date) and `start_time`, both **Mountain time as typed**, with no time zone, so 10:00 shows as 10:00 on the date chosen; `venue` (optional, up to 300: "Zoom", "Google Meet", a link or a room), `notes` (optional, up to 2,000), the `tool` that last changed it, who made it (`created_by`, stamped by the database) and when. A meeting never moves to another team. Deleting a team deletes its meetings. |
+| `meeting_invites` | Which member is invited to which meeting, with the tool and the member who invited them (`invited_by`, stamped by the database) and when. A member is invited once at most. Deleting a meeting or a member account removes its rows here. |
+
+Row-level security was on from the moment both tables were made. Reading
+asks `private.may('team.read')`; every change asks `private.on_team` (is
+the signed-in member on this team?) or `private.on_meeting_team` (on the
+team that holds this meeting?), helpers the API does not expose. Not even an
+admin plans a meeting for a team they are not on. Every change goes through
+`core/meetings.ts` (`createMeeting`, `updateMeeting`, `deleteMeeting`,
+`setMeetingInvites`), which applies the same rules first, checks the fields,
+and names the tool.
+
+The **Meeting Manager** sits beside the Team Manager table on `/teams`: a
+team dropdown, a month calendar marking the dates that have a meeting, and a
+pop-up for each date. `npm run check:tasks-rls` proves the rules, on the test
+database for an unmerged change (`npm run db:test`).
 
 ### Home's box words: `home_boxes`
 
@@ -946,8 +975,10 @@ and add the process that turns a proposal into a task. The rules live in
 
 Row-level security is on from the migration that made the table: every
 signed-in member reads every proposal; a member adds, changes and deletes
-only their own; signed-out visitors read nothing. Making, changing and
-deleting a proposal is not scored yet. `check:tasks-rls` proves each rule.
+only their own; signed-out visitors read nothing. Making a proposal scores
+`made_a_proposal` for the member who made it (the `proposals_score`
+trigger); changing and deleting one are not scored yet. `check:tasks-rls`
+proves each rule.
 
 ## The Forum's topics and tags: `forum_topics`, `forum_tags` and `forum_tag_relations`
 
@@ -1009,6 +1040,13 @@ name, slug, description and details the same way (WC-186). Nothing else
 about either can be changed. A relation is added or removed only by a member
 who may change one of its two tags. Attaching tags to topics, threads, and
 scoring are later tickets. `check:tasks-rls` proves each rule.
+
+A topic's details page sets its parent two ways (WC-185): a "Parent topic"
+dropdown on the topic itself, and an "Adopt a sub-topic" dropdown that moves
+another topic under it. Both write `parent_id` alone, through
+`setTopicParent` in `core/forum.ts`, and both follow the rule above: the
+moved topic's adder or an admin. The dropdowns never offer a choice that
+would make a loop, and the page lists the topic's sub-topics.
 
 ## Why the four fields are there from day one
 

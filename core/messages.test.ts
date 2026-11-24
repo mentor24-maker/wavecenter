@@ -418,6 +418,57 @@ test('a refused mark throws, and a store that says yes without saving is reporte
   await assert.rejects(() => markMessage(messages, 'dane', 'message-1', { trashed: true }, TOOL), /did not save/);
 });
 
+test('starring a message records one engagement for the member who starred it, naming the tool; starring it again, unstarring, the trash, a refused mark or a service-key write records none', async () => {
+  const { stores, ledger, messages } = scoredSetup();
+  await sendMessage(stores, null, hello, TOOL);
+  await sendMessage(stores, null, { ...hello, subject: 'Second' }, TOOL);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'starred_a_message');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'starred_a_message')?.points;
+  assert.equal(worth, 1);
+
+  await markMessage(messages, 'dane', 'message-1', { starred: true }, TOOL);
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', TOOL, worth, null]]);
+
+  // Starring it again while starred, the trash in and out, and taking the star off change no star, so they score nothing.
+  await markMessage(messages, 'dane', 'message-1', { starred: true }, TOOL);
+  await markMessage(messages, 'dane', 'message-1', { trashed: true }, TOOL);
+  await markMessage(messages, 'dane', 'message-1', { trashed: false }, TOOL);
+  await markMessage(messages, 'dane', 'message-1', { starred: false }, TOOL);
+  await markMessage(messages, 'dane', 'message-2', { trashed: true }, TOOL);
+  assert.equal(scored().length, 1);
+
+  // A refused mark, and one on somebody else's message, score nothing.
+  messages.failNextMark = true;
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-2', { starred: true }, TOOL), /refused/);
+  messages.signedIn = 'lee';
+  await assert.rejects(() => markMessage(messages, 'lee', 'message-2', { starred: true }, TOOL), /did not send or receive/);
+  assert.equal(scored().length, 1);
+
+  // Each member's star is their own, credited to whoever starred it.
+  messages.signedIn = 'kim';
+  await markMessage(messages, 'kim', 'message-1', { starred: true }, 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', TOOL], ['kim', 'mcp']]);
+
+  // If the engagement cannot be written, the star is not saved either.
+  messages.signedIn = 'dane';
+  ledger.failInsert = true;
+  await assert.rejects(() => markMessage(messages, 'dane', 'message-2', { starred: true }, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(messages.marks.get('dane message-2')?.starred, false);
+  assert.equal(scored().length, 2);
+
+  // Unstarred and starred again is a new star (Farm risk 3 in the document says so).
+  await markMessage(messages, 'dane', 'message-1', { starred: true }, TOOL);
+  assert.equal(scored().length, 3);
+});
+
+test('the database scores a star only for the signed-in member whose mark it is, and skips a service-key write', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261123200000_score_starred_a_message.sql', import.meta.url), 'utf8');
+  assert.match(sql, /v_member is not null\s+and new\.member_id = v_member\s+and new\.starred\s+and \(tg_op = 'INSERT' or not old\.starred\)/);
+  assert.match(sql, /after insert or update of starred on public\.message_marks/);
+  assert.match(sql, /revoke execute on function public\.message_marks_score\(\) from public, anon, authenticated/);
+});
+
 test('the marks table turns on row-level security in the migration that makes it', () => {
   const dir = new URL('../supabase/migrations/', import.meta.url);
   const file = readdirSync(dir).find((f) => readFileSync(new URL(f, dir), 'utf8').includes('create table if not exists public.message_marks'));

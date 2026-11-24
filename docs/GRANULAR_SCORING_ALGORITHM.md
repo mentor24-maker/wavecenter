@@ -229,6 +229,15 @@ formula's value live from the Admin page, as for the first sweep's.
 
 | Action | Now | E | V | R | F | Proposed | Why |
 |---|---|---|---|---|---|---|---|
+| Started a chat | 1 | 0 | 1 | 1 | 2 | **4** | Opens a line to one other member; one click, a few times a week, and a chat cannot be deleted, so it cannot loop. (`supabase/migrations/20261123130000_score_started_a_chat.sql`) |
+| Added a forum topic | 1 | 1 | 2 | 1 | 3 | **7** | Gives members a subject to discuss on the Forum; paired with deleting it, so it loops. Same as making a team. (`supabase/migrations/20261123140000_score_added_a_forum_topic.sql`) |
+| Added a forum tag | 1 | 1 | 1 | 1 | 2 | **5** | Gives members a label to sort the Forum by, though tags are not attached to topics yet; a tag cannot be deleted yet, so it cannot loop. (`supabase/migrations/20261123150000_score_added_a_forum_tag.sql`) |
+| Made a proposal | 1 | 1 | 2 | 0 | 3 | **6** | Puts an idea in front of the other members that could become a task; paired with deleting it, so it loops. Same as making a task. (`supabase/migrations/20261123160000_score_made_a_proposal.sql`) |
+| Changed a proposal | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a proposal accurate; any edit can be changed straight back, so it loops. Same as changing a task. (`supabase/migrations/20261123170000_score_changed_a_proposal.sql`) |
+| Deleted a proposal | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. Same as deleting a task. (`supabase/migrations/20261123180000_score_deleted_a_proposal.sql`) |
+| Changed a Home box | 1 | 1 | 2 | 1 | 3 | **7** | Words every member reads on Home; can be changed straight back. Only a role with Edit Home boxes (admin, to start). Same as changing a scoring rule. (`supabase/migrations/20261123190000_score_changed_a_home_box.sql`) |
+| Starred a message | 1 | 0 | 0 | 0 | 3 | **1** | One click on a private mark nobody else sees; can be unstarred and starred again. Same as switching the AI agents on or off. (`supabase/migrations/20261123200000_score_starred_a_message.sql`) |
+| Scored an action's factors | 1 | 1 | 2 | 1 | 3 | **7** | Sets what the Admin page's batch proposes each action be worth; can be changed straight back. Admin only. Same as changing a scoring rule. (`supabase/migrations/20261123210000_score_scored_an_action_s_factors.sql`) |
 | Gave a reason for a factor | 1 | 1 | 2 | 1 | 3 | **7** | Every member can read why an action is worth what it is; a reason can be changed straight back. Admin only. (`supabase/migrations/20261123220000_score_gave_a_reason_for_a_factor.sql`) |
 
 ### Why each factor got its score
@@ -344,6 +353,42 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Sent a chat message | Value | 1 | Helps the other member in the chat, not the shared record. |
 | Sent a chat message | Rarity | 0 | Members can send chat messages many times a day. |
 | Sent a chat message | Farm risk | 2 | Repeatable in seconds, but a chat message cannot be edited or deleted, so it cannot loop. |
+| Started a chat | Effort | 0 | Picking a member and opening the chat is one click. |
+| Started a chat | Value | 1 | Opens a line to one other member, not the shared record. |
+| Started a chat | Rarity | 1 | A new chat is started a few times a week; most chats are opened again, not started. |
+| Started a chat | Farm risk | 2 | A chat cannot be deleted, so it cannot loop, but a chat about a new task takes seconds. |
+| Added a forum topic | Effort | 1 | Typing a topic's name and saving it is a short form: under a minute. |
+| Added a forum topic | Value | 2 | Adds a subject the other members read and discuss on the Forum. |
+| Added a forum topic | Rarity | 1 | New topics are added a few times a week at most, not many times a day. |
+| Added a forum topic | Farm risk | 3 | Paired with deleting it, so add-and-delete loops. |
+| Added a forum tag | Effort | 1 | Typing a tag's name and saving it is a short form: under a minute. |
+| Added a forum tag | Value | 1 | Adds a label for sorting the Forum, but tags are only listed for now, not yet attached to topics. |
+| Added a forum tag | Rarity | 1 | New tags are added a few times a week at most, not many times a day. |
+| Added a forum tag | Farm risk | 2 | Repeatable in seconds with a new name each time, but a tag cannot be deleted yet, so it cannot loop. |
+| Made a proposal | Effort | 1 | Typing a title and saving it is a short form: under a minute. |
+| Made a proposal | Value | 2 | Puts an idea the other members can read on the Proposals page, and it could become a task. |
+| Made a proposal | Rarity | 0 | Members can make proposals many times a day. |
+| Made a proposal | Farm risk | 3 | Paired with deleting it, so make-and-delete loops. |
+| Changed a proposal | Effort | 1 | An edit is a short form or a few words: under a minute. |
+| Changed a proposal | Value | 1 | Keeps a proposal accurate, which tidies up the Proposals page. |
+| Changed a proposal | Rarity | 0 | Proposals can be edited many times a day. |
+| Changed a proposal | Farm risk | 3 | Any edit can be changed straight back, so it loops. |
+| Deleted a proposal | Effort | 0 | One click. |
+| Deleted a proposal | Value | 1 | Housekeeping worth having: it tidies up the Proposals page. |
+| Deleted a proposal | Rarity | 0 | Proposals can be deleted many times a day. |
+| Deleted a proposal | Farm risk | 3 | The undo half of the make-and-delete loop. |
+| Changed a Home box | Effort | 1 | Rewording a box and saving it is one short form. |
+| Changed a Home box | Value | 2 | Every member reads these words each time they open Home. |
+| Changed a Home box | Rarity | 1 | Home's words change a few times a week at most, and only a role with Edit Home boxes may. |
+| Changed a Home box | Farm risk | 3 | The words can be changed straight back, so it loops. |
+| Starred a message | Effort | 0 | One click on the Star. |
+| Starred a message | Value | 0 | A private mark: nobody else sees it, so it does nothing for anyone else. |
+| Starred a message | Rarity | 0 | Members can star messages many times a day. |
+| Starred a message | Farm risk | 3 | A star can be taken off and put back, so it loops. |
+| Scored an action's factors | Effort | 1 | Weighing an action and picking its four scores: about a minute. |
+| Scored an action's factors | Value | 2 | Sets what the batch proposes each action be worth, which every member earns by. |
+| Scored an action's factors | Rarity | 1 | Factors change a few times a week at most, and only an admin can change them. |
+| Scored an action's factors | Farm risk | 3 | Factors can be changed straight back, so it loops. |
 | Gave a reason for a factor | Effort | 1 | One sentence on why a factor got its score: under a minute. |
 | Gave a reason for a factor | Value | 2 | Every member can read on Game > Manage why an action is worth what it is. |
 | Gave a reason for a factor | Rarity | 1 | Reasons change a few times a week at most, and only an admin can write one. |
