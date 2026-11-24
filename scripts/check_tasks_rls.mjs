@@ -3020,6 +3020,8 @@ try {
       check('an admin previews a rescore: today\u2019s value times the times done, and their own total now; nothing is saved',
         made?.wouldBe === made.timesDone * (madeRule + 3) && made.difference !== 0 && mine?.now === aTotal && JSON.stringify(await ledgerOf(a)) === JSON.stringify(aBefore),
         `${JSON.stringify(made)} ${JSON.stringify(mine)} total ${aTotal}`);
+      // A rescore that saves also earns "Rescored past points" (WC-202), checked below.
+      const rescoredRule = (await admin('/rest/v1/game_scoring_rules?kind=eq.rescored_past_points&select=points')).json?.[0]?.points;
       const saved = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL);
       const aAfter = await ledgerOf(a);
       const corrections = (await admin(`/rest/v1/engagements?rescore_id=eq.${saved.rescoreId}&select=member_id,kind,points,tool,task_id`)).json ?? [];
@@ -3031,11 +3033,36 @@ try {
         `${JSON.stringify(saved)} ${JSON.stringify(corrections)} ${JSON.stringify(history)}`);
       const aMade = (await rescoreStore(a).tallies()).find((t) => t.memberId === a.id && t.kind === 'made_task');
       check('afterwards A is credited today\u2019s value for every task they made, and their total says so',
-        aMade?.credited === aMade.actions * (madeRule + 3) && await totalOf(a) === aTotal + (mine?.changes.made_task ?? 0), `${JSON.stringify(aMade)} total ${await totalOf(a)}`);
+        aMade?.credited === aMade.actions * (madeRule + 3) && await totalOf(a) === aTotal + (mine?.changes.made_task ?? 0) + rescoredRule, `${JSON.stringify(aMade)} total ${await totalOf(a)}`);
       const again = await applyRescore(rescoreStore(a), { role: 'admin' }, ['made_task'], TOOL);
       const direct = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
       check('rescoring again straight after changes nothing, through core or straight at the database', again.rows === 0 && again.rescoreId === null && direct.json?.rows === 0,
         `${JSON.stringify(again)} ${JSON.stringify(direct.json)}`);
+      // "Rescored past points" earns its point (20261124030000_score_rescored_past_points.sql):
+      // a rescore that saves records one, for the admin who ran it, naming its
+      // tool; it is a real action, not a correction. One that changes nothing,
+      // a refused one or a service-key one records none, and nobody forges one.
+      {
+        const rescoredOf = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.rescored_past_points&select=points,tool,task_id,rescore_id`)).json ?? [];
+        const mineA = await rescoredOf(a);
+        check('a rescore that saves records exactly one Rescored past points engagement for the admin who ran it, worth the rule\u2019s points, naming its tool; it is not a correction row',
+          typeof rescoredRule === 'number' && mineA.length === 1 && mineA[0].points === rescoredRule && mineA[0].tool === TOOL && mineA[0].task_id === null && mineA[0].rescore_id === null
+            && (await rescoredOf(b)).length === 0,
+          `${JSON.stringify(mineA)} rule ${rescoredRule}`);
+        const refusedB = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: b.token, body: { rescore_kinds: ['made_task'], tool: TOOL } });
+        const blankTool = await call('/rest/v1/rpc/apply_rescore', { method: 'POST', token: a.token, body: { rescore_kinds: ['made_task'], tool: ' ' } });
+        const forgedA = await call('/rest/v1/engagements', { method: 'POST', token: a.token, body: { member_id: a.id, kind: 'rescored_past_points', points: 1, tool: TOOL } });
+        const forgedB = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: 'rescored_past_points', points: 1, tool: TOOL } });
+        // A service-key rescore (nobody signed in) saves unscored, even naming A as who ran it.
+        const serviceRow = await admin('/rest/v1/rescores', { method: 'POST', prefer: 'return=representation', body: { run_by: a.id, tool: TOOL, rows_changed: 0, points_changed: 0 } });
+        const serviceId = serviceRow.json?.[0]?.id;
+        const serviceSave = serviceId ? await admin(`/rest/v1/rescores?id=eq.${serviceId}`, { method: 'PATCH', prefer: 'return=representation', body: { rows_changed: 1, points_changed: 1 } }) : { status: 0 };
+        if (serviceId) await admin(`/rest/v1/rescores?id=eq.${serviceId}`, { method: 'DELETE' });
+        check('a rescore that changes nothing, a refused one or a service-key one records no Rescored past points engagement, and no member can forge one',
+          refusedB.status >= 400 && blankTool.status >= 400 && forgedA.status >= 400 && forgedB.status >= 400 && serviceSave.status < 300
+            && (await rescoredOf(a)).length === 1 && (await rescoredOf(b)).length === 0,
+          `viewer HTTP ${refusedB.status}, blank tool HTTP ${blankTool.status}, forged A HTTP ${forgedA.status}, forged B HTTP ${forgedB.status}, service save HTTP ${serviceSave.status}, A has ${(await rescoredOf(a)).length}`);
+      }
       await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', body: { points: madeRule } });
       const phaseStore = (member) => ({
         phase: async () => {

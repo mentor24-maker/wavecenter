@@ -12,7 +12,8 @@
  * four factor reasons (`gave_a_reason_for_a_factor`). It is also a
  * `RescoreStore`: like the database's `apply_rescore`, it works the
  * corrections out itself (`rescoreCorrections`) and adds them all at once,
- * refusing when scoring is no longer provisional. And it is a
+ * refusing when scoring is no longer provisional, and a rescore that saves
+ * is scored for `signedIn`. And it is a
  * `ScoringPhaseStore`: like the database's `make_scoring_final`, it ends the
  * provisional phase once, for `signedIn`, and refuses a second time.
  */
@@ -160,6 +161,11 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
     if (!this.scoringProvisional) throw new Error('Points are final for this DEO, so past points can no longer be rescored. Nothing was saved.');
     const corrections = rescoreCorrections(await this.rules(), await this.tallies(), kinds);
     if (!corrections.length) return { rescoreId: null, rows: 0, points: 0 };
+    // A rescore that saves earns its point for the signed-in admin who ran it,
+    // as the rescores table's trigger does. It is a real action, not a
+    // correction, and the corrections above were worked out before it, so the
+    // same run never rescores it. Scored first: if that fails, nothing is added.
+    if (this.signedIn) await recordEngagement(this, { memberId: this.signedIn, kind: 'rescored_past_points', tool });
     const rescoreId = `rescore-${this.next++}`;
     for (const c of corrections) {
       await this.insert({ memberId: c.memberId, kind: c.kind as Engagement['kind'], points: c.points, tool: RESCORE_TOOL, taskId: null, rescoreId });

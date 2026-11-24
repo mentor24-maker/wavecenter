@@ -242,6 +242,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Added a token size | 1 | 1 | 2 | 2 | 3 | **8** | Every member's earned-points tokens use the sizes; they are set a handful of times ever, but a size can be added and removed straight back. Admin only. (`supabase/migrations/20261123230000_score_added_a_token_size.sql`) |
 | Changed a token size | 1 | 1 | 2 | 1 | 3 | **7** | Every member's earned-points tokens use the sizes; an admin may tune one several times while setting up, and a size can be changed and changed straight back. Admin only; a save that changes nothing is not counted. (`supabase/migrations/20261124010000_score_changed_a_token_size.sql`) |
 | Deleted a token size | 1 | 0 | 1 | 1 | 3 | **4** | Tidies up the sizes every member's tokens use; admin only, and the undo half of the add-and-delete loop. Same as deleting a team. (`supabase/migrations/20261124020000_score_deleted_a_token_size.sql`) |
+| Rescored past points | 1 | 1 | 2 | 2 | 2 | **8** | Brings every member's past points in line with what each action is worth today; admin only, and only while scoring is provisional. A rescore that changes nothing earns nothing, so repeating it needs a rule changed first. (`supabase/migrations/20261124030000_score_rescored_past_points.sql`) |
 
 ### Why each factor got its score
 
@@ -408,6 +409,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Deleted a token size | Value | 1 | Tidies up the list of sizes every member's tokens are drawn from. |
 | Deleted a token size | Rarity | 1 | Only an admin can delete a size, and there are only a handful to delete. |
 | Deleted a token size | Farm risk | 3 | The undo half of the add-and-delete loop. |
+| Rescored past points | Effort | 1 | Reading the preview and ticking the actions to rescore: under a minute. |
+| Rescored past points | Value | 2 | Every member's total is brought in line with the values they now earn by. |
+| Rescored past points | Rarity | 2 | Only an admin can rescore, only while scoring is provisional: a handful of times ever. |
+| Rescored past points | Farm risk | 2 | A rescore that changes nothing earns nothing, but an admin can change a rule's points and rescore again in seconds. |
 
 ## Scoring an action added later
 
