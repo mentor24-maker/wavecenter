@@ -16,10 +16,10 @@ function setup() {
   return store;
 }
 
-test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones, the game one, Message members and Edit Home boxes', () => {
+test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones, the game one, Message members, Edit Home boxes and Manage website', () => {
   assert.deepEqual(ROLES.map((r) => r.key), ['admin', 'editor', 'contributor', 'reviewer', 'viewer']);
   assert.deepEqual(PERMISSIONS.map((p) => p.key), [
-    'task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit',
+    'task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit', 'site.edit',
   ]);
 });
 
@@ -29,6 +29,7 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
     read('20261029120000_member_roles.sql'), read('20261029210000_member_permissions.sql'),
     read('20261031120000_teams.sql'), read('20261031140000_game_scoring_admin.sql'), read('20261031150000_messages.sql'),
     read('20261101130000_message_every_member.sql'), read('20261102130000_home_boxes.sql'),
+    read('20261124120000_site_pages.sql'),
   ];
   const roles = [...files[0].matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
     .map((m) => ({ key: m[1], name: m[2], description: m[3].replace(/''/g, "'") }));
@@ -45,7 +46,7 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
   assert.deepEqual(grants, STARTING_ROLE_PERMISSIONS);
 });
 
-test('memberPermissions gives each role its grants; admin has all eleven, editor all four task ones', () => {
+test('memberPermissions gives each role its grants; admin has all twelve, editor all four task ones', () => {
   assert.deepEqual(memberPermissions('admin'), PERMISSIONS.map((p) => p.key));
   assert.deepEqual(memberPermissions('editor'), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message']);
   assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message']);
@@ -56,6 +57,7 @@ test('memberPermissions gives each role its grants; admin has all eleven, editor
 
 test('every role views and messages the members; only an admin changes roles, manages game scoring or edits Home', () => {
   for (const r of ROLES) assert.equal(mayDo(r.key, 'home.edit'), r.key === 'admin', r.key);
+  for (const r of ROLES) assert.equal(mayDo(r.key, 'site.edit'), r.key === 'admin', r.key);
   for (const r of ROLES) assert.equal(mayDo(r.key, 'member.read'), true, r.key);
   for (const r of ROLES) assert.equal(mayDo(r.key, 'member.edit'), r.key === 'admin', r.key);
   for (const r of ROLES) assert.equal(mayDo(r.key, 'game.edit'), r.key === 'admin', r.key);
