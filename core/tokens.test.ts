@@ -178,6 +178,67 @@ test('the database scores a new token size only for the signed-in member who add
   assert.match(sql, /revoke execute on function public\.token_sizes_score\(\) from public, anon, authenticated/);
 });
 
+test('changing a token size records one engagement for the admin who changed it, naming the tool; a save that changes nothing, a refused or failed one, an add, a removal or a service-key write records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const store = new MemoryTokenStore(ledger);
+  const changed = () => ledger.rows.filter((e) => e.kind === 'changed_a_token_size');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'changed_a_token_size')!.points;
+  assert.equal(worth, 1);
+
+  // A service-key write (nobody signed in) saves and scores nothing.
+  const s = await addTokenSize(store, ADMIN, small, TOOL);
+  const m = await addTokenSize(store, ADMIN, medium, TOOL);
+  await changeTokenSize(store, ADMIN, s.id, { ...small, diameter: 15 }, TOOL);
+  assert.equal(changed().length, 0);
+
+  // Adding a size is not this action.
+  store.signedIn = 'dane';
+  const l = await addTokenSize(store, ADMIN, large, TOOL);
+  assert.equal(changed().length, 0);
+
+  await changeTokenSize(store, ADMIN, s.id, { ...small, diameter: 16 }, 'size-tool');
+  assert.deepEqual(changed().map((e) => [e.memberId, e.points, e.tool, e.taskId]), [['dane', worth, 'size-tool', null]]);
+
+  // A save that changes nothing (only the tool differs) is not counted.
+  await changeTokenSize(store, ADMIN, s.id, { ...small, diameter: 16 }, 'another-tool');
+  assert.equal(changed().length, 1);
+
+  // Each field counts: name, size, colour, point level.
+  await changeTokenSize(store, ADMIN, m.id, { ...medium, name: 'Mid' }, TOOL);
+  await changeTokenSize(store, ADMIN, m.id, { ...medium, name: 'Mid', color: '#000000' }, TOOL);
+  await changeTokenSize(store, ADMIN, m.id, { ...medium, name: 'Mid', color: '#000000', minPoints: 6 }, TOOL);
+  assert.equal(changed().length, 4);
+
+  // Refused or failed: nothing is recorded.
+  store.signedIn = 'vee';
+  await assert.rejects(changeTokenSize(store, EDITOR, l.id, { ...large, diameter: 30 }, TOOL), /Only an admin/);
+  store.signedIn = 'dane';
+  await assert.rejects(changeTokenSize(store, ADMIN, l.id, { ...large, minPoints: 6 }, TOOL), /cannot share a point level/);
+  await assert.rejects(changeTokenSize(store, ADMIN, l.id, { ...large, diameter: 99 }, TOOL), /whole number of pixels/);
+  await assert.rejects(changeTokenSize(store, ADMIN, 'size-gone', large, TOOL), /not there any more/);
+  store.failNextWrite = true;
+  await assert.rejects(changeTokenSize(store, ADMIN, l.id, { ...large, diameter: 30 }, TOOL), /did not save/);
+  assert.equal(changed().length, 4);
+
+  // If the engagement cannot be written, the change is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(changeTokenSize(store, ADMIN, l.id, { ...large, diameter: 30 }, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(store.rows.get(l.id)?.diameter, large.diameter);
+  assert.equal(changed().length, 4);
+
+  // Removing a size is not this action.
+  await removeTokenSize(store, ADMIN, l.id, TOOL);
+  assert.equal(changed().length, 4);
+});
+
+test('the database scores a token size change only for the signed-in member who made it, and only when a field changed', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124010000_score_changed_a_token_size.sql', import.meta.url), 'utf8');
+  assert.match(sql, /if new\.updated_by is not null and new\.updated_by = auth\.uid\(\) then\s+perform public\.record_engagement\(new\.updated_by, 'changed_a_token_size', new\.tool, null\);/);
+  assert.match(sql, /create trigger token_sizes_score_changed\s+after update of name, diameter, color, min_points on public\.token_sizes\s+for each row\s+when \(\(old\.name, old\.diameter, old\.color, old\.min_points\) is distinct from \(new\.name, new\.diameter, new\.color, new\.min_points\)\)/);
+  assert.match(sql, /revoke execute on function public\.token_sizes_score_changed\(\) from public, anon, authenticated/);
+});
+
 test('the migration turns on row-level security and checks the same limits core does', () => {
   const sql = readFileSync(new URL('../supabase/migrations/20261103150000_token_settings.sql', import.meta.url), 'utf8');
   assert.match(sql, /alter table public\.token_sizes enable row level security/);
