@@ -57,6 +57,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123140000_score_added_a_forum_topic.sql',
   '20261123150000_score_added_a_forum_tag.sql',
   '20261123160000_score_made_a_proposal.sql',
+  '20261123170000_score_changed_a_proposal.sql',
   '20261123180000_score_deleted_a_proposal.sql',
 ];
 
@@ -529,6 +530,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('added_a_forum_topic'), true);
   assert.equal(isWired('added_a_forum_tag'), true);
   assert.equal(isWired('made_a_proposal'), true);
+  assert.equal(isWired('changed_a_proposal'), true);
   assert.equal(isWired('deleted_a_proposal'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
