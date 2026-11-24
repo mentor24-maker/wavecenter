@@ -5,9 +5,10 @@
  * timestamps kept, only the member's own proposals changed or deleted,
  * sub-proposals kept as top-level when their parent is deleted). Two stores
  * given the same `rows` are two members looking at one table. Given an
- * engagement store, deleting a proposal is scored for the member who deleted
- * it, as `proposals_score_delete` does; if the engagement cannot be written,
- * the proposal is not deleted either.
+ * engagement store, a new proposal is scored for the member who made it, as
+ * `proposals_score` does, and deleting a proposal is scored for the member
+ * who deleted it, as `proposals_score_delete` does; if the engagement cannot
+ * be written, the proposal is not saved or deleted either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { NewProposalRow, Proposal, ProposalRowChanges, ProposalStore } from './proposals.ts';
@@ -33,6 +34,10 @@ export class MemoryProposalStore implements ProposalStore {
   async insert(row: NewProposalRow): Promise<Proposal> {
     const now = new Date().toISOString();
     const proposal: Proposal = { ...row, id: `proposal-${next++}`, ownerId: this.ownerId, createdAt: now, updatedAt: now };
+    // Scored in the same save, before it lands: no engagement, no proposal.
+    if (this.engagements) {
+      await recordEngagement(this.engagements, { memberId: this.ownerId, kind: 'made_a_proposal', tool: row.tool });
+    }
     this.rows.set(proposal.id, proposal);
     return { ...proposal };
   }

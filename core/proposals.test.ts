@@ -81,6 +81,39 @@ test('deleteProposal removes it and keeps its sub-proposals as top-level', async
   await assert.rejects(deleteProposal(store, parent.id, 'wavecenter'), /No proposal .* you may delete/);
 });
 
+test('making a proposal records one engagement for the member who made it, naming the tool; a refused one records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const rows = new Map();
+  const dane = new MemoryProposalStore('dane', rows, ledger);
+  const other = new MemoryProposalStore('other', rows, ledger);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'made_a_proposal');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'made_a_proposal')?.points;
+
+  const first = await createProposal(dane, { title: 'A voting page' }, 'wavecenter');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', 'wavecenter', worth, null]]);
+
+  // Changing or deleting a proposal are their own actions, not this one.
+  await updateProposal(dane, first.id, { title: 'A voting page, with quorum' }, 'wavecenter');
+  // A proposal that is refused saves nothing and scores nothing.
+  await assert.rejects(createProposal(other, { title: '  ' }, 'wavecenter'), /needs a title/);
+  await assert.rejects(createProposal(other, { title: 'x' }, ''), /must name the tool/);
+  assert.equal(scored().length, 1);
+
+  // Credited to whoever made it.
+  await createProposal(other, { title: 'Badges' }, 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', 'wavecenter'], ['other', 'mcp']]);
+
+  // If the engagement cannot be written, the proposal is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(createProposal(dane, { title: 'Streaks' }, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(rows.size, 2);
+  assert.equal(scored().length, 2);
+
+  await deleteProposal(dane, first.id, 'wavecenter');
+  assert.equal(scored().length, 2);
+});
+
 test('deleting a proposal records one engagement for the member who deleted it, naming the tool; a refused delete records none', async () => {
   const ledger = new MemoryEngagementStore();
   const rows = new Map();

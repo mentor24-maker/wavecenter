@@ -7,7 +7,8 @@
  *
  * The Topics table (WC-183) has headings that sort when clicked, a Parent
  * column, a filter bar (text and parent topic) and View / Edit / Delete on
- * each row (TopicsTable.tsx). Tags are still just listed.
+ * each row (TopicsTable.tsx). The Tags table (WC-186) is its twin, with a
+ * Related Tags column in place of Parent (TagsTable.tsx).
  *
  * A save shows its error and keeps what was typed (engineering rule 6); an
  * empty table says it is empty and how to fill it (rule 7).
@@ -15,23 +16,18 @@
 import { useId, useState, useTransition, type FormEvent } from "react";
 import type { ForumKind } from "../../core/forum.ts";
 import { addForum } from "./actions";
-import { attempt, DATE } from "./forumClient";
+import { attempt } from "./forumClient";
+import TagsTable from "./TagsTable";
 import TopicsTable from "./TopicsTable";
+import type { ViewTag } from "./tagView";
 import type { ViewTopic } from "./topicView";
-
-export interface ListEntry {
-  id: string;
-  name: string;
-  createdAt: string;
-  by: string;
-}
 
 const WORDS: Record<ForumKind, { title: string; one: string; add: string }> = {
   topic: { title: "Topics", one: "topic", add: "Add Topic" },
   tag: { title: "Tags", one: "tag", add: "Add Tag" },
 };
 
-export default function ForumLists({ topics, tags }: { topics: ViewTopic[] | string; tags: ListEntry[] | string }) {
+export default function ForumLists({ topics, tags }: { topics: ViewTopic[] | string; tags: ViewTag[] | string }) {
   return (
     <section className="forum-lists" aria-label="Topics and tags">
       <Column kind="topic" entries={topics} />
@@ -41,7 +37,7 @@ export default function ForumLists({ topics, tags }: { topics: ViewTopic[] | str
 }
 
 /** One side. `entries` is the list, or the reason it could not be read. */
-function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | ViewTopic[] | string }) {
+function Column({ kind, entries }: { kind: ForumKind; entries: ViewTopic[] | ViewTag[] | string }) {
   const words = WORDS[kind];
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -85,34 +81,7 @@ function Column({ kind, entries }: { kind: ForumKind; entries: ListEntry[] | Vie
         ) : kind === "topic" ? (
           <TopicsTable topics={entries as ViewTopic[]} />
         ) : (
-          <table className="game members forum-table">
-            <thead>
-              <tr>
-                <th scope="col">{words.title.slice(0, -1)}</th>
-                <th scope="col">Added by</th>
-                <th scope="col" className="num">Added</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="note">
-                    No {words.title.toLowerCase()} yet. Open {words.add} above to add the first one.
-                  </td>
-                </tr>
-              ) : (
-                (entries as ListEntry[]).map((entry) => (
-                  <tr key={entry.id}>
-                    <td title={entry.name}>{entry.name}</td>
-                    <td className="note">{entry.by}</td>
-                    <td className="num note">
-                      <time dateTime={entry.createdAt}>{DATE.format(new Date(entry.createdAt))}</time>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <TagsTable tags={entries as ViewTag[]} />
         )}
       </div>
     </>
