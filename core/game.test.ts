@@ -59,6 +59,9 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123160000_score_made_a_proposal.sql',
   '20261123170000_score_changed_a_proposal.sql',
   '20261123180000_score_deleted_a_proposal.sql',
+  '20261123190000_score_changed_a_home_box.sql',
+  '20261123200000_score_starred_a_message.sql',
+  '20261123210000_score_scored_an_action_s_factors.sql',
 ];
 
 /**
@@ -532,6 +535,9 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('made_a_proposal'), true);
   assert.equal(isWired('changed_a_proposal'), true);
   assert.equal(isWired('deleted_a_proposal'), true);
+  assert.equal(isWired('changed_a_home_box'), true);
+  assert.equal(isWired('starred_a_message'), true);
+  assert.equal(isWired('scored_an_action_s_factors'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
@@ -805,6 +811,56 @@ test('an admin scores an action by hand on Game > Manage, when adding it or late
   await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: { effort: 9, value: 0, rarity: 0, farmRisk: 0 } }, 'wavecenter'), /Effort/);
   ledger.failNextRuleSave = true;
   await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'read_a_task', factors: null }, 'wavecenter'), /did not save/);
+});
+
+test('scoring an action records one engagement for the admin who changed its factors, naming the tool; a save that changes no factor, a refused or failed one, or a service-key write records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const scored = () => ledger.rows.filter((e) => e.kind === 'scored_an_action_s_factors');
+  const worth = (await rule(ledger, 'scored_an_action_s_factors')).points;
+  assert.equal(worth, 1);
+
+  // A service-key write (nobody signed in) saves and scores nothing.
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 2 } }, 'wavecenter');
+  assert.equal(scored().length, 0);
+
+  ledger.signedIn = 'dane';
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 } }, 'factor-tool');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.points, e.tool, e.taskId]), [['dane', worth, 'factor-tool', null]]);
+
+  // Saving the same four again changes no factor, so it scores nothing.
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: '1', value: '2', rarity: '0', farmRisk: '3' } }, 'wavecenter');
+  assert.equal(scored().length, 1);
+
+  // Clearing them ("not scored yet") is a change; scoring them again is another.
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: null }, 'wavecenter');
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 3 } }, 'wavecenter');
+  assert.equal(scored().length, 3);
+
+  // Refused or failed: nothing is recorded. Changing wording or reasons is not this action.
+  ledger.signedIn = 'vee';
+  await assert.rejects(changeScoringFactors(ledger, { role: 'contributor' }, { kind: 'made_task', factors: null }, 'wavecenter'), /Only an admin/);
+  ledger.signedIn = 'dane';
+  await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: 9, value: 0, rarity: 0, farmRisk: 0 } }, 'wavecenter'), /Effort/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: null }, 'wavecenter'), /did not save/);
+  const made = await rule(ledger, 'made_task');
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.' }, 'wavecenter');
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { effort: 'Typing a title.' } }, 'wavecenter');
+  assert.equal(scored().length, 3);
+
+  // If the engagement cannot be written, the factors do not change either.
+  ledger.failInsert = true;
+  await assert.rejects(changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: null }, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.deepEqual((await rule(ledger, 'made_task')).factors, { effort: 1, value: 2, rarity: 0, farmRisk: 3 });
+  assert.equal(scored().length, 3);
+});
+
+test('the database scores a change of factors only for the signed-in admin who made it, and skips a no-change save', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261123210000_score_scored_an_action_s_factors.sql', import.meta.url), 'utf8');
+  assert.match(sql, /if new\.changed_by is not null and new\.changed_by = auth\.uid\(\) then\s+perform public\.record_engagement\(new\.changed_by, 'scored_an_action_s_factors', new\.tool, null\);/);
+  assert.match(sql, /after update of effort, value, rarity, farm_risk on public\.game_scoring_rules\s+for each row\s+when \(\(old\.effort, old\.value, old\.rarity, old\.farm_risk\) is distinct from \(new\.effort, new\.value, new\.rarity, new\.farm_risk\)\)/);
+  assert.match(sql, /revoke execute on function public\.game_scoring_rules_score_factors\(\) from public, anon, authenticated/);
 });
 
 test('a factor reason is trimmed, a blank one is none, and one over 300 characters is refused', () => {
