@@ -60,6 +60,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123170000_score_changed_a_proposal.sql',
   '20261123180000_score_deleted_a_proposal.sql',
   '20261123190000_score_changed_a_home_box.sql',
+  '20261123200000_score_starred_a_message.sql',
 ];
 
 /**
@@ -534,6 +535,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('changed_a_proposal'), true);
   assert.equal(isWired('deleted_a_proposal'), true);
   assert.equal(isWired('changed_a_home_box'), true);
+  assert.equal(isWired('starred_a_message'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
