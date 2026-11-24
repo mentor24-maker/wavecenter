@@ -19,6 +19,11 @@
  * the API account instead of Dane's plan. The lane refuses to start with one
  * set (`refuseApiKey`), and this file never passes one on.
  *
+ * `CLAUDE_CODE_OAUTH_TOKEN` is the one sign-in passed on (WC-184): the
+ * long-lived token `claude setup-token` makes is billed to the same claude.ai
+ * plan, and it outlives the Mini's browser sign-in. rating_lane.sh reads it
+ * from Doppler; `claude auth status` then reports `authMethod: "oauth_token"`.
+ *
  * @typedef {import('../../core/aiTaskRater.ts').TaskRater} TaskRater
  */
 import { spawn } from 'node:child_process';
@@ -29,8 +34,14 @@ import { join } from 'node:path';
 /** The only variables the rating session sees. Nothing secret is among them. */
 export const PASSED_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM'];
 
+/** The long-lived claude.ai sign-in (`claude setup-token`), billed to Dane's plan. The only secret the session sees. */
+export const PLAN_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
+
 /** Variables that would make Claude Code bill the API account, or sign in some other way, instead of Dane's plan. */
-export const API_BILLING_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'];
+export const API_BILLING_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'];
+
+/** What `claude auth status` reports for each sign-in billed to a claude.ai plan: the browser sign-in, and the token. */
+export const PLAN_AUTH_METHODS = ['claude.ai', 'oauth_token'];
 
 /** The flags that take every tool and customisation away from the session. Tests check each is here. */
 export const LOCKDOWN_FLAGS = [
@@ -43,11 +54,12 @@ export const LOCKDOWN_FLAGS = [
   '--permission-prompts', 'none',
 ];
 
-/** The bare environment for the session: only PASSED_ENV, whatever the lane's own holds. */
+/** The bare environment for the session: only PASSED_ENV and the plan's token, whatever else the lane's own holds. */
 export function ratingEnv(env = process.env) {
   /** @type {Record<string, string>} */
   const out = {};
   for (const k of PASSED_ENV) if (env[k]) out[k] = env[k];
+  if (env[PLAN_TOKEN_ENV]) out[PLAN_TOKEN_ENV] = env[PLAN_TOKEN_ENV];
   return out;
 }
 
@@ -64,6 +76,9 @@ export function ratingArgs(model, instructions, schema) {
   return ['-p', '--model', model, '--system-prompt', instructions, ...LOCKDOWN_FLAGS, '--output-format', 'json', '--json-schema', JSON.stringify(schema)];
 }
 
+/** How a person fixes a sign-in that stopped working, either way the Mini signs in. */
+export const SIGN_IN_FIX = 'A person signs in again there: best, make a long-lived token (claude setup-token) and store it (bash ~/WebApps/spirality/scripts/claude_token_to_doppler.sh); or run claude login';
+
 const SIGN_IN_WORDS = /OAuth session expired|Failed to authenticate|Invalid API key|Please run \/login|not logged in/i;
 
 /**
@@ -74,7 +89,7 @@ const SIGN_IN_WORDS = /OAuth session expired|Failed to authenticate|Invalid API 
 export function readClaudeResult(model, stdout, stderr = '', code = 0) {
   // Only Claude Code's own error output is searched for sign-in words, never
   // an answer, which could quote member-written text.
-  const signInFailed = () => new Error(`Claude Code on the Mini could not sign in to Claude (asking ${model}). Someone signs in again there with: claude login`);
+  const signInFailed = () => new Error(`Claude Code on the Mini could not sign in to Claude (asking ${model}). ${SIGN_IN_FIX}`);
   if (SIGN_IN_WORDS.test(stderr)) throw signInFailed();
   let r;
   try {
@@ -161,9 +176,10 @@ export function claudeCodeRater({ claudeBin = 'claude', schema, env = process.en
 
 /**
  * Which Claude sign-in the lane will use, from `claude auth status`, e.g.
- * "claude.ai (max plan)". Throws unless it is a claude.ai sign-in: anything
- * else would bill an API account. The email and organisation are never
- * returned or logged.
+ * "claude.ai (max plan)" or "claude.ai plan, long-lived token". Throws
+ * unless it is a claude.ai sign-in (the browser one, or the setup-token
+ * token, PLAN_AUTH_METHODS): anything else would bill an API account. The
+ * email and organisation are never returned or logged.
  */
 export async function claudeSignIn({ claudeBin = 'claude', env = process.env, spawnFn = spawn } = {}) {
   let out;
@@ -176,10 +192,15 @@ export async function claudeSignIn({ claudeBin = 'claude', env = process.env, sp
   try {
     s = JSON.parse(out.stdout);
   } catch {
-    throw new Error('Claude Code on the Mini did not say which sign-in it uses. Someone signs in there with: claude login');
+    throw new Error(`Claude Code on the Mini did not say which sign-in it uses. ${SIGN_IN_FIX}`);
   }
-  if (!s?.loggedIn) throw new Error('Claude Code on the Mini is not signed in. Someone signs in there with: claude login');
-  if (s.authMethod !== 'claude.ai') throw new Error(`Claude Code on the Mini is signed in with ${String(s.authMethod).slice(0, 40)}, not a claude.ai plan, so it would not use Dane's plan. Nothing was rated.`);
+  if (!s?.loggedIn) throw new Error(`Claude Code on the Mini is not signed in. ${SIGN_IN_FIX}`);
+  const notPlan = () => new Error(`Claude Code on the Mini is signed in with ${String(s.authMethod).slice(0, 40)}, not a claude.ai plan, so it would not use Dane's plan. Nothing was rated.`);
+  if (!PLAN_AUTH_METHODS.includes(s.authMethod)) throw notPlan();
+  // The token is billed to the plan only on Anthropic's own service; on
+  // Bedrock or Vertex it would not be the plan at all.
+  if (s.apiProvider != null && s.apiProvider !== 'firstParty') throw notPlan();
+  if (s.authMethod === 'oauth_token') return 'claude.ai plan, long-lived token';
   const plan = typeof s.subscriptionType === 'string' && /^[a-z0-9_-]{1,20}$/i.test(s.subscriptionType) ? ` (${s.subscriptionType} plan)` : '';
   return `claude.ai${plan}`;
 }
