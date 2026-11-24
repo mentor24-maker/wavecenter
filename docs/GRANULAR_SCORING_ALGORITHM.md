@@ -236,6 +236,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Changed a proposal | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a proposal accurate; any edit can be changed straight back, so it loops. Same as changing a task. (`supabase/migrations/20261123170000_score_changed_a_proposal.sql`) |
 | Deleted a proposal | 1 | 0 | 1 | 0 | 3 | **3** | Housekeeping worth having; the undo half of the make-and-delete loop. Same as deleting a task. (`supabase/migrations/20261123180000_score_deleted_a_proposal.sql`) |
 | Changed a Home box | 1 | 1 | 2 | 1 | 3 | **7** | Words every member reads on Home; can be changed straight back. Only a role with Edit Home boxes (admin, to start). Same as changing a scoring rule. (`supabase/migrations/20261123190000_score_changed_a_home_box.sql`) |
+| Starred a message | 1 | 0 | 0 | 0 | 3 | **1** | One click on a private mark nobody else sees; can be unstarred and starred again. Same as switching the AI agents on or off. (`supabase/migrations/20261123200000_score_starred_a_message.sql`) |
 
 ### Why each factor got its score
 
@@ -378,6 +379,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Changed a Home box | Value | 2 | Every member reads these words each time they open Home. |
 | Changed a Home box | Rarity | 1 | Home's words change a few times a week at most, and only a role with Edit Home boxes may. |
 | Changed a Home box | Farm risk | 3 | The words can be changed straight back, so it loops. |
+| Starred a message | Effort | 0 | One click on the Star. |
+| Starred a message | Value | 0 | A private mark: nobody else sees it, so it does nothing for anyone else. |
+| Starred a message | Rarity | 0 | Members can star messages many times a day. |
+| Starred a message | Farm risk | 3 | A star can be taken off and put back, so it loops. |
 
 ## Scoring an action added later
 

@@ -799,6 +799,62 @@ try {
       && stillThere.json?.[0]?.subject === 'Hi B' && stillThere.json?.[0]?.body === 'Hello B',
       `restore HTTP ${bRestores.status} ${JSON.stringify(bRestores.json)}, message ${JSON.stringify(stillThere.json)}`);
   }
+  // Starring a message earns its point
+  // (20261123200000_score_starred_a_message.sql, WC-196): a message that was
+  // not starred becoming starred is scored once for the member whose mark it
+  // is, naming the mark's tool; starring it again, taking the star off, the
+  // trash, a refused mark and a service-key write score nothing; nobody can
+  // write the engagement themselves. The block above left A and B one scored
+  // star each (both on A's message to B).
+  let starredPointsA = 0;
+  {
+    const STAR_KIND = 'starred_a_message';
+    const starRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${STAR_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const starRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${STAR_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const mark = (who, body) => call('/rest/v1/rpc/set_message_mark', { method: 'POST', token: who.token, body: { tool: TOOL, star: null, trash: null, ...body } });
+    const [sa, sb] = [await starRows(a), await starRows(b)];
+    check('the stars A and B put on a message above recorded one engagement each, worth what the rule says, naming its tool',
+      sa.length === 1 && sb.length === 1 && [...sa, ...sb].every((e) => e.points === starRule?.points && e.tool === TOOL && e.task_id === null),
+      `A ${JSON.stringify(sa)}, B ${JSON.stringify(sb)}, rule ${starRule?.points}`);
+    const again = await mark(b, { message: toBRow?.id, star: true });
+    const trashIn = await mark(b, { message: toBRow?.id, trash: true });
+    const trashOut = await mark(b, { message: toBRow?.id, trash: false });
+    const unstar = await mark(b, { message: toBRow?.id, star: false });
+    const sb2 = await starRows(b);
+    check('starring a starred message again, the trash in and out, and taking the star off record nothing',
+      [again, trashIn, trashOut, unstar].every((r) => r.status === 200) && sb2.length === 1,
+      `HTTP ${[again, trashIn, trashOut, unstar].map((r) => r.status).join(',')}, B ${JSON.stringify(sb2)}`);
+    const restar = await mark(b, { message: toBRow?.id, star: true, tool: 'rls-check-star-tool' });
+    const aNote = await mark(a, { message: toSelfRow?.id, star: true });
+    const [sa3, sb3] = [await starRows(a), await starRows(b)];
+    check('starring a message that was not starred records exactly one engagement for the member who starred it, naming the tool it sent',
+      restar.status === 200 && aNote.status === 200 && sb3.length === 2 && sb3[1].tool === 'rls-check-star-tool' && sb3[1].points === starRule?.points
+        && sa3.length === 2 && sa3[1].tool === TOOL,
+      `restar HTTP ${restar.status}, A note HTTP ${aNote.status}, A ${JSON.stringify(sa3)}, B ${JSON.stringify(sb3)}`);
+    const refused = await mark(b, { message: toSelfRow?.id, star: true });
+    const sb4 = await starRows(b);
+    check('a refused star (a message B neither sent nor received) records nothing', refused.status >= 400 && sb4.length === 2, `HTTP ${refused.status}, B ${sb4.length}`);
+    check('"Starred a message" is active at 1 point with its four factors and a reason for each',
+      starRule?.name === 'Starred a message' && starRule.points === 1 && starRule.effort === 0 && starRule.value === 0 && starRule.rarity === 0 && starRule.farm_risk === 3
+        && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof starRule[k] === 'string' && starRule[k].length > 0),
+      JSON.stringify(starRule));
+    const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: STAR_KIND, points: 1, tool: TOOL } });
+    const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: STAR_KIND, p_tool: TOOL, p_task: null } });
+    const forgeTrigger = await call('/rest/v1/rpc/message_marks_score', { method: 'POST', token: b.token, body: {} });
+    const sb5 = await starRows(b);
+    check('a member cannot forge a "Starred a message" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+      forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && sb5.length === 2,
+      `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, message_marks_score HTTP ${forgeTrigger.status}, B now ${sb5.length}`);
+    const aMark = `/rest/v1/message_marks?message_id=eq.${toSelfRow?.id}&member_id=eq.${a.id}`;
+    const svcOff = await admin(aMark, { method: 'PATCH', prefer: 'return=representation', body: { starred: false } });
+    const svcOn = await admin(aMark, { method: 'PATCH', prefer: 'return=representation', body: { starred: true } });
+    const sa6 = await starRows(a);
+    check('a star saved with the service key (no signed-in member) is saved and scores nothing',
+      svcOff.status < 300 && svcOn.status < 300 && svcOn.json?.[0]?.starred === true && sa6.length === sa3.length,
+      `off HTTP ${svcOff.status}, on HTTP ${svcOn.status} ${JSON.stringify(svcOn.json)}, A had ${sa3.length} now ${sa6.length}`);
+    starredPointsA = sa6.reduce((sum, e) => sum + e.points, 0);
+  }
+
   // One member may have 20 messages emailed an hour, counting every message
   // they saved in that hour; past that the lookup
   // refuses with WC429 and the message stays saved. B (a viewer) sends 20 to
@@ -2179,8 +2235,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals and Home box changes were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals, Home box changes and stars were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box,starred_a_message)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -2203,7 +2259,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA + starredPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
