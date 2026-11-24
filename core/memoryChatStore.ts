@@ -7,7 +7,10 @@
  *   task that does not exist, and finds the chat already there for the pair
  *   and task, whichever of the two starts it. A plain chat is never found
  *   among chats whose task was deleted. `deleteTask` deletes a task the way
- *   the database's on-delete-set-null does.
+ *   the database's on-delete-set-null does. Given an engagement store, a new
+ *   chat (never one found) is scored for the member who started it, as
+ *   `chats_score` does; if the engagement cannot be written, the chat is not
+ *   made either.
  * - `send` is `send_chat_message`: it refuses a member who is not in the
  *   chat and an empty or over-long message, and, given an engagement store,
  *   scores the message for its sender as `chat_messages_score` does. If the
@@ -49,7 +52,7 @@ export class MemoryChatStore implements ChatStore, ChatReadStore {
     return new Date(Date.UTC(2026, 10, 12, 0, 0, this.clock)).toISOString();
   }
 
-  async start(otherMemberId: string, taskId: string | null) {
+  async start(otherMemberId: string, taskId: string | null, tool: string) {
     if (!this.members.has(otherMemberId)) throw new CoreError('There is no such member.');
     const problem = startChatProblem(this.signedIn, otherMemberId);
     if (problem) throw new CoreError(problem);
@@ -57,6 +60,9 @@ export class MemoryChatStore implements ChatStore, ChatReadStore {
     const pair = [this.signedIn, otherMemberId].sort().join(' ');
     const found = this.chatRows.find((c) => c.taskId === taskId && c.aboutATask === (taskId !== null) && [...c.memberIds].sort().join(' ') === pair);
     if (found) return { id: found.id };
+    if (this.engagements) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'started_a_chat', tool });
+    }
     const chat: Chat = { id: `chat-${this.chatRows.length + 1}`, taskId, aboutATask: taskId !== null, memberIds: [this.signedIn, otherMemberId], createdBy: this.signedIn, createdAt: this.now() };
     this.chatRows.push(chat);
     return { id: chat.id };

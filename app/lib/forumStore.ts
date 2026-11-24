@@ -103,6 +103,16 @@ export function supabaseTopicStore(supabase: Client): TopicStore {
       if (!data?.length) throw new CoreError("The topic was not saved: it may have been deleted, or you may not be allowed to change it.");
       return topicFromRow(data[0]);
     },
+    async setTopicParent(id, parentId) {
+      const { data, error } = await supabase.from("forum_topics").update({ parent_id: parentId }).eq("id", id).select(TOPIC_COLUMNS);
+      if (error?.code === "23514" && /sub-topics|own_parent/.test(error.message)) {
+        throw new CoreError("A topic cannot sit under itself or under one of its own sub-topics.");
+      }
+      if (error?.code === "23503") throw new CoreError("The chosen parent topic was not found. It may have been deleted; choose another.");
+      if (error) failed("save the parent topic", error);
+      if (!data?.length) throw new CoreError("The parent topic was not saved: the topic may have been deleted, or you may not be allowed to change it.");
+      return topicFromRow(data[0]);
+    },
     async deleteTopic(id) {
       const { data, error } = await supabase.from("forum_topics").delete().eq("id", id).select("id");
       if (error) failed("delete the topic", error);
