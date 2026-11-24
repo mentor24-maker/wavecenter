@@ -1236,6 +1236,65 @@ try {
     check('Home’s boxes are put back as they were', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
   }
 
+  // Changing a Home box earns its point
+  // (20261123190000_score_changed_a_home_box.sql, WC-195): a save that
+  // changes a box's words is scored once for the member who saved it, naming
+  // the row's tool; the same words again, a refused save and a service-key
+  // save score nothing; nobody can write the engagement themselves. The block
+  // above saved one change as A, so A already has one. Home's words are put
+  // back as they were afterwards.
+  let homeBoxPointsA = 0;
+  {
+    const HOME_KIND = 'changed_a_home_box';
+    const homeRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${HOME_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const homeRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${HOME_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const before = (await admin('/rest/v1/home_boxes?select=box,body,tool')).json;
+    if (!Array.isArray(before)) throw new Error(`could not read Home's boxes before scoring them: ${JSON.stringify(before)}`);
+    const upsert = (token, body) => call('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', token, prefer: 'resolution=merge-duplicates,return=representation', body });
+    try {
+      const [ha, hb] = [await homeRows(a), await homeRows(b)];
+      check('the Home box change A saved above recorded one engagement for A, worth what the rule says, naming its tool, and none for B',
+        ha.length === 1 && hb.length === 0 && ha[0].points === homeRule?.points && ha[0].tool === TOOL && ha[0].task_id === null,
+        `A ${JSON.stringify(ha)}, B ${JSON.stringify(hb)}, rule ${homeRule?.points}`);
+      const words = `Scored by **check_tasks_rls** ${randomUUID().slice(0, 8)}.`;
+      const saved = await saveHomeBox({ boxes: homeBoxStore(a), roles: roleStore(a) }, { actorId: a.id, box: 'deo', body: words }, TOOL);
+      const again = await upsert(a.token, { box: 'deo', body: words, tool: 'rls-check-home-tool' });
+      const ha2 = await homeRows(a);
+      check('changing a Home box records exactly one engagement for the member who saved it; saving the same words again records none',
+        saved.body === words && again.status < 300 && ha2.length === 2 && ha2[1].tool === TOOL && ha2[1].points === homeRule?.points,
+        `same-words HTTP ${again.status}, A ${JSON.stringify(ha2)}`);
+      const changed = await upsert(a.token, { box: 'deo', body: `${words} Changed.`, tool: 'rls-check-home-tool' });
+      const refused = await upsert(b.token, { box: 'deo', body: 'Hijacked', tool: TOOL });
+      const [ha3, hb3] = [await homeRows(a), await homeRows(b)];
+      check('a change straight at the table names the tool it sent; a viewer\u2019s refused save records nothing',
+        changed.status < 300 && ha3.length === 3 && ha3[2].tool === 'rls-check-home-tool' && refused.status >= 400 && hb3.length === 0,
+        `changed HTTP ${changed.status}, refused HTTP ${refused.status}, A ${JSON.stringify(ha3)}, B ${JSON.stringify(hb3)}`);
+      check('"Changed a Home box" is active at 1 point with its four factors and a reason for each',
+        homeRule?.name === 'Changed a Home box' && homeRule.points === 1 && homeRule.effort === 1 && homeRule.value === 2 && homeRule.rarity === 1 && homeRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof homeRule[k] === 'string' && homeRule[k].length > 0),
+        JSON.stringify(homeRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: HOME_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: HOME_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/home_boxes_score', { method: 'POST', token: b.token, body: {} });
+      const hb4 = await homeRows(b);
+      check('a member cannot forge a "Changed a Home box" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && hb4.length === 0,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, home_boxes_score HTTP ${forgeTrigger.status}, B now ${hb4.length}`);
+      const svc = await admin('/rest/v1/home_boxes?on_conflict=box', { method: 'POST', prefer: 'resolution=merge-duplicates,return=representation', body: { box: 'deo', body: `${words} By the service key.`, tool: TOOL } });
+      const ha5 = await homeRows(a);
+      check('a Home box saved with the service key (no signed-in member) is saved and scores nothing',
+        svc.status < 300 && svc.json?.[0]?.body === `${words} By the service key.` && ha5.length === ha3.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${ha3.length} now ${ha5.length}`);
+      homeBoxPointsA = ha5.reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      await admin('/rest/v1/home_boxes?box=in.(about,deo)', { method: 'DELETE' });
+      if (before.length) await admin('/rest/v1/home_boxes', { method: 'POST', body: before });
+      const restored = (await admin('/rest/v1/home_boxes?select=box,body,tool&order=box')).json;
+      const want = [...before].sort((x, y) => x.box.localeCompare(y.box));
+      check('Home\u2019s boxes are put back as they were after scoring them', JSON.stringify(restored) === JSON.stringify(want), `before ${JSON.stringify(want)}, after ${JSON.stringify(restored)}`);
+    }
+  }
+
   // Token sizes (20261103150000_token_settings.sql): every member reads them;
   // only a role with game.edit (admin; A is one, B a viewer) adds, changes or
   // removes one, through core or straight at the table. This may run against
@@ -2120,8 +2179,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals and deleted proposals were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals and Home box changes were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -2144,7 +2203,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).

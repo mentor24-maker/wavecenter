@@ -62,6 +62,7 @@ export const ENGAGEMENT_KINDS = [
   'made_a_proposal',
   'changed_a_proposal',
   'deleted_a_proposal',
+  'changed_a_home_box',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -205,6 +206,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // "Started a chat", "Added a forum topic", "Added a forum tag", "Made a
   // proposal" and "Changed a proposal".
   { kind: 'deleted_a_proposal', name: 'Deleted a proposal', description: 'Removed a proposal.', criteria: 'A proposal is deleted.', points: 1, position: 31 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // seventh of its rows, so a fresh database puts it after the 25 above and
+  // the six second-sweep rows before it.
+  { kind: 'changed_a_home_box', name: 'Changed a Home box', description: 'Changed the words in one of the boxes on the Home page.', criteria: 'A saved change to a Home box\'s words.', points: 1, position: 32 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -422,6 +427,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   deleted_a_proposal: {
     fn: 'deleteProposal', file: 'core/proposals.ts', database: 'proposals_score_delete',
     test: 'deleting a proposal records one engagement for the member who deleted it, naming the tool; a refused delete records none', testFile: 'core/proposals.test.ts',
+  },
+  changed_a_home_box: {
+    fn: 'saveHomeBox', file: 'core/homeBoxes.ts', database: 'home_boxes_score',
+    test: 'changing a Home box records one engagement for the member who saved it, naming the tool; the same words again, a refused save or a service-key save records none', testFile: 'core/homeBoxes.test.ts',
   },
 };
 
