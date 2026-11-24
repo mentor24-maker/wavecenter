@@ -3,7 +3,14 @@
  * change them and what a size may be are core's, so this store does not
  * repeat them.
  *
- * Given an engagement store, it scores deleting a size the way the table's
+ * Given an engagement store, it scores adding a size the way the table's
+ * game-layer trigger does (supabase/migrations/20261123230000_score_added_a_token_size.sql):
+ * each size added records one "added_a_token_size" engagement for the
+ * signed-in member, naming the tool; with nobody signed in (a service-key
+ * write) the size is saved unscored. If the engagement cannot be written, the
+ * size is not saved either.
+ *
+ * It also scores deleting a size the way the table's
  * game-layer trigger does (supabase/migrations/20261124020000_score_deleted_a_token_size.sql):
  * each size deleted records one "deleted_a_token_size" engagement for the
  * signed-in member, naming the tool; a delete with nobody signed in (a
@@ -39,6 +46,10 @@ export class MemoryTokenStore implements TokenStore {
   async add(fields: TokenSizeFields, tool: string) {
     if (this.failed()) return null;
     const saved: TokenSize = { id: `size-${this.next++}`, ...fields, tool, updatedAt: new Date().toISOString() };
+    // Score first: if that fails, the size is not saved either, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'added_a_token_size', tool });
+    }
     this.rows.set(saved.id, saved);
     return saved;
   }

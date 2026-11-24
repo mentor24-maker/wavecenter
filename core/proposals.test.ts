@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProposal, deleteProposal, updateProposal } from './proposals.ts';
 import { MemoryProposalStore } from './memoryProposalStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 test('createProposal fills in the defaults and records the owner and the tool', async () => {
   const store = new MemoryProposalStore('dane');
@@ -78,4 +79,133 @@ test('deleteProposal removes it and keeps its sub-proposals as top-level', async
   assert.equal(store.rows.has(parent.id), false);
   assert.equal(store.rows.get(child.id)?.parentProposalId, null);
   await assert.rejects(deleteProposal(store, parent.id, 'wavecenter'), /No proposal .* you may delete/);
+});
+
+test('making a proposal records one engagement for the member who made it, naming the tool; a refused one records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const rows = new Map();
+  const dane = new MemoryProposalStore('dane', rows, ledger);
+  const other = new MemoryProposalStore('other', rows, ledger);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'made_a_proposal');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'made_a_proposal')?.points;
+
+  const first = await createProposal(dane, { title: 'A voting page' }, 'wavecenter');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', 'wavecenter', worth, null]]);
+
+  // Changing or deleting a proposal are their own actions, not this one.
+  await updateProposal(dane, first.id, { title: 'A voting page, with quorum' }, 'wavecenter');
+  // A proposal that is refused saves nothing and scores nothing.
+  await assert.rejects(createProposal(other, { title: '  ' }, 'wavecenter'), /needs a title/);
+  await assert.rejects(createProposal(other, { title: 'x' }, ''), /must name the tool/);
+  assert.equal(scored().length, 1);
+
+  // Credited to whoever made it.
+  await createProposal(other, { title: 'Badges' }, 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', 'wavecenter'], ['other', 'mcp']]);
+
+  // If the engagement cannot be written, the proposal is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(createProposal(dane, { title: 'Streaks' }, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(rows.size, 2);
+  assert.equal(scored().length, 2);
+
+  await deleteProposal(dane, first.id, 'wavecenter');
+  assert.equal(scored().length, 2);
+});
+
+test('changing a proposal records one engagement for the member who changed it, naming the tool; a save that changes nothing or is refused records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const rows = new Map();
+  const dane = new MemoryProposalStore('dane', rows, ledger);
+  const other = new MemoryProposalStore('other', rows, ledger);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'changed_a_proposal');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'changed_a_proposal')?.points;
+
+  // Making a proposal is its own action, not this one.
+  const first = await createProposal(dane, { title: 'A voting page' }, 'wavecenter');
+  const umbrella = await createProposal(dane, { title: 'Voting' }, 'wavecenter');
+  const theirs = await createProposal(other, { title: 'Badges' }, 'wavecenter');
+  assert.equal(scored().length, 0);
+
+  await updateProposal(dane, first.id, { title: 'A voting page, with quorum' }, 'wavecenter');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', 'wavecenter', worth, null]]);
+
+  // Each field the edit form saves counts, and so does a new parent.
+  await updateProposal(dane, first.id, { notes: 'Two thirds to pass.' }, 'mcp');
+  await updateProposal(dane, first.id, { points: 3, priority: 'high', status: 'doing' }, 'wavecenter');
+  await updateProposal(dane, first.id, { parentProposalId: umbrella.id }, 'wavecenter');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', 'wavecenter'], ['dane', 'mcp'], ['dane', 'wavecenter'], ['dane', 'wavecenter']]);
+
+  // A save that changes nothing, or only reorders it, records nothing.
+  await updateProposal(dane, first.id, { title: 'A voting page, with quorum', points: 3, status: 'doing' }, 'wavecenter');
+  await updateProposal(dane, first.id, { position: 5 }, 'wavecenter');
+  assert.equal(scored().length, 4);
+
+  // A refused change saves nothing and scores nothing.
+  await assert.rejects(updateProposal(dane, first.id, { title: '  ' }, 'wavecenter'), /needs a title/);
+  await assert.rejects(updateProposal(dane, first.id, { title: 'x' }, ''), /must name the tool/);
+  await assert.rejects(updateProposal(other, first.id, { title: 'Mine now' }, 'wavecenter'), /No proposal .* you may change/);
+  assert.equal(scored().length, 4);
+
+  // Credited to whoever changed it.
+  await updateProposal(other, theirs.id, { title: 'Badges and streaks' }, 'wavecenter');
+  assert.deepEqual(scored().at(-1)?.memberId, 'other');
+
+  // If the engagement cannot be written, the change is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(updateProposal(dane, first.id, { title: 'Streaks' }, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(rows.get(first.id)?.title, 'A voting page, with quorum');
+  assert.equal(scored().length, 5);
+
+  // Deleting a proposal is its own action too, and a sub-proposal losing its
+  // parent that way is not a change its owner made.
+  await deleteProposal(dane, umbrella.id, 'wavecenter');
+  assert.equal(rows.get(first.id)?.parentProposalId, null);
+  assert.equal(scored().length, 5);
+});
+
+test('deleting a proposal records one engagement for the member who deleted it, naming the tool; a refused delete records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const rows = new Map();
+  const dane = new MemoryProposalStore('dane', rows, ledger);
+  const other = new MemoryProposalStore('other', rows, ledger);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'deleted_a_proposal');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'deleted_a_proposal')?.points;
+
+  // Making and changing a proposal are their own actions, not this one.
+  const first = await createProposal(dane, { title: 'A voting page' }, 'wavecenter');
+  const umbrella = await createProposal(dane, { title: 'Voting' }, 'wavecenter');
+  const child = await createProposal(dane, { title: 'Quorum', parentProposalId: umbrella.id }, 'wavecenter');
+  const theirs = await createProposal(other, { title: 'Badges' }, 'wavecenter');
+  await updateProposal(dane, first.id, { title: 'A voting page, with quorum' }, 'wavecenter');
+  assert.equal(scored().length, 0);
+
+  await deleteProposal(dane, first.id, 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', 'mcp', worth, null]]);
+  assert.equal(rows.has(first.id), false);
+
+  // Deleting a parent counts once: its sub-proposal stays, and is not deleted.
+  await deleteProposal(dane, umbrella.id, 'wavecenter');
+  assert.equal(rows.get(child.id)?.parentProposalId, null);
+  assert.equal(scored().length, 2);
+
+  // A refused delete deletes nothing and scores nothing.
+  await assert.rejects(deleteProposal(other, child.id, 'wavecenter'), /may delete/);
+  await assert.rejects(deleteProposal(dane, child.id, ''), /must name the tool/);
+  await assert.rejects(deleteProposal(dane, 'no-such-proposal', 'wavecenter'), /may delete/);
+  assert.equal(scored().length, 2);
+  assert.ok(rows.has(child.id));
+
+  // Credited to whoever deleted it.
+  await deleteProposal(other, theirs.id, 'wavecenter');
+  assert.equal(scored().at(-1)?.memberId, 'other');
+
+  // If the engagement cannot be written, the proposal is not deleted either.
+  ledger.failInsert = true;
+  await assert.rejects(deleteProposal(dane, child.id, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.ok(rows.has(child.id));
+  assert.equal(scored().length, 3);
 });

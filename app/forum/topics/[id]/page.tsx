@@ -1,13 +1,16 @@
 import Link from "next/link";
+import { mayChangeTopic, possibleParents, possibleSubTopics, subTopicsOf } from "../../../../core/forum.ts";
 import RichText from "../../../tasks/RichText";
 import { DATE } from "../../forumClient";
 import { loadTopic, TopicShell } from "../loadTopic";
+import TopicFamily from "./TopicFamily";
 
 /**
  * One Forum topic on its own page (WC-183): its name, slug, parent,
  * description and details (rich text, drawn safely by RichText), who added it
  * and when, and when it last changed. Its adder or an admin sees an Edit
- * link. Anything missing says so rather than leaving a blank (rule 7).
+ * link. Its sub-topics are listed, and a "Parent topic" and an "Adopt a
+ * sub-topic" dropdown set where it sits among the others (WC-185). Anything missing says so rather than leaving a blank (rule 7).
  */
 export default async function TopicPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,7 +24,12 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const { topic, topics, mayChange, namer } = load;
+  const { topic, topics, mayChange, namer, actor } = load;
+  const subTopics = subTopicsOf(topics, topic.id);
+  const choice = (t: { id: string; name: string }) => ({ id: t.id, name: t.name });
+  const parents = possibleParents(topics, topic.id).map(choice);
+  // Adopting moves the other topic, so it is offered only where this member may move it.
+  const adoptable = possibleSubTopics(topics, topic.id).filter((t) => mayChangeTopic(t, actor)).map(choice);
   const parent = topic.parentId ? topics.find((t) => t.id === topic.parentId) : undefined;
   const changed = topic.updatedAt && topic.updatedAt !== topic.createdAt;
 
@@ -43,6 +51,18 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
           )}
         </dd>
       </dl>
+      <h2>Sub-topics</h2>
+      {subTopics.length ? (
+        <ul className="topic-subtopics">
+          {subTopics.map((t) => (
+            <li key={t.id}><Link href={`/forum/topics/${t.id}`}>{t.name}</Link></li>
+          ))}
+        </ul>
+      ) : (
+        <p className="note">No sub-topics yet.</p>
+      )}
+      <h2>Place among the topics</h2>
+      <TopicFamily topicId={topic.id} parentId={topic.parentId ?? ""} mayMoveThis={mayChange} parents={parents} adoptable={adoptable} />
       <h2>Details</h2>
       {topic.details.trim() ? (
         <RichText body={topic.details} className="topic-details" />
