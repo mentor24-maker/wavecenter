@@ -1544,6 +1544,63 @@ try {
     }
   }
 
+  // Making a proposal earns its point
+  // (20261123160000_score_made_a_proposal.sql, WC-192): a new proposal is
+  // scored once for the member who made it, naming the row's tool; a refused
+  // proposal, a change, a delete and a service-key insert score nothing;
+  // nobody can write the engagement themselves. Counts are taken at the start
+  // of the block, so proposals made by the checks above (one each for A and
+  // B, so far) do not matter here.
+  let madeProposalPointsA = 0;
+  {
+    const PROPOSAL_KIND = 'made_a_proposal';
+    const proposalRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${PROPOSAL_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const proposalRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${PROPOSAL_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    try {
+      const [pa, pb] = [await proposalRows(a), await proposalRows(b)];
+      check('each proposal a member made above recorded one engagement for them, worth what the rule says, naming its tool',
+        pa.length >= 1 && pb.length >= 1 && [...pa, ...pb].every((e) => e.points === proposalRule?.points && e.tool === TOOL && e.task_id === null),
+        `A ${JSON.stringify(pa)}, B ${JSON.stringify(pb)}, rule ${proposalRule?.points}`);
+      const title = `RLS scored proposal ${randomUUID().slice(0, 8)}`;
+      const made = await call('/rest/v1/proposals', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title, tool: 'rls-check-proposal-tool' } });
+      if (made.json?.[0]?.id) ids.push(made.json[0].id);
+      const blank = await call('/rest/v1/proposals', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: ' \n ' } });
+      const inAsName = await call('/rest/v1/proposals', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title, owner_id: a.id } });
+      const changed = made.json?.[0]?.id
+        ? await call(`/rest/v1/proposals?id=eq.${made.json[0].id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { title: `${title}, changed` } })
+        : { status: 0 };
+      const [pa2, pb2] = [await proposalRows(a), await proposalRows(b)];
+      check('making a proposal records exactly one engagement for the member who made it, naming the tool it sent; a refused one or a change records none',
+        made.status === 201 && blank.status >= 400 && inAsName.status >= 400 && changed.status === 200 && pa2.length === pa.length + 1 && pa2.at(-1)?.tool === 'rls-check-proposal-tool' && pa2.at(-1)?.points === proposalRule?.points && pb2.length === pb.length,
+        `made HTTP ${made.status}, blank HTTP ${blank.status}, in A's name HTTP ${inAsName.status}, change HTTP ${changed.status}, A had ${pa.length} now ${JSON.stringify(pa2)}, B had ${pb.length} now ${pb2.length}`);
+      check('"Made a proposal" is active at 1 point with its four factors and a reason for each',
+        proposalRule?.name === 'Made a proposal' && proposalRule.points === 1 && proposalRule.effort === 1 && proposalRule.value === 2 && proposalRule.rarity === 0 && proposalRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof proposalRule[k] === 'string' && proposalRule[k].length > 0),
+        JSON.stringify(proposalRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: PROPOSAL_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: PROPOSAL_KIND, p_tool: TOOL, p_task: null } });
+      const pb3 = await proposalRows(b);
+      check('a member cannot forge a "Made a proposal" engagement: not in the ledger, not through the ledger\u2019s function',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && pb3.length === pb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, B now ${pb3.length}`);
+      const svc = await admin('/rest/v1/proposals', { method: 'POST', prefer: 'return=representation', body: { title: `${title} by service key`, owner_id: a.id } });
+      if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
+      const pa4 = await proposalRows(a);
+      check('a proposal made with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 201 && Array.isArray(svc.json) && svc.json.length === 1 && pa4.length === pa2.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${pa2.length} now ${pa4.length}`);
+      if (made.json?.[0]?.id) {
+        await call(`/rest/v1/proposals?id=eq.${made.json[0].id}`, { method: 'DELETE', token: a.token });
+        const pa5 = await proposalRows(a);
+        check('deleting a proposal records no "Made a proposal" engagement', pa5.length === pa4.length, `A had ${pa4.length} now ${pa5.length}`);
+      }
+      madeProposalPointsA = (await proposalRows(a)).reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/proposals?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);
@@ -1807,8 +1864,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats, added forum topics and added forum tags were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags and made proposals were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1831,7 +1888,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).

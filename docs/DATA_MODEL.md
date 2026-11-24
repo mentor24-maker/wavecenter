@@ -946,8 +946,10 @@ and add the process that turns a proposal into a task. The rules live in
 
 Row-level security is on from the migration that made the table: every
 signed-in member reads every proposal; a member adds, changes and deletes
-only their own; signed-out visitors read nothing. Making, changing and
-deleting a proposal is not scored yet. `check:tasks-rls` proves each rule.
+only their own; signed-out visitors read nothing. Making a proposal scores
+`made_a_proposal` for the member who made it (the `proposals_score`
+trigger); changing and deleting one are not scored yet. `check:tasks-rls`
+proves each rule.
 
 ## The Forum's topics and tags: `forum_topics`, `forum_tags` and `forum_tag_relations`
 
