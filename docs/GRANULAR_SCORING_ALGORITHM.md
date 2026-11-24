@@ -233,6 +233,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Added a forum topic | 1 | 1 | 2 | 1 | 3 | **7** | Gives members a subject to discuss on the Forum; paired with deleting it, so it loops. Same as making a team. (`supabase/migrations/20261123140000_score_added_a_forum_topic.sql`) |
 | Added a forum tag | 1 | 1 | 1 | 1 | 2 | **5** | Gives members a label to sort the Forum by, though tags are not attached to topics yet; a tag cannot be deleted yet, so it cannot loop. (`supabase/migrations/20261123150000_score_added_a_forum_tag.sql`) |
 | Made a proposal | 1 | 1 | 2 | 0 | 3 | **6** | Puts an idea in front of the other members that could become a task; paired with deleting it, so it loops. Same as making a task. (`supabase/migrations/20261123160000_score_made_a_proposal.sql`) |
+| Changed a proposal | 1 | 1 | 1 | 0 | 3 | **4** | Keeps a proposal accurate; any edit can be changed straight back, so it loops. Same as changing a task. (`supabase/migrations/20261123170000_score_changed_a_proposal.sql`) |
 
 ### Why each factor got its score
 
@@ -363,6 +364,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Made a proposal | Value | 2 | Puts an idea the other members can read on the Proposals page, and it could become a task. |
 | Made a proposal | Rarity | 0 | Members can make proposals many times a day. |
 | Made a proposal | Farm risk | 3 | Paired with deleting it, so make-and-delete loops. |
+| Changed a proposal | Effort | 1 | An edit is a short form or a few words: under a minute. |
+| Changed a proposal | Value | 1 | Keeps a proposal accurate, which tidies up the Proposals page. |
+| Changed a proposal | Rarity | 0 | Proposals can be edited many times a day. |
+| Changed a proposal | Farm risk | 3 | Any edit can be changed straight back, so it loops. |
 
 ## Scoring an action added later
 
