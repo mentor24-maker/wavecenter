@@ -18,7 +18,7 @@ function scoredSetup() {
 /** Sign in as `who` and start their chat with `other`. */
 async function chatAs(store: MemoryChatStore, who: string, other: string, taskId: string | null = null) {
   store.signedIn = who;
-  return (await startChat(store, { memberId: who, otherMemberId: other, taskId })).id;
+  return (await startChat(store, { memberId: who, otherMemberId: other, taskId }, TOOL)).id;
 }
 
 test('starting a chat twice, from either side, finds the same chat; a task makes it a different one', async () => {
@@ -36,11 +36,11 @@ test('starting a chat twice, from either side, finds the same chat; a task makes
 
 test('a chat with yourself, an unknown member or a task you may not read is refused, and nothing is saved', async () => {
   const store = new MemoryChatStore();
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'dane' }), /cannot start a chat with yourself/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'nobody' }), /no such member/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: '' }), /no such member/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'kim', taskId: 'task-gone' }), /no task of that id you may read/);
-  await assert.rejects(startChat(store, { memberId: '', otherMemberId: 'kim' }), /signed out/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'dane' }, TOOL), /cannot start a chat with yourself/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'nobody' }, TOOL), /no such member/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: '' }, TOOL), /no such member/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'kim', taskId: 'task-gone' }, TOOL), /no task of that id you may read/);
+  await assert.rejects(startChat(store, { memberId: '', otherMemberId: 'kim' }, TOOL), /signed out/);
   assert.equal(store.chatRows.length, 0);
   assert.equal(startChatProblem('dane', 'kim'), null);
 });
@@ -62,7 +62,7 @@ test('an empty or over-long message, a missing tool, or a sender not in the chat
   await assert.rejects(sendChatMessage(store, { senderId: 'lee', chatId: chat, body: 'Let me in' }, TOOL), /not in that chat/);
   await assert.rejects(sendChatMessage(store, { senderId: 'lee', chatId: 'chat-nope', body: 'Hi' }, TOOL), /not in that chat/);
   assert.equal(store.messageRows.length, 0);
-  assert.equal(ledger.rows.length, 0, 'a refused message scores nothing');
+  assert.deepEqual(ledger.rows.map((e) => e.kind), ['started_a_chat'], 'a refused message scores nothing; only starting the chat did');
   // Exactly the limit is fine; the limit counts the trimmed text.
   assert.equal(chatMessageProblem(` ${'x'.repeat(CHAT_BODY_MAX)} `), null);
 });
@@ -76,10 +76,47 @@ test('each chat message saved records one engagement for its sender, naming its 
   await assert.rejects(sendChatMessage(store, { senderId: 'kim', chatId: chat, body: '' }, TOOL));
   const points = (await ledger.rules()).find((r) => r.kind === 'sent_a_chat_message')!.points;
   assert.equal(points, 4);
-  assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
+  assert.deepEqual(ledger.rows.filter((e) => e.kind === 'sent_a_chat_message').map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
     { memberId: 'dane', kind: 'sent_a_chat_message', points, tool: TOOL, taskId: null },
     { memberId: 'kim', kind: 'sent_a_chat_message', points, tool: 'another-tool', taskId: null },
   ]);
+});
+
+test('starting a new chat records one engagement for the member who started it; opening one already there records none', async () => {
+  const { ledger, chats: store } = scoredSetup();
+  const first = await chatAs(store, 'dane', 'kim');
+  assert.equal(await chatAs(store, 'dane', 'kim'), first, 'the same member opens it again');
+  assert.equal(await chatAs(store, 'kim', 'dane'), first, 'the other member opens it');
+  store.signedIn = 'kim';
+  await startChat(store, { memberId: 'kim', otherMemberId: 'dane', taskId: 'task-1' }, 'another-tool');
+  // Refused: nothing is made, so nothing is recorded.
+  await assert.rejects(chatAs(store, 'lee', 'lee'), /yourself/);
+  await assert.rejects(chatAs(store, 'lee', 'nobody'), /no such member/);
+  await assert.rejects(startChat(store, { memberId: 'lee', otherMemberId: 'kim' }, '  '), /must name the tool/);
+  const points = (await ledger.rules()).find((r) => r.kind === 'started_a_chat')!.points;
+  assert.equal(points, 1);
+  assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
+    { memberId: 'dane', kind: 'started_a_chat', points, tool: TOOL, taskId: null },
+    { memberId: 'kim', kind: 'started_a_chat', points, tool: 'another-tool', taskId: null },
+  ]);
+  assert.equal(store.chatRows.length, 2);
+});
+
+test('if the engagement for a new chat cannot be written, the chat is not made either', async () => {
+  const { ledger, chats: store } = scoredSetup();
+  ledger.failInsert = true;
+  await assert.rejects(chatAs(store, 'dane', 'kim'));
+  assert.equal(store.chatRows.length, 0);
+  assert.equal(ledger.rows.length, 0);
+});
+
+test('the database scores a new chat for the signed-in member who started it, and skips a service-key insert', () => {
+  const code = readFileSync(new URL('../supabase/migrations/20261123130000_score_started_a_chat.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
+  assert.match(code, /v_member uuid := auth\.uid\(\);/);
+  assert.match(code, /if v_member is not null and new\.created_by is not distinct from v_member then\s+perform public\.record_engagement\(v_member, 'started_a_chat', public\.engagement_tool\('supabase-api'\), null\);/);
+  assert.match(code, /create trigger chats_score\s+after insert on public\.chats\s+for each row execute function public\.chats_score\(\);/);
+  assert.match(code, /revoke execute on function public\.chats_score\(\) from public, anon, authenticated;/);
+  assert.match(code, /security definer\s+set search_path = ''/);
 });
 
 test('if the engagement cannot be written, the chat message is not saved either', async () => {
@@ -97,7 +134,7 @@ test('a failed save says so; it is never reported as sent', async () => {
   await assert.rejects(sendChatMessage(store, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /refused to save/);
   const blank = { ...store, start: store.start.bind(store), send: async () => ({ id: '' }), chats: store.chats.bind(store), messages: store.messages.bind(store) };
   await assert.rejects(sendChatMessage(blank, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /did not save/);
-  await assert.rejects(startChat({ ...blank, start: async () => ({ id: '' }) }, { memberId: 'dane', otherMemberId: 'kim' }), /did not start/);
+  await assert.rejects(startChat({ ...blank, start: async () => ({ id: '' }) }, { memberId: 'dane', otherMemberId: 'kim' }, TOOL), /did not start/);
 });
 
 test('a member outside a chat reads nothing from it, even from a store that reads too much', async () => {
