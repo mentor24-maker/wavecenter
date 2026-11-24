@@ -64,6 +64,7 @@ export const ENGAGEMENT_KINDS = [
   'deleted_a_proposal',
   'changed_a_home_box',
   'starred_a_message',
+  'scored_an_action_s_factors',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -215,6 +216,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // eighth of its rows, so a fresh database puts it after the 25 above and
   // the seven second-sweep rows before it.
   { kind: 'starred_a_message', name: 'Starred a message', description: 'Starred a message on Your profile > Messages, to mark it as important.', criteria: 'A message that was not starred becomes starred.', points: 1, position: 33 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // ninth of its rows, so a fresh database puts it after the 25 above and
+  // the eight second-sweep rows before it.
+  { kind: 'scored_an_action_s_factors', name: 'Scored an action\'s factors', description: 'Gave an action its four factor scores on Game > Manage.', criteria: 'A saved change to an action\'s factors.', points: 1, position: 34 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -440,6 +445,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   starred_a_message: {
     fn: 'markMessage', file: 'core/messages.ts', database: 'message_marks_score',
     test: 'starring a message records one engagement for the member who starred it, naming the tool; starring it again, unstarring, the trash, a refused mark or a service-key write records none', testFile: 'core/messages.test.ts',
+  },
+  scored_an_action_s_factors: {
+    fn: 'changeScoringFactors', file: 'core/game.ts', database: 'game_scoring_rules_score_factors',
+    test: 'scoring an action records one engagement for the admin who changed its factors, naming the tool; a save that changes no factor, a refused or failed one, or a service-key write records none', testFile: 'core/game.test.ts',
   },
 };
 
