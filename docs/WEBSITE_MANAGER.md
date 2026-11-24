@@ -83,3 +83,16 @@ order.
   suggests), `addSitePage` (the only way to make a page), with tests in
   `core/website.test.ts`.
 - `/admin/website`: the page list and the New page form.
+
+## Built in WC-207: change, publish and delete a page
+
+- `supabase/migrations/20261124130000_site_pages_edit.sql` grants changing a
+  page's name, address and published state, and deleting a page, to a role
+  with Manage website only; a change stamps `updated_at`. Who made a page,
+  when, its tool and its sections cannot be changed this way.
+- `core/website.ts`: `changeSitePage` and `deleteSitePage`, under the same
+  rules as `addSitePage` (an address another page uses is refused), with
+  tests.
+- `/admin/website/<id>`: a page's details (name, address, status, made, last
+  changed) with Edit, Publish / Back to draft, and Delete with an "are you
+  sure" step. The page list's names link to it.

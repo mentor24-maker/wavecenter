@@ -3,12 +3,14 @@
 /**
  * The website manager's page list (WC-206): a fold-out "New page" box (name
  * and address) over a table of the site's pages, A to Z, each with its
- * address and whether it is published or a draft.
+ * address and whether it is published or a draft. A page's name opens its
+ * details screen, where it is changed, published or deleted (WC-207).
  *
  * A save shows its error and keeps what was typed (engineering rule 6); an
  * empty table says it is empty and how to fill it, and a list that could not
  * be read says so (rule 7).
  */
+import Link from "next/link";
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, sitePageSlug, type SitePage } from "../../../core/website.ts";
 import { addPage, type SitePageSaveResult } from "./actions";
@@ -89,7 +91,7 @@ export default function WebsitePages({ pages }: { pages: SitePage[] | string }) 
             ) : (
               pages.map((page) => (
                 <tr key={page.id}>
-                  <td title={page.name}>{page.name}</td>
+                  <td title={page.name}><Link href={`/admin/website/${page.id}`}>{page.name}</Link></td>
                   <td><code>{page.slug}</code></td>
                   <td>{page.isPublished ? "Published" : "Draft"}</td>
                   <td className="num note">
