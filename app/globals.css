@@ -1100,6 +1100,7 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-form .hint { font-weight: normal; }
 .topic-form .comment-editor textarea { min-height: 10rem; }
 .topic-form .buttons { display: flex; gap: 0.75rem; align-items: center; }
+.topic-pods { margin-top: calc(var(--space) * 1.5); }
 .topic-subtopics { margin: 0 0 var(--space); padding-left: 1.5rem; }
 .topic-family { display: grid; gap: 1rem; max-width: 46rem; margin: 0 0 var(--space); }
 .topic-picker { display: grid; gap: 0.3rem; }
@@ -1139,3 +1140,8 @@ dialog.meeting-dialog .task-facts { margin-bottom: 0.25rem; }
 .invite-picker { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0 0; }
 .invite-picker ul { list-style: none; padding: 0; margin: 0; max-height: 12rem; overflow-y: auto; }
 .invite-picker li { padding: 0.1rem 0; }
+
+/* Admin → Website: the New page form (WC-206). */
+.site-page-form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.5rem 0.75rem; align-items: center; margin-top: 0.5rem; max-width: 36rem; }
+.site-page-form .note, .site-page-form button { grid-column: 1 / -1; margin: 0; }
+.site-page-form button { justify-self: start; }
