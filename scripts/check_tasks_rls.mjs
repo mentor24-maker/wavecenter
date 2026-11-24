@@ -3015,7 +3015,7 @@ try {
           return { provisional: p.provisional, finalAt: p.final_at, finalBy: p.final_by, finalByName: p.final_by_name };
         },
         makeFinal: async (tool) => {
-          const r = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: member.token, body: { tool } });
+          const r = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: member.token, body: { tool }, tool });
           if (r.status >= 300) throw new Error(`make_scoring_final refused: ${r.json?.message ?? r.status}`);
           return { provisional: r.json.provisional, finalAt: r.json.final_at, finalBy: r.json.final_by, finalByName: null };
         },
@@ -3026,6 +3026,10 @@ try {
       check('a viewer or a signed-out visitor cannot make points final, through core or straight at the database',
         finalB.status >= 400 && finalAnon.status >= 400 && /refused/.test(forgedFinalB) && (await phaseStore(a).phase()).provisional === true,
         `viewer HTTP ${finalB.status}, signed out HTTP ${finalAnon.status}, core ${forgedFinalB}`);
+      // "Made points final" earns its point (WC-203), checked below.
+      const finalRule = (await admin('/rest/v1/game_scoring_rules?kind=eq.made_points_final&select=points')).json?.[0]?.points;
+      const finalsOf = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.made_points_final&select=points,tool,task_id,rescore_id`)).json ?? [];
+      const refusedFinals = [...await finalsOf(a), ...await finalsOf(b)].length;
       const finalised = await makeScoringFinal(phaseStore(a), { role: 'admin' }, 'FINAL', TOOL);
       const shownB = await phaseStore(b).phase();
       check('an admin makes points final: every member sees since when and by whom',
@@ -3035,6 +3039,21 @@ try {
       const againDb = await call('/rest/v1/rpc/make_scoring_final', { method: 'POST', token: a.token, body: { tool: TOOL } });
       check('making points final a second time is refused, through core or straight at the database',
         /already final/.test(againCore) && againDb.status >= 400 && /already final/.test(againDb.json?.message ?? ''), `core ${againCore}, database HTTP ${againDb.status} ${againDb.json?.message ?? ''}`);
+      // "Made points final" earns its point (20261124040000_score_made_points_final.sql):
+      // making points final records one, for the admin who did it, naming the
+      // tool; the refused tries above and the second try record none, and
+      // nobody forges one.
+      {
+        const mineA = await finalsOf(a);
+        const forgedA = await call('/rest/v1/engagements', { method: 'POST', token: a.token, body: { member_id: a.id, kind: 'made_points_final', points: 1, tool: TOOL } });
+        const forgedB = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: 'made_points_final', points: 1, tool: TOOL } });
+        check('making points final records exactly one Made points final engagement for the admin who did it, worth the rule\u2019s points, naming its tool',
+          typeof finalRule === 'number' && refusedFinals === 0 && mineA.length === 1 && mineA[0].points === finalRule && mineA[0].tool === TOOL && mineA[0].task_id === null && mineA[0].rescore_id === null,
+          `${JSON.stringify(mineA)} rule ${finalRule}, before ${refusedFinals}`);
+        check('a refused or second try at making points final records no Made points final engagement, and no member can forge one',
+          forgedA.status >= 400 && forgedB.status >= 400 && (await finalsOf(a)).length === 1 && (await finalsOf(b)).length === 0,
+          `forged A HTTP ${forgedA.status}, forged B HTTP ${forgedB.status}, A has ${(await finalsOf(a)).length}, B has ${(await finalsOf(b)).length}`);
+      }
       // Even the service key, which passes row-level security, cannot undo it: the trigger refuses.
       const reopen = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_provisional: true } });
       const restamp = await admin('/rest/v1/game_settings?id=eq.true', { method: 'PATCH', prefer: 'return=representation', body: { scoring_final_at: null } });
