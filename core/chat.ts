@@ -17,7 +17,9 @@
  *
  * Every message saved is scored for its sender (`sent_a_chat_message`, a
  * granular action), inside the same save: if the engagement cannot be
- * written, the message is not saved either.
+ * written, the message is not saved either. A new chat is scored the same
+ * way for the member who started it (`started_a_chat`); opening a chat that
+ * is already there makes nothing, so it scores nothing.
  */
 import { CoreError, requireTool } from './tool.ts';
 
@@ -63,10 +65,11 @@ export interface ChatMessage {
 export interface ChatStore {
   /**
    * The chat between the signed-in member and `otherMemberId` about `taskId`
-   * (null: a plain chat): the one already there, or a new one. Throws for an
-   * unknown member or a task the member may not read.
+   * (null: a plain chat): the one already there, or a new one, made on
+   * behalf of `tool`. Throws for an unknown member or a task the member may
+   * not read.
    */
-  start(otherMemberId: string, taskId: string | null): Promise<{ id: string }>;
+  start(otherMemberId: string, taskId: string | null, tool: string): Promise<{ id: string }>;
   /** Save a message from the signed-in member. Throws if they are not in the chat. */
   send(chatId: string, body: string, tool: string): Promise<{ id: string }>;
   /** The chats `memberId` is in, in any order. */
@@ -98,17 +101,22 @@ export function isInChat(chat: Pick<Chat, 'memberIds'>, memberId: string): boole
 
 /**
  * `memberId` starts (or finds) their chat with `otherMemberId`, about
- * `taskId` if given. Starting it twice, from either side, finds the same
- * chat. Throws a CoreError, with nothing saved, for a chat with yourself; a
- * store refusal (an unknown member, a task you may not read) throws too.
+ * `taskId` if given, on behalf of `tool`. Starting it twice, from either
+ * side, finds the same chat. A new chat is scored for `memberId`
+ * (`started_a_chat`), naming `tool`; finding one already there is not. Throws
+ * a CoreError, with nothing saved, for a chat with yourself or a missing
+ * tool; a store refusal (an unknown member, a task you may not read) throws
+ * too.
  */
 export async function startChat(
   store: ChatStore,
   input: { memberId: string; otherMemberId: string; taskId?: string | null },
+  tool: string,
 ): Promise<{ id: string }> {
+  const named = requireTool(tool);
   const problem = startChatProblem(input.memberId, input.otherMemberId);
   if (problem) throw new CoreError(problem);
-  const started = await store.start(input.otherMemberId, input.taskId ?? null);
+  const started = await store.start(input.otherMemberId, input.taskId ?? null, named);
   if (!started?.id) throw new CoreError('The chat did not start. Nothing was saved; try again.');
   return { id: started.id };
 }

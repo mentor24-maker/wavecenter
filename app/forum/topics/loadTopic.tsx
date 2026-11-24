@@ -8,7 +8,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { mayChangeTopic, type ForumTopic } from "../../../core/forum.ts";
+import { mayChangeTopic, type ForumActor, type ForumTopic } from "../../../core/forum.ts";
 import { headerPoints, type HeaderPoints } from "../../lib/engagementStore";
 import { listTopics } from "../../lib/forumStore";
 import { headerName } from "../../lib/memberProfileStore";
@@ -28,7 +28,7 @@ export interface Header {
 
 export type TopicLoad =
   | { ok: false; header: Header; problem: string; notFound?: true }
-  | { ok: true; header: Header; topic: ForumTopic; topics: ForumTopic[]; mayChange: boolean; namer: (id: string | null) => string };
+  | { ok: true; header: Header; topic: ForumTopic; topics: ForumTopic[]; mayChange: boolean; actor: ForumActor; namer: (id: string | null) => string };
 
 export async function loadTopic(id: string): Promise<TopicLoad> {
   const supabase = await supabaseForRequest();
@@ -56,7 +56,8 @@ export async function loadTopic(id: string): Promise<TopicLoad> {
   if ("error" in read) return { ok: false, header, problem: `This topic could not be loaded: ${read.error}. Nothing has been lost; try reloading the page.` };
   const topic = TOPIC_ID.test(id) ? read.topics.find((t) => t.id === id) : undefined;
   if (!topic) return { ok: false, header, notFound: true, problem: "This topic was not found. It may have been deleted, or the link may be wrong." };
-  return { ok: true, header, topic, topics: read.topics, mayChange: mayChangeTopic(topic, { memberId: user.id, isAdmin }), namer };
+  const actor = { memberId: user.id, isAdmin: Boolean(isAdmin) };
+  return { ok: true, header, topic, topics: read.topics, mayChange: mayChangeTopic(topic, actor), actor, namer };
 }
 
 /** The page around a topic: the header, a way back to the Forum, and the content. */
