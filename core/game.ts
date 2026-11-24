@@ -56,6 +56,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'started_a_chat',
   'added_a_forum_tag',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -175,6 +176,9 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // first of its rows, so a fresh database puts it after the 25 above.
+  { kind: 'started_a_chat', name: 'Started a chat', description: 'Opened a new chat with another member, on its own or about a task.', criteria: 'A new chat is saved. Opening a chat that already exists does not count.', points: 1, position: 26 },
   // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
   // third of its rows, so a fresh database puts it after the 25 above,
   // "Started a chat" and "Added a forum topic".
@@ -372,6 +376,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  started_a_chat: {
+    fn: 'startChat', file: 'core/chat.ts', database: 'chats_score',
+    test: 'starting a new chat records one engagement for the member who started it; opening one already there records none', testFile: 'core/chat.test.ts',
   },
   added_a_forum_tag: {
     fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_tags_score',
