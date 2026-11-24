@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signOut } from "./auth/actions";
+import AlertsPod from "./AlertsPod";
 import ChatLink from "./ChatLink";
 import type { HeaderPoints } from "./lib/engagementStore";
 import { supabaseSettings } from "./lib/supabase";
@@ -26,6 +27,9 @@ import TokenAnimation from "./TokenAnimation";
  * the menu but on the account line just before Log out
  * (`Name · 1,234 points | Admin | Log out`); the page says `isAdmin`, from the
  * same rule (core/members.ts `mayOpenAdmin`), and leaves it off when unsure.
+ * Between the account line and the menu sits the Alerts pod (AlertsPod.tsx,
+ * WC-182): the member's next steps, their chats with a new message and their
+ * open tasks, each a link to where they act on it.
  * The bar's content is as wide as every page's main body, so the two line up.
  * `points` is the member's point total (app/lib/engagementStore.ts
  * `headerPoints`), shown beside the name as a link to My Points
@@ -83,6 +87,7 @@ export default function SiteHeader({
                 <button type="submit" className="quiet">Log out</button>
               </form>
             </div>
+            <AlertsPod />
             <nav className="menu" aria-label="Main menu">
               <Link href="/" className="quiet">Home</Link>
               <Link href="/forum" className="quiet">Forum</Link>
