@@ -13,6 +13,13 @@
  * tool. A change that alters none of them, or any write with nobody signed
  * in (a service-key write), is saved unscored. If the engagement cannot be
  * written, the size or the change is not saved either.
+ *
+ * It also scores deleting a size the way the table's
+ * game-layer trigger does (supabase/migrations/20261124020000_score_deleted_a_token_size.sql):
+ * each size deleted records one "deleted_a_token_size" engagement for the
+ * signed-in member, naming the tool; a delete with nobody signed in (a
+ * service-key write) removes the size unscored. If the engagement cannot be
+ * written, the size is not deleted either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { TokenSize, TokenSizeFields, TokenStore } from './tokens.ts';
@@ -64,8 +71,12 @@ export class MemoryTokenStore implements TokenStore {
     return saved;
   }
 
-  async remove(id: string) {
-    if (this.failed()) return false;
+  async remove(id: string, tool: string) {
+    if (this.failed() || !this.rows.has(id)) return false;
+    // Score first: if that fails, the size is not deleted either, as in one transaction.
+    if (this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'deleted_a_token_size', tool });
+    }
     return this.rows.delete(id);
   }
 }
