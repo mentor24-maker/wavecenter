@@ -58,6 +58,7 @@ export const ENGAGEMENT_KINDS = [
   'sent_a_chat_message',
   'started_a_chat',
   'added_a_forum_topic',
+  'added_a_forum_tag',
   'made_a_proposal',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -184,6 +185,11 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // second of its rows, so a fresh database puts it after the 25 above and
   // "Started a chat".
   { kind: 'added_a_forum_topic', name: 'Added a forum topic', description: 'Added a topic for members to discuss on the Forum.', criteria: 'A new topic is saved on the Forum.', points: 1, position: 27 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // third of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat" and "Added a forum topic".
+  { kind: 'added_a_forum_tag', name: 'Added a forum tag', description: 'Added a tag for sorting the Forum\'s discussions.', criteria: 'A new tag is saved on the Forum.', points: 1, position: 28 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
   // fourth of its rows, so a fresh database puts it after the 25 above,
   // "Started a chat", "Added a forum topic" and "Added a forum tag".
   { kind: 'made_a_proposal', name: 'Made a proposal', description: 'Put forward an idea for a change on the Proposals page.', criteria: 'A new proposal is saved.', points: 1, position: 29 },
@@ -388,6 +394,11 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   added_a_forum_topic: {
     fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_topics_score',
     test: 'adding a forum topic records one engagement for the member who added it, naming the tool; a tag or a refused topic records none', testFile: 'core/forum.test.ts',
+  },
+  added_a_forum_tag: {
+    fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_tags_score',
+    test: 'adding a forum tag records one engagement for the member who added it, naming the tool; a topic or a refused tag records none', testFile: 'core/forum.test.ts',
+  },
   made_a_proposal: {
     fn: 'createProposal', file: 'core/proposals.ts', database: 'proposals_score',
     test: 'making a proposal records one engagement for the member who made it, naming the tool; a refused one records none', testFile: 'core/proposals.test.ts',
