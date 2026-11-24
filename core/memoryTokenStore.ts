@@ -3,12 +3,16 @@
  * change them and what a size may be are core's, so this store does not
  * repeat them.
  *
- * Given an engagement store, it scores adding a size the way the table's
- * game-layer trigger does (supabase/migrations/20261123230000_score_added_a_token_size.sql):
- * each size added records one "added_a_token_size" engagement for the
- * signed-in member, naming the tool; with nobody signed in (a service-key
- * write) the size is saved unscored. If the engagement cannot be written, the
- * size is not saved either.
+ * Given an engagement store, it scores adding and changing a size the way
+ * the table's game-layer triggers do
+ * (supabase/migrations/20261123230000_score_added_a_token_size.sql and
+ * supabase/migrations/20261124010000_score_changed_a_token_size.sql): each
+ * size added records one "added_a_token_size" engagement, and each saved
+ * change to a size's name, size, colour or point level records one
+ * "changed_a_token_size" engagement, for the signed-in member, naming the
+ * tool. A change that alters none of them, or any write with nobody signed
+ * in (a service-key write), is saved unscored. If the engagement cannot be
+ * written, the size or the change is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { TokenSize, TokenSizeFields, TokenStore } from './tokens.ts';
@@ -48,8 +52,14 @@ export class MemoryTokenStore implements TokenStore {
   }
 
   async change(id: string, fields: TokenSizeFields, tool: string) {
-    if (this.failed() || !this.rows.has(id)) return null;
+    const before = this.rows.get(id);
+    if (this.failed() || !before) return null;
     const saved: TokenSize = { id, ...fields, tool, updatedAt: new Date().toISOString() };
+    const changed = before.name !== fields.name || before.diameter !== fields.diameter || before.color !== fields.color || before.minPoints !== fields.minPoints;
+    // Score first: if that fails, the change is not saved either, as in one transaction.
+    if (changed && this.engagements && this.signedIn) {
+      await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'changed_a_token_size', tool });
+    }
     this.rows.set(id, saved);
     return saved;
   }
