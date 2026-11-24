@@ -56,6 +56,12 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_scoring_rule',
   'added_a_scoring_action',
   'sent_a_chat_message',
+  'started_a_chat',
+  'added_a_forum_topic',
+  'added_a_forum_tag',
+  'made_a_proposal',
+  'changed_a_proposal',
+  'deleted_a_proposal',
   'changed_a_home_box',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
@@ -175,6 +181,31 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // Added with live chat (20261112120000_chats.sql), after the sweep's rows.
   // The first action listed already scored by the formula: 1 + 1 + 2 x 1 + 0 = 4.
   { kind: 'sent_a_chat_message', name: 'Sent a chat message', description: 'Wrote a message in a chat with another member.', criteria: 'A chat message is saved.', points: 4, position: 25 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // first of its rows, so a fresh database puts it after the 25 above.
+  { kind: 'started_a_chat', name: 'Started a chat', description: 'Opened a new chat with another member, on its own or about a task.', criteria: 'A new chat is saved. Opening a chat that already exists does not count.', points: 1, position: 26 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // second of its rows, so a fresh database puts it after the 25 above and
+  // "Started a chat".
+  { kind: 'added_a_forum_topic', name: 'Added a forum topic', description: 'Added a topic for members to discuss on the Forum.', criteria: 'A new topic is saved on the Forum.', points: 1, position: 27 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // third of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat" and "Added a forum topic".
+  { kind: 'added_a_forum_tag', name: 'Added a forum tag', description: 'Added a tag for sorting the Forum\'s discussions.', criteria: 'A new tag is saved on the Forum.', points: 1, position: 28 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // fourth of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat", "Added a forum topic" and "Added a forum tag".
+  { kind: 'made_a_proposal', name: 'Made a proposal', description: 'Put forward an idea for a change on the Proposals page.', criteria: 'A new proposal is saved.', points: 1, position: 29 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // fifth of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat", "Added a forum topic", "Added a forum tag" and "Made a
+  // proposal".
+  { kind: 'changed_a_proposal', name: 'Changed a proposal', description: "Edited a proposal's title, notes, points, priority or status.", criteria: 'A saved change to a proposal.', points: 1, position: 30 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // sixth of its rows, so a fresh database puts it after the 25 above,
+  // "Started a chat", "Added a forum topic", "Added a forum tag", "Made a
+  // proposal" and "Changed a proposal".
+  { kind: 'deleted_a_proposal', name: 'Deleted a proposal', description: 'Removed a proposal.', criteria: 'A proposal is deleted.', points: 1, position: 31 },
   // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
   // seventh of its rows, so a fresh database puts it after the 25 above and
   // the six second-sweep rows before it.
@@ -372,6 +403,30 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   sent_a_chat_message: {
     fn: 'sendChatMessage', file: 'core/chat.ts', database: 'chat_messages_score',
     test: 'each chat message saved records one engagement for its sender, naming its tool; a refused one records none', testFile: 'core/chat.test.ts',
+  },
+  started_a_chat: {
+    fn: 'startChat', file: 'core/chat.ts', database: 'chats_score',
+    test: 'starting a new chat records one engagement for the member who started it; opening one already there records none', testFile: 'core/chat.test.ts',
+  },
+  added_a_forum_topic: {
+    fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_topics_score',
+    test: 'adding a forum topic records one engagement for the member who added it, naming the tool; a tag or a refused topic records none', testFile: 'core/forum.test.ts',
+  },
+  added_a_forum_tag: {
+    fn: 'addForumEntry', file: 'core/forum.ts', database: 'forum_tags_score',
+    test: 'adding a forum tag records one engagement for the member who added it, naming the tool; a topic or a refused tag records none', testFile: 'core/forum.test.ts',
+  },
+  made_a_proposal: {
+    fn: 'createProposal', file: 'core/proposals.ts', database: 'proposals_score',
+    test: 'making a proposal records one engagement for the member who made it, naming the tool; a refused one records none', testFile: 'core/proposals.test.ts',
+  },
+  changed_a_proposal: {
+    fn: 'updateProposal', file: 'core/proposals.ts', database: 'proposals_score_changed',
+    test: 'changing a proposal records one engagement for the member who changed it, naming the tool; a save that changes nothing or is refused records none', testFile: 'core/proposals.test.ts',
+  },
+  deleted_a_proposal: {
+    fn: 'deleteProposal', file: 'core/proposals.ts', database: 'proposals_score_delete',
+    test: 'deleting a proposal records one engagement for the member who deleted it, naming the tool; a refused delete records none', testFile: 'core/proposals.test.ts',
   },
   changed_a_home_box: {
     fn: 'saveHomeBox', file: 'core/homeBoxes.ts', database: 'home_boxes_score',
