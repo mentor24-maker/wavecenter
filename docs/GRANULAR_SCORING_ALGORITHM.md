@@ -243,6 +243,7 @@ formula's value live from the Admin page, as for the first sweep's.
 | Changed a token size | 1 | 1 | 2 | 1 | 3 | **7** | Every member's earned-points tokens use the sizes; an admin may tune one several times while setting up, and a size can be changed and changed straight back. Admin only; a save that changes nothing is not counted. (`supabase/migrations/20261124010000_score_changed_a_token_size.sql`) |
 | Deleted a token size | 1 | 0 | 1 | 1 | 3 | **4** | Tidies up the sizes every member's tokens use; admin only, and the undo half of the add-and-delete loop. Same as deleting a team. (`supabase/migrations/20261124020000_score_deleted_a_token_size.sql`) |
 | Rescored past points | 1 | 1 | 2 | 2 | 2 | **8** | Brings every member's past points in line with what each action is worth today; admin only, and only while scoring is provisional. A rescore that changes nothing earns nothing, so repeating it needs a rule changed first. (`supabase/migrations/20261124030000_score_rescored_past_points.sql`) |
+| Made points final | 1 | 1 | 2 | 2 | 0 | **8** | Ends the provisional phase for good, so every member can rely on the points they have earned; admin only, typed FINAL to confirm, and only once in a DEO's life, so it can never be farmed. (`supabase/migrations/20261124040000_score_made_points_final.sql`) |
 
 ### Why each factor got its score
 
@@ -413,6 +414,10 @@ action's by the migration that wires it; a test keeps the two in step). On the A
 | Rescored past points | Value | 2 | Every member's total is brought in line with the values they now earn by. |
 | Rescored past points | Rarity | 2 | Only an admin can rescore, only while scoring is provisional: a handful of times ever. |
 | Rescored past points | Farm risk | 2 | A rescore that changes nothing earns nothing, but an admin can change a rule's points and rescore again in seconds. |
+| Made points final | Effort | 1 | Reading the warning and typing FINAL to confirm: under a minute. |
+| Made points final | Value | 2 | From then on every member can rely on the points they have earned staying earned. |
+| Made points final | Rarity | 2 | It can happen only once in a DEO's life, and only an admin can do it. |
+| Made points final | Farm risk | 0 | It cannot be repeated or undone, so it can never be farmed. |
 
 ## Scoring an action added later
 

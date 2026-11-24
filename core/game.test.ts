@@ -67,6 +67,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261124010000_score_changed_a_token_size.sql',
   '20261124020000_score_deleted_a_token_size.sql',
   '20261124030000_score_rescored_past_points.sql',
+  '20261124040000_score_made_points_final.sql',
 ];
 
 /**
@@ -548,6 +549,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('changed_a_token_size'), true);
   assert.equal(isWired('deleted_a_token_size'), true);
   assert.equal(isWired('rescored_past_points'), true);
+  assert.equal(isWired('made_points_final'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
@@ -1173,6 +1175,55 @@ test('the database scores a rescore once it saves, only for the signed-in admin 
   assert.match(apply, /values \(caller, btrim\(tool\), 0, 0\)/);
   assert.match(apply, /if v_rows = 0 then\s+delete from public\.rescores where id = v_id;/);
   assert.match(apply, /update public\.rescores set rows_changed = v_rows, points_changed = v_points where id = v_id;/);
+});
+
+test('making points final records one engagement for the admin who did it, naming the tool; a refused, repeated or failed one, or a service-key one, records none', async () => {
+  const finals = (ledger: MemoryEngagementStore) => ledger.rows.filter((e) => e.kind === 'made_points_final');
+  const ledger = await earlyLedger();
+  const worth = (await ledger.rules()).find((r) => r.kind === 'made_points_final')!.points;
+  assert.equal(worth, 1);
+
+  // Refused: nothing is recorded, and points stay provisional.
+  ledger.signedIn = 'dane';
+  await assert.rejects(makeScoringFinal(ledger, { role: 'viewer' }, FINAL_CONFIRMATION, 'wavecenter'), /Only an admin/);
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, 'final', 'wavecenter'), /Type FINAL/);
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, ' '), /tool/i);
+  assert.equal(finals(ledger).length, 0);
+
+  // If the engagement cannot be written, points stay provisional: the two always agree.
+  const before = ledger.rows.length;
+  ledger.failInsert = true;
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(ledger.rows.length, before);
+  assert.equal((await ledger.phase()).provisional, true);
+
+  // Made final: one engagement for the admin who did it, at the rule's points, naming the tool.
+  await makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, 'final-tool');
+  assert.deepEqual(finals(ledger).map((e) => [e.memberId, e.points, e.tool, e.taskId]), [['dane', worth, 'final-tool', null]]);
+
+  // A second try is refused and records nothing: it can happen only once.
+  await assert.rejects(makeScoringFinal(ledger, ADMIN, FINAL_CONFIRMATION, 'wavecenter'), /already final/);
+  await assert.rejects(ledger.makeFinal('wavecenter'), /already final/);
+  assert.equal(finals(ledger).length, 1);
+
+  // A service-key write (nobody signed in) makes points final and scores nothing.
+  const unsigned = await earlyLedger();
+  const saved = await makeScoringFinal(unsigned, ADMIN, FINAL_CONFIRMATION, 'wavecenter');
+  assert.equal(saved.provisional, false);
+  assert.equal(finals(unsigned).length, 0);
+});
+
+test('the database scores making points final once, only for the signed-in admin who did it, naming its tool', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124040000_score_made_points_final.sql', import.meta.url), 'utf8');
+  assert.match(sql, /v_member uuid := auth\.uid\(\);/);
+  assert.match(sql, /if v_member is not null and new\.scoring_final_by = v_member then\s+perform public\.record_engagement\(v_member, 'made_points_final', public\.engagement_tool\('supabase-api'\), null\);/);
+  assert.match(sql, /create trigger game_settings_score_final\s+after update of scoring_provisional on public\.game_settings\s+for each row\s+when \(old\.scoring_provisional and not new\.scoring_provisional\)\s+execute function public\.game_settings_score_final\(\);/);
+  assert.match(sql, /revoke execute on function public\.game_settings_score_final\(\) from public, anon, authenticated/);
+  // make_scoring_final ends the phase with one update naming the admin, and nothing can set it back.
+  const final = readFileSync(new URL('../supabase/migrations/20261103170000_scoring_final.sql', import.meta.url), 'utf8');
+  assert.match(final, /set scoring_provisional = false, scoring_final_at = now\(\), scoring_final_by = caller/);
+  assert.match(final, /not old\.scoring_provisional and new\.scoring_provisional then\s+raise exception/);
 });
 
 test('an admin makes points final once, with FINAL typed, and then nothing can be rescored', async () => {

@@ -15,7 +15,8 @@
  * refusing when scoring is no longer provisional, and a rescore that saves
  * is scored for `signedIn`. And it is a
  * `ScoringPhaseStore`: like the database's `make_scoring_final`, it ends the
- * provisional phase once, for `signedIn`, and refuses a second time.
+ * provisional phase once, for `signedIn`, and refuses a second time; ending
+ * it is scored for `signedIn`, as the game_settings trigger does.
  */
 import {
   NO_REASONS, RESCORE_TOOL, STARTING_SCORING_RULES, recordEngagement, rescoreCorrections, totalPoints, type Engagement, type EngagementLedger, type EngagementStore,
@@ -133,8 +134,12 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
     return { provisional: this.scoringProvisional, finalAt: this.scoringFinalAt, finalBy: this.scoringFinalBy, finalByName: null };
   }
 
-  async makeFinal(_tool: string): Promise<ScoringPhase> {
+  async makeFinal(tool: string): Promise<ScoringPhase> {
     if (!this.scoringProvisional) throw new Error('Points are already final for this DEO. That cannot be undone, and nothing was changed.');
+    // Making points final earns its point for the signed-in admin who did it,
+    // as the game_settings trigger does. Scored first: if that fails, points
+    // stay provisional.
+    if (this.signedIn) await recordEngagement(this, { memberId: this.signedIn, kind: 'made_points_final', tool });
     this.scoringProvisional = false;
     this.scoringFinalAt = new Date().toISOString();
     this.scoringFinalBy = this.signedIn;
