@@ -26,9 +26,13 @@ export function openTaskCount(tasks: readonly Pick<Task, 'ownerId' | 'status'>[]
 /** One alert's count: a number, or the reason it could not be read (never 0 for a failure, rule 7). */
 export type AlertCount = { ok: true; count: number } | { ok: false; error: string };
 
-/** The words for one alert: "1 new message", "3 open tasks", "? open tasks" when unread. */
+/**
+ * The words for one alert: "1 chat with new messages", "3 open tasks",
+ * "? open tasks" when unread. The messages count is chats with something
+ * unread (`unreadChatCount`), not messages, so the words say chats.
+ */
 export function alertText(kind: 'messages' | 'tasks', count: AlertCount): string {
-  const [one, many] = kind === 'messages' ? ['new message', 'new messages'] : ['open task', 'open tasks'];
+  const [one, many] = kind === 'messages' ? ['chat with new messages', 'chats with new messages'] : ['open task', 'open tasks'];
   if (!count.ok) return `? ${many}`;
   return `${count.count} ${count.count === 1 ? one : many}`;
 }

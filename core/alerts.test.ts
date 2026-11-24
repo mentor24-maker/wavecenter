@@ -26,8 +26,9 @@ test('openTaskCount counts only the member’s open tasks', () => {
 });
 
 test('alertText says the count in words, and ? when it could not be read', () => {
-  assert.equal(alertText('messages', { ok: true, count: 1 }), '1 new message');
-  assert.equal(alertText('messages', { ok: true, count: 4 }), '4 new messages');
+  assert.equal(alertText('messages', { ok: true, count: 1 }), '1 chat with new messages');
+  assert.equal(alertText('messages', { ok: true, count: 4 }), '4 chats with new messages');
+  assert.equal(alertText('messages', { ok: false, error: 'x' }), '? chats with new messages');
   assert.equal(alertText('tasks', { ok: true, count: 1 }), '1 open task');
   assert.equal(alertText('tasks', { ok: true, count: 0 }), '0 open tasks');
   assert.equal(alertText('tasks', { ok: false, error: 'x' }), '? open tasks');
