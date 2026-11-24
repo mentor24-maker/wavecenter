@@ -1343,6 +1343,59 @@ try {
     }
   }
 
+  // Adding a forum topic earns its point
+  // (20261123140000_score_added_a_forum_topic.sql, WC-190): a new topic is
+  // scored once for the member who added it, naming the row's tool; a tag, a
+  // refused topic and a service-key insert score nothing; nobody can write
+  // the engagement themselves. The two blocks above added two topics each
+  // for A and B, so each already has two.
+  let forumTopicPointsA = 0;
+  {
+    const TOPIC_KIND = 'added_a_forum_topic';
+    const topicRows = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${TOPIC_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const topicRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${TOPIC_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+    const ids = [];
+    const tagIds = [];
+    try {
+      const [ta, tb] = [await topicRows(a), await topicRows(b)];
+      check('each forum topic a member added above recorded one engagement for them, worth what the rule says, naming its tool',
+        ta.length === 2 && tb.length === 2 && [...ta, ...tb].every((e) => e.points === topicRule?.points && e.tool === 'wavecenter' && e.task_id === null),
+        `A ${JSON.stringify(ta)}, B ${JSON.stringify(tb)}, rule ${topicRule?.points}`);
+      const word = `RLS scored topic ${randomUUID().slice(0, 8)}`;
+      const added = await call('/rest/v1/forum_topics', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: word, tool: 'rls-check-forum-tool' } });
+      if (added.json?.[0]?.id) ids.push(added.json[0].id);
+      const twin = await call('/rest/v1/forum_topics', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word.toUpperCase() } });
+      if (twin.json?.[0]?.id) ids.push(twin.json[0].id);
+      const tag = await call('/rest/v1/forum_tags', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: word } });
+      if (tag.json?.[0]?.id) tagIds.push(tag.json[0].id);
+      const [ta2, tb2] = [await topicRows(a), await topicRows(b)];
+      check('adding a forum topic records exactly one engagement for the member who added it, naming the tool it sent; a refused topic or a tag records none',
+        added.status === 201 && twin.status === 409 && tag.status === 201 && ta2.length === 3 && ta2[2].tool === 'rls-check-forum-tool' && ta2[2].points === topicRule?.points && tb2.length === tb.length,
+        `added HTTP ${added.status}, twin HTTP ${twin.status}, tag HTTP ${tag.status}, A ${JSON.stringify(ta2)}, B had ${tb.length} now ${tb2.length}`);
+      check('"Added a forum topic" is active at 1 point with its four factors and a reason for each',
+        topicRule?.name === 'Added a forum topic' && topicRule.points === 1 && topicRule.effort === 1 && topicRule.value === 2 && topicRule.rarity === 1 && topicRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof topicRule[k] === 'string' && topicRule[k].length > 0),
+        JSON.stringify(topicRule));
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: TOPIC_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: TOPIC_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/forum_topics_score', { method: 'POST', token: b.token, body: {} });
+      const tb3 = await topicRows(b);
+      check('a member cannot forge an "Added a forum topic" engagement: not in the ledger, not through the ledger\u2019s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && tb3.length === tb.length,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, forum_topics_score HTTP ${forgeTrigger.status}, B now ${tb3.length}`);
+      const svc = await admin('/rest/v1/forum_topics', { method: 'POST', prefer: 'return=representation', body: { name: `${word} by service key`, created_by: a.id } });
+      if (svc.json?.[0]?.id) ids.push(svc.json[0].id);
+      const ta4 = await topicRows(a);
+      check('a forum topic added with the service key (no signed-in member) is saved and scores nothing',
+        svc.status === 201 && Array.isArray(svc.json) && svc.json.length === 1 && ta4.length === ta2.length,
+        `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A had ${ta2.length} now ${ta4.length}`);
+      forumTopicPointsA = ta4.reduce((sum, e) => sum + e.points, 0);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/forum_topics?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+      if (tagIds.length) await admin(`/rest/v1/forum_tags?id=in.(${tagIds.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
   // A Forum tag's details, related tags, changing and deleting it
   // (20261123010000_forum_tag_relations.sql, WC-186): a new tag gets a slug
   // from its name; only its adder (B here, a viewer) or an admin (A) changes
@@ -1754,8 +1807,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats and added forum tags were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_tag)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics and added forum tags were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag)&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -1778,7 +1831,7 @@ try {
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTagPointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).

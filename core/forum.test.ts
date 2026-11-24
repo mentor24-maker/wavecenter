@@ -179,6 +179,36 @@ test('adding a forum tag records one engagement for the member who added it, nam
   assert.equal(scored().length, 2);
 });
 
+test('adding a forum topic records one engagement for the member who added it, naming the tool; a tag or a refused topic records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const rows: ForumEntry[] = [];
+  const dane = new MemoryForumStore('dane', rows, [], ledger);
+  const other = new MemoryForumStore('other', rows, [], ledger);
+  const scored = () => ledger.rows.filter((e) => e.kind === 'added_a_forum_topic');
+  const worth = (await ledger.rules()).find((r) => r.kind === 'added_a_forum_topic')?.points;
+
+  await addForumEntry(dane, 'topic', 'Voting rules', 'wavecenter');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool, e.points, e.taskId ?? null]), [['dane', 'wavecenter', worth, null]]);
+
+  // A tag is its own action, not this one.
+  await addForumEntry(dane, 'tag', 'governance', 'wavecenter');
+  // A name already on the list, or a blank one, saves nothing and scores nothing.
+  await assert.rejects(addForumEntry(other, 'topic', 'voting RULES', 'wavecenter'), /already a topic/);
+  await assert.rejects(addForumEntry(other, 'topic', '  ', 'wavecenter'), /needs a name/);
+  assert.equal(scored().length, 1);
+
+  // Credited to whoever added it.
+  await addForumEntry(other, 'topic', 'Treasury', 'mcp');
+  assert.deepEqual(scored().map((e) => [e.memberId, e.tool]), [['dane', 'wavecenter'], ['other', 'mcp']]);
+
+  // If the engagement cannot be written, the topic is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(addForumEntry(dane, 'topic', 'Meetings', 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(rows.filter((r) => r.kind === 'topic').length, 2);
+  assert.equal(scored().length, 2);
+});
+
 test('setTopicParent sets and clears only the parent, keeping every other field', async () => {
   const { dane, voting, quorum } = await forum();
   await editTopic(dane, quorum.id, edit('Quorum', { slug: 'q', description: 'How many', details: 'Words' }), DANE, 'wavecenter');
