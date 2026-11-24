@@ -2389,6 +2389,48 @@ try {
       [factorsByB, factorsByAnon, outOfRange, halfScored].every((r) => r.status >= 400), `HTTP ${factorsByB.status} / ${factorsByAnon.status} / ${outOfRange.status} / ${halfScored.status}`);
     const scored = await changeScoringFactors(scoringStore(a), { role: 'admin' }, { kind: addedKind, factors: { effort: 1, value: 2, rarity: 0, farmRisk: 2 } }, TOOL);
     check('an admin sets an action\'s factors through core, and its points do not change', scored.factors?.value === 2 && scored.points === 2, JSON.stringify(scored));
+    // Scoring an action's factors earns its point
+    // (20261123210000_score_scored_an_action_s_factors.sql, WC-197): a saved
+    // change to any of an action's four factors is scored once for the
+    // signed-in admin who saved it, naming the save's tool; a refused save,
+    // a save that changes no factor and a service-key write score nothing;
+    // nobody can write the engagement themselves. Checked against counts
+    // taken here, so it leaves A's list and total above as they were.
+    {
+      const FACTORS_KIND = 'scored_an_action_s_factors';
+      const factorScores = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${FACTORS_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+      const factorsRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${FACTORS_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+      const [fa, fb] = [await factorScores(a), await factorScores(b)];
+      check('setting an action’s factors above recorded exactly one engagement for the admin who saved them, worth what the rule says, naming the tool; the refused saves recorded none',
+        fa.length === 1 && fa[0].points === factorsRule?.points && fa[0].tool === TOOL && fa[0].task_id === null && fb.length === 0,
+        `A ${JSON.stringify(fa)}, B ${JSON.stringify(fb)}, rule ${factorsRule?.points}`);
+      const same = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: a.token, body: factorBody() });
+      const fa2 = await factorScores(a);
+      check('saving the same four factors again saves and records nothing', same.status === 200 && fa2.length === 1, `HTTP ${same.status}, A ${JSON.stringify(fa2)}`);
+      const otherTool = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: a.token, body: factorBody({ new_farm_risk: 3, tool: 'rls-check-factors-tool' }) });
+      const putBack = await call('/rest/v1/rpc/set_scoring_factors', { method: 'POST', token: a.token, body: factorBody() });
+      const fa3 = await factorScores(a);
+      check('each saved change of factors records one more engagement for the admin, naming the tool it sent',
+        otherTool.status === 200 && putBack.status === 200 && fa3.length === 3 && fa3[1].tool === 'rls-check-factors-tool' && fa3[2].tool === TOOL,
+        `HTTP ${otherTool.status} / ${putBack.status}, A ${JSON.stringify(fa3)}`);
+      const svc = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'PATCH', prefer: 'return=representation', body: { farm_risk: 1, changed_by: a.id } });
+      const fa4 = await factorScores(a);
+      check('factors saved with the service key (no signed-in member) are saved and score nobody',
+        svc.status < 300 && svc.json?.[0]?.farm_risk === 1 && fa4.length === 3, `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A ${fa4.length}`);
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: FACTORS_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: FACTORS_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/game_scoring_rules_score_factors', { method: 'POST', token: b.token, body: {} });
+      const fb2 = await factorScores(b);
+      check('a member cannot forge a "Scored an action’s factors" engagement: not in the ledger, not through the ledger’s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && fb2.length === 0,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, trigger HTTP ${forgeTrigger.status}, B now ${fb2.length}`);
+      check('"Scored an action’s factors" is active at 1 point with its four factors and a reason for each',
+        factorsRule?.name === 'Scored an action\'s factors' && factorsRule.points === 1 && factorsRule.effort === 1 && factorsRule.value === 2 && factorsRule.rarity === 1 && factorsRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof factorsRule[k] === 'string' && factorsRule[k].length > 0),
+        JSON.stringify(factorsRule));
+      const restoreFactors = await admin(`/rest/v1/game_scoring_rules?kind=eq.${addedKind}`, { method: 'PATCH', body: { farm_risk: 2 } });
+      if (restoreFactors.status >= 300) throw new Error(`could not put ${addedKind}'s factors back: HTTP ${restoreFactors.status}`);
+    }
     const proposals = await recalculateGranularPoints(scoringStore(a), { role: 'admin' });
     const madeProposal = proposals.find((p) => p.kind === 'made_task');
     check('the batch reads the factors the migration filled and proposes by formula', madeProposal?.proposed === 6 && proposals.find((p) => p.kind === addedKind)?.proposed === 6,

@@ -7,7 +7,8 @@
  * the database's functions it writes what it is given, and the rules about
  * who may are core's. Like the rules table's score triggers, adding a rule,
  * or an update that changes its wording or points, is scored for `signedIn`,
- * the member the database would see as signed in. It is also a
+ * the member the database would see as signed in, and so is an update that
+ * changes its four factors (`scored_an_action_s_factors`). It is also a
  * `RescoreStore`: like the database's `apply_rescore`, it works the
  * corrections out itself (`rescoreCorrections`) and adds them all at once,
  * refusing when scoring is no longer provisional. And it is a
@@ -86,6 +87,12 @@ export class MemoryEngagementStore implements EngagementStore, ScoringRuleStore,
     }
     const at = this.ruleList.findIndex((r) => r.kind === kind);
     if (at < 0) return null;
+    const was = this.ruleList[at].factors;
+    const changed = (['effort', 'value', 'rarity', 'farmRisk'] as const).some((f) => (was?.[f] ?? null) !== (factors?.[f] ?? null));
+    // Score first: if that fails, the factors are not changed either, as in one transaction.
+    if (changed && this.signedIn) {
+      await recordEngagement(this, { memberId: this.signedIn, kind: 'scored_an_action_s_factors', tool });
+    }
     this.ruleList[at] = { ...this.ruleList[at], factors };
     this.ruleTools.set(kind, tool);
     return { ...this.ruleList[at] };
