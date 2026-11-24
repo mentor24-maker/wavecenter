@@ -7,9 +7,10 @@
  * topic's sub-topics. A tag gets a slug too, and its related tags are kept
  * once per pair and read both ways; deleting a tag drops its relations.
  * Two stores given the same `rows` and `relations` are two members looking
- * at one Forum. Given an engagement store, a new topic is scored for the
- * member who added it, as `forum_topics_score` does; if the engagement
- * cannot be written, the topic is not saved either.
+ * at one Forum. Given an engagement store, a new topic or tag is scored
+ * for the member who added it, as `forum_topics_score` and
+ * `forum_tags_score` do; if the engagement cannot be written, the topic or
+ * tag is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import { CoreError } from './tool.ts';
@@ -80,9 +81,10 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
       updatedAt: now,
     });
     const entry: ForumEntry = kind === 'topic' ? topic() : tag();
-    // Scored in the same save, before it lands: no engagement, no topic.
-    if (kind === 'topic' && this.engagements) {
-      await recordEngagement(this.engagements, { memberId: this.memberId, kind: 'added_a_forum_topic', tool: row.tool });
+    // Scored in the same save, before it lands: no engagement, no entry.
+    if (this.engagements) {
+      const scored = kind === 'topic' ? 'added_a_forum_topic' : 'added_a_forum_tag';
+      await recordEngagement(this.engagements, { memberId: this.memberId, kind: scored, tool: row.tool });
     }
     this.rows.push(entry);
     return { ...entry };
