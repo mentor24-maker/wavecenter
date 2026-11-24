@@ -2521,6 +2521,48 @@ try {
       reasoned.reasons?.farmRisk === 'Make-and-delete loops.' && reasonedRow?.farm_risk_reason === 'Make-and-delete loops.' && reasonedRow?.effort_reason === original.effort_reason
         && reasonedRow?.points === original.points + 2 && (await ruleChanges(a))?.length === changesBeforeReason,
       JSON.stringify(reasonedRow));
+    // Giving a reason for a factor earns its point
+    // (20261123220000_score_gave_a_reason_for_a_factor.sql, WC-198): a saved
+    // change to any of an action's four factor reasons is scored once for the
+    // signed-in admin who saved it, naming the save's tool; a refused save,
+    // a save that changes no reason and a service-key write score nothing;
+    // nobody can write the engagement themselves. Checked against counts
+    // taken here, so it leaves A's list and total above as they were.
+    {
+      const REASON_KIND = 'gave_a_reason_for_a_factor';
+      const reasonScores = async (member) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${REASON_KIND}&select=points,tool,task_id&order=created_at`)).json ?? [];
+      const reasonRule = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${REASON_KIND}&select=name,points,effort,value,rarity,farm_risk,effort_reason,value_reason,rarity_reason,farm_risk_reason`)).json?.[0];
+      const [ra, rb] = [await reasonScores(a), await reasonScores(b)];
+      check('changing a factor reason above recorded exactly one engagement for the admin who saved it, worth what the rule says, naming the tool; the refused saves recorded none',
+        ra.length === 1 && ra[0].points === reasonRule?.points && ra[0].tool === TOOL && ra[0].task_id === null && rb.length === 0,
+        `A ${JSON.stringify(ra)}, B ${JSON.stringify(rb)}, rule ${reasonRule?.points}`);
+      const now = await ruleRow('made_task');
+      const sameBody = { rule_kind: 'made_task', new_effort_reason: now?.effort_reason, new_value_reason: now?.value_reason, new_rarity_reason: now?.rarity_reason, new_farm_risk_reason: now?.farm_risk_reason, tool: TOOL };
+      const same = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', token: a.token, body: { ...sameBody, new_farm_risk_reason: `  ${now?.farm_risk_reason}  ` } });
+      const ra2 = await reasonScores(a);
+      check('saving the same four reasons again saves and records nothing', same.status === 200 && ra2.length === 1, `HTTP ${same.status}, A ${JSON.stringify(ra2)}`);
+      const otherTool = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', token: a.token, body: { ...sameBody, new_effort_reason: 'Typing a title.', tool: 'rls-check-reason-tool' } });
+      const putBack = await call('/rest/v1/rpc/set_scoring_factor_reasons', { method: 'POST', token: a.token, body: sameBody });
+      const ra3 = await reasonScores(a);
+      check('each saved change of reasons records one more engagement for the admin, naming the tool it sent',
+        otherTool.status === 200 && putBack.status === 200 && ra3.length === 3 && ra3[1].tool === 'rls-check-reason-tool' && ra3[2].tool === TOOL,
+        `HTTP ${otherTool.status} / ${putBack.status}, A ${JSON.stringify(ra3)}`);
+      const svc = await admin('/rest/v1/game_scoring_rules?kind=eq.made_task', { method: 'PATCH', prefer: 'return=representation', body: { effort_reason: 'Set by the service key.', changed_by: a.id } });
+      const ra4 = await reasonScores(a);
+      check('a reason saved with the service key (no signed-in member) is saved and scores nobody',
+        svc.status < 300 && svc.json?.[0]?.effort_reason === 'Set by the service key.' && ra4.length === 3, `HTTP ${svc.status} ${JSON.stringify(svc.json)}, A ${ra4.length}`);
+      const forgeLedger = await call('/rest/v1/engagements', { method: 'POST', token: b.token, body: { member_id: b.id, kind: REASON_KIND, points: 1, tool: TOOL } });
+      const forgeRecord = await call('/rest/v1/rpc/record_engagement', { method: 'POST', token: b.token, body: { p_member: b.id, p_kind: REASON_KIND, p_tool: TOOL, p_task: null } });
+      const forgeTrigger = await call('/rest/v1/rpc/game_scoring_rules_score_reasons', { method: 'POST', token: b.token, body: {} });
+      const rb2 = await reasonScores(b);
+      check('a member cannot forge a "Gave a reason for a factor" engagement: not in the ledger, not through the ledger’s function, not through the trigger',
+        forgeLedger.status >= 400 && forgeRecord.status >= 400 && forgeTrigger.status >= 400 && rb2.length === 0,
+        `ledger HTTP ${forgeLedger.status}, record_engagement HTTP ${forgeRecord.status}, trigger HTTP ${forgeTrigger.status}, B now ${rb2.length}`);
+      check('"Gave a reason for a factor" is active at 1 point with its four factors and a reason for each',
+        reasonRule?.name === 'Gave a reason for a factor' && reasonRule.points === 1 && reasonRule.effort === 1 && reasonRule.value === 2 && reasonRule.rarity === 1 && reasonRule.farm_risk === 3
+          && ['effort_reason', 'value_reason', 'rarity_reason', 'farm_risk_reason'].every((k) => typeof reasonRule[k] === 'string' && reasonRule[k].length > 0),
+        JSON.stringify(reasonRule));
+    }
   } finally {
     const changesBefore = (await ruleChanges(a))?.length;
     const { kind, position, tool, changed_by, ...wording } = original ?? {};

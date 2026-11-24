@@ -62,6 +62,7 @@ const SWEEP_2_WIRING_MIGRATIONS = [
   '20261123190000_score_changed_a_home_box.sql',
   '20261123200000_score_starred_a_message.sql',
   '20261123210000_score_scored_an_action_s_factors.sql',
+  '20261123220000_score_gave_a_reason_for_a_factor.sql',
 ];
 
 /**
@@ -538,6 +539,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
   assert.equal(isWired('changed_a_home_box'), true);
   assert.equal(isWired('starred_a_message'), true);
   assert.equal(isWired('scored_an_action_s_factors'), true);
+  assert.equal(isWired('gave_a_reason_for_a_factor'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
 });
@@ -861,6 +863,57 @@ test('the database scores a change of factors only for the signed-in admin who m
   assert.match(sql, /if new\.changed_by is not null and new\.changed_by = auth\.uid\(\) then\s+perform public\.record_engagement\(new\.changed_by, 'scored_an_action_s_factors', new\.tool, null\);/);
   assert.match(sql, /after update of effort, value, rarity, farm_risk on public\.game_scoring_rules\s+for each row\s+when \(\(old\.effort, old\.value, old\.rarity, old\.farm_risk\) is distinct from \(new\.effort, new\.value, new\.rarity, new\.farm_risk\)\)/);
   assert.match(sql, /revoke execute on function public\.game_scoring_rules_score_factors\(\) from public, anon, authenticated/);
+});
+
+test('giving a reason for a factor records one engagement for the admin who changed it, naming the tool; a save that changes no reason, a refused or failed one, or a service-key write records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const given = () => ledger.rows.filter((e) => e.kind === 'gave_a_reason_for_a_factor');
+  const worth = (await rule(ledger, 'gave_a_reason_for_a_factor')).points;
+  assert.equal(worth, 1);
+
+  // A service-key write (nobody signed in) saves and scores nothing.
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { effort: 'Typing a title.' } }, 'wavecenter');
+  assert.equal(given().length, 0);
+
+  ledger.signedIn = 'dane';
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: 'Adds work for others.' } }, 'reason-tool');
+  assert.deepEqual(given().map((e) => [e.memberId, e.points, e.tool, e.taskId]), [['dane', worth, 'reason-tool', null]]);
+
+  // Saving the same reason again, even with spaces around it, changes nothing, so it scores nothing.
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: '  Adds work for others.  ' } }, 'wavecenter');
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: {} }, 'wavecenter');
+  assert.equal(given().length, 1);
+
+  // Clearing a reason is a change; writing it again is another.
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: '' } }, 'wavecenter');
+  await changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: 'Adds work for others.' } }, 'wavecenter');
+  assert.equal(given().length, 3);
+
+  // Refused or failed: nothing is recorded. Changing wording or factors is not this action.
+  ledger.signedIn = 'vee';
+  await assert.rejects(changeFactorReasons(ledger, { role: 'contributor' }, { kind: 'made_task', reasons: { value: 'Mine.' } }, 'wavecenter'), /Only an admin/);
+  ledger.signedIn = 'dane';
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: 'x'.repeat(301) } }, 'wavecenter'), /Nothing was saved/);
+  ledger.failNextRuleSave = true;
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: 'Other.' } }, 'wavecenter'), /did not save/);
+  const made = await rule(ledger, 'made_task');
+  await changeScoringRule(ledger, ADMIN, { ...made, description: 'Added a task to the list.' }, 'wavecenter');
+  await changeScoringFactors(ledger, ADMIN, { kind: 'made_task', factors: { effort: 1, value: 2, rarity: 0, farmRisk: 2 } }, 'wavecenter');
+  assert.equal(given().length, 3);
+
+  // If the engagement cannot be written, the reason does not change either.
+  ledger.failInsert = true;
+  await assert.rejects(changeFactorReasons(ledger, ADMIN, { kind: 'made_task', reasons: { value: 'Other.' } }, 'wavecenter'), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal((await rule(ledger, 'made_task')).reasons?.value, 'Adds work for others.');
+  assert.equal(given().length, 3);
+});
+
+test('the database scores a change of reasons only for the signed-in admin who made it, and skips a no-change save', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261123220000_score_gave_a_reason_for_a_factor.sql', import.meta.url), 'utf8');
+  assert.match(sql, /if new\.changed_by is not null and new\.changed_by = auth\.uid\(\) then\s+perform public\.record_engagement\(new\.changed_by, 'gave_a_reason_for_a_factor', new\.tool, null\);/);
+  assert.match(sql, /after update of effort_reason, value_reason, rarity_reason, farm_risk_reason on public\.game_scoring_rules\s+for each row\s+when \(\(old\.effort_reason, old\.value_reason, old\.rarity_reason, old\.farm_risk_reason\) is distinct from \(new\.effort_reason, new\.value_reason, new\.rarity_reason, new\.farm_risk_reason\)\)/);
+  assert.match(sql, /revoke execute on function public\.game_scoring_rules_score_reasons\(\) from public, anon, authenticated/);
 });
 
 test('a factor reason is trimmed, a blank one is none, and one over 300 characters is refused', () => {

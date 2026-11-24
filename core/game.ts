@@ -65,6 +65,7 @@ export const ENGAGEMENT_KINDS = [
   'changed_a_home_box',
   'starred_a_message',
   'scored_an_action_s_factors',
+  'gave_a_reason_for_a_factor',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -220,6 +221,10 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // ninth of its rows, so a fresh database puts it after the 25 above and
   // the eight second-sweep rows before it.
   { kind: 'scored_an_action_s_factors', name: 'Scored an action\'s factors', description: 'Gave an action its four factor scores on Game > Manage.', criteria: 'A saved change to an action\'s factors.', points: 1, position: 34 },
+  // Listed by the second sweep (20261122140000_scoring_actions_sweep_2.sql),
+  // tenth of its rows, so a fresh database puts it after the 25 above and
+  // the nine second-sweep rows before it.
+  { kind: 'gave_a_reason_for_a_factor', name: 'Gave a reason for a factor', description: 'Wrote why an action got one of its factor scores on Game > Manage.', criteria: 'A saved change to a factor\'s reason.', points: 1, position: 35 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -449,6 +454,10 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   scored_an_action_s_factors: {
     fn: 'changeScoringFactors', file: 'core/game.ts', database: 'game_scoring_rules_score_factors',
     test: 'scoring an action records one engagement for the admin who changed its factors, naming the tool; a save that changes no factor, a refused or failed one, or a service-key write records none', testFile: 'core/game.test.ts',
+  },
+  gave_a_reason_for_a_factor: {
+    fn: 'changeFactorReasons', file: 'core/game.ts', database: 'game_scoring_rules_score_reasons',
+    test: 'giving a reason for a factor records one engagement for the admin who changed it, naming the tool; a save that changes no reason, a refused or failed one, or a service-key write records none', testFile: 'core/game.test.ts',
   },
 };
 
