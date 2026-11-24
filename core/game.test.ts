@@ -52,7 +52,7 @@ function sweep2Rows() {
  * ticket each). Each fills its row's four factors and four reasons with one
  * update, as the document gives them; its points stay at 1.
  */
-const SWEEP_2_WIRING_MIGRATIONS = ['20261123140000_score_added_a_forum_topic.sql'];
+const SWEEP_2_WIRING_MIGRATIONS = ['20261123130000_score_started_a_chat.sql', '20261123140000_score_added_a_forum_topic.sql'];
 
 /** Each wired second-sweep action's factors and reasons, as its migration stores them. */
 function sweep2FactorRows() {
@@ -510,6 +510,7 @@ test('the second sweep lists each new action once, under the kind the Add form w
     assert.ok(!before.some((a) => a.kind === r.kind || a.name.toLowerCase() === r.name.toLowerCase()), `${r.kind} is not on the list already`);
     assert.equal(STARTING_SCORING_RULES.some((s) => s.kind === r.kind), isWired(r.kind), `${r.kind} is a starting rule exactly when it is wired`);
   });
+  assert.equal(isWired('started_a_chat'), true);
   assert.equal(isWired('added_a_forum_topic'), true);
   assert.match(SWEEP_2_SQL, /on conflict \(kind\) do nothing;\s*$/);
   assert.doesNotMatch(SWEEP_2_SQL.replace(/--.*$/gm, ''), /\b(update|delete)\b/i, 'touches no existing row');
