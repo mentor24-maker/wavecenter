@@ -146,6 +146,8 @@ export interface TopicStore {
   listTopics(): Promise<ForumTopic[]>;
   /** Write the change and return the topic as saved. Throws if nothing was saved. */
   updateTopic(id: string, row: TopicChangeRow): Promise<ForumTopic>;
+  /** Write only the topic's parent (null for none) and return the topic as saved. Throws if nothing was saved. */
+  setTopicParent(id: string, parentId: string | null): Promise<ForumTopic>;
   /** Delete the topic; its sub-topics keep going with no parent. Throws if nothing was deleted. */
   deleteTopic(id: string): Promise<void>;
 }
@@ -206,6 +208,20 @@ export function topicDescendants(topics: readonly Pick<ForumTopic, 'id' | 'paren
 export function possibleParents<T extends Pick<ForumTopic, 'id' | 'parentId'>>(topics: readonly T[], id: string): T[] {
   const below = topicDescendants(topics, id);
   return topics.filter((t) => t.id !== id && !below.has(t.id));
+}
+
+/**
+ * The topics this one may adopt as a sub-topic (WC-185): every other topic
+ * that is not already directly under it and that it does not itself sit
+ * under, at any depth (adopting one of those would make a loop).
+ */
+export function possibleSubTopics<T extends Pick<ForumTopic, 'id' | 'parentId'>>(topics: readonly T[], id: string): T[] {
+  return topics.filter((t) => t.id !== id && t.parentId !== id && !topicDescendants(topics, t.id).has(id));
+}
+
+/** The topics directly under `id`, in the order given. */
+export function subTopicsOf<T extends Pick<ForumTopic, 'parentId'>>(topics: readonly T[], id: string): T[] {
+  return topics.filter((t) => t.parentId === id);
 }
 
 function optionalText(kind: ForumKind, value: unknown, what: string, max: number): string {
@@ -284,18 +300,36 @@ export async function editTopic(store: TopicStore, id: string, edit: TopicEdit, 
 
   const fields = requireEntryFields('topic', edit, others);
 
-  let parentId: string | null = null;
-  if (edit.parentId !== undefined && edit.parentId !== null && edit.parentId !== '') {
-    if (edit.parentId === topic.id) throw new CoreError('A topic cannot be its own parent.');
-    const parent = topics.find((t) => t.id === edit.parentId);
-    if (!parent) throw new CoreError('The chosen parent topic was not found. It may have been deleted; choose another.');
-    if (topicDescendants(topics, topic.id).has(parent.id)) {
-      throw new CoreError(`"${parent.name}" is already under "${topic.name}", so it cannot also be its parent.`);
-    }
-    parentId = parent.id;
-  }
-
+  const parentId = requireParent(topics, topic, edit.parentId);
   return store.updateTopic(topic.id, { ...fields, parentId });
+}
+
+/** The parent id to write (null for none), or a plain-words refusal: not there, itself, or a loop. */
+function requireParent(topics: readonly ForumTopic[], topic: ForumTopic, parentId: unknown): string | null {
+  if (parentId === undefined || parentId === null || parentId === '') return null;
+  if (parentId === topic.id) throw new CoreError('A topic cannot be its own parent.');
+  const parent = topics.find((t) => t.id === parentId);
+  if (!parent) throw new CoreError('The chosen parent topic was not found. It may have been deleted; choose another.');
+  if (topicDescendants(topics, topic.id).has(parent.id)) {
+    throw new CoreError(`"${parent.name}" is already under "${topic.name}", so it cannot also be its parent.`);
+  }
+  return parent.id;
+}
+
+/**
+ * Set or clear one topic's parent and nothing else, on behalf of `tool`
+ * (WC-185): the "Parent topic" dropdown on a topic's details page, and its
+ * "Adopt a sub-topic" dropdown, which is this same call with the chosen
+ * topic as `topicId` and the page's topic as `parentId`. Only the moved
+ * topic's adder or an admin may. Refuses, in plain words: a topic that is
+ * not there, itself as parent, and a loop at any depth.
+ */
+export async function setTopicParent(store: TopicStore, topicId: unknown, parentId: unknown, actor: ForumActor, tool: string): Promise<ForumTopic> {
+  requireTool(tool);
+  const topics = await store.listTopics();
+  const topic = findTopic(topics, topicId);
+  requireMay(topic, actor, 'move');
+  return store.setTopicParent(topic.id, requireParent(topics, topic, parentId));
 }
 
 /** Delete a topic on behalf of `tool`. Its sub-topics stay, with no parent. Only its adder or an admin may. */

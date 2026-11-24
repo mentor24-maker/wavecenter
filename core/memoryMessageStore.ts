@@ -12,7 +12,11 @@
  * and `setMark` refuses a message they neither sent nor received.
  * Given an engagement store, it scores each message to another member for
  * its sender, as the database's `messages_score` does: if the engagement
- * cannot be written, the message is not saved either.
+ * cannot be written, the message is not saved either. It also scores a
+ * message that was not starred becoming starred for the signed-in member, as
+ * the database's `message_marks_score` does: taking a star off, starring it
+ * again and the trash score nothing, and if the engagement cannot be
+ * written, the star is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
 import type { EmailStatus, MarkChange, MessageAddressBook, MessageMark, MessageStore, SavedMessage } from './messages.ts';
@@ -123,6 +127,10 @@ export class MemoryMessageStore implements MessageStore {
     if (this.ignoreNextMark) {
       this.ignoreNextMark = false;
       return { messageId, starred: now.starred, trashedAt: now.trashedAt };
+    }
+    // Scored in the same save, before it lands: no engagement, no star.
+    if (this.engagements && change.starred === true && !now.starred) {
+      await recordEngagement(this.engagements, { memberId: me, kind: 'starred_a_message', tool });
     }
     const next = {
       ...now,

@@ -7,8 +7,12 @@
  * topic's sub-topics. A tag gets a slug too, and its related tags are kept
  * once per pair and read both ways; deleting a tag drops its relations.
  * Two stores given the same `rows` and `relations` are two members looking
- * at one Forum.
+ * at one Forum. Given an engagement store, a new topic or tag is scored
+ * for the member who added it, as `forum_topics_score` and
+ * `forum_tags_score` do; if the engagement cannot be written, the topic or
+ * tag is not saved either.
  */
+import { recordEngagement, type EngagementStore } from './game.ts';
 import { CoreError } from './tool.ts';
 import {
   findForumEntryByName,
@@ -39,11 +43,18 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
   /** Each pair of related tags, once, smaller id first, as the table keeps them. */
   readonly relations: [string, string][];
   private readonly memberId: string;
+  private readonly engagements: EngagementStore | null;
 
-  constructor(memberId = 'member-1', rows: ForumEntry[] = [], relations: [string, string][] = []) {
+  constructor(
+    memberId = 'member-1',
+    rows: ForumEntry[] = [],
+    relations: [string, string][] = [],
+    engagements: EngagementStore | null = null,
+  ) {
     this.memberId = memberId;
     this.rows = rows;
     this.relations = relations;
+    this.engagements = engagements;
   }
 
   async insert(kind: ForumKind, row: NewForumEntryRow): Promise<ForumEntry> {
@@ -70,6 +81,11 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
       updatedAt: now,
     });
     const entry: ForumEntry = kind === 'topic' ? topic() : tag();
+    // Scored in the same save, before it lands: no engagement, no entry.
+    if (this.engagements) {
+      const scored = kind === 'topic' ? 'added_a_forum_topic' : 'added_a_forum_tag';
+      await recordEngagement(this.engagements, { memberId: this.memberId, kind: scored, tool: row.tool });
+    }
     this.rows.push(entry);
     return { ...entry };
   }
@@ -90,6 +106,13 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
     if (others.some((t) => key(t.name) === key(row.name))) throw new CoreError(`There is already a topic called "${row.name}".`);
     if (others.some((t) => t.slug === row.slug)) throw new CoreError(`The slug "${row.slug}" is already used by another topic.`);
     Object.assign(topic, row, { updatedAt: new Date().toISOString() });
+    return { ...topic };
+  }
+
+  async setTopicParent(id: string, parentId: string | null): Promise<ForumTopic> {
+    const topic = this.rows.filter(isTopic).find((t) => t.id === id);
+    if (!topic) throw new CoreError('That topic was not found. It may have been deleted.');
+    Object.assign(topic, { parentId, updatedAt: new Date().toISOString() });
     return { ...topic };
   }
 
