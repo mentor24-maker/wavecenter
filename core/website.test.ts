@@ -14,6 +14,7 @@ import {
   normalizeSavedSectionContent, pagesFollowing, resolveSiteSections, saveReusableSection, sortSavedSections, unlinkSiteSection,
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
+  SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
   type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
@@ -318,10 +319,10 @@ test('anything malformed in layout_sections is tidied into a well-formed list, n
     { background: { mode: 'gradient', color: '#00ff00' }, title: 'x'.repeat(200) },
   ]);
   assert.deepEqual(tidy, [
-    { id: 'hero', title: 'Big hello', layout: 'three-column', alignment: 'center', marginTop: 24, marginBottom: 160, background: '#aabbcc', modules: [] },
-    { id: 'section-1', title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] },
-    { id: 'section-2', title: '', layout: 'five-one', alignment: 'left', marginTop: 0, marginBottom: 0, background: '#00ff00', modules: [] },
-    { id: 'section-3', title: 'x'.repeat(SITE_SECTION_TITLE_MAX), layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] },
+    { id: 'hero', title: 'Big hello', layout: 'three-column', alignment: 'center', marginTop: 24, marginBottom: 160, background: '#aabbcc', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] },
+    { id: 'section-1', title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] },
+    { id: 'section-2', title: '', layout: 'five-one', alignment: 'left', marginTop: 0, marginBottom: 0, background: '#00ff00', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] },
+    { id: 'section-3', title: 'x'.repeat(SITE_SECTION_TITLE_MAX), layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] },
   ]);
   // A JSON string is read; a made-up id never takes one a later section already has.
   assert.deepEqual(normalizeSiteSections('[{"id":"x"},{},{"id":"section-1"}]').map((s) => s.id), ['x', 'section-2', 'section-1']);
@@ -343,7 +344,7 @@ test("the size is counted as Postgres writes jsonb's text", () => {
   assert.equal(jsonbText([]), '[]');
   assert.equal(siteSectionsBytes([]), 2);
   assert.equal(siteSectionsBytes(normalizeSiteSections([{ id: 's', title: 'é' }])),
-    new TextEncoder().encode('[{"id": "s", "title": "é", "layout": "single", "alignment": "left", "marginTop": 0, "marginBottom": 0, "background": "", "modules": []}]').length);
+    new TextEncoder().encode('[{"id": "s", "title": "é", "layout": "single", "alignment": "left", "marginTop": 0, "marginBottom": 0, "background": "", "hideOnPhone": false, "hideOnDesktop": false, "stackOnPhone": true, "modules": []}]').length);
 });
 
 test('the unsaved changes are named in words', () => {
@@ -372,7 +373,7 @@ test('an admin adds three sections with different layouts, reorders them and sav
 test('what is sent is tidied before it is saved', async () => {
   const { deps, test1 } = await withPages();
   const saved = await saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [{ id: 'x', layout: 'sideways', marginTop: 500 }, 'junk'] }, TOOL);
-  assert.deepEqual(saved.sections, [{ id: 'x', title: '', layout: 'single', alignment: 'left', marginTop: 160, marginBottom: 0, background: '', modules: [] }]);
+  assert.deepEqual(saved.sections, [{ id: 'x', title: '', layout: 'single', alignment: 'left', marginTop: 160, marginBottom: 0, background: '', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] }]);
 });
 
 test('too many sections, too large, not a list, a missing page or tool, or the wrong role are refused; nothing changes', async () => {
@@ -616,7 +617,7 @@ test('a link names its original by id; a malformed id is no link, and linked is 
 
 test("an original's content is tidied and never carries a link of its own", () => {
   const content = normalizeSavedSectionContent({ id: 'x', title: ' Header ', layout: 'two-column', savedSectionId: '0f8fad5b-d9cb-469f-a165-70867728950e', linked: true });
-  assert.deepEqual(content, { id: 'section', title: 'Header', layout: 'two-column', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] });
+  assert.deepEqual(content, { id: 'section', title: 'Header', layout: 'two-column', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] });
   assert.deepEqual(normalizeSavedSectionContent('not json').layout, 'single');
   assert.deepEqual(normalizeSavedSectionContent([1, 2]).layout, 'single');
 });
@@ -726,4 +727,50 @@ test('changing a saved section refuses the wrong role or a missing original; a s
 test('saved sections sort A to Z by name, ignoring capitals', () => {
   const row = (id: string, name: string) => ({ id, name, section: normalizeSavedSectionContent({}), createdBy: null, tool: TOOL, createdAt: '', updatedAt: '' });
   assert.deepEqual(sortSavedSections([row('1', 'footer'), row('2', 'Banner'), row('3', 'Header')]).map((s) => s.name), ['Banner', 'footer', 'Header']);
+});
+
+test('a section can be hidden on a phone or a desktop, and its columns stack on a phone unless told not to (WC-211)', () => {
+  const [plain, phone, desk, side] = normalizeSiteSections([
+    { id: 'plain', layout: 'two-column' },
+    { id: 'phone', hideOnPhone: true },
+    { id: 'desk', hideOnDesktop: true },
+    { id: 'side', layout: 'two-column', stackOnPhone: false },
+  ]);
+  // Saved before WC-211, a section shows everywhere and stacks on a phone, as it always has.
+  assert.deepEqual([plain.hideOnPhone, plain.hideOnDesktop, plain.stackOnPhone], [false, false, true]);
+  // Only a real true hides; only a real false stops the stacking.
+  assert.deepEqual(normalizeSiteSections([{ hideOnPhone: 'true', hideOnDesktop: 1, stackOnPhone: 'no' }]).map((s) => [s.hideOnPhone, s.hideOnDesktop, s.stackOnPhone]), [[false, false, true]]);
+  assert.deepEqual(SITE_DEVICES.map((d) => [plain, phone, desk].filter((s) => siteSectionShowsOn(s, d.key)).map((s) => s.id)), [
+    ['plain', 'desk'], // phone
+    ['plain', 'phone', 'desk'], // a tablet shows every section
+    ['plain', 'phone'], // desktop
+  ]);
+  assert.deepEqual(siteSectionClasses(plain), ['site-stack-phone']);
+  assert.deepEqual(siteSectionClasses(phone), ['site-hide-phone', 'site-stack-phone']);
+  assert.deepEqual(siteSectionClasses(desk), ['site-hide-desktop', 'site-stack-phone']);
+  assert.deepEqual(siteSectionClasses(side), []);
+  // A new section has the same defaults, so adding one and saving it changes nothing it did not say.
+  const fresh = newSiteSection('two-column');
+  assert.deepEqual([fresh.hideOnPhone, fresh.hideOnDesktop, fresh.stackOnPhone], [false, false, true]);
+  assert.deepEqual(normalizeSiteSections([fresh]), [fresh]);
+});
+
+test('a page hidden on one screen says it has nothing to show there (WC-211)', () => {
+  const words = { id: 'm', type: 'heading', cell: 'main', settings: { text: 'Hello', level: 'h2', color: '' } };
+  const [onlyDesktop] = normalizeSiteSections([{ id: 'a', hideOnPhone: true, modules: [words] }]);
+  assert.equal(sitePageHasContentOn([onlyDesktop], 'phone'), false);
+  assert.equal(sitePageHasContentOn([onlyDesktop], 'tablet'), true);
+  assert.equal(sitePageHasContentOn([onlyDesktop], 'desktop'), true);
+});
+
+test("the page's CSS draws phone and desktop at core's own widths (WC-211)", () => {
+  // The preview and a visitor's screen share one set of rules, container queries on .site-page; they must use these numbers.
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.site-page\s*\{[^}]*container:\s*site\s*\/\s*inline-size/);
+  assert.ok(css.includes(`@container site (max-width: ${SITE_PHONE_MAX_WIDTH}px)`), 'phone rule');
+  assert.ok(css.includes(`@container site (min-width: ${SITE_DESKTOP_MIN_WIDTH}px)`), 'desktop rule');
+  for (const d of SITE_DEVICES) {
+    const device = d.width <= SITE_PHONE_MAX_WIDTH ? 'phone' : d.width >= SITE_DESKTOP_MIN_WIDTH ? 'desktop' : 'tablet';
+    assert.equal(device, d.key, `${d.label} is previewed at a ${d.key} width`);
+  }
 });
