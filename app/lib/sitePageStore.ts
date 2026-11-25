@@ -2,8 +2,8 @@
  * The app's `SitePageStore` (core/website.ts): how core reaches the
  * `site_pages` table. It acts through the signed-in member's own session, so
  * row-level security decides what it may read (published pages; every page
- * for a role with `site.edit`) and add (a role with `site.edit`), repeating
- * core's rules.
+ * for a role with `site.edit`) and add, change or delete (a role with
+ * `site.edit`), repeating core's rules.
  *
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core. A save the
@@ -40,6 +40,21 @@ export function supabaseSitePageStore(supabase: Client): SitePageStore {
       if (error?.code === "23505") throw new CoreError(`The address "${row.slug}" is already used by another page. Pick another address.`);
       if (error) throw new Error(`The database refused to save the page: ${error.message}`);
       return data ? fromRow(data) : null;
+    },
+    async update(id, patch) {
+      const row: Record<string, unknown> = {};
+      if (patch.name !== undefined) row.name = patch.name;
+      if (patch.slug !== undefined) row.slug = patch.slug;
+      if (patch.isPublished !== undefined) row.is_published = patch.isPublished;
+      const { data, error } = await supabase.from("site_pages").update(row).eq("id", id).select(COLUMNS).maybeSingle();
+      if (error?.code === "23505") throw new CoreError(`The address "${patch.slug}" is already used by another page. Pick another address.`);
+      if (error) throw new Error(`The database refused to save the change: ${error.message}`);
+      return data ? fromRow(data) : null;
+    },
+    async remove(id) {
+      const { data, error } = await supabase.from("site_pages").delete().eq("id", id).select("id");
+      if (error) throw new Error(`The database refused to delete the page: ${error.message}`);
+      return (data ?? []).length === 1;
     },
   };
 }

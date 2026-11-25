@@ -53,8 +53,9 @@
  * are two-way, never itself, changed only by whoever may change one of the
  * two tags and gone when either tag is (`public.forum_tags`,
  * `public.forum_tag_relations`); and that only a role with Manage website adds
- * a page of the website, as an empty draft only it sees, nobody changes or
- * deletes one yet, and a published page is seen by anyone (`public.site_pages`).
+ * a page of the website, as an empty draft only it sees, a published page is
+ * seen by anyone, and only such a role renames, readdresses, publishes or
+ * deletes one, with the change time stamped (`public.site_pages`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -2107,8 +2108,8 @@ try {
   // The website's pages (20261124120000_site_pages.sql, WC-206): only a role
   // with site.edit (admin; A is one, B a viewer) adds a page, in their own
   // name, always an empty draft; a draft is seen only by such a role, a
-  // published page by anyone; an address is unique and well formed; nobody
-  // changes or deletes a page yet. The test rows are removed at the end.
+  // published page by anyone; an address is unique and well formed. Changing
+  // and deleting a page are WC-207's block, below. The test rows are removed at the end.
   {
     const ids = [];
     const tag = randomUUID().slice(0, 8);
@@ -2148,12 +2149,68 @@ try {
       const pubAnon = await call(`/rest/v1/site_pages?id=eq.${page?.id}&select=id`);
       check('a published page is seen by every member and by a signed-out visitor', pubB.json?.length === 1 && pubAnon.json?.length === 1,
         `viewer HTTP ${pubB.status} ${JSON.stringify(pubB.json)}, signed out HTTP ${pubAnon.status} ${JSON.stringify(pubAnon.json)}`);
-      const patchA = await call(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { name: 'changed' } });
-      const delA = await call(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
-      const still = (await admin(`/rest/v1/site_pages?id=eq.${page?.id}&select=name`)).json?.[0];
-      const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
-      check('nobody changes or deletes a page yet, not even a website manager', refused(patchA) && refused(delA) && still?.name === `RLS page ${tag}`,
-        `patch HTTP ${patchA.status}, delete HTTP ${delA.status}, row ${JSON.stringify(still)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Changing, publishing and deleting a page (20261124130000_site_pages_edit.sql,
+  // WC-207): only a role with site.edit (A) renames a page, gives it a new
+  // address or publishes it, and the change time is stamped; nobody changes
+  // who made it, when, the tool or its sections; an address another page uses
+  // is refused; only such a role deletes a page. B (a viewer) and a
+  // signed-out visitor can do none of it. The test rows are removed at the end.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const make = async (slug) => {
+      const r = await call('/rest/v1/site_pages', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: `RLS edit ${slug}`, slug } });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r.json?.[0];
+    };
+    const patch = (who, id, body) => call(`/rest/v1/site_pages?id=eq.${id}`, { method: 'PATCH', token: who?.token, prefer: 'return=representation', body });
+    const del = (who, id) => call(`/rest/v1/site_pages?id=eq.${id}`, { method: 'DELETE', token: who?.token, prefer: 'return=representation' });
+    const row = async (id) => (await admin(`/rest/v1/site_pages?id=eq.${id}&select=*`)).json?.[0];
+    const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
+    try {
+      const page = await make(`rls-edit-${tag}`);
+      const other = await make(`rls-edit-other-${tag}`);
+      check('WC-207 test pages were made', Boolean(page?.id && other?.id), JSON.stringify({ page, other }));
+      await new Promise((r) => setTimeout(r, 20));
+      const renamed = await patch(a, page?.id, { name: `RLS renamed ${tag}`, slug: `rls-renamed-${tag}`, is_published: true });
+      const after = renamed.json?.[0];
+      check('a website manager renames a page, gives it a new address and publishes it, and the change time is stamped',
+        renamed.status === 200 && after?.name === `RLS renamed ${tag}` && after?.slug === `rls-renamed-${tag}` && after?.is_published === true
+          && after?.created_by === a.id && after?.created_at === page?.created_at && after?.updated_at > page?.updated_at,
+        `HTTP ${renamed.status} ${JSON.stringify(after)}`);
+      const draft = await patch(a, page?.id, { is_published: false });
+      check('a website manager takes a page back to a draft', draft.status === 200 && draft.json?.[0]?.is_published === false, `HTTP ${draft.status} ${JSON.stringify(draft.json)}`);
+      const forgedBy = await patch(a, page?.id, { created_by: b.id });
+      const forgedAt = await patch(a, page?.id, { created_at: '2000-01-01T00:00:00Z' });
+      const forgedTool = await patch(a, page?.id, { tool: 'forged' });
+      const forgedLayout = await patch(a, page?.id, { layout_sections: [{ id: 'x' }] });
+      const kept = await row(page?.id);
+      check('nobody changes who made a page, when, the tool or its sections',
+        forgedBy.status >= 400 && forgedAt.status >= 400 && forgedTool.status >= 400 && forgedLayout.status >= 400
+          && kept?.created_by === a.id && kept?.created_at === page?.created_at && kept?.tool === 'wavecenter' && JSON.stringify(kept?.layout_sections) === '[]',
+        `created_by HTTP ${forgedBy.status}, created_at HTTP ${forgedAt.status}, tool HTTP ${forgedTool.status}, layout HTTP ${forgedLayout.status}, row ${JSON.stringify(kept)}`);
+      const twin = await patch(a, page?.id, { slug: `rls-edit-other-${tag}` });
+      const badSlug = await patch(a, page?.id, { slug: 'Not A Slug' });
+      const blank = await patch(a, page?.id, { name: '  ' });
+      check('the database refuses a change to a taken or badly formed address, or a blank name',
+        twin.status === 409 && badSlug.status >= 400 && blank.status >= 400, `twin HTTP ${twin.status}, bad slug HTTP ${badSlug.status}, blank HTTP ${blank.status}`);
+      await admin(`/rest/v1/site_pages?id=eq.${other?.id}`, { method: 'PATCH', body: { is_published: true } });
+      const bPatch = await patch(b, other?.id, { name: 'changed by B', is_published: false });
+      const anonPatch = await patch(null, other?.id, { name: 'changed signed out' });
+      const bDel = await del(b, other?.id);
+      const anonDel = await del(null, other?.id);
+      const otherKept = await row(other?.id);
+      check('a member without Manage website, or a signed-out visitor, cannot change, unpublish or delete a page, even a published one',
+        refused(bPatch) && refused(anonPatch) && refused(bDel) && refused(anonDel) && otherKept?.name === `RLS edit rls-edit-other-${tag}` && otherKept?.is_published === true,
+        `viewer patch HTTP ${bPatch.status}, signed out patch HTTP ${anonPatch.status}, viewer delete HTTP ${bDel.status}, signed out delete HTTP ${anonDel.status}, row ${JSON.stringify(otherKept)}`);
+      const aDel = await del(a, page?.id);
+      check('a website manager deletes a page', aDel.status === 200 && aDel.json?.length === 1 && (await row(page?.id)) === undefined,
+        `HTTP ${aDel.status} ${JSON.stringify(aDel.json)}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
