@@ -1145,3 +1145,15 @@ dialog.meeting-dialog .task-facts { margin-bottom: 0.25rem; }
 .site-page-form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.5rem 0.75rem; align-items: center; margin-top: 0.5rem; max-width: 36rem; }
 .site-page-form .note, .site-page-form button { grid-column: 1 / -1; margin: 0; }
 .site-page-form button { justify-self: start; }
+
+/* The website manager's section editor (WC-208). */
+.section-list { list-style: none; padding: 0; margin: 0 0 var(--space); display: grid; gap: var(--space); }
+.section-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem; background: var(--level-1); }
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 0.75rem; margin-bottom: 0.6rem; }
+.section-moves { margin-left: auto; }
+.section-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.4rem 0.75rem; align-items: center; max-width: 36rem; margin-bottom: 0.75rem; }
+.section-preview-frame { border: 1px dashed var(--muted); border-radius: var(--radius); padding: 0 0.5rem; overflow: hidden; }
+.section-preview { display: grid; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius); }
+.section-cell { display: grid; gap: 0.2rem; min-height: 4.5rem; padding: 0.6rem; border: 2px dashed var(--muted); border-radius: var(--radius); background: var(--field); color: var(--fg); }
+.section-add, .section-save { margin: 0 0 var(--space); }
+.section-save p { margin: 0.4rem 0 0; }

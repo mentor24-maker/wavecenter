@@ -3,7 +3,7 @@
  * may make, change or delete a page are core's, so this store does not repeat
  * them; like the database, it refuses an address already used.
  */
-import type { SitePage, SitePageStore } from './website.ts';
+import type { SitePage, SitePagePatch, SitePageStore } from './website.ts';
 
 export class MemorySitePageStore implements SitePageStore {
   readonly rows: SitePage[] = [];
@@ -21,12 +21,12 @@ export class MemorySitePageStore implements SitePageStore {
     }
     if (this.rows.some((p) => p.slug === row.slug)) throw new Error('duplicate key value violates unique constraint "site_pages_slug_key"');
     const now = new Date().toISOString();
-    const saved: SitePage = { id: `page-${this.rows.length + 1}`, ...row, isPublished: false, createdBy: null, createdAt: now, updatedAt: now };
+    const saved: SitePage = { id: `page-${this.rows.length + 1}`, ...row, isPublished: false, createdBy: null, createdAt: now, updatedAt: now, sections: [] };
     this.rows.push(saved);
     return saved;
   }
 
-  async update(id: string, patch: { name?: string; slug?: string; isPublished?: boolean }) {
+  async update(id: string, patch: SitePagePatch) {
     if (this.failNextSave) {
       this.failNextSave = false;
       return null;
@@ -37,8 +37,10 @@ export class MemorySitePageStore implements SitePageStore {
       throw new Error('duplicate key value violates unique constraint "site_pages_slug_key"');
     }
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    // Stored as the database stores it, a copy, so a later change to the caller's list does not reach it.
+    if (patch.sections !== undefined) defined.sections = structuredClone(patch.sections);
     this.rows[i] = { ...this.rows[i], ...defined, updatedAt: new Date().toISOString() };
-    return { ...this.rows[i] };
+    return structuredClone(this.rows[i]);
   }
 
   async remove(id: string) {

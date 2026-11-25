@@ -2,7 +2,7 @@
 
 /**
  * Making a page of the website (WC-206), and changing, publishing or
- * deleting one (WC-207), runs on the server through core
+ * deleting one (WC-207), and saving its sections (WC-208), runs on the server through core
  * (core/website.ts) as the tool `wavecenter`, acting as the signed-in member.
  *
  * Returns `{ ok: true }` only after the database confirmed the write.
@@ -11,7 +11,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
-import { addSitePage, changeSitePage, deleteSitePage, type SitePage, type SitePageDeps } from "../../../core/website.ts";
+import { addSitePage, changeSitePage, deleteSitePage, saveSitePageSections, type SitePage, type SitePageDeps } from "../../../core/website.ts";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../../lib/memberRoleStore";
 import { supabaseSitePageStore } from "../../lib/sitePageStore";
 import { currentUser, supabaseForRequest } from "../../lib/supabase";
@@ -87,5 +87,21 @@ export async function deletePage(id: string): Promise<{ ok: true } | { ok: false
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error("website: could not delete the page:", err);
     return { ok: false, error: "Could not delete the page. It is still there; try again." };
+  }
+}
+
+/** Save page `id`'s sections, the whole list top to bottom (WC-208). */
+export async function saveSections(id: string, sections: unknown): Promise<SitePageChangeResult> {
+  try {
+    const who = await acting("the sections were not saved");
+    if (!who.ok) return who;
+    const page = await saveSitePageSections(who.deps, { actorId: who.actorId, id, sections }, WAVECENTER_TOOL);
+    revalidatePath(`/admin/website/${id}`);
+    revalidatePath(`/admin/website/${id}/edit`);
+    return { ok: true, page };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not save the sections:", err);
+    return { ok: false, error: "Could not save the sections. The page is as it was; try again." };
   }
 }
