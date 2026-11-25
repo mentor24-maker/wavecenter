@@ -13,7 +13,7 @@
  * cannot be written, the page or the change is not saved either.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
-import type { SitePage, SitePageStore } from './website.ts';
+import type { SitePage, SitePagePatch, SitePageStore } from './website.ts';
 
 export class MemorySitePageStore implements SitePageStore {
   readonly rows: SitePage[] = [];
@@ -38,7 +38,7 @@ export class MemorySitePageStore implements SitePageStore {
     }
     if (this.rows.some((p) => p.slug === row.slug)) throw new Error('duplicate key value violates unique constraint "site_pages_slug_key"');
     const now = new Date().toISOString();
-    const saved: SitePage = { id: `page-${this.rows.length + 1}`, ...row, isPublished: false, createdBy: this.signedIn, createdAt: now, updatedAt: now };
+    const saved: SitePage = { id: `page-${this.rows.length + 1}`, ...row, isPublished: false, createdBy: this.signedIn, createdAt: now, updatedAt: now, sections: [] };
     // Score first: if that fails, the page is not saved either, as in one transaction.
     if (this.engagements && this.signedIn) {
       await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'made_a_page', tool: row.tool });
@@ -47,7 +47,7 @@ export class MemorySitePageStore implements SitePageStore {
     return saved;
   }
 
-  async update(id: string, patch: { name?: string; slug?: string; isPublished?: boolean }, tool: string) {
+  async update(id: string, patch: SitePagePatch, tool: string) {
     if (this.failNextSave) {
       this.failNextSave = false;
       return null;
@@ -61,8 +61,10 @@ export class MemorySitePageStore implements SitePageStore {
       await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'published_a_page', tool });
     }
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    // Stored as the database stores it, a copy, so a later change to the caller's list does not reach it.
+    if (patch.sections !== undefined) defined.sections = structuredClone(patch.sections);
     this.rows[i] = { ...this.rows[i], ...defined, updatedAt: new Date().toISOString() };
-    return { ...this.rows[i] };
+    return structuredClone(this.rows[i]);
   }
 
   async remove(id: string) {

@@ -97,6 +97,30 @@ order.
   changed) with Edit, Publish / Back to draft, and Delete with an "are you
   sure" step. The page list's names link to it.
 
+## Built in WC-208: build a page from sections and layouts
+
+- A page is a stack of **sections**, top to bottom. Each has a layout (one
+  column; two or three equal columns; or one of Normie's uneven splits, 1 : 2,
+  2 : 1, 1 : 5 and 5 : 1), an alignment, space above and below (0 to 160
+  pixels), an optional title for the editor's own reference, and one
+  background colour or none. Each column of the layout is a **cell**, where
+  modules will go (WC-209).
+- `core/website.ts`: the section shape, `normalizeSiteSections` (Normie's
+  `normalizeLayoutSections`, trimmed to these fields: whatever is stored is
+  tidied into a well-formed list and never breaks a screen),
+  `siteSectionChanges` (the unsaved changes in words) and
+  `saveSitePageSections`, with tests.
+- `supabase/migrations/20261124140000_site_pages_sections.sql` grants a role
+  with Manage website changing a page's sections, and holds them to at most
+  50 sections and 200,000 bytes, the same limits core checks
+  (`SITE_SECTIONS_MAX`, `SITE_SECTIONS_BYTES_MAX`; core counts the bytes the
+  way the database writes them).
+- `/admin/website/<id>/edit`, reached by **Edit sections** on a page's
+  screen: add a section with a chosen layout, change its settings, move it
+  up or down, remove it, and Save. Unsaved changes are named on screen
+  ("1 section added, the order changed") and leaving asks first. A failed
+  save says so and keeps the sections on screen.
+
 ## Built in WC-213: making and publishing pages earns points
 
 - `supabase/migrations/20261124150000_score_made_a_page.sql` lists two

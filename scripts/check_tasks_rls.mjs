@@ -55,7 +55,8 @@
  * `public.forum_tag_relations`); and that only a role with Manage website adds
  * a page of the website, as an empty draft only it sees, a published page is
  * seen by anyone, and only such a role renames, readdresses, publishes or
- * deletes one, with the change time stamped (`public.site_pages`).
+ * deletes one, or saves its sections (at most 50, at most 200000 bytes),
+ * with the change time stamped (`public.site_pages`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -2161,7 +2162,7 @@ try {
   // Changing, publishing and deleting a page (20261124130000_site_pages_edit.sql,
   // WC-207): only a role with site.edit (A) renames a page, gives it a new
   // address or publishes it, and the change time is stamped; nobody changes
-  // who made it, when, the tool or its sections; an address another page uses
+  // who made it, when or the tool (its sections are WC-208's, below); an address another page uses
   // is refused; only such a role deletes a page. B (a viewer) and a
   // signed-out visitor can do none of it. The test rows are removed at the end.
   {
@@ -2192,12 +2193,11 @@ try {
       const forgedBy = await patch(a, page?.id, { created_by: b.id });
       const forgedAt = await patch(a, page?.id, { created_at: '2000-01-01T00:00:00Z' });
       const forgedTool = await patch(a, page?.id, { tool: 'forged' });
-      const forgedLayout = await patch(a, page?.id, { layout_sections: [{ id: 'x' }] });
       const kept = await row(page?.id);
-      check('nobody changes who made a page, when, the tool or its sections',
-        forgedBy.status >= 400 && forgedAt.status >= 400 && forgedTool.status >= 400 && forgedLayout.status >= 400
-          && kept?.created_by === a.id && kept?.created_at === page?.created_at && kept?.tool === 'wavecenter' && JSON.stringify(kept?.layout_sections) === '[]',
-        `created_by HTTP ${forgedBy.status}, created_at HTTP ${forgedAt.status}, tool HTTP ${forgedTool.status}, layout HTTP ${forgedLayout.status}, row ${JSON.stringify(kept)}`);
+      check('nobody changes who made a page, when or the tool',
+        forgedBy.status >= 400 && forgedAt.status >= 400 && forgedTool.status >= 400
+          && kept?.created_by === a.id && kept?.created_at === page?.created_at && kept?.tool === 'wavecenter',
+        `created_by HTTP ${forgedBy.status}, created_at HTTP ${forgedAt.status}, tool HTTP ${forgedTool.status}, row ${JSON.stringify(kept)}`);
       const twin = await patch(a, page?.id, { slug: `rls-edit-other-${tag}` });
       const badSlug = await patch(a, page?.id, { slug: 'Not A Slug' });
       const blank = await patch(a, page?.id, { name: '  ' });
@@ -2215,6 +2215,49 @@ try {
       const aDel = await del(a, page?.id);
       check('a website manager deletes a page', aDel.status === 200 && aDel.json?.length === 1 && (await row(page?.id)) === undefined,
         `HTTP ${aDel.status} ${JSON.stringify(aDel.json)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // A page's sections (20261124140000_site_pages_sections.sql, WC-208): only a
+  // role with site.edit (A) saves them, the change time is stamped, and the
+  // database holds them to a list of at most 50 sections and 200000 bytes,
+  // the limits core uses. B (a viewer) and a signed-out visitor cannot change
+  // them, even on a published page. The test rows are removed at the end.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const patch = (who, id, body) => call(`/rest/v1/site_pages?id=eq.${id}`, { method: 'PATCH', token: who?.token, prefer: 'return=representation', body });
+    const row = async (id) => (await admin(`/rest/v1/site_pages?id=eq.${id}&select=*`)).json?.[0];
+    const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
+    const section = (id, layout) => ({ id, title: '', layout, alignment: 'left', marginTop: 0, marginBottom: 0, background: '' });
+    try {
+      const made = await call('/rest/v1/site_pages', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: `RLS sections ${tag}`, slug: `rls-sections-${tag}` } });
+      const page = made.json?.[0];
+      if (page?.id) ids.push(page.id);
+      check('WC-208 test page was made', Boolean(page?.id), `HTTP ${made.status} ${JSON.stringify(made.json)}`);
+      await new Promise((r) => setTimeout(r, 20));
+      const three = [section('b', 'two-column'), section('a', 'single'), section('c', 'three-column')];
+      const saved = await patch(a, page?.id, { layout_sections: three });
+      const after = saved.json?.[0];
+      check('a website manager saves a page\'s sections, in order, and the change time is stamped',
+        saved.status === 200 && JSON.stringify(after?.layout_sections?.map((s) => s.id)) === '["b","a","c"]' && after?.updated_at > page?.updated_at,
+        `HTTP ${saved.status} ${JSON.stringify(after)}`);
+      const tooMany = await patch(a, page?.id, { layout_sections: Array.from({ length: 51 }, (_, i) => section(`s${i}`, 'single')) });
+      const fifty = await patch(a, page?.id, { layout_sections: Array.from({ length: 50 }, (_, i) => section(`s${i}`, 'single')) });
+      const tooBig = await patch(a, page?.id, { layout_sections: [{ ...section('big', 'single'), title: 'x'.repeat(200001) }] });
+      const notList = await patch(a, page?.id, { layout_sections: { id: 'x' } });
+      check('the database keeps a page\'s sections a list of at most 50 sections and 200000 bytes',
+        tooMany.status === 400 && fifty.status === 200 && tooBig.status === 400 && notList.status >= 400,
+        `51 HTTP ${tooMany.status}, 50 HTTP ${fifty.status}, too big HTTP ${tooBig.status}, not a list HTTP ${notList.status}`);
+      await patch(a, page?.id, { layout_sections: three, is_published: true });
+      const bPatch = await patch(b, page?.id, { layout_sections: [] });
+      const anonPatch = await patch(null, page?.id, { layout_sections: [] });
+      const kept = await row(page?.id);
+      check('a member without Manage website, or a signed-out visitor, cannot change a page\'s sections, even a published one',
+        refused(bPatch) && refused(anonPatch) && kept?.layout_sections?.length === 3,
+        `viewer HTTP ${bPatch.status}, signed out HTTP ${anonPatch.status}, row ${JSON.stringify(kept)}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
