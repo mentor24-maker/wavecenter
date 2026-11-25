@@ -38,6 +38,18 @@ export async function listSitePages(supabase: Client): Promise<SitePage[]> {
   return sortSitePages((data ?? []).map(fromRow));
 }
 
+/**
+ * The published page at this address, or null when there is none (WC-210).
+ * Asks for published rows only, so a website manager's session, which may read
+ * drafts, sees the same public page as a visitor. A failed read throws, so the
+ * screen never mistakes it for "no such page".
+ */
+export async function readPublishedSitePage(supabase: Client, slug: string): Promise<SitePage | null> {
+  const { data, error } = await supabase.from("site_pages").select(COLUMNS).eq("slug", slug).eq("is_published", true).maybeSingle();
+  if (error) throw new Error(`The database refused to read this page: ${error.message}`);
+  return data ? fromRow(data) : null;
+}
+
 export function supabaseSitePageStore(supabase: Client): SitePageStore {
   return {
     list: () => listSitePages(supabase),
@@ -90,6 +102,18 @@ export async function listSavedSections(supabase: Client): Promise<SiteSavedSect
   const { data, error } = await supabase.from("site_sections").select(SAVED_COLUMNS);
   if (error) throw new Error(`The database refused to read the saved sections: ${error.message}`);
   return sortSavedSections((data ?? []).map(fromSavedRow));
+}
+
+/**
+ * The saved originals these linked sections follow (WC-210), for drawing a
+ * published page: anyone may read an original a published page follows.
+ * None asked for, none read. A failed read throws.
+ */
+export async function readSavedSectionsByIds(supabase: Client, ids: readonly string[]): Promise<SiteSavedSection[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("site_sections").select(SAVED_COLUMNS).in("id", [...ids]);
+  if (error) throw new Error(`The database refused to read this page's reused sections: ${error.message}`);
+  return (data ?? []).map(fromSavedRow);
 }
 
 export function supabaseSavedSectionStore(supabase: Client): SiteSavedSectionStore {

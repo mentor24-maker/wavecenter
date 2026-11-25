@@ -10,10 +10,11 @@
  * a click never leaves unsaved work. A module with nothing in it yet says so
  * there (rule 7); on a live page it draws nothing.
  */
-import { siteButtonHref, siteImageUrl, type SiteModule } from "../../../core/website.ts";
+import { siteButtonHref, siteImageUrl, siteModuleDrawsLive, type SiteModule } from "../../../core/website.ts";
 import RichText from "../../tasks/RichText";
 
 export default function SiteModuleView({ module: m, live = false }: { module: SiteModule; live?: boolean }) {
+  if (live && !siteModuleDrawsLive(m)) return null;
   const empty = (words: string) => (live ? null : <p className="note">{words}</p>);
   switch (m.type) {
     case "heading": {

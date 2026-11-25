@@ -1179,4 +1179,8 @@ h4.site-heading { font-size: 1.1rem; }
 .module-panel input[type="checkbox"] { justify-self: start; }
 .site-image { display: inline-block; max-width: 100%; height: auto; border-radius: var(--radius); }
 .site-button { display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid; border-radius: var(--radius); font-weight: 700; text-decoration: none; }
+/* A published page at /site/<address> (WC-210): each section a grid of its cells; one column on a phone. */
+.site-section { display: grid; gap: var(--space); padding: 0.75rem; border-radius: var(--radius); }
+.site-cell { display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
+@media (max-width: 40rem) { .site-section { grid-template-columns: 1fr !important; } }
 @media (max-width: 60rem) { .builder.with-panel { grid-template-columns: 1fr; } .module-panel { position: static; max-height: none; } }

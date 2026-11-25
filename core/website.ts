@@ -927,3 +927,61 @@ export function newSiteModule(type: SiteModuleType, cell: string, sections: read
       return { id, cell, type, settings: { label: 'Button', href: '', color: BUTTON_COLOR, textColor: BUTTON_TEXT_COLOR, newTab: false } };
   }
 }
+
+// ── The public page (WC-210) ────────────────────────────────────────────
+// A published page shows to anyone at `/site/<address>`. Row-level security
+// already hides drafts from a visitor, but a member with Manage website can
+// read drafts too, so the public screen asks core as well: only a published
+// page at exactly this address is shown, to everyone alike.
+
+/** Where a page shows to the public. */
+export function sitePagePath(slug: string): string {
+  return `/site/${slug}`;
+}
+
+/** The page to show at `slug`, or null: a draft, another address or no page at all shows "no such page". */
+export function publicSitePage(page: SitePage | null | undefined, slug: string): SitePage | null {
+  if (!page || !isSitePageSlug(slug)) return null;
+  return page.isPublished && page.slug === slug ? page : null;
+}
+
+/** How a section is laid out, in CSS property names, for every screen that draws one. */
+export function siteSectionStyle(section: SiteSection): {
+  gridTemplateColumns: string; textAlign: SiteSectionAlignment; marginTop: number; marginBottom: number; background?: string;
+} {
+  return {
+    gridTemplateColumns: siteSectionGrid(section.layout),
+    textAlign: section.alignment,
+    marginTop: section.marginTop,
+    marginBottom: section.marginBottom,
+    ...(section.background ? { background: section.background } : {}),
+  };
+}
+
+/**
+ * Whether a module draws anything on a live page. A heading or text with no
+ * words, or a picture with no usable address, draws nothing there (the
+ * editor names what is missing instead); a button always draws.
+ * SiteModuleView asks this, so the two never disagree.
+ */
+export function siteModuleDrawsLive(module: SiteModule): boolean {
+  switch (module.type) {
+    case 'heading':
+      return module.settings.text.trim() !== '';
+    case 'text':
+      return module.settings.body.trim() !== '';
+    case 'image':
+      return Boolean(siteImageUrl(module.settings.url));
+    case 'button':
+      return true;
+  }
+}
+
+/**
+ * Whether a page shows anything to a visitor: some section holds a module
+ * that draws live. A page with no sections, or only empty ones, says
+ * "nothing on it yet" instead of a blank screen (rule 7).
+ */
+export function sitePageHasContent(sections: readonly SiteSection[]): boolean {
+  return sections.some((s) => s.modules.some(siteModuleDrawsLive));
+}
