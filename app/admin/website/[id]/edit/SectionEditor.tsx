@@ -22,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, useTransition, type CSSProperties, type MouseEvent } from "react";
 import {
   SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
-  newSiteModule, newSiteSection, siteModuleLabel, siteModuleProblem, siteSectionCells, siteSectionChanges, siteSectionGrid,
+  newSiteModule, newSiteSection, siteModuleLabel, siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid,
   type SiteModule, type SiteModuleType, type SitePage, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { saveSections } from "../../actions";
@@ -81,6 +81,15 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
     const next = [...sections];
     [next[i], next[j]] = [next[j], next[i]];
     edited(next);
+  }
+
+  /**
+   * A new layout for section `i`. A module in a cell the new layout does not
+   * have moves to its first cell in the same change, so it never drops off
+   * the screen (and an open panel's Cell list still holds its cell).
+   */
+  function changeLayout(i: number, layout: SiteSectionLayout) {
+    update(i, { layout, modules: siteModulesInLayout(sections[i].modules, layout) });
   }
 
   /** Change module `mid` in section `i` (its settings, or its cell). */
@@ -195,7 +204,7 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
                 <input id={`${sid}-title`} type="text" maxLength={SITE_SECTION_TITLE_MAX} value={s.title} disabled={pending}
                   placeholder="Optional, for your own reference" onChange={(e) => update(i, { title: e.target.value })} />
                 <label htmlFor={`${sid}-layout`}>Layout</label>
-                <select id={`${sid}-layout`} value={s.layout} disabled={pending} onChange={(e) => update(i, { layout: e.target.value as SiteSectionLayout })}>
+                <select id={`${sid}-layout`} value={s.layout} disabled={pending} onChange={(e) => changeLayout(i, e.target.value as SiteSectionLayout)}>
                   {SITE_SECTION_LAYOUTS.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
                 </select>
                 <label htmlFor={`${sid}-align`}>Alignment</label>

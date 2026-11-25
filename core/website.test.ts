@@ -9,8 +9,8 @@ import {
   SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, SITE_SECTIONS_BYTES_MAX, SITE_SECTIONS_MAX, SITE_SECTION_LAYOUTS, SITE_SECTION_TITLE_MAX,
   addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, jsonbText, mayManageWebsite, newSiteSection, normalizeSiteSections,
   saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
-  SITE_HEADING_MAX, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteModuleProblem, siteModulesProblem,
-  type SiteModule, type SitePageDeps,
+  SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
+  type SiteModule, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
 const TOOL = 'wavecenter';
@@ -412,6 +412,42 @@ test("a picture's address must be https:, and a button links only to http:, http
   for (const bad of ['javascript:alert(1)', 'JavaScript:alert(1)', ' javascript:alert(1)', 'data:text/html,hi', 'mailto:a@b.c', '//evil.com', '/\\evil.com', 'about', '/a b', 'java\nscript:x', 3]) {
     assert.equal(siteButtonHref(bad), null, String(bad));
   }
+});
+
+test('an address too long once encoded is refused, not cleared later on read-back', () => {
+  // 700 "é" are 720 characters as typed but 4,220 once encoded.
+  const long = `https://example.com/${'é'.repeat(700)}`;
+  assert.ok(long.length <= SITE_ADDRESS_MAX);
+  assert.equal(siteImageUrl(long), null);
+  assert.equal(siteButtonHref(long), null);
+  assert.ok(siteModuleProblem({ type: 'image', settings: { url: long } }));
+  assert.ok(siteModuleProblem({ type: 'button', settings: { href: long } }));
+  const fits = `https://example.com/${'é'.repeat(300)}`;
+  assert.ok((siteImageUrl(fits) ?? '').length <= SITE_ADDRESS_MAX);
+});
+
+test("a picture's width is whole percent from the least to 100", () => {
+  assert.equal(siteImageWidth(50), 50);
+  assert.equal(siteImageWidth('42.6'), 43);
+  assert.equal(siteImageWidth(5), SITE_IMAGE_WIDTH_MIN);
+  assert.equal(siteImageWidth(150), 100);
+  for (const odd of ['', 'wide', null, undefined, NaN]) assert.equal(siteImageWidth(odd), 100, String(odd));
+});
+
+test("changing a section's layout moves modules from a cell it no longer has to its first cell", () => {
+  const sections: SiteSection[] = [];
+  const left = newSiteModule('heading', 'left', sections);
+  const right = { ...newSiteModule('button', 'right', sections), id: 'module-right' };
+  const middle = { ...newSiteModule('text', 'center', sections), id: 'module-middle' };
+  const mods = [left, right, middle];
+  assert.deepEqual(siteModulesInLayout(mods, 'single').map((m) => m.cell), ['main', 'main', 'main']);
+  assert.deepEqual(siteModulesInLayout(mods, 'two-column').map((m) => m.cell), ['left', 'right', 'left']);
+  const three = siteModulesInLayout(mods, 'three-column');
+  assert.equal(three, mods, 'nothing moves, so the same list');
+  // Each module kept whole, only its cell changed.
+  assert.deepEqual(siteModulesInLayout(mods, 'single')[1], { ...right, cell: 'main' });
+  // The same answer as the tidy-up on read-back.
+  assert.deepEqual(normalizeSiteModules(mods, 'single').map((m) => m.cell), siteModulesInLayout(mods, 'single').map((m) => m.cell));
 });
 
 test('each of the four modules is added, saved and read back', async () => {

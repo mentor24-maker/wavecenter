@@ -14,3 +14,12 @@ page can run in a visitor's browser. A picture must come from a secure
 WaveCenter page such as /about. Anything else is refused in plain words,
 both while typing and on Save. A damaged saved page is tidied when it is
 read, so it never breaks the editor.
+
+After review, three rough edges were fixed. Changing a section to a layout
+with fewer columns used to hide the modules in the column that went away;
+they now move into the first column at once, so nothing drops off the
+screen. A picture's width box rounded every keystroke, so typing "50" ended
+as 100; it now takes what is typed and tidies it when you leave the box.
+And the Text box is locked while a save runs, so words typed during a save
+can no longer vanish. A very long address in a non-Latin alphabet is now
+refused while typing, instead of being saved and quietly cleared later.

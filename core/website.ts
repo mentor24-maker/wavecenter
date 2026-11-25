@@ -551,7 +551,8 @@ export function siteImageUrl(raw: unknown): string | null {
   if (typed === '') return '';
   if (typed.length > SITE_ADDRESS_MAX) return null;
   const href = safeHref(typed);
-  return href && href.startsWith('https:') ? href : null;
+  // Checked again once encoded: "é" is stored as "%C3%A9", six characters.
+  return href && href.startsWith('https:') && href.length <= SITE_ADDRESS_MAX ? href : null;
 }
 
 /**
@@ -566,7 +567,7 @@ export function siteButtonHref(raw: unknown): string | null {
   if (typed.length > SITE_ADDRESS_MAX || /[\s\u0000-\u001f\u007f\\]/.test(typed)) return null;
   if (typed.startsWith('/')) return typed.startsWith('//') ? null : typed;
   const href = safeHref(typed);
-  return href && (href.startsWith('https:') || href.startsWith('http:')) ? href : null;
+  return href && (href.startsWith('https:') || href.startsWith('http:')) && href.length <= SITE_ADDRESS_MAX ? href : null;
 }
 
 /** Words kept as typed, line breaks and all: "\r\n" as "\n", trimmed, at most `max`. */
@@ -574,7 +575,11 @@ function body(value: unknown, max: number): string {
   return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim().slice(0, max).trim() : '';
 }
 
-function width(value: unknown): number {
+/**
+ * A picture's width as it may be saved: whole percent from
+ * SITE_IMAGE_WIDTH_MIN to 100; anything not a number is 100.
+ */
+export function siteImageWidth(value: unknown): number {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
   if (!Number.isFinite(n)) return 100;
   return Math.min(Math.max(Math.round(n), SITE_IMAGE_WIDTH_MIN), 100);
@@ -588,7 +593,7 @@ function settingsOf(type: SiteModuleType, value: unknown): SiteModule['settings'
     case 'text':
       return { body: body(s.body, SITE_TEXT_MAX) };
     case 'image':
-      return { url: siteImageUrl(s.url) ?? '', alt: text(s.alt, SITE_IMAGE_ALT_MAX), width: width(s.width) };
+      return { url: siteImageUrl(s.url) ?? '', alt: text(s.alt, SITE_IMAGE_ALT_MAX), width: siteImageWidth(s.width) };
     case 'button':
       return {
         label: text(s.label, SITE_BUTTON_LABEL_MAX),
@@ -628,6 +633,18 @@ export function normalizeSiteModules(value: unknown, layout: SiteSectionLayout, 
     const cell = typeof m.cell === 'string' && cells.includes(m.cell) ? m.cell : cells[0];
     return { id, type, cell, settings: settingsOf(type, m.settings) } as SiteModule;
   });
+}
+
+/**
+ * The modules of a section whose layout is now `layout`: each module in a
+ * cell the layout does not have moves to its first cell, as on read-back
+ * (normalizeSiteModules), so changing a layout never hides a module.
+ * Returns the same list when nothing moves.
+ */
+export function siteModulesInLayout(modules: readonly SiteModule[], layout: SiteSectionLayout): SiteModule[] {
+  const cells = siteSectionCells(layout);
+  if (modules.every((m) => cells.includes(m.cell))) return modules as SiteModule[];
+  return modules.map((m) => (cells.includes(m.cell) ? m : { ...m, cell: cells[0] }));
 }
 
 const shown = (value: string) => (value.length > 60 ? `${value.slice(0, 57)}…` : value);

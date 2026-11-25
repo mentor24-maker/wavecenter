@@ -8,10 +8,10 @@
  * as it is typed (core/website.ts, siteModuleProblem), and Save refuses it the
  * same way.
  */
-import { useId } from "react";
+import { useId, useState } from "react";
 import {
   SITE_ADDRESS_MAX, SITE_BUTTON_LABEL_MAX, SITE_HEADING_LEVELS, SITE_HEADING_MAX, SITE_IMAGE_ALT_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX,
-  siteModuleLabel, siteModuleProblem, type SiteModule,
+  siteImageWidth, siteModuleLabel, siteModuleProblem, type SiteModule,
 } from "../../../../../core/website.ts";
 import CommentEditor from "../../../../tasks/CommentEditor";
 
@@ -29,6 +29,8 @@ export default function ModulePanel({
 }) {
   const id = useId();
   const problem = siteModuleProblem(m);
+  /** The picture width as typed, while the box is being edited; tidied when it is left. */
+  const [widthTyped, setWidthTyped] = useState<string | null>(null);
   const set = (settings: Partial<SiteModule["settings"]>) => onChange({ ...m, settings: { ...m.settings, ...settings } } as SiteModule);
 
   return (
@@ -78,8 +80,19 @@ export default function ModulePanel({
             <input id={`${id}-alt`} type="text" maxLength={SITE_IMAGE_ALT_MAX} value={m.settings.alt} disabled={disabled}
               placeholder="What the picture shows, for anyone who cannot see it" onChange={(e) => set({ alt: e.target.value })} />
             <label htmlFor={`${id}-width`}>Width (percent of the cell)</label>
-            <input id={`${id}-width`} type="number" min={SITE_IMAGE_WIDTH_MIN} max={100} step={1} value={m.settings.width} disabled={disabled}
-              onChange={(e) => set({ width: Math.min(Math.max(Math.round(Number(e.target.value) || 100), SITE_IMAGE_WIDTH_MIN), 100) })} />
+            <input id={`${id}-width`} type="number" min={SITE_IMAGE_WIDTH_MIN} max={100} step={1} value={widthTyped ?? m.settings.width} disabled={disabled}
+              onChange={(e) => {
+                const typed = e.target.value;
+                setWidthTyped(typed);
+                const n = Number(typed);
+                // A whole number already in range counts at once; anything else waits until the box is left.
+                if (typed.trim() !== "" && Number.isInteger(n) && n >= SITE_IMAGE_WIDTH_MIN && n <= 100) set({ width: n });
+              }}
+              onBlur={() => {
+                if (widthTyped === null) return;
+                set({ width: siteImageWidth(widthTyped.trim() === "" ? m.settings.width : widthTyped) });
+                setWidthTyped(null);
+              }} />
           </>
         )}
 
@@ -102,7 +115,7 @@ export default function ModulePanel({
       </div>
 
       {m.type === "text" && (
-        <CommentEditor label="Text" value={m.settings.body} maxLength={SITE_TEXT_MAX} autoFocus
+        <CommentEditor label="Text" value={m.settings.body} maxLength={SITE_TEXT_MAX} autoFocus disabled={disabled}
           placeholder="Type the words. **bold**, *italic*, lines starting - for a list, [words](https://…) for a link."
           onChange={(body) => set({ body })} />
       )}
