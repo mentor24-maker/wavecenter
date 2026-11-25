@@ -13,8 +13,10 @@
  * report row in `ai_rating_passes` for the Admin page.
  *
  * It refuses to start if ANTHROPIC_API_KEY (or another API sign-in) is in its
- * environment, or if Claude Code is not signed in with a claude.ai plan:
- * either would bill an API account instead of Dane's plan. A refusal is
+ * environment, or if Claude Code is not signed in with a claude.ai plan (the
+ * browser sign-in, or the long-lived CLAUDE_CODE_OAUTH_TOKEN rating_lane.sh
+ * reads from Doppler, WC-184): either would bill an API account instead of
+ * Dane's plan. A refusal is
  * still reported to the Admin page, when the database can be reached.
  *
  * Exit 0 = the pass ran (some tasks may have failed; the report says which).

@@ -6,7 +6,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RATING_ANSWER_SCHEMA } from '../../core/aiTaskRater.ts';
-import { API_BILLING_ENV, LOCKDOWN_FLAGS, claudeCodeRater, claudeSignIn, ratingArgs, ratingEnv, readClaudeResult, refuseApiKey } from './claudeCodeRater.mjs';
+import { API_BILLING_ENV, LOCKDOWN_FLAGS, PLAN_TOKEN_ENV, claudeCodeRater, claudeSignIn, ratingArgs, ratingEnv, readClaudeResult, refuseApiKey } from './claudeCodeRater.mjs';
 import { passReportRow } from './aiRatingRest.mjs';
 
 const answer = { scope: { rating: 3, reason: 'One screen.' }, difficulty: { rating: 2, reason: 'Routine.' }, relevance: { rating: 4, reason: 'Core path.' }, demand: { rating: 3, reason: 'Asked for.' } };
@@ -56,6 +56,29 @@ test('every tool and customisation is switched off, and the answer shape is fixe
 test('the session sees a bare environment: no API key, no service key, no other secret', () => {
   const env = ratingEnv({ PATH: '/bin', HOME: '/Users/x', ANTHROPIC_API_KEY: 'sk-x', SUPABASE_SERVICE_ROLE_KEY: 's', CLICKUP_API_TOKEN: 'c', DOPPLER_TOKEN: 'd' });
   assert.deepEqual(env, { PATH: '/bin', HOME: '/Users/x' });
+});
+
+test('the long-lived plan token (WC-184) is the one sign-in let through: refuseApiKey passes it and ratingEnv hands it on', () => {
+  assert.equal(PLAN_TOKEN_ENV, 'CLAUDE_CODE_OAUTH_TOKEN');
+  assert.ok(!API_BILLING_ENV.includes('CLAUDE_CODE_OAUTH_TOKEN'), 'the token is not refused');
+  // Only the token left the refused list; every API sign-in is still refused.
+  assert.deepEqual([...API_BILLING_ENV].sort(), ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX']);
+  const lane = { PATH: '/bin', HOME: '/h', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake', SUPABASE_SERVICE_ROLE_KEY: 's' };
+  assert.doesNotThrow(() => refuseApiKey(lane));
+  assert.deepEqual(ratingEnv(lane), { PATH: '/bin', HOME: '/h', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake' });
+  assert.deepEqual(ratingEnv({ PATH: '/bin', CLAUDE_CODE_OAUTH_TOKEN: '' }), { PATH: '/bin' }, 'an empty token is not passed');
+  // The token never excuses an API key beside it.
+  assert.throws(() => refuseApiKey({ ...lane, ANTHROPIC_API_KEY: 'sk-ant-api03-x' }), (err) => /ANTHROPIC_API_KEY is set/.test(err.message) && !err.message.includes('sk-ant'));
+  assert.throws(() => claudeCodeRater({ schema: RATING_ANSWER_SCHEMA, env: { ...lane, ANTHROPIC_API_KEY: 'x' } }), /ANTHROPIC_API_KEY is set/);
+});
+
+test('each rating call gets the token in its environment, and never on its command line', async () => {
+  const { calls, spawnFn } = fakeSpawn();
+  const scratchRoot = mkdtempSync(join(tmpdir(), 'rater-test-'));
+  const rater = claudeCodeRater({ schema: RATING_ANSWER_SCHEMA, env: { PATH: '/bin', HOME: '/h', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake', SUPABASE_SERVICE_ROLE_KEY: 's' }, spawnFn, scratchRoot });
+  await rater.rate('claude-sonnet-5-5', 'instr', 'Rate this task.');
+  assert.deepEqual(calls[0].opts.env, { PATH: '/bin', HOME: '/h', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake' });
+  assert.ok(!calls[0].args.some((a) => a.includes('sk-ant-oat01-fake')), 'the token is not an argument');
 });
 
 test('the lane refuses to start with an API key in its environment, naming it but never its value', () => {
@@ -127,6 +150,20 @@ test('the sign-in check: only a claude.ai plan passes, and no email is ever retu
   await assert.rejects(claudeSignIn({ spawnFn: status({ loggedIn: false }), env: {} }), /not signed in/);
   await assert.rejects(claudeSignIn({ spawnFn: status({ loggedIn: true, authMethod: 'api_key' }), env: {} }), /signed in with api_key, not a claude.ai plan/);
   await assert.rejects(claudeSignIn({ spawnFn: fakeSpawn(() => ({ stdout: 'garbage' })).spawnFn, env: {} }), /did not say which sign-in/);
+});
+
+test('the sign-in check accepts the long-lived token and still refuses an API key', async () => {
+  // What Claude Code 2.1.323 printed on the Mini with CLAUDE_CODE_OAUTH_TOKEN
+  // set (WC-184): authMethod "oauth_token", no plan name. With
+  // ANTHROPIC_API_KEY set, beside the token or not, it printed "api_key".
+  const { calls, spawnFn } = fakeSpawn(() => ({ stdout: JSON.stringify({ loggedIn: true, authMethod: 'oauth_token', apiProvider: 'firstParty', loginExpiresAt: null }) }));
+  assert.equal(await claudeSignIn({ spawnFn, env: { PATH: '/bin', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake', SUPABASE_SERVICE_ROLE_KEY: 's' } }), 'claude.ai plan, long-lived token');
+  assert.deepEqual(calls[0].opts.env, { PATH: '/bin', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake' }, 'the check asks with the same sign-in the calls use');
+  const status = (s) => fakeSpawn(() => ({ stdout: JSON.stringify(s) })).spawnFn;
+  await assert.rejects(claudeSignIn({ spawnFn: status({ loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty', apiKeySource: 'ANTHROPIC_API_KEY' }), env: {} }), /signed in with api_key, not a claude.ai plan/);
+  // A token on someone else's cloud would not be Dane's plan.
+  await assert.rejects(claudeSignIn({ spawnFn: status({ loggedIn: true, authMethod: 'oauth_token', apiProvider: 'bedrock' }), env: {} }), /not a claude.ai plan/);
+  await assert.rejects(claudeSignIn({ spawnFn: status({ loggedIn: false }), env: {} }), /claude setup-token.*claude login/);
 });
 
 test('the pass report row: counts, each failure with its reason, or the whole-pass error', () => {
