@@ -12,3 +12,5 @@ Why it matters: shared parts of a website, like the header on every page, now ha
 Safety: the saved sections live in their own database table, locked down from the start. Only a role with Manage website can save or change one. Visitors can read one only once a published page uses it.
 
 Still to come: the public web address for each page (WC-210) will show linked sections with their original's latest content. This change prepares for that.
+
+Caught up with the modules change (#202, WC-233): both changes edited the same files, so they were joined by hand. Saved sections now carry their headings, text, pictures and buttons. In a section that follows its original, those modules are locked like the rest of it, until Unlink. Two copies of one saved section on a page never mix up their modules. A saved section also refuses a bad link in plain words, as a page does.
