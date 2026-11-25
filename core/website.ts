@@ -21,6 +21,7 @@
  * so a client that went around core still cannot write a page.
  */
 import { STARTING_ROLE_PERMISSIONS, mayDo, roleOf, type MemberRoleStore, type RoleKey } from './members.ts';
+import { safeHref } from './richText.ts';
 import { CoreError, requireTool } from './tool.ts';
 
 /** The most a page's name and its address may hold. The migration checks the same. */
@@ -281,6 +282,8 @@ export interface SiteSection {
   marginBottom: number;
   /** A colour as "#rrggbb", or "" for none. */
   background: string;
+  /** What fills the section's cells (WC-209), in order; each names its cell. Always well formed: read through `normalizeSiteModules`. */
+  modules: SiteModule[];
 }
 
 /** The cells a layout has, left to right. */
@@ -347,6 +350,7 @@ export function normalizeSiteSections(value: unknown): SiteSection[] {
   const taken = new Set<string>();
   const kept = entries.map((s) => (typeof s.id === 'string' && SECTION_ID.test(s.id) && !taken.has(s.id) ? (taken.add(s.id), s.id) : null));
   let n = 0;
+  const moduleIds = new Set<string>();
   return entries.map((s, i) => {
     let id = kept[i];
     if (id === null) {
@@ -361,6 +365,7 @@ export function normalizeSiteSections(value: unknown): SiteSection[] {
       marginTop: spacing(s.marginTop),
       marginBottom: spacing(s.marginBottom),
       background: colour(s.background),
+      modules: normalizeSiteModules(s.modules, isLayout(s.layout) ? s.layout : 'single', moduleIds),
     };
   });
 }
@@ -376,7 +381,7 @@ export function newSiteSectionId(existing: readonly { id: string }[] = []): stri
 
 /** A new, empty section of `layout`, with an id unlike any in `existing`. */
 export function newSiteSection(layout: SiteSectionLayout = 'single', existing: readonly { id: string }[] = []): SiteSection {
-  return { id: newSiteSectionId(existing), title: '', layout: isLayout(layout) ? layout : 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' };
+  return { id: newSiteSectionId(existing), title: '', layout: isLayout(layout) ? layout : 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] };
 }
 
 /**
@@ -437,6 +442,8 @@ export async function saveSitePageSections(
   const named = requireTool(tool);
   await requireManager(deps, change.actorId, 'build pages');
   if (!Array.isArray(change.sections)) throw new CoreError("A page's sections must be a list. Nothing was saved.");
+  const problem = siteModulesProblem(change.sections);
+  if (problem) throw new CoreError(`${problem} Nothing was saved.`);
   const sections = normalizeSiteSections(change.sections);
   if (sections.length > SITE_SECTIONS_MAX) {
     throw new CoreError(`A page can hold at most ${SITE_SECTIONS_MAX} sections, and this one has ${sections.length}. Remove some, then save. Nothing was saved.`);
@@ -451,4 +458,233 @@ export async function saveSitePageSections(
     throw new CoreError('The sections did not save. The page is as it was; try again.');
   }
   return saved;
+}
+
+// ── Modules: headings, text, pictures and buttons (WC-209) ─────────────────
+//
+// What fills a section's cells. Each module has an id (unique on its page), a
+// type, the cell it sits in, and that type's own settings. Ported from
+// Normie's `createEmptyModule` and trimmed to the four first types and the
+// settings that matter to them; StarCaster's doctrine
+// (docs/MODULE_UI_DOCTRINE.md there) gives each type one settings panel.
+//
+// Nothing here is HTML. A heading is plain words; a block of text is
+// WaveCenter's rich-text format (core/richText.ts), so nothing typed can run
+// in a visitor's browser. A picture's address must be https:, and a button
+// may link only to http:, https: or a WaveCenter address such as "/about".
+// Saving refuses anything else in plain words (`siteModulesProblem`); reading
+// tidies whatever is stored (`normalizeSiteModules`) and never throws.
+
+export const SITE_MODULE_TYPES = [
+  { key: 'heading', label: 'Heading' },
+  { key: 'text', label: 'Text' },
+  { key: 'image', label: 'Picture' },
+  { key: 'button', label: 'Button' },
+] as const;
+
+export type SiteModuleType = (typeof SITE_MODULE_TYPES)[number]['key'];
+
+export const SITE_HEADING_LEVELS = [
+  { key: 'h1', label: 'Largest (page title)' },
+  { key: 'h2', label: 'Large' },
+  { key: 'h3', label: 'Medium' },
+  { key: 'h4', label: 'Small' },
+] as const;
+
+export type SiteHeadingLevel = (typeof SITE_HEADING_LEVELS)[number]['key'];
+
+/** The most a heading, a block of text, a picture's description and a button's words may hold. */
+export const SITE_HEADING_MAX = 200;
+export const SITE_TEXT_MAX = 5000;
+export const SITE_IMAGE_ALT_MAX = 200;
+export const SITE_BUTTON_LABEL_MAX = 80;
+/** The most an address (a picture's or a button's link) may hold. */
+export const SITE_ADDRESS_MAX = 2000;
+/** A picture's width, as a share of its cell, from this to 100 percent. */
+export const SITE_IMAGE_WIDTH_MIN = 10;
+
+export interface SiteHeadingSettings { text: string; level: SiteHeadingLevel; /** "#rrggbb", or "" for the page's own colour. */ color: string }
+export interface SiteTextSettings { /** WaveCenter's rich text (core/richText.ts), never HTML. */ body: string }
+export interface SiteImageSettings { /** An https: address, or "" for none yet. */ url: string; /** Words describing the picture for anyone who cannot see it. */ alt: string; /** Percent of the cell's width. */ width: number }
+export interface SiteButtonSettings {
+  label: string;
+  /** An http: or https: address, a WaveCenter address starting "/", or "" for none yet. */
+  href: string;
+  /** Background and words, each "#rrggbb". */
+  color: string;
+  textColor: string;
+  newTab: boolean;
+}
+
+interface SiteModuleBase { id: string; /** One of its section's layout cells. */ cell: string }
+
+/** One module in a section's cell, in core's own names. */
+export type SiteModule =
+  | (SiteModuleBase & { type: 'heading'; settings: SiteHeadingSettings })
+  | (SiteModuleBase & { type: 'text'; settings: SiteTextSettings })
+  | (SiteModuleBase & { type: 'image'; settings: SiteImageSettings })
+  | (SiteModuleBase & { type: 'button'; settings: SiteButtonSettings });
+
+const BUTTON_COLOR = '#214c71';
+const BUTTON_TEXT_COLOR = '#ffffff';
+
+function isModuleType(value: unknown): value is SiteModuleType {
+  return SITE_MODULE_TYPES.some((t) => t.key === value);
+}
+
+function isHeadingLevel(value: unknown): value is SiteHeadingLevel {
+  return SITE_HEADING_LEVELS.some((l) => l.key === value);
+}
+
+/** The words for a module type, for the editor ("Picture"). */
+export function siteModuleLabel(type: SiteModuleType): string {
+  return SITE_MODULE_TYPES.find((t) => t.key === type)?.label ?? type;
+}
+
+/**
+ * A picture's address as it may be saved: "" when blank, the address when it
+ * is a well-formed https: one, otherwise null (not allowed).
+ */
+export function siteImageUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const typed = raw.trim();
+  if (typed === '') return '';
+  if (typed.length > SITE_ADDRESS_MAX) return null;
+  const href = safeHref(typed);
+  return href && href.startsWith('https:') ? href : null;
+}
+
+/**
+ * A button's link as it may be saved: "" when blank; a WaveCenter address
+ * ("/about", "/forum?x=1") as typed; a well-formed http: or https: address;
+ * otherwise null (not allowed: `javascript:`, `data:`, `mailto:`, "//elsewhere").
+ */
+export function siteButtonHref(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const typed = raw.trim();
+  if (typed === '') return '';
+  if (typed.length > SITE_ADDRESS_MAX || /[\s\u0000-\u001f\u007f\\]/.test(typed)) return null;
+  if (typed.startsWith('/')) return typed.startsWith('//') ? null : typed;
+  const href = safeHref(typed);
+  return href && (href.startsWith('https:') || href.startsWith('http:')) ? href : null;
+}
+
+/** Words kept as typed, line breaks and all: "\r\n" as "\n", trimmed, at most `max`. */
+function body(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim().slice(0, max).trim() : '';
+}
+
+function width(value: unknown): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(Math.max(Math.round(n), SITE_IMAGE_WIDTH_MIN), 100);
+}
+
+function settingsOf(type: SiteModuleType, value: unknown): SiteModule['settings'] {
+  const s = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  switch (type) {
+    case 'heading':
+      return { text: text(s.text, SITE_HEADING_MAX), level: isHeadingLevel(s.level) ? s.level : 'h2', color: colour(s.color) };
+    case 'text':
+      return { body: body(s.body, SITE_TEXT_MAX) };
+    case 'image':
+      return { url: siteImageUrl(s.url) ?? '', alt: text(s.alt, SITE_IMAGE_ALT_MAX), width: width(s.width) };
+    case 'button':
+      return {
+        label: text(s.label, SITE_BUTTON_LABEL_MAX),
+        href: siteButtonHref(s.href) ?? '',
+        color: colour(s.color) || BUTTON_COLOR,
+        textColor: colour(s.textColor) || BUTTON_TEXT_COLOR,
+        newTab: s.newTab === true,
+      };
+  }
+}
+
+const isEntry = (m: unknown): m is Record<string, unknown> => Boolean(m) && typeof m === 'object' && !Array.isArray(m);
+
+/**
+ * Whatever is stored as a section's modules, as a well-formed list: never
+ * throws. Anything but a list is no modules; an entry that is not an object,
+ * or not one of the four types, is dropped. A cell the layout does not have
+ * (the section's layout changed) becomes its first cell, so nothing is lost.
+ * Every setting is checked: a picture address that is not https:, or a link
+ * that is not allowed, is cleared; anything else not allowed takes its plain
+ * default. An id missing, badly formed or already in `taken` (the page's ids
+ * so far) is replaced with "module-<n>", and every id is added to `taken`.
+ */
+export function normalizeSiteModules(value: unknown, layout: SiteSectionLayout, taken: Set<string> = new Set()): SiteModule[] {
+  if (!Array.isArray(value)) return [];
+  const cells = siteSectionCells(layout);
+  const entries = value.filter(isEntry).filter((m) => isModuleType(m.type));
+  const kept = entries.map((m) => (typeof m.id === 'string' && SECTION_ID.test(m.id) && !taken.has(m.id) ? (taken.add(m.id), m.id) : null));
+  let n = 0;
+  return entries.map((m, i) => {
+    let id = kept[i];
+    if (id === null) {
+      do id = `module-${++n}`; while (taken.has(id));
+      taken.add(id);
+    }
+    const type = m.type as SiteModuleType;
+    const cell = typeof m.cell === 'string' && cells.includes(m.cell) ? m.cell : cells[0];
+    return { id, type, cell, settings: settingsOf(type, m.settings) } as SiteModule;
+  });
+}
+
+const shown = (value: string) => (value.length > 60 ? `${value.slice(0, 57)}…` : value);
+
+/**
+ * What is wrong with one module as typed, in words for a person, or null when
+ * it may be saved. Only what the tidy-up would otherwise silently clear is
+ * named: a picture address that is not https:, a link that is not allowed,
+ * or a kind of module WaveCenter does not have.
+ */
+export function siteModuleProblem(module: unknown): string | null {
+  if (!isEntry(module)) return 'A module was not readable.';
+  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture or button).`;
+  const s = isEntry(module.settings) ? module.settings : {};
+  if (module.type === 'image' && s.url !== undefined && siteImageUrl(s.url) === null) {
+    return `The picture address "${shown(String(s.url))}" cannot be used. A picture's address must be a secure web address, starting with https://.`;
+  }
+  if (module.type === 'button' && s.href !== undefined && siteButtonHref(s.href) === null) {
+    return `The button link "${shown(String(s.href))}" cannot be used. A button may link to a web address starting with https:// or http://, or to a WaveCenter page such as /about.`;
+  }
+  return null;
+}
+
+/** The first problem with any module in these sections as sent, naming where it is, or null. */
+export function siteModulesProblem(sections: unknown): string | null {
+  if (!Array.isArray(sections)) return null;
+  for (const [i, s] of sections.entries()) {
+    if (!isEntry(s) || s.modules === undefined) continue;
+    if (!Array.isArray(s.modules)) return `Section ${i + 1}'s modules must be a list.`;
+    for (const [j, m] of s.modules.entries()) {
+      const problem = siteModuleProblem(m);
+      if (problem) return `Section ${i + 1}, module ${j + 1}: ${problem}`;
+    }
+  }
+  return null;
+}
+
+/** A fresh module id, unlike any on the page. */
+export function newSiteModuleId(sections: readonly { modules: readonly { id: string }[] }[] = []): string {
+  const taken = new Set(sections.flatMap((s) => s.modules.map((m) => m.id)));
+  for (;;) {
+    const id = `module-${globalThis.crypto.randomUUID().slice(0, 8)}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/** A new module of `type` in `cell`, with its plain starting settings and an id unlike any on the page. */
+export function newSiteModule(type: SiteModuleType, cell: string, sections: readonly { modules: readonly { id: string }[] }[] = []): SiteModule {
+  const id = newSiteModuleId(sections);
+  switch (type) {
+    case 'heading':
+      return { id, cell, type, settings: { text: 'New heading', level: 'h2', color: '' } };
+    case 'text':
+      return { id, cell, type, settings: { body: '' } };
+    case 'image':
+      return { id, cell, type, settings: { url: '', alt: '', width: 100 } };
+    case 'button':
+      return { id, cell, type, settings: { label: 'Button', href: '', color: BUTTON_COLOR, textColor: BUTTON_TEXT_COLOR, newTab: false } };
+  }
 }

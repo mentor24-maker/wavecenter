@@ -130,3 +130,26 @@ order.
   its maker, and a change from draft to published credits the member who
   published it, each naming the tool. A refused save, a rename and a
   service-key write earn nothing (`docs/scoring/granular.md`).
+
+## Built in WC-209: headings, text, pictures and buttons
+
+- Each cell of a section holds **modules**, in order. The first four are a
+  **heading** (words, a size from h1 to h4, an optional colour), **text**
+  (WaveCenter's rich text: bold, italic, lists and links, never HTML), a
+  **picture** (an https: address, a description for anyone who cannot see
+  it, and a width as a share of the cell; uploads are a later ticket) and a
+  **button** (words, a link, its colours, and whether it opens a new tab).
+- `core/website.ts`: the module shape, `normalizeSiteModules` (whatever is
+  stored is tidied and never breaks a screen: an unknown type is dropped, a
+  cell the layout lacks becomes its first cell, a bad address is cleared),
+  `siteImageUrl` and `siteButtonHref` (a picture must be https:; a button
+  links only to http:, https: or a WaveCenter address such as `/about`), and
+  `siteModulesProblem`, which makes a save refuse a `javascript:` link or an
+  http: picture in plain words. Tested in `core/website.test.ts`.
+- Modules are saved inside the page's sections (`layout_sections`), so no
+  new migration was needed; the 50-section and 200,000-byte limits still hold.
+- `/admin/website/<id>/edit`: each cell lists its modules with Edit, up,
+  down and Remove, and an Add module picker. Edit opens that module's
+  settings panel beside the sections (StarCaster's one panel per module),
+  where its cell can be changed too. An address that cannot be saved is
+  marked in red as it is typed.
