@@ -5,7 +5,9 @@ import { ROLES } from './members.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemorySitePageStore } from './memorySitePageStore.ts';
 import {
-  SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, mayManageWebsite, sitePageSlug, sortSitePages,
+  SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, SITE_SECTIONS_BYTES_MAX, SITE_SECTIONS_MAX, SITE_SECTION_LAYOUTS, SITE_SECTION_TITLE_MAX,
+  addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, jsonbText, mayManageWebsite, newSiteSection, normalizeSiteSections,
+  saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
   type SitePageDeps,
 } from './website.ts';
 
@@ -99,7 +101,7 @@ test('a save that did not stick says so (rule 6)', async () => {
 
 test('pages sort A to Z by name, ignoring capitals', () => {
   const at = '2026-11-23T00:00:00Z';
-  const page = (name: string, slug: string) => ({ id: slug, name, slug, isPublished: false, createdBy: null, tool: TOOL, createdAt: at, updatedAt: at });
+  const page = (name: string, slug: string) => ({ id: slug, name, slug, isPublished: false, createdBy: null, tool: TOOL, createdAt: at, updatedAt: at, sections: [] });
   assert.deepEqual(sortSitePages([page('beta', 'b'), page('Alpha', 'a2'), page('alpha', 'a1')]).map((p) => p.slug), ['a1', 'a2', 'b']);
 });
 
@@ -188,4 +190,114 @@ test('a role without Manage website cannot change, publish or delete a page', as
   }
   assert.deepEqual(deps.pages.rows.find((p) => p.id === test1.id), test1);
   assert.equal(deps.pages.rows.length, 2);
+});
+
+// WC-208: a page built from sections and layouts.
+
+test('the sections migration lets a website manager change sections, under the limits core uses', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124140000_site_pages_sections.sql', import.meta.url), 'utf8');
+  assert.match(sql, /grant update \(layout_sections\) on public\.site_pages to authenticated/);
+  assert.match(sql, new RegExp(`jsonb_array_length\\(layout_sections\\) <= ${SITE_SECTIONS_MAX} and octet_length\\(layout_sections::text\\) <= ${SITE_SECTIONS_BYTES_MAX}\\)`));
+});
+
+test('every layout has its cells and grid, as in Normie', () => {
+  assert.deepEqual(SITE_SECTION_LAYOUTS.map((l) => l.key), ['single', 'two-column', 'three-column', 'two-four', 'four-two', 'one-five', 'five-one']);
+  assert.deepEqual(siteSectionCells('single'), ['main']);
+  assert.deepEqual(siteSectionCells('three-column'), ['left', 'center', 'right']);
+  assert.deepEqual(siteSectionCells('one-five'), ['left', 'right']);
+  assert.equal(siteSectionGrid('four-two'), '4fr 2fr');
+  assert.equal(siteSectionGrid('nope' as never), '1fr');
+});
+
+test('anything malformed in layout_sections is tidied into a well-formed list, never a crash', () => {
+  for (const junk of [null, undefined, 3, true, {}, 'not json', '{"a":1}', [null, 4, 'x', [1]]]) {
+    assert.deepEqual(normalizeSiteSections(junk), [], JSON.stringify(junk));
+  }
+  const tidy = normalizeSiteSections([
+    { id: 'hero', title: '  Big   hello ', layout: 'three-column', alignment: 'center', marginTop: '24', marginBottom: 999, background: '#ABC' },
+    { id: 'hero', layout: 'hero-split', alignment: 'sideways', marginTop: -5, marginBottom: 'lots', background: 'red' },
+    { id: 'bad id!', title: 7, layout: 'five-one', background: { mode: 'color', color: '#00FF00' } },
+    { background: { mode: 'gradient', color: '#00ff00' }, title: 'x'.repeat(200) },
+  ]);
+  assert.deepEqual(tidy, [
+    { id: 'hero', title: 'Big hello', layout: 'three-column', alignment: 'center', marginTop: 24, marginBottom: 160, background: '#aabbcc' },
+    { id: 'section-1', title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' },
+    { id: 'section-2', title: '', layout: 'five-one', alignment: 'left', marginTop: 0, marginBottom: 0, background: '#00ff00' },
+    { id: 'section-3', title: 'x'.repeat(SITE_SECTION_TITLE_MAX), layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' },
+  ]);
+  // A JSON string is read; a made-up id never takes one a later section already has.
+  assert.deepEqual(normalizeSiteSections('[{"id":"x"},{},{"id":"section-1"}]').map((s) => s.id), ['x', 'section-2', 'section-1']);
+  // Already tidy stays exactly as it is.
+  assert.deepEqual(normalizeSiteSections(tidy), tidy);
+});
+
+test('a new section has its layout and an id no other section has', () => {
+  const a = newSiteSection('two-column');
+  assert.equal(a.layout, 'two-column');
+  assert.match(a.id, /^section-[0-9a-f]{8}$/);
+  assert.notEqual(newSiteSection('single', [a]).id, a.id);
+  assert.deepEqual(normalizeSiteSections([a]), [a]);
+});
+
+test("the size is counted as Postgres writes jsonb's text", () => {
+  // select '{"a":1,"b":[1,"é"],"c":{}}'::jsonb::text  →  {"a": 1, "b": [1, "é"], "c": {}}
+  assert.equal(jsonbText({ a: 1, b: [1, 'é'], c: {} }), '{"a": 1, "b": [1, "é"], "c": {}}');
+  assert.equal(jsonbText([]), '[]');
+  assert.equal(siteSectionsBytes([]), 2);
+  assert.equal(siteSectionsBytes(normalizeSiteSections([{ id: 's', title: 'é' }])),
+    new TextEncoder().encode('[{"id": "s", "title": "é", "layout": "single", "alignment": "left", "marginTop": 0, "marginBottom": 0, "background": ""}]').length);
+});
+
+test('the unsaved changes are named in words', () => {
+  const [a, b, c] = ['a', 'b', 'c'].map((id) => normalizeSiteSections([{ id }])[0]);
+  assert.deepEqual(siteSectionChanges([a, b], [a, b]), []);
+  assert.deepEqual(siteSectionChanges([a, b], [b, a]), ['the order changed']);
+  assert.deepEqual(siteSectionChanges([a, b], [a, b, c]), ['1 section added']);
+  assert.deepEqual(siteSectionChanges([a, b, c], [c]), ['2 sections removed']);
+  assert.deepEqual(siteSectionChanges([a, b], [{ ...b, layout: 'two-column' }, a, c]), ['1 section added', '1 section changed', 'the order changed']);
+});
+
+test('an admin adds three sections with different layouts, reorders them and saves; they read back as saved', async () => {
+  const { deps, test1 } = await withPages();
+  const one = newSiteSection('single');
+  const two = newSiteSection('two-column', [one]);
+  const three = newSiteSection('three-column', [one, two]);
+  const order = [two, { ...one, title: 'Welcome', marginTop: 40, background: '#112233' }, three];
+  const saved = await saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: order }, TOOL);
+  assert.deepEqual(saved.sections, order);
+  const reread = (await deps.pages.list()).find((p) => p.id === test1.id);
+  assert.deepEqual(reread?.sections.map((s) => s.layout), ['two-column', 'single', 'three-column']);
+  // Saving none clears them.
+  assert.deepEqual((await saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [] }, TOOL)).sections, []);
+});
+
+test('what is sent is tidied before it is saved', async () => {
+  const { deps, test1 } = await withPages();
+  const saved = await saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [{ id: 'x', layout: 'sideways', marginTop: 500 }, 'junk'] }, TOOL);
+  assert.deepEqual(saved.sections, [{ id: 'x', title: '', layout: 'single', alignment: 'left', marginTop: 160, marginBottom: 0, background: '' }]);
+});
+
+test('too many sections, too large, not a list, a missing page or tool, or the wrong role are refused; nothing changes', async () => {
+  const { deps, test1 } = await withPages();
+  const many = Array.from({ length: SITE_SECTIONS_MAX + 1 }, (_, i) => ({ id: `s${i}` }));
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: many }, TOOL)), /at most 50 sections, and this one has 51/);
+  assert.equal(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: many.slice(0, SITE_SECTIONS_MAX) }, TOOL)), 'saved');
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: '[]' }, TOOL)), /must be a list/);
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: 'nope', sections: [] }, TOOL)), /was not found/);
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [] }, ' ')), /must name the tool/);
+  for (const who of ['eddie', 'vee']) {
+    assert.match(await refused(saveSitePageSections(deps, { actorId: who, id: test1.id, sections: [] }, TOOL)), /may not manage the website.*build pages/);
+  }
+  assert.equal(deps.pages.rows.find((p) => p.id === test1.id)?.sections.length, SITE_SECTIONS_MAX);
+  // The size limit, at the most sections a page holds: 50 sections with the longest titles still fit.
+  const big = Array.from({ length: SITE_SECTIONS_MAX }, (_, i) => ({ ...newSiteSection('three-column'), id: `s${i}`, title: '€'.repeat(SITE_SECTION_TITLE_MAX) }));
+  assert.ok(siteSectionsBytes(normalizeSiteSections(big)) < SITE_SECTIONS_BYTES_MAX);
+});
+
+test('a save of sections that did not stick says so, and the page keeps what it had (rule 6)', async () => {
+  const { deps, test1 } = await withPages();
+  deps.pages.failNextSave = true;
+  assert.equal(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [newSiteSection()] }, TOOL)),
+    'The sections did not save. The page is as it was; try again.');
+  assert.deepEqual(deps.pages.rows.find((p) => p.id === test1.id)?.sections, []);
 });
