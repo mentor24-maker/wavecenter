@@ -1180,7 +1180,21 @@ h4.site-heading { font-size: 1.1rem; }
 .site-image { display: inline-block; max-width: 100%; height: auto; border-radius: var(--radius); }
 .site-button { display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid; border-radius: var(--radius); font-weight: 700; text-decoration: none; }
 /* A published page at /site/<address> (WC-210): each section a grid of its cells; one column on a phone. */
+/* The page is a container, and phone and desktop are its own width (WC-211, core's SITE_PHONE_MAX_WIDTH and
+   SITE_DESKTOP_MIN_WIDTH; core/website.test.ts holds these numbers to core's). So the editor's 390-pixel preview gets
+   exactly the rules a visitor's phone gets. !important beats the section's own inline grid columns. */
+.site-page { container: site / inline-size; }
 .site-section { display: grid; gap: var(--space); padding: 0.75rem; border-radius: var(--radius); }
 .site-cell { display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
-@media (max-width: 40rem) { .site-section { grid-template-columns: 1fr !important; } }
+@container site (max-width: 639px) {
+  .site-stack-phone { grid-template-columns: 1fr !important; }
+  .site-hide-phone { display: none; }
+}
+@container site (min-width: 960px) { .site-hide-desktop { display: none; } }
+/* The editor's preview (WC-211): the page drawn at a device's real width, shrunk to fit when the editor is narrower. */
+.device-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.5rem 0; }
+.device-switch button[aria-pressed="true"] { outline: 3px solid var(--line); outline-offset: 2px; }
+.device-preview { margin: 0.5rem 0 var(--space); }
+.device-preview-stage { margin: 0 auto; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg, #fff); }
+.device-preview-screen { transform-origin: top left; }
 @media (max-width: 60rem) { .builder.with-panel { grid-template-columns: 1fr; } .module-panel { position: static; max-height: none; } }

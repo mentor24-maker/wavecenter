@@ -24,19 +24,25 @@
  * the original pushes a copy's content to the original, changing every page
  * that follows it at once, and links this section to it again. Those two
  * writes save at once; the page's own list still waits for Save.
+ *
+ * Preview (WC-211): Phone, Tablet or Desktop draws the unsaved sections with
+ * the public renderer at that device's width (DevicePreview). Each section
+ * can be hidden on a phone or on a desktop, and its columns can stack on a
+ * phone or stay side by side.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, useTransition, type CSSProperties, type MouseEvent } from "react";
 import {
   SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
-  SITE_SAVED_SECTION_NAME_MAX,
+  SITE_SAVED_SECTION_NAME_MAX, SITE_DEVICES,
   insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
   siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection,
-  type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
+  type SiteDevice, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { changeReusable, saveReusable, saveSections, type SavedSectionResult } from "../../actions";
 import SiteModuleView from "../../SiteModuleView";
+import DevicePreview from "./DevicePreview";
 import ModulePanel from "./ModulePanel";
 
 const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again.";
@@ -73,6 +79,8 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   const [pick, setPick] = useState(initialSaved[0]?.id ?? "");
   const [pickLinked, setPickLinked] = useState(true);
   const [naming, setNaming] = useState<{ sectionId: string; name: string } | null>(null);
+  /** The screen the preview draws, or null when it is closed. */
+  const [device, setDevice] = useState<SiteDevice | null>(null);
   const savedById = useMemo(() => new Map(saved.map((o) => [o.id, o])), [saved]);
 
   const changes = useMemo(() => siteSectionChanges(page.sections, sections), [page.sections, sections]);
@@ -256,6 +264,15 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         Nothing is saved until you click Save.
       </p>
 
+      <div className="device-switch" role="group" aria-label="Preview">
+        <strong>Preview:</strong>
+        {SITE_DEVICES.map((d) => (
+          <button key={d.key} type="button" aria-pressed={device === d.key} onClick={() => setDevice(d.key)}>{d.label}</button>
+        ))}
+        {device && <button type="button" onClick={() => setDevice(null)}>Close preview</button>}
+      </div>
+      {device && <DevicePreview sections={sections} device={device} />}
+
       {sections.length === 0 && (
         <p className="note" role="status">This page has no sections yet. Pick a layout below and click Add section.</p>
       )}
@@ -321,6 +338,23 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                       onChange={(e) => update(i, { background: e.target.value.toLowerCase() })} />
                   ) : (
                     <span className="note">None</span>
+                  )}
+                </span>
+                <span>Screens</span>
+                <span>
+                  <label>
+                    <input type="checkbox" checked={s.hideOnPhone} disabled={locked} onChange={(e) => update(i, { hideOnPhone: e.target.checked })} />{" "}
+                    Hide on phone
+                  </label>{" "}
+                  <label>
+                    <input type="checkbox" checked={s.hideOnDesktop} disabled={locked} onChange={(e) => update(i, { hideOnDesktop: e.target.checked })} />{" "}
+                    Hide on desktop
+                  </label>{" "}
+                  {siteSectionCells(s.layout).length > 1 && (
+                    <label>
+                      <input type="checkbox" checked={s.stackOnPhone} disabled={locked} onChange={(e) => update(i, { stackOnPhone: e.target.checked })} />{" "}
+                      Columns stack on a phone
+                    </label>
                   )}
                 </span>
               </div>

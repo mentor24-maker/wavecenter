@@ -283,6 +283,12 @@ export interface SiteSection {
   marginBottom: number;
   /** A colour as "#rrggbb", or "" for none. */
   background: string;
+  /** Not drawn at phone widths (WC-211, Normie's `mobileHidden`). */
+  hideOnPhone: boolean;
+  /** Not drawn at desktop widths (WC-211, Normie's `desktopHidden`). */
+  hideOnDesktop: boolean;
+  /** At phone widths its columns stack one above another (WC-211); off, they stay side by side. On by default. */
+  stackOnPhone: boolean;
   /**
    * The saved section this one came from (WC-212), when it came from one:
    * kept when it is unlinked, and even when the original is gone. Never set
@@ -347,7 +353,8 @@ function colour(value: unknown): string {
  * throws. A JSON string is read; anything but a list is no sections; an entry
  * that is not an object is dropped; every field is checked and anything
  * missing or not allowed takes its plain default (one column, left, no
- * spacing, no colour, no link). An id that is missing, badly formed or used twice is
+ * spacing, no colour, no link, shown on every screen, columns stacking on a
+ * phone). An id that is missing, badly formed or used twice is
  * replaced with one of the form "section-<n>", unique on the page.
  */
 export function normalizeSiteSections(value: unknown): SiteSection[] {
@@ -379,6 +386,9 @@ export function normalizeSiteSections(value: unknown): SiteSection[] {
       marginTop: spacing(s.marginTop),
       marginBottom: spacing(s.marginBottom),
       background: colour(s.background),
+      hideOnPhone: s.hideOnPhone === true,
+      hideOnDesktop: s.hideOnDesktop === true,
+      stackOnPhone: s.stackOnPhone !== false,
       modules: normalizeSiteModules(s.modules, isLayout(s.layout) ? s.layout : 'single', moduleIds),
     };
     // A link names its original by id (WC-212); a malformed id is no link at all.
@@ -402,7 +412,8 @@ export function newSiteSectionId(existing: readonly { id: string }[] = []): stri
 
 /** A new, empty section of `layout`, with an id unlike any in `existing`. */
 export function newSiteSection(layout: SiteSectionLayout = 'single', existing: readonly { id: string }[] = []): SiteSection {
-  return { id: newSiteSectionId(existing), title: '', layout: isLayout(layout) ? layout : 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] };
+  return { id: newSiteSectionId(existing), title: '', layout: isLayout(layout) ? layout : 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '',
+    hideOnPhone: false, hideOnDesktop: false, stackOnPhone: true, modules: [] };
 }
 
 /**
@@ -984,4 +995,52 @@ export function siteModuleDrawsLive(module: SiteModule): boolean {
  */
 export function sitePageHasContent(sections: readonly SiteSection[]): boolean {
   return sections.some((s) => s.modules.some(siteModuleDrawsLive));
+}
+
+// ---------------------------------------------------------------------------
+// Screen widths (WC-211): phone, tablet and desktop
+//
+// A section can be hidden on a phone or on a desktop, and its columns can
+// stack on a phone. What counts as a phone or a desktop is the width of the
+// page itself, not of the browser window: the page is a CSS container
+// (`.site-page` in app/globals.css) and the rules are container queries at
+// these same numbers. So the editor's preview, a box 390 pixels wide, gets
+// exactly the rules a visitor's phone gets, with no copy of them to drift
+// (StarCaster's lesson, builder-device-preview.tsx: a narrow box in a wide
+// window never matches a window-width rule). A test holds the CSS to these
+// numbers.
+
+/** The widest page, in CSS pixels, that counts as a phone. */
+export const SITE_PHONE_MAX_WIDTH = 639;
+/** The narrowest page, in CSS pixels, that counts as a desktop. Between the two is a tablet. */
+export const SITE_DESKTOP_MIN_WIDTH = 960;
+
+/** The screens the editor previews, in the order it offers them, each at a typical width (StarCaster's sizes; desktop a common laptop). */
+export const SITE_DEVICES = [
+  { key: 'phone', label: 'Phone', width: 390 },
+  { key: 'tablet', label: 'Tablet', width: 820 },
+  { key: 'desktop', label: 'Desktop', width: 1280 },
+] as const;
+
+export type SiteDevice = (typeof SITE_DEVICES)[number]['key'];
+
+/** Whether a section is drawn on this screen: a tablet shows every section. */
+export function siteSectionShowsOn(section: SiteSection, device: SiteDevice): boolean {
+  if (device === 'phone') return !section.hideOnPhone;
+  if (device === 'desktop') return !section.hideOnDesktop;
+  return true;
+}
+
+/** The class names that carry a section's per-screen settings to the CSS. */
+export function siteSectionClasses(section: SiteSection): string[] {
+  return [
+    ...(section.hideOnPhone ? ['site-hide-phone'] : []),
+    ...(section.hideOnDesktop ? ['site-hide-desktop'] : []),
+    ...(section.stackOnPhone ? ['site-stack-phone'] : []),
+  ];
+}
+
+/** Whether a page shows anything on this screen (rule 7: the preview names an empty screen rather than drawing a blank). */
+export function sitePageHasContentOn(sections: readonly SiteSection[], device: SiteDevice): boolean {
+  return sitePageHasContent(sections.filter((s) => siteSectionShowsOn(s, device)));
 }
