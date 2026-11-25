@@ -34,6 +34,18 @@ export async function listSitePages(supabase: Client): Promise<SitePage[]> {
   return sortSitePages((data ?? []).map(fromRow));
 }
 
+/**
+ * The published page at this address, or null when there is none (WC-210).
+ * Asks for published rows only, so a website manager's session, which may read
+ * drafts, sees the same public page as a visitor. A failed read throws, so the
+ * screen never mistakes it for "no such page".
+ */
+export async function readPublishedSitePage(supabase: Client, slug: string): Promise<SitePage | null> {
+  const { data, error } = await supabase.from("site_pages").select(COLUMNS).eq("slug", slug).eq("is_published", true).maybeSingle();
+  if (error) throw new Error(`The database refused to read this page: ${error.message}`);
+  return data ? fromRow(data) : null;
+}
+
 export function supabaseSitePageStore(supabase: Client): SitePageStore {
   return {
     list: () => listSitePages(supabase),

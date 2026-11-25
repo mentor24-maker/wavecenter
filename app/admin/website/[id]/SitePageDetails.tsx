@@ -4,13 +4,14 @@
  * One page of the website (WC-207): its facts, an Edit form for the name and
  * the address, a Publish / Back to draft switch, Delete with an "are you
  * sure" step, and a link to its section editor (WC-208). Every save shows the
- * page as the database read it back; a save that failed says so and keeps what was typed (engineering rule 6). After a
+ * page as the database read it back; a published page has View page, its
+ * public address (WC-210); a save that failed says so and keeps what was typed (engineering rule 6). After a
  * delete it goes back to the page list.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState, useTransition, type FormEvent } from "react";
-import { SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, type SitePage } from "../../../../core/website.ts";
+import { SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, sitePagePath, type SitePage } from "../../../../core/website.ts";
 import { changePage, deletePage } from "../actions";
 
 const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again.";
@@ -130,6 +131,7 @@ export default function SitePageDetails({ page: initial }: { page: SitePage }) {
         <p>
           <button type="button" disabled={pending} onClick={() => { begin(); setEditing(true); setConfirming(false); }}>Edit</button>{" "}
           <Link className="button" href={`/admin/website/${page.id}/edit`}>Edit sections</Link>{" "}
+          {page.isPublished && <><Link className="button" href={sitePagePath(page.slug)}>View page</Link>{" "}</>}
           <button type="button" disabled={pending} onClick={() => publish(!page.isPublished)}>
             {page.isPublished ? "Back to draft" : "Publish"}
           </button>{" "}

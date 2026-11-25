@@ -10,7 +10,8 @@ import {
   addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, jsonbText, mayManageWebsite, newSiteSection, normalizeSiteSections,
   saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
-  type SiteModule, type SitePageDeps, type SiteSection,
+  publicSitePage, sitePagePath, siteSectionStyle,
+  type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
 const TOOL = 'wavecenter';
@@ -530,4 +531,24 @@ test('malformed stored modules are tidied into well-formed ones, never a crash',
   assert.deepEqual(normalizeSiteSections(sections), sections);
   // Changing a section's layout keeps its modules, moved into a cell it has.
   assert.deepEqual(normalizeSiteSections([{ ...sections[0], layout: 'single' }])[0].modules.map((m) => m.cell), ['main', 'main', 'main', 'main', 'main']);
+});
+
+test('the public screen shows only a published page at exactly its own address (WC-210)', () => {
+  const at = '2026-11-24T00:00:00Z';
+  const live: SitePage = { id: 'p1', name: 'About', slug: 'about', isPublished: true, createdBy: null, tool: TOOL, createdAt: at, updatedAt: at, sections: [] };
+  assert.equal(publicSitePage(live, 'about'), live);
+  // A website manager's session can read drafts; the public screen still never shows one.
+  assert.equal(publicSitePage({ ...live, isPublished: false }, 'about'), null);
+  assert.equal(publicSitePage(live, 'other'), null);
+  assert.equal(publicSitePage(live, 'About'), null);
+  assert.equal(publicSitePage(null, 'about'), null);
+  assert.equal(publicSitePage(undefined, '../about'), null);
+  assert.equal(sitePagePath('about-us'), '/site/about-us');
+});
+
+test('a section is laid out the same way on every screen: its grid, alignment, spacing and background', () => {
+  const [s] = normalizeSiteSections([{ id: 's1', layout: 'two-four', alignment: 'center', marginTop: 12, marginBottom: 30, background: '#112233' }]);
+  assert.deepEqual(siteSectionStyle(s), { gridTemplateColumns: '2fr 4fr', textAlign: 'center', marginTop: 12, marginBottom: 30, background: '#112233' });
+  const [plain] = normalizeSiteSections([{ id: 's2' }]);
+  assert.equal('background' in siteSectionStyle(plain), false);
 });

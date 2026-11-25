@@ -153,3 +153,21 @@ order.
   settings panel beside the sections (StarCaster's one panel per module),
   where its cell can be changed too. An address that cannot be saved is
   marked in red as it is typed.
+
+## Built in WC-210: published pages at their own web address
+
+- A published page shows to anyone, signed in or not, at
+  `/site/<address>` (`app/site/[slug]/page.tsx`). It is read with the
+  visitor's own session, never the service key; row-level security returns
+  published pages only, and `readPublishedSitePage` asks for published rows
+  as well, so a member with Manage website sees the same page a visitor does,
+  never a draft. Core's `publicSitePage` checks it once more.
+- `app/site/SiteSections.tsx` is the one renderer for sections and modules:
+  each section a grid of its layout's cells (core's `siteSectionStyle`), each
+  module drawn live by `SiteModuleView`. On a phone-width screen every
+  section falls to one column. The editor's device preview (WC-211) will use
+  the same renderer.
+- A draft or an unknown address shows "There is no page at this address"
+  with a link Home; a page that could not be read says so; a published page
+  with no sections says it has nothing on it yet (rule 7).
+- A published page's screen in the manager has **View page**.
