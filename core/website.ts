@@ -266,6 +266,7 @@ export const SITE_SECTIONS_MAX = 50;
 export const SITE_SECTIONS_BYTES_MAX = 200_000;
 
 const SECTION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HEX_COLOUR = /^#[0-9a-f]{6}$/;
 
 /** One section of a page, in core's own names. */
@@ -281,6 +282,19 @@ export interface SiteSection {
   marginBottom: number;
   /** A colour as "#rrggbb", or "" for none. */
   background: string;
+  /**
+   * The saved section this one came from (WC-212), when it came from one:
+   * kept when it is unlinked, and even when the original is gone. Never set
+   * without `linked`.
+   */
+  savedSectionId?: string;
+  /**
+   * The one flag with the one meaning (StarCaster's lesson,
+   * docs/SAVED_SECTIONS.md): true, this section follows its saved original,
+   * shows the original's content wherever it is read, and cannot be edited
+   * in place; false, it is a plain copy. Only ever set beside `savedSectionId`.
+   */
+  linked?: boolean;
 }
 
 /** The cells a layout has, left to right. */
@@ -330,7 +344,7 @@ function colour(value: unknown): string {
  * throws. A JSON string is read; anything but a list is no sections; an entry
  * that is not an object is dropped; every field is checked and anything
  * missing or not allowed takes its plain default (one column, left, no
- * spacing, no colour). An id that is missing, badly formed or used twice is
+ * spacing, no colour, no link). An id that is missing, badly formed or used twice is
  * replaced with one of the form "section-<n>", unique on the page.
  */
 export function normalizeSiteSections(value: unknown): SiteSection[] {
@@ -353,7 +367,7 @@ export function normalizeSiteSections(value: unknown): SiteSection[] {
       do id = `section-${++n}`; while (taken.has(id));
       taken.add(id);
     }
-    return {
+    const section: SiteSection = {
       id,
       title: text(s.title, SITE_SECTION_TITLE_MAX),
       layout: isLayout(s.layout) ? s.layout : 'single',
@@ -362,6 +376,13 @@ export function normalizeSiteSections(value: unknown): SiteSection[] {
       marginBottom: spacing(s.marginBottom),
       background: colour(s.background),
     };
+    // A link names its original by id (WC-212); a malformed id is no link at all.
+    const origin = typeof s.savedSectionId === 'string' ? s.savedSectionId.trim().toLowerCase() : '';
+    if (UUID.test(origin)) {
+      section.savedSectionId = origin;
+      section.linked = s.linked === true;
+    }
+    return section;
   });
 }
 
@@ -449,6 +470,189 @@ export async function saveSitePageSections(
   const saved = await deps.pages.update(page.id, { sections }, named);
   if (!saved || saved.id !== page.id || JSON.stringify(saved.sections) !== JSON.stringify(sections)) {
     throw new CoreError('The sections did not save. The page is as it was; try again.');
+  }
+  return saved;
+}
+
+
+// ── Saved sections, reused on many pages (WC-212) ─────────────────────────
+//
+// Save a section once (a header, a footer, a banner) and reuse it on many
+// pages. The stored copy is the **original**, one row of `site_sections`;
+// what sits on a page is an **instance**, a section in the page's list with
+// `savedSectionId` naming its original. From StarCaster's saved sections
+// (docs/SAVED_SECTIONS.md there), kept to its lesson: one flag, one meaning.
+// `linked: true` means the instance follows its original and nothing else;
+// `linked: false` is a plain copy, which still remembers where it came from.
+//
+// A linked instance's own content is only a fallback for when its original
+// cannot be read (deleted, or hidden from a visitor): wherever a page is
+// shown, its sections are read through `resolveSiteSections`, which puts the
+// original's current content in place of every linked one. So changing the
+// original changes every page that follows it, with no page rewritten.
+
+/** The most a saved section's name may hold. The migration checks the same. */
+export const SITE_SAVED_SECTION_NAME_MAX = 80;
+/** The most bytes one saved section's content may take, measured as the database measures it. The migration checks the same. */
+export const SITE_SAVED_SECTION_BYTES_MAX = 50_000;
+
+/** One saved section, the original, in core's own names. */
+export interface SiteSavedSection {
+  id: string;
+  name: string;
+  /** Its content, well formed: read through `normalizeSavedSectionContent`. Never linked to anything itself. */
+  section: SiteSection;
+  /** Null once the member who saved it has left. */
+  createdBy: string | null;
+  tool: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What core needs from storage for the saved sections. */
+export interface SiteSavedSectionStore {
+  /** Every saved section the caller may see. */
+  list(): Promise<SiteSavedSection[]>;
+  /** Save a new original. Returns what is now saved, or null if nothing was. */
+  insert(row: { name: string; section: SiteSection; tool: string }): Promise<SiteSavedSection | null>;
+  /** Change an original's content. Returns what is now saved, or null if nothing changed. */
+  update(id: string, patch: { section: SiteSection }, tool: string): Promise<SiteSavedSection | null>;
+}
+
+/** What working with saved sections needs: the saved sections, the actor's role, and the grants. */
+export interface SiteSavedSectionDeps {
+  savedSections: SiteSavedSectionStore;
+  roles: MemberRoleStore;
+  grants?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** A section's content as an original holds it: well formed, its id "section", no link of its own. Never throws. */
+export function normalizeSavedSectionContent(value: unknown): SiteSection {
+  let raw = value;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = {};
+    }
+  }
+  const [section] = normalizeSiteSections([raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}]);
+  const { savedSectionId: _origin, linked: _linked, ...content } = section;
+  return { ...content, id: 'section' };
+}
+
+/** Saved sections A to Z by name, ignoring capitals. */
+export function sortSavedSections(saved: readonly SiteSavedSection[]): SiteSavedSection[] {
+  return [...saved].sort((x, y) => x.name.localeCompare(y.name, 'en', { sensitivity: 'base' }) || x.id.localeCompare(y.id));
+}
+
+/** `instance` with `original`'s content: its own id and link kept, everything else the original's. */
+function following(instance: SiteSection, original: SiteSavedSection): SiteSection {
+  return { ...original.section, id: instance.id, savedSectionId: original.id, linked: true };
+}
+
+/**
+ * A page's sections as they are shown: every linked section carries its
+ * original's current content in place of its own. A linked section whose
+ * original is not among `saved` (deleted, or not readable by this caller)
+ * keeps the content it was last saved with. Plain sections and plain
+ * copies are as stored.
+ */
+export function resolveSiteSections(sections: readonly SiteSection[], saved: readonly SiteSavedSection[]): SiteSection[] {
+  const byId = new Map(saved.map((s) => [s.id, s]));
+  return sections.map((s) => {
+    const original = s.linked && s.savedSectionId ? byId.get(s.savedSectionId) : undefined;
+    return original ? following(s, original) : s;
+  });
+}
+
+/** A new instance of `original` for a page, with an id unlike any in `existing`: linked (follows it) or a plain copy. */
+export function insertSavedSection(original: SiteSavedSection, linked: boolean, existing: readonly { id: string }[] = []): SiteSection {
+  return { ...original.section, id: newSiteSectionId(existing), savedSectionId: original.id, linked: linked === true };
+}
+
+/** A linked section turned into a plain copy: its current content kept, still remembering its original, editable again. */
+export function unlinkSiteSection(section: SiteSection): SiteSection {
+  return section.savedSectionId ? { ...section, linked: false } : section;
+}
+
+/** Is this section locked to its original (so not editable in place)? */
+export function isLinkedSiteSection(section: SiteSection): boolean {
+  return section.linked === true && Boolean(section.savedSectionId);
+}
+
+/** How many pages, of `pages`, follow saved section `id` (a page counted once however many times it holds it). */
+export function pagesFollowing(pages: readonly SitePage[], id: string): SitePage[] {
+  return pages.filter((p) => p.sections.some((s) => s.linked === true && s.savedSectionId === id));
+}
+
+function cleanSavedName(raw: string | undefined, saved: readonly SiteSavedSection[]): string {
+  const name = (raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!name) throw new CoreError('A saved section needs a name, so it can be found again. Nothing was saved.');
+  if (name.length > SITE_SAVED_SECTION_NAME_MAX) throw new CoreError(`A saved section's name can be at most ${SITE_SAVED_SECTION_NAME_MAX} characters. Nothing was saved.`);
+  const twin = saved.find((s) => s.name.localeCompare(name, 'en', { sensitivity: 'base' }) === 0);
+  if (twin) throw new CoreError(`There is already a saved section called "${twin.name}". Pick another name. Nothing was saved.`);
+  return name;
+}
+
+function cleanContent(section: unknown): SiteSection {
+  if (!section || typeof section !== 'object' || Array.isArray(section)) throw new CoreError('Only a section can be saved as a reusable section. Nothing was saved.');
+  const content = normalizeSavedSectionContent(section);
+  if (new TextEncoder().encode(jsonbText(content)).length > SITE_SAVED_SECTION_BYTES_MAX) {
+    throw new CoreError('This section is too large to save as a reusable section. Nothing was saved.');
+  }
+  return content;
+}
+
+async function requireSavedManager(deps: SiteSavedSectionDeps, actorId: string, doing: string): Promise<void> {
+  if (!mayManageWebsite(await roleOf(deps.roles, actorId), deps.grants)) {
+    throw new CoreError(`Your role may not manage the website. Only a role with the Manage website permission can ${doing}.`);
+  }
+}
+
+/**
+ * `actorId` saves `section` as a reusable section called `name` (WC-212),
+ * on behalf of `tool`. Its content is tidied and stored without any link of
+ * its own. Throws a CoreError in plain words when the role may not, the name
+ * is blank, too long or taken, the section is too large, or the save did not
+ * stick (rule 6). Returns the original as now saved, read back.
+ */
+export async function saveReusableSection(
+  deps: SiteSavedSectionDeps,
+  change: { actorId: string; name: string; section: unknown },
+  tool: string,
+): Promise<SiteSavedSection> {
+  const named = requireTool(tool);
+  await requireSavedManager(deps, change.actorId, 'save reusable sections');
+  const name = cleanSavedName(change.name, await deps.savedSections.list());
+  const section = cleanContent(change.section);
+  const saved = await deps.savedSections.insert({ name, section, tool: named });
+  if (!saved || saved.name !== name || JSON.stringify(saved.section) !== JSON.stringify(section)) {
+    throw new CoreError('The reusable section did not save. Nothing was made; try again.');
+  }
+  return saved;
+}
+
+/**
+ * `actorId` changes saved section `id`'s content to `section` (WC-212):
+ * every page that follows it shows the change. Throws a CoreError in plain
+ * words when the role may not, the original is gone, the section is too
+ * large, or the save did not stick (rule 6). Returns the original as now
+ * saved, read back.
+ */
+export async function changeSavedSection(
+  deps: SiteSavedSectionDeps,
+  change: { actorId: string; id: string; section: unknown },
+  tool: string,
+): Promise<SiteSavedSection> {
+  const named = requireTool(tool);
+  await requireSavedManager(deps, change.actorId, 'change saved sections');
+  const original = (await deps.savedSections.list()).find((s) => s.id === change.id);
+  if (!original) throw new CoreError('This saved section was not found. It may have been deleted. Nothing was saved.');
+  const section = cleanContent(change.section);
+  const saved = await deps.savedSections.update(original.id, { section }, named);
+  if (!saved || saved.id !== original.id || JSON.stringify(saved.section) !== JSON.stringify(section)) {
+    throw new CoreError(`The change to "${original.name}" did not save. Every page still shows it as it was; try again.`);
   }
   return saved;
 }

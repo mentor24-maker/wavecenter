@@ -2,7 +2,8 @@
 
 /**
  * Making a page of the website (WC-206), and changing, publishing or
- * deleting one (WC-207), and saving its sections (WC-208), runs on the server through core
+ * deleting one (WC-207), saving its sections (WC-208), and saving or
+ * changing a section reused on many pages (WC-212), runs on the server through core
  * (core/website.ts) as the tool `wavecenter`, acting as the signed-in member.
  *
  * Returns `{ ok: true }` only after the database confirmed the write.
@@ -11,15 +12,18 @@
  */
 import { revalidatePath } from "next/cache";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
-import { addSitePage, changeSitePage, deleteSitePage, saveSitePageSections, type SitePage, type SitePageDeps } from "../../../core/website.ts";
+import {
+  addSitePage, changeSavedSection, changeSitePage, deleteSitePage, saveReusableSection, saveSitePageSections,
+  type SitePage, type SitePageDeps, type SiteSavedSection, type SiteSavedSectionStore,
+} from "../../../core/website.ts";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../../lib/memberRoleStore";
-import { supabaseSitePageStore } from "../../lib/sitePageStore";
+import { supabaseSavedSectionStore, supabaseSitePageStore } from "../../lib/sitePageStore";
 import { currentUser, supabaseForRequest } from "../../lib/supabase";
 
 export type SitePageSaveResult = { ok: true; slug: string } | { ok: false; error: string };
 export type SitePageChangeResult = { ok: true; page: SitePage } | { ok: false; error: string };
 
-type Acting = { ok: true; deps: SitePageDeps; actorId: string } | { ok: false; error: string };
+type Acting = { ok: true; deps: SitePageDeps & { savedSections: SiteSavedSectionStore }; actorId: string } | { ok: false; error: string };
 
 /** The signed-in member and the stores core needs, or why the write cannot go ahead. */
 async function acting(nothing: string): Promise<Acting> {
@@ -35,7 +39,9 @@ async function acting(nothing: string): Promise<Acting> {
     };
   }
   const { grants } = await readRolesAndPermissions(supabase);
-  return { ok: true, actorId: user.id, deps: { pages: supabaseSitePageStore(supabase), roles: supabaseMemberRoleStore(supabase), grants } };
+  return { ok: true, actorId: user.id, deps: {
+    pages: supabaseSitePageStore(supabase), savedSections: supabaseSavedSectionStore(supabase), roles: supabaseMemberRoleStore(supabase), grants,
+  } };
 }
 
 export async function addPage(name: string, slug: string): Promise<SitePageSaveResult> {
@@ -103,5 +109,37 @@ export async function saveSections(id: string, sections: unknown): Promise<SiteP
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error("website: could not save the sections:", err);
     return { ok: false, error: "Could not save the sections. The page is as it was; try again." };
+  }
+}
+
+export type SavedSectionResult = { ok: true; saved: SiteSavedSection } | { ok: false; error: string };
+
+/** Save `section` as a reusable section called `name` (WC-212). */
+export async function saveReusable(name: string, section: unknown): Promise<SavedSectionResult> {
+  try {
+    const who = await acting("the reusable section was not saved");
+    if (!who.ok) return who;
+    const saved = await saveReusableSection(who.deps, { actorId: who.actorId, name, section }, WAVECENTER_TOOL);
+    return { ok: true, saved };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not save the reusable section:", err);
+    return { ok: false, error: "Could not save the reusable section. Nothing was made; try again." };
+  }
+}
+
+/** Change saved section `id`'s content; every page that follows it shows the change (WC-212). */
+export async function changeReusable(id: string, section: unknown): Promise<SavedSectionResult> {
+  try {
+    const who = await acting("the saved section was not changed");
+    if (!who.ok) return who;
+    const saved = await changeSavedSection(who.deps, { actorId: who.actorId, id, section }, WAVECENTER_TOOL);
+    // Every page's screens read it fresh; nothing is cached by page.
+    revalidatePath("/admin/website", "layout");
+    return { ok: true, saved };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not change the saved section:", err);
+    return { ok: false, error: "Could not save the change to the saved section. Every page still shows it as it was; try again." };
   }
 }
