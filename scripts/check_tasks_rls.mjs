@@ -56,7 +56,10 @@
  * a page of the website, as an empty draft only it sees, a published page is
  * seen by anyone, and only such a role renames, readdresses, publishes or
  * deletes one, or saves its sections (at most 50, at most 200000 bytes),
- * with the change time stamped (`public.site_pages`).
+ * with the change time stamped (`public.site_pages`); and that only such a
+ * role saves a section reused on many pages or changes its content, which
+ * anyone else reads only when a published page follows it
+ * (`public.site_sections`).
  *
  * It makes two throwaway users, signs each in the way the browser will (the
  * public key plus a password), has each write one task, then checks what each
@@ -2319,6 +2322,79 @@ try {
         `HTTP ${byKey.status} ${JSON.stringify(byKey.json)}, A before ${pubA2.length} after ${pubA3.length}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Saved sections reused on many pages (20261124160000_site_sections.sql,
+  // WC-212): only a role with site.edit (A) saves one, stamped as theirs, or
+  // changes its content, with the change time stamped; B (a viewer) and a
+  // signed-out visitor can do neither, and nobody deletes one or changes who
+  // saved it. A website manager reads every original; anyone else reads only
+  // one a published page follows (linked true), never one only a draft or a
+  // plain copy names. The test rows are removed at the end.
+  {
+    const pageIds = [];
+    const sectionIds = [];
+    const tag = randomUUID().slice(0, 8);
+    const content = (layout) => ({ id: 'section', title: '', layout, alignment: 'left', marginTop: 0, marginBottom: 0, background: '' });
+    const save = async (who, body) => {
+      const r = await call('/rest/v1/site_sections', { method: 'POST', token: who?.token, prefer: 'return=representation', body });
+      if (r.json?.[0]?.id) sectionIds.push(r.json[0].id);
+      return r;
+    };
+    const patch = (who, id, body) => call(`/rest/v1/site_sections?id=eq.${id}`, { method: 'PATCH', token: who?.token, prefer: 'return=representation', body });
+    const row = async (id) => (await admin(`/rest/v1/site_sections?id=eq.${id}&select=*`)).json?.[0];
+    const sees = async (who, id) => (await call(`/rest/v1/site_sections?id=eq.${id}&select=id`, { token: who?.token })).json?.length === 1;
+    const refused = (r) => r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0);
+    try {
+      const made = await save(a, { name: `RLS header ${tag}`, section: content('two-column') });
+      const original = made.json?.[0];
+      check('a website manager saves a reusable section, stamped as theirs, naming the tool',
+        made.status === 201 && original?.created_by === a.id && original?.tool === 'wavecenter' && original?.section?.layout === 'two-column',
+        `HTTP ${made.status} ${JSON.stringify(made.json)}`);
+      const byB = await save(b, { name: `RLS B ${tag}`, section: content('single') });
+      const byAnon = await save(null, { name: `RLS anon ${tag}`, section: content('single') });
+      const forgedBy = await save(a, { name: `RLS forged ${tag}`, section: content('single'), created_by: b.id });
+      check('a member without Manage website, or a signed-out visitor, cannot save a reusable section; nobody saves one in someone else\'s name',
+        byB.status >= 400 && byAnon.status >= 400 && forgedBy.status >= 400, `viewer HTTP ${byB.status}, signed out HTTP ${byAnon.status}, created_by HTTP ${forgedBy.status}`);
+      const blank = await save(a, { name: '  ', section: content('single') });
+      const long = await save(a, { name: 'x'.repeat(81), section: content('single') });
+      const notObject = await save(a, { name: `RLS list ${tag}`, section: [content('single')] });
+      const tooBig = await save(a, { name: `RLS big ${tag}`, section: { ...content('single'), title: 'x'.repeat(50001) } });
+      check('the database refuses a blank name, one over 80 characters, content that is not one section, and one over 50000 bytes',
+        blank.status >= 400 && long.status >= 400 && notObject.status >= 400 && tooBig.status >= 400,
+        `blank HTTP ${blank.status}, long HTTP ${long.status}, list HTTP ${notObject.status}, too big HTTP ${tooBig.status}`);
+
+      await new Promise((r) => setTimeout(r, 20));
+      const changed = await patch(a, original?.id, { section: content('three-column') });
+      check('a website manager changes a saved section\'s content, and the change time is stamped',
+        changed.status === 200 && changed.json?.[0]?.section?.layout === 'three-column' && changed.json?.[0]?.updated_at > original?.updated_at,
+        `HTTP ${changed.status} ${JSON.stringify(changed.json)}`);
+      const bPatch = await patch(b, original?.id, { section: content('single') });
+      const anonPatch = await patch(null, original?.id, { section: content('single') });
+      const forgedPatch = await patch(a, original?.id, { created_by: b.id });
+      const renamed = await patch(a, original?.id, { name: 'renamed' });
+      const bDel = await call(`/rest/v1/site_sections?id=eq.${original?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
+      const aDel = await call(`/rest/v1/site_sections?id=eq.${original?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+      const kept = await row(original?.id);
+      check('a member without Manage website, or a signed-out visitor, cannot change a saved section; nobody changes who saved it, renames or deletes one',
+        refused(bPatch) && refused(anonPatch) && forgedPatch.status >= 400 && renamed.status >= 400 && refused(bDel) && refused(aDel)
+          && kept?.section?.layout === 'three-column' && kept?.created_by === a.id && kept?.name === `RLS header ${tag}`,
+        `viewer HTTP ${bPatch.status}, signed out HTTP ${anonPatch.status}, created_by HTTP ${forgedPatch.status}, name HTTP ${renamed.status}, viewer delete HTTP ${bDel.status}, manager delete HTTP ${aDel.status}, row ${JSON.stringify(kept)}`);
+
+      check('an original no page follows is read by a website manager only', (await sees(a, original?.id)) && !(await sees(b, original?.id)) && !(await sees(null, original?.id)), '');
+      const instance = (linked) => ({ id: `s-${linked}`, title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', savedSectionId: original?.id, linked });
+      const page = (await call('/rest/v1/site_pages', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: `RLS follows ${tag}`, slug: `rls-follows-${tag}` } })).json?.[0];
+      if (page?.id) pageIds.push(page.id);
+      await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { layout_sections: [instance(false)], is_published: true } });
+      check('a published page holding only a plain copy does not let a visitor read the original', !(await sees(b, original?.id)) && !(await sees(null, original?.id)), '');
+      await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { layout_sections: [instance(true)], is_published: false } });
+      check('a draft page that follows it does not let a visitor read the original', !(await sees(b, original?.id)) && !(await sees(null, original?.id)), '');
+      await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { is_published: true } });
+      check('once a published page follows it, every member and a signed-out visitor read the original', (await sees(b, original?.id)) && (await sees(null, original?.id)), '');
+    } finally {
+      if (pageIds.length) await admin(`/rest/v1/site_pages?id=in.(${pageIds.join(',')})`, { method: 'DELETE' });
+      if (sectionIds.length) await admin(`/rest/v1/site_sections?id=in.(${sectionIds.join(',')})`, { method: 'DELETE' });
     }
   }
 

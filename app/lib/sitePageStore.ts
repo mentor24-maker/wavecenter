@@ -3,14 +3,18 @@
  * `site_pages` table. It acts through the signed-in member's own session, so
  * row-level security decides what it may read (published pages; every page
  * for a role with `site.edit`) and add, change (its sections too, WC-208) or
- * delete (a role with `site.edit`), repeating core's rules.
+ * delete (a role with `site.edit`), repeating core's rules. Below it, the
+ * same for the saved sections reused on many pages (`site_sections`, WC-212).
  *
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core. A save the
  * database refused is thrown, never taken as done (engineering rule 6).
  */
 import { CoreError } from "../../core/tool.ts";
-import { normalizeSiteSections, sortSitePages, type SitePage, type SitePageStore } from "../../core/website.ts";
+import {
+  normalizeSavedSectionContent, normalizeSiteSections, sortSavedSections, sortSitePages,
+  type SitePage, type SitePageStore, type SiteSavedSection, type SiteSavedSectionStore,
+} from "../../core/website.ts";
 import type { supabaseForRequest } from "./supabase";
 import { TOOL_HEADER } from "./taskStore";
 
@@ -74,6 +78,58 @@ export function supabaseSitePageStore(supabase: Client): SitePageStore {
       const { data, error } = await supabase.from("site_pages").delete().eq("id", id).select("id");
       if (error) throw new Error(`The database refused to delete the page: ${error.message}`);
       return (data ?? []).length === 1;
+    },
+  };
+}
+
+// ── Saved sections (WC-212) ───────────────────────────────────────────────
+// The `site_sections` table, through the member's own session: a role with
+// `site.edit` reads every original and saves or changes one; anyone else
+// reads only an original a published page follows (row-level security).
+
+const SAVED_COLUMNS = "id, name, section, created_by, tool, created_at, updated_at";
+
+function fromSavedRow(r: any): SiteSavedSection {
+  return {
+    id: r.id, name: r.name, createdBy: r.created_by, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at,
+    // Whatever is stored is tidied, so a malformed value never breaks a screen.
+    section: normalizeSavedSectionContent(r.section),
+  };
+}
+
+/** Every saved section the member may see, A to Z. A failed read throws, so a screen never mistakes it for "none". */
+export async function listSavedSections(supabase: Client): Promise<SiteSavedSection[]> {
+  const { data, error } = await supabase.from("site_sections").select(SAVED_COLUMNS);
+  if (error) throw new Error(`The database refused to read the saved sections: ${error.message}`);
+  return sortSavedSections((data ?? []).map(fromSavedRow));
+}
+
+/**
+ * The saved originals these linked sections follow (WC-210), for drawing a
+ * published page: anyone may read an original a published page follows.
+ * None asked for, none read. A failed read throws.
+ */
+export async function readSavedSectionsByIds(supabase: Client, ids: readonly string[]): Promise<SiteSavedSection[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("site_sections").select(SAVED_COLUMNS).in("id", [...ids]);
+  if (error) throw new Error(`The database refused to read this page's reused sections: ${error.message}`);
+  return (data ?? []).map(fromSavedRow);
+}
+
+export function supabaseSavedSectionStore(supabase: Client): SiteSavedSectionStore {
+  return {
+    list: () => listSavedSections(supabase),
+    async insert(row) {
+      const { data, error } = await supabase.from("site_sections").insert(row).select(SAVED_COLUMNS).maybeSingle();
+      if (error?.code === "23514") throw new CoreError("The database refused this section: its name or its size is not allowed. Nothing was saved.");
+      if (error) throw new Error(`The database refused to save the reusable section: ${error.message}`);
+      return data ? fromSavedRow(data) : null;
+    },
+    async update(id, patch) {
+      const { data, error } = await supabase.from("site_sections").update({ section: patch.section }).eq("id", id).select(SAVED_COLUMNS).maybeSingle();
+      if (error?.code === "23514") throw new CoreError("The database refused this section: it is too large. Nothing was saved.");
+      if (error) throw new Error(`The database refused to save the change to the saved section: ${error.message}`);
+      return data ? fromSavedRow(data) : null;
     },
   };
 }
