@@ -2106,6 +2106,10 @@ try {
     }
   }
 
+  // The website manager's two scoring actions (WC-213): A earns them in the
+  // page blocks below, so A's ledger check further down reads them apart.
+  const PAGE_KINDS = ['made_a_page', 'published_a_page'];
+
   // The website's pages (20261124120000_site_pages.sql, WC-206): only a role
   // with site.edit (admin; A is one, B a viewer) adds a page, in their own
   // name, always an empty draft; a draft is seen only by such a role, a
@@ -2254,6 +2258,65 @@ try {
       check('a member without Manage website, or a signed-out visitor, cannot change a page\'s sections, even a published one',
         refused(bPatch) && refused(anonPatch) && kept?.layout_sections?.length === 3,
         `viewer HTTP ${bPatch.status}, signed out HTTP ${anonPatch.status}, row ${JSON.stringify(kept)}`);
+    } finally {
+      if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Making and publishing a page earn their points (20261124150000_score_made_a_page.sql,
+  // WC-213): a page made earns "Made a page" for its maker, naming its tool;
+  // a change from draft to published earns "Published a page" for the member
+  // who published it, naming the tool in the request's header. A refused
+  // write, a rename, saving a published page as published, and a
+  // service-key write earn nothing. Counted relative to the blocks above,
+  // which already scored A's pages. The test rows are removed at the end.
+  {
+    const ids = [];
+    const tag = randomUUID().slice(0, 8);
+    const scores = async (member, kind) => (await admin(`/rest/v1/engagements?member_id=eq.${member.id}&kind=eq.${kind}&select=points,tool,task_id&order=created_at`)).json ?? [];
+    const keep = (r) => { if (r.json?.[0]?.id) ids.push(r.json[0].id); return r.json?.[0]; };
+    const patch = (who, id, body, tool) => call(`/rest/v1/site_pages?id=eq.${id}`, { method: 'PATCH', token: who?.token, prefer: 'return=representation', body, tool });
+    try {
+      const rules = (await admin(`/rest/v1/game_scoring_rules?kind=in.(${PAGE_KINDS.join(',')})&select=kind,name,points,effort,value,rarity,farm_risk&order=position`)).json ?? [];
+      check('"Made a page" and "Published a page" are listed on Game → Manage at 1 point, their factors left to score',
+        JSON.stringify(rules.map((r) => [r.kind, r.name, r.points, r.effort, r.value, r.rarity, r.farm_risk]))
+          === JSON.stringify([['made_a_page', 'Made a page', 1, null, null, null, null], ['published_a_page', 'Published a page', 1, null, null, null, null]]),
+        JSON.stringify(rules));
+      const madeA0 = await scores(a, 'made_a_page');
+      const madeB0 = await scores(b, 'made_a_page');
+      const pubA0 = await scores(a, 'published_a_page');
+
+      const page = keep(await call('/rest/v1/site_pages', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: `RLS score ${tag}`, slug: `rls-score-${tag}`, tool: 'rls-page-tool' } }));
+      keep(await call('/rest/v1/site_pages', { method: 'POST', token: a.token, prefer: 'return=representation', body: { name: `RLS score twin ${tag}`, slug: `rls-score-${tag}` } }));
+      keep(await call('/rest/v1/site_pages', { method: 'POST', token: b.token, prefer: 'return=representation', body: { name: `RLS score B ${tag}`, slug: `rls-score-b-${tag}` } }));
+      keep(await admin('/rest/v1/site_pages', { method: 'POST', prefer: 'return=representation', body: { name: `RLS score key ${tag}`, slug: `rls-score-key-${tag}` } }));
+      const madeA1 = await scores(a, 'made_a_page');
+      const madeB1 = await scores(b, 'made_a_page');
+      const newMade = madeA1.slice(madeA0.length);
+      check('making a page earns its maker one "Made a page", naming the tool; a taken address, a viewer\'s page and a service-key page earn nothing',
+        Boolean(page?.id) && newMade.length === 1 && newMade[0].points === 1 && newMade[0].tool === 'rls-page-tool' && newMade[0].task_id === null && madeB1.length === madeB0.length,
+        `A's new ${JSON.stringify(newMade)}, B before ${madeB0.length} after ${madeB1.length}`);
+
+      await patch(a, page?.id, { name: `RLS score renamed ${tag}` }, 'rls-rename-tool');
+      await patch(b, page?.id, { is_published: true }, 'rls-viewer-tool');
+      const pubA1 = await scores(a, 'published_a_page');
+      const pubB1 = await scores(b, 'published_a_page');
+      check('renaming a draft, or a viewer trying to publish it, earns no "Published a page"', pubA1.length === pubA0.length && pubB1.length === 0,
+        `A before ${pubA0.length} after ${pubA1.length}, B ${pubB1.length}`);
+
+      const published = await patch(a, page?.id, { is_published: true }, 'rls-publish-tool');
+      await patch(a, page?.id, { is_published: true, name: `RLS score again ${tag}` }, 'rls-publish-tool');
+      const pubA2 = await scores(a, 'published_a_page');
+      const newPub = pubA2.slice(pubA0.length);
+      check('publishing a draft earns the member who published it one "Published a page", naming the tool that sent it; saving it published again earns nothing',
+        published.status === 200 && published.json?.[0]?.is_published === true && newPub.length === 1 && newPub[0].points === 1 && newPub[0].tool === 'rls-publish-tool' && newPub[0].task_id === null,
+        `HTTP ${published.status}, A's new ${JSON.stringify(newPub)}`);
+
+      await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { is_published: false } });
+      const byKey = await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', prefer: 'return=representation', body: { is_published: true } });
+      const pubA3 = await scores(a, 'published_a_page');
+      check('a service-key publish is saved and earns nobody "Published a page"', byKey.status === 200 && byKey.json?.[0]?.is_published === true && pubA3.length === pubA2.length,
+        `HTTP ${byKey.status} ${JSON.stringify(byKey.json)}, A before ${pubA2.length} after ${pubA3.length}`);
     } finally {
       if (ids.length) await admin(`/rest/v1/site_pages?id=in.(${ids.join(',')})`, { method: 'DELETE' });
     }
@@ -2522,8 +2585,8 @@ try {
   const cascaded = await admin(`/rest/v1/task_comments?id=eq.${onParent.id}&select=id`);
   check('deleting a task deletes its comments', Array.isArray(cascaded.json) && cascaded.json.length === 0, JSON.stringify(cascaded.json));
 
-  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals, Home box changes, stars, added token sizes, changed token sizes and deleted token sizes were checked above, so this reads every other kind.
-  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box,starred_a_message,${TOKEN_SIZE_KIND},${TOKEN_CHANGE_KIND},${TOKEN_DELETE_KIND})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
+  // Messages, chat messages, started chats, added forum topics, added forum tags, made proposals, changed proposals, deleted proposals, Home box changes, stars, added token sizes, changed token sizes, deleted token sizes, and made and published pages were checked above, so this reads every other kind.
+  const ledgerA = await call(`/rest/v1/engagements?kind=not.in.(${MESSAGE_KIND},${CHAT_KIND},started_a_chat,added_a_forum_topic,added_a_forum_tag,made_a_proposal,changed_a_proposal,deleted_a_proposal,changed_a_home_box,starred_a_message,${TOKEN_SIZE_KIND},${TOKEN_CHANGE_KIND},${TOKEN_DELETE_KIND},${PAGE_KINDS.join(',')})&select=member_id,kind,points,tool,task_id&order=created_at`, { token: a.token });
   const kindsA = Array.isArray(ledgerA.json) ? ledgerA.json.map((e) => e.kind) : ledgerA.json;
   console.log(`\nA's engagements, oldest first: ${JSON.stringify(kindsA)}`);
   const expected = [
@@ -2545,8 +2608,9 @@ try {
   check('deleting a comment on its own earns its writer one engagement, naming the task and the tool; a comment that goes with its task earns none',
     commentDeletes.length === 2 && commentDeletes.every((e) => e.task_id === insA.id && e.tool === TOOL), JSON.stringify(commentDeletes));
 
+  const pagePointsA = ((await admin(`/rest/v1/engagements?member_id=eq.${a.id}&kind=in.(${PAGE_KINDS.join(',')})&select=points`)).json ?? []).reduce((sum, e) => sum + e.points, 0);
   const totalA = await call(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`, { token: a.token });
-  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA + starredPointsA + tokenSizePointsA + tokenChangePointsA + tokenDeletePointsA, `total ${JSON.stringify(totalA.json)}`);
+  check('A’s points total adds up A’s engagements', totalA.json?.[0]?.points === 34 + pagePointsA + aScored.length * messagePoints + chatA.length * chatRule?.points + startedChatPointsA + forumTopicPointsA + forumTagPointsA + madeProposalPointsA + changedProposalPointsA + deletedProposalPointsA + homeBoxPointsA + starredPointsA + tokenSizePointsA + tokenChangePointsA + tokenDeletePointsA, `total ${JSON.stringify(totalA.json)}`);
 
   // The first anti-farming step: a task earns "Finished a task" once, and a
   // save that changes nothing records nothing (task, profile, agents switch).
