@@ -16,16 +16,26 @@
  * a button. Add one to a cell, choose it to edit it in the settings panel
  * beside the sections (ModulePanel), move it up or down its cell or to
  * another cell, or remove it. Modules save with the sections.
+ *
+ * Saved sections (WC-212): any section can be saved as a reusable section,
+ * and a saved one inserted either linked (it follows the original, shown
+ * with the original's content, and cannot be edited here, modules included)
+ * or as a plain copy. Unlink turns a linked section into a plain copy; Update
+ * the original pushes a copy's content to the original, changing every page
+ * that follows it at once, and links this section to it again. Those two
+ * writes save at once; the page's own list still waits for Save.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, useTransition, type CSSProperties, type MouseEvent } from "react";
 import {
   SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
-  newSiteModule, newSiteSection, siteModuleLabel, siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid,
-  type SiteModule, type SiteModuleType, type SitePage, type SiteSection, type SiteSectionLayout,
+  SITE_SAVED_SECTION_NAME_MAX,
+  insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
+  siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection,
+  type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
-import { saveSections } from "../../actions";
+import { changeReusable, saveReusable, saveSections, type SavedSectionResult } from "../../actions";
 import SiteModuleView from "../../SiteModuleView";
 import ModulePanel from "./ModulePanel";
 
@@ -37,7 +47,16 @@ function layoutLabel(layout: SiteSectionLayout): string {
   return SITE_SECTION_LAYOUTS.find((l) => l.key === layout)?.label ?? layout;
 }
 
-export default function SectionEditor({ page: initial }: { page: SitePage }) {
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem }: {
+  page: SitePage;
+  /** Every page the member sees, to say how many follow a saved section. */
+  pages: SitePage[];
+  /** The saved sections, A to Z, or none when they could not be read (`savedProblem` says why). */
+  saved: SiteSavedSection[];
+  savedProblem: string | null;
+}) {
   const router = useRouter();
   const [page, setPage] = useState(initial);
   const [sections, setSections] = useState<SiteSection[]>(initial.sections);
@@ -50,6 +69,11 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const id = useId();
+  const [saved, setSaved] = useState(initialSaved);
+  const [pick, setPick] = useState(initialSaved[0]?.id ?? "");
+  const [pickLinked, setPickLinked] = useState(true);
+  const [naming, setNaming] = useState<{ sectionId: string; name: string } | null>(null);
+  const savedById = useMemo(() => new Map(saved.map((o) => [o.id, o])), [saved]);
 
   const changes = useMemo(() => siteSectionChanges(page.sections, sections), [page.sections, sections]);
   const unsaved = changes.length > 0;
@@ -123,6 +147,7 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
   /** The chosen module and where it is, while its panel is open. */
   const open = useMemo(() => {
     for (const [i, s] of sections.entries()) {
+      if (isLinkedSiteSection(s)) continue; // a section that follows its original is not edited here
       const m = s.modules.find((x) => x.id === chosen);
       if (m) return { i, m };
     }
@@ -133,6 +158,64 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
   function add() {
     if (full) return;
     edited([...sections, newSiteSection(newLayout, sections)]);
+  }
+
+  function insertSaved() {
+    const original = savedById.get(pick);
+    if (full || !original) return;
+    edited([...sections, insertSavedSection(original, pickLinked, sections)]);
+  }
+
+  /** How many pages follow saved section `savedId`, counting this one as it is saved. */
+  function followers(savedId: string): number {
+    return pagesFollowing(pages.map((p) => (p.id === page.id ? page : p)), savedId).length;
+  }
+
+  /** Run a saved-section write; on success, take in the new original and relink `sectionId` to it. */
+  function savedWrite(sectionId: string, write: () => Promise<SavedSectionResult>, done: (o: SiteSavedSection) => string) {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      let result: SavedSectionResult;
+      try {
+        result = await write();
+      } catch {
+        result = { ok: false, error: UNREACHABLE };
+      }
+      if (!result.ok) {
+        setError(`Not saved. ${result.error} Your sections are still here.`);
+        return;
+      }
+      const original = result.saved;
+      const list = sortSavedSections([...saved.filter((o) => o.id !== original.id), original]);
+      setSaved(list);
+      setPick((p) => p || original.id);
+      // Every section that follows it, on screen and in the saved baseline, shows its new content.
+      const relinked = sections.map((x) => (x.id === sectionId ? { ...x, savedSectionId: original.id, linked: true } : x));
+      const next = resolveSiteSections(relinked, list);
+      const baseline = resolveSiteSections(page.sections, list);
+      setSections(next);
+      setPage((pg) => ({ ...pg, sections: baseline }));
+      setNaming(null);
+      // Only ask for Save when this page now differs from what it has saved.
+      const unsavedNow = siteSectionChanges(baseline, next).length > 0;
+      setNotice(`${done(original)}${unsavedNow ? " Click Save to keep that on this page." : ""}`);
+    });
+  }
+
+  function saveAsReusable(s: SiteSection, name: string) {
+    savedWrite(s.id, () => saveReusable(name, s),
+      (o) => `Saved "${o.name}" as a reusable section. This section now follows it.`);
+  }
+
+  function updateOriginal(s: SiteSection) {
+    const original = s.savedSectionId ? savedById.get(s.savedSectionId) : undefined;
+    if (!original) return;
+    const n = followers(original.id);
+    const reach = n ? ` It changes at once on ${plural(n, "page")} that follow it.` : "";
+    if (!window.confirm(`Replace the saved section "${original.name}" with this section?${reach}`)) return;
+    savedWrite(s.id, () => changeReusable(original.id, s),
+      (o) => `Changed "${o.name}" on every page that follows it. This section follows it again.`);
   }
 
   function save() {
@@ -180,6 +263,9 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
       <ol className="section-list">
         {sections.map((s, i) => {
           const sid = `${id}-${s.id}`;
+          const linked = isLinkedSiteSection(s);
+          const original = s.savedSectionId ? savedById.get(s.savedSectionId) : undefined;
+          const locked = pending || linked;
           const style: CSSProperties = {
             gridTemplateColumns: siteSectionGrid(s.layout),
             textAlign: s.alignment,
@@ -192,6 +278,14 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
               <div className="section-head">
                 <strong>Section {i + 1}</strong>
                 <span className="note">{layoutLabel(s.layout)}</span>
+                {linked && (
+                  <span className="note" role="note">
+                    {original ? <>Follows the saved section &ldquo;{original.name}&rdquo;</> : "Follows a saved section that could not be found, so it shows its last saved content"}
+                  </span>
+                )}
+                {!linked && s.savedSectionId && (
+                  <span className="note">Copy of {original ? <>&ldquo;{original.name}&rdquo;</> : "a saved section that could not be found"}</span>
+                )}
                 <span className="section-moves">
                   <button type="button" disabled={pending || i === 0} onClick={() => move(i, -1)} aria-label={`Move section ${i + 1} up`}>↑ Up</button>{" "}
                   <button type="button" disabled={pending || i === sections.length - 1} onClick={() => move(i, 1)} aria-label={`Move section ${i + 1} down`}>↓ Down</button>{" "}
@@ -201,34 +295,64 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
 
               <div className="section-fields">
                 <label htmlFor={`${sid}-title`}>Title</label>
-                <input id={`${sid}-title`} type="text" maxLength={SITE_SECTION_TITLE_MAX} value={s.title} disabled={pending}
+                <input id={`${sid}-title`} type="text" maxLength={SITE_SECTION_TITLE_MAX} value={s.title} disabled={locked}
                   placeholder="Optional, for your own reference" onChange={(e) => update(i, { title: e.target.value })} />
                 <label htmlFor={`${sid}-layout`}>Layout</label>
-                <select id={`${sid}-layout`} value={s.layout} disabled={pending} onChange={(e) => changeLayout(i, e.target.value as SiteSectionLayout)}>
+                <select id={`${sid}-layout`} value={s.layout} disabled={locked} onChange={(e) => changeLayout(i, e.target.value as SiteSectionLayout)}>
                   {SITE_SECTION_LAYOUTS.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
                 </select>
                 <label htmlFor={`${sid}-align`}>Alignment</label>
-                <select id={`${sid}-align`} value={s.alignment} disabled={pending}
+                <select id={`${sid}-align`} value={s.alignment} disabled={locked}
                   onChange={(e) => update(i, { alignment: e.target.value as SiteSection["alignment"] })}>
                   {SITE_SECTION_ALIGNMENTS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
                 </select>
                 <label htmlFor={`${sid}-top`}>Space above (pixels)</label>
-                <input id={`${sid}-top`} type="number" min={0} max={SITE_SECTION_SPACING_MAX} step={1} value={s.marginTop} disabled={pending}
+                <input id={`${sid}-top`} type="number" min={0} max={SITE_SECTION_SPACING_MAX} step={1} value={s.marginTop} disabled={locked}
                   onChange={(e) => update(i, { marginTop: Math.min(Math.max(Math.round(Number(e.target.value) || 0), 0), SITE_SECTION_SPACING_MAX) })} />
                 <label htmlFor={`${sid}-bottom`}>Space below (pixels)</label>
-                <input id={`${sid}-bottom`} type="number" min={0} max={SITE_SECTION_SPACING_MAX} step={1} value={s.marginBottom} disabled={pending}
+                <input id={`${sid}-bottom`} type="number" min={0} max={SITE_SECTION_SPACING_MAX} step={1} value={s.marginBottom} disabled={locked}
                   onChange={(e) => update(i, { marginBottom: Math.min(Math.max(Math.round(Number(e.target.value) || 0), 0), SITE_SECTION_SPACING_MAX) })} />
                 <label htmlFor={`${sid}-bg-on`}>Background colour</label>
                 <span>
-                  <input id={`${sid}-bg-on`} type="checkbox" checked={s.background !== ""} disabled={pending}
+                  <input id={`${sid}-bg-on`} type="checkbox" checked={s.background !== ""} disabled={locked}
                     onChange={(e) => update(i, { background: e.target.checked ? "#ffffff" : "" })} />{" "}
                   {s.background !== "" ? (
-                    <input type="color" value={s.background} disabled={pending} aria-label={`Section ${i + 1} background colour`}
+                    <input type="color" value={s.background} disabled={locked} aria-label={`Section ${i + 1} background colour`}
                       onChange={(e) => update(i, { background: e.target.value.toLowerCase() })} />
                   ) : (
                     <span className="note">None</span>
                   )}
                 </span>
+              </div>
+
+              <div className="section-reuse">
+                {linked ? (
+                  <>
+                    <span className="note">A section that follows its saved original cannot be changed here. </span>
+                    <button type="button" disabled={pending} onClick={() => edited(sections.map((x, j) => (j === i ? unlinkSiteSection(x) : x)))}>
+                      Unlink
+                    </button>
+                    <span className="note"> (keeps it as a plain copy you can change)</span>
+                  </>
+                ) : naming?.sectionId === s.id ? (
+                  <>
+                    <label htmlFor={`${sid}-save-name`}>Name for the saved section</label>{" "}
+                    <input id={`${sid}-save-name`} type="text" maxLength={SITE_SAVED_SECTION_NAME_MAX} value={naming.name} disabled={pending}
+                      onChange={(e) => setNaming({ sectionId: s.id, name: e.target.value })} />{" "}
+                    <button type="button" disabled={pending || !naming.name.trim()} onClick={() => saveAsReusable(s, naming.name)}>Save as reusable</button>{" "}
+                    <button type="button" disabled={pending} onClick={() => setNaming(null)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" disabled={pending} onClick={() => setNaming({ sectionId: s.id, name: s.title })}>Save as a reusable section</button>
+                    {original && (
+                      <>
+                        {" "}
+                        <button type="button" disabled={pending} onClick={() => updateOriginal(s)}>Update the original &ldquo;{original.name}&rdquo;</button>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="section-preview-frame">
@@ -248,10 +372,10 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
                               <div className="module-head">
                                 <span className="note">{siteModuleLabel(m.type)}</span>
                                 <span className="section-moves">
-                                  <button type="button" disabled={pending} aria-pressed={chosen === m.id} onClick={() => setChosen(chosen === m.id ? null : m.id)} aria-label={`Edit ${name}`}>Edit</button>{" "}
-                                  <button type="button" disabled={pending || k === 0} onClick={() => moveModule(i, m.id, -1)} aria-label={`Move ${name} up`}>↑</button>{" "}
-                                  <button type="button" disabled={pending || k === here.length - 1} onClick={() => moveModule(i, m.id, 1)} aria-label={`Move ${name} down`}>↓</button>{" "}
-                                  <button type="button" disabled={pending} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
+                                  <button type="button" disabled={locked} aria-pressed={chosen === m.id} onClick={() => setChosen(chosen === m.id ? null : m.id)} aria-label={`Edit ${name}`}>Edit</button>{" "}
+                                  <button type="button" disabled={locked || k === 0} onClick={() => moveModule(i, m.id, -1)} aria-label={`Move ${name} up`}>↑</button>{" "}
+                                  <button type="button" disabled={locked || k === here.length - 1} onClick={() => moveModule(i, m.id, 1)} aria-label={`Move ${name} down`}>↓</button>{" "}
+                                  <button type="button" disabled={locked} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
                                 </span>
                               </div>
                               <SiteModuleView module={m} />
@@ -259,11 +383,11 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
                           );
                         })}
                         <span className="module-add">
-                          <select value={newType[key] ?? "heading"} disabled={pending} aria-label={`New module for ${where}`}
+                          <select value={newType[key] ?? "heading"} disabled={locked} aria-label={`New module for ${where}`}
                             onChange={(e) => setNewType({ ...newType, [key]: e.target.value as SiteModuleType })}>
                             {SITE_MODULE_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                           </select>{" "}
-                          <button type="button" disabled={pending} onClick={() => addModule(i, cell)} aria-label={`Add module to ${where}`}>Add module</button>
+                          <button type="button" disabled={locked} onClick={() => addModule(i, cell)} aria-label={`Add module to ${where}`}>Add module</button>
                         </span>
                       </div>
                     );
@@ -283,6 +407,30 @@ export default function SectionEditor({ page: initial }: { page: SitePage }) {
         <button type="button" disabled={pending || full} onClick={add}>Add section</button>
         {full && <span className="note"> A page holds at most {SITE_SECTIONS_MAX} sections.</span>}
       </p>
+
+      <div className="section-add">
+        {savedProblem ? (
+          <p className="error" role="alert">The saved sections could not be loaded ({savedProblem}), so none can be inserted. Try reloading.</p>
+        ) : saved.length === 0 ? (
+          <p className="note" role="status">No saved sections yet. Click &ldquo;Save as a reusable section&rdquo; on any section to save one for other pages.</p>
+        ) : (
+          <p>
+            <label htmlFor={`${id}-saved`}>Insert a saved section</label>{" "}
+            <select id={`${id}-saved`} value={pick} disabled={pending || full} onChange={(e) => setPick(e.target.value)}>
+              {saved.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>{" "}
+            <label>
+              <input type="radio" name={`${id}-saved-how`} checked={pickLinked} disabled={pending || full} onChange={() => setPickLinked(true)} />{" "}
+              Linked (follows the original)
+            </label>{" "}
+            <label>
+              <input type="radio" name={`${id}-saved-how`} checked={!pickLinked} disabled={pending || full} onChange={() => setPickLinked(false)} />{" "}
+              A plain copy
+            </label>{" "}
+            <button type="button" disabled={pending || full || !savedById.has(pick)} onClick={insertSaved}>Insert saved section</button>
+          </p>
+        )}
+      </div>
 
       <div className="section-save">
         <button type="button" disabled={pending || !unsaved} onClick={save}>{pending ? "Saving…" : "Save"}</button>{" "}

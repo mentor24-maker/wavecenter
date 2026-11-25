@@ -153,3 +153,35 @@ order.
   settings panel beside the sections (StarCaster's one panel per module),
   where its cell can be changed too. An address that cannot be saved is
   marked in red as it is typed.
+
+## Built in WC-212: save a section once, reuse it on many pages
+
+- A **saved section** (a header, a footer, a banner) is stored once, as the
+  **original**, in the new `site_sections` table
+  (`supabase/migrations/20261124160000_site_sections.sql`): a name and one
+  section's content. What sits on a page is an **instance**: a section in
+  the page's own list whose `savedSectionId` names its original.
+- StarCaster's lesson, one flag, one meaning: `linked: true` means the
+  instance **follows** its original and nothing else. Wherever a page is
+  shown, core's `resolveSiteSections` puts the original's current content in
+  place of every linked instance, so changing the original changes every page
+  that follows it at once, with no page rewritten. `linked: false` is a
+  plain copy, which still remembers where it came from.
+- In the section editor: **Save as a reusable section** (with a name) on any
+  section, which then follows the new original; **Insert a saved section**,
+  linked or as a plain copy; a linked section's settings are locked, and
+  **Unlink** turns it into a plain copy; on a copy, **Update the original**
+  replaces the original's content with this one, after an "are you sure"
+  naming how many pages follow it, and links this section to it again.
+- Row-level security from the creating migration: a role with Manage website
+  reads, saves and changes originals; anyone else reads only one a published
+  page follows. Deleting or renaming an original is not offered yet.
+- `core/website.ts`: `saveReusableSection`, `changeSavedSection`,
+  `resolveSiteSections`, `insertSavedSection`, `unlinkSiteSection`, with
+  tests. **The public page at its own address (WC-210) must read a page's
+  sections through `resolveSiteSections`**, or linked sections would show
+  their last saved copy instead of the original.
+- With modules (WC-209): a saved section carries its modules, and a linked
+  section's modules are locked with the rest of it. Each inserted copy gets
+  module ids of its own, and a saved section refuses a link or picture
+  address a page would refuse, in the same plain words.

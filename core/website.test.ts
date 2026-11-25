@@ -5,10 +5,13 @@ import { ROLES } from './members.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemorySitePageStore } from './memorySitePageStore.ts';
+import { MemorySiteSavedSectionStore } from './memorySiteSavedSectionStore.ts';
 import {
   SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, SITE_SECTIONS_BYTES_MAX, SITE_SECTIONS_MAX, SITE_SECTION_LAYOUTS, SITE_SECTION_TITLE_MAX,
   addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, jsonbText, mayManageWebsite, newSiteSection, normalizeSiteSections,
   saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
+  SITE_SAVED_SECTION_BYTES_MAX, SITE_SAVED_SECTION_NAME_MAX, changeSavedSection, insertSavedSection, isLinkedSiteSection,
+  normalizeSavedSectionContent, pagesFollowing, resolveSiteSections, saveReusableSection, sortSavedSections, unlinkSiteSection,
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   type SiteModule, type SitePageDeps, type SiteSection,
 } from './website.ts';
@@ -530,4 +533,153 @@ test('malformed stored modules are tidied into well-formed ones, never a crash',
   assert.deepEqual(normalizeSiteSections(sections), sections);
   // Changing a section's layout keeps its modules, moved into a cell it has.
   assert.deepEqual(normalizeSiteSections([{ ...sections[0], layout: 'single' }])[0].modules.map((m) => m.cell), ['main', 'main', 'main', 'main', 'main']);
+});
+
+// ── Saved sections, reused on many pages (WC-212) ─────────────────────────
+
+function savedSetup() {
+  const deps = setup();
+  return { ...deps, savedSections: new MemorySiteSavedSectionStore() };
+}
+
+test('the saved sections migration turns on row-level security, writes only for Manage website, and checks the limits core uses', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124160000_site_sections.sql', import.meta.url), 'utf8');
+  assert.match(sql, /create table if not exists public\.site_sections/);
+  assert.match(sql, /alter table public\.site_sections enable row level security/);
+  assert.match(sql, new RegExp(`between 1 and ${SITE_SAVED_SECTION_NAME_MAX}\\)`));
+  assert.match(sql, new RegExp(`octet_length\\(section::text\\) <= ${SITE_SAVED_SECTION_BYTES_MAX}\\)`));
+  assert.match(sql, /for insert to authenticated with check \(\(select private\.may\('site\.edit'\)\)\)/);
+  assert.match(sql, /'savedSectionId', site_sections\.id::text, 'linked', true/);
+  assert.doesNotMatch(sql, /grant delete/);
+});
+
+test('a link names its original by id; a malformed id is no link, and linked is only ever true or false beside it', () => {
+  const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const [a, b, c, d] = normalizeSiteSections([
+    { id: 'a', savedSectionId: id.toUpperCase(), linked: true },
+    { id: 'b', savedSectionId: id, linked: 'yes' },
+    { id: 'c', savedSectionId: 'not-a-uuid', linked: true },
+    { id: 'd', linked: true },
+  ]);
+  assert.equal(a.savedSectionId, id);
+  assert.equal(a.linked, true);
+  assert.equal(b.savedSectionId, id);
+  assert.equal(b.linked, false);
+  assert.equal('savedSectionId' in c || 'linked' in c, false);
+  assert.equal('savedSectionId' in d || 'linked' in d, false);
+  assert.deepEqual(normalizeSiteSections([a, b, c, d]), [a, b, c, d]);
+});
+
+test("an original's content is tidied and never carries a link of its own", () => {
+  const content = normalizeSavedSectionContent({ id: 'x', title: ' Header ', layout: 'two-column', savedSectionId: '0f8fad5b-d9cb-469f-a165-70867728950e', linked: true });
+  assert.deepEqual(content, { id: 'section', title: 'Header', layout: 'two-column', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] });
+  assert.deepEqual(normalizeSavedSectionContent('not json').layout, 'single');
+  assert.deepEqual(normalizeSavedSectionContent([1, 2]).layout, 'single');
+});
+
+test('a saved section inserted linked on two pages changes on both when the original is changed', async () => {
+  const deps = savedSetup();
+  const header = { ...newSiteSection('two-column'), title: 'Site header', background: '#112233' };
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: ' Site  header ', section: header }, TOOL);
+  assert.equal(original.name, 'Site header');
+  assert.equal(original.section.layout, 'two-column');
+  assert.equal(original.section.savedSectionId, undefined);
+
+  const home = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  const about = await addSitePage(deps, { actorId: 'dane', name: 'About' }, TOOL);
+  const onHome = insertSavedSection(original, true);
+  const onAbout = insertSavedSection(original, true, [onHome]);
+  assert.notEqual(onHome.id, onAbout.id);
+  assert.equal(isLinkedSiteSection(onHome), true);
+  await saveSitePageSections(deps, { actorId: 'dane', id: home.id, sections: [onHome] }, TOOL);
+  await saveSitePageSections(deps, { actorId: 'dane', id: about.id, sections: [newSiteSection(), onAbout] }, TOOL);
+  assert.deepEqual(pagesFollowing(await deps.pages.list(), original.id).map((p) => p.name).sort(), ['About', 'Home']);
+
+  const changed = await changeSavedSection(deps, { actorId: 'dane', id: original.id, section: { ...original.section, layout: 'three-column', background: '#445566' } }, TOOL);
+  const saved = await deps.savedSections.list();
+  for (const page of await deps.pages.list()) {
+    const shown = resolveSiteSections(page.sections, saved).filter(isLinkedSiteSection);
+    assert.equal(shown.length, 1, page.name);
+    assert.equal(shown[0].layout, 'three-column', page.name);
+    assert.equal(shown[0].background, '#445566', page.name);
+    assert.equal(shown[0].savedSectionId, changed.id);
+    // Each keeps its own id on its own page.
+    assert.equal(shown[0].id, page.id === home.id ? onHome.id : onAbout.id);
+  }
+});
+
+test('an unlinked copy, or one inserted as a plain copy, no longer changes with the original', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Banner', section: newSiteSection('single') }, TOOL);
+  const linked = insertSavedSection(original, true);
+  const unlinked = unlinkSiteSection(linked);
+  const copy = insertSavedSection(original, false, [linked]);
+  assert.equal(unlinked.linked, false);
+  assert.equal(unlinked.savedSectionId, original.id, 'an unlinked copy remembers where it came from');
+  assert.equal(isLinkedSiteSection(unlinked), false);
+  assert.equal(isLinkedSiteSection(copy), false);
+  await changeSavedSection(deps, { actorId: 'dane', id: original.id, section: { ...original.section, layout: 'five-one' } }, TOOL);
+  const [a, b, c] = resolveSiteSections([linked, unlinked, copy], await deps.savedSections.list());
+  assert.equal(a.layout, 'five-one');
+  assert.equal(b.layout, 'single');
+  assert.equal(c.layout, 'single');
+  assert.deepEqual(unlinkSiteSection(newSiteSection()).linked, undefined, 'a plain section has nothing to unlink');
+});
+
+test('a saved section carries its modules; every copy inserted gets module ids of its own, so two copies never share one', async () => {
+  const deps = savedSetup();
+  const section = { ...newSiteSection('two-column'), modules: [newSiteModule('heading', 'left'), newSiteModule('button', 'right')] };
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Hero', section }, TOOL);
+  assert.deepEqual(original.section.modules.map((m) => m.type), ['heading', 'button']);
+  const first = insertSavedSection(original, false);
+  const second = insertSavedSection(original, false, [first]);
+  const ids = [...first.modules, ...second.modules].map((m) => m.id);
+  assert.equal(new Set(ids).size, 4);
+  assert.deepEqual(second.modules.map((m) => [m.type, m.cell]), [['heading', 'left'], ['button', 'right']]);
+  assert.deepEqual(normalizeSiteSections([first, second]), [first, second], 'the page saves them as they are');
+});
+
+test('saving or changing a saved section refuses a module link that is not allowed, in words; nothing is saved', async () => {
+  const deps = savedSetup();
+  const bad = { ...newSiteSection(), modules: [{ ...newSiteModule('button', 'main'), settings: { label: 'Go', href: 'javascript:alert(1)' } }] };
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'Bad', section: bad }, TOOL)), /^Module 1: The button link .* Nothing was saved\.$/);
+  assert.equal(deps.savedSections.rows.length, 0);
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Good', section: newSiteSection() }, TOOL);
+  assert.match(await refused(changeSavedSection(deps, { actorId: 'dane', id: original.id, section: bad }, TOOL)), /button link/);
+  assert.deepEqual((await deps.savedSections.list())[0].section.modules, []);
+});
+
+test('a linked section whose original cannot be read keeps the content it was saved with', () => {
+  const s = { ...insertSavedSection({ id: '0f8fad5b-d9cb-469f-a165-70867728950e', name: 'Gone', section: normalizeSavedSectionContent({ layout: 'four-two' }), createdBy: null, tool: TOOL, createdAt: '', updatedAt: '' }, true) };
+  assert.deepEqual(resolveSiteSections([s], []), [s]);
+});
+
+test('saving a reusable section refuses the wrong role, a blank, long or taken name, a non-section, a missing tool; nothing is saved', async () => {
+  const deps = savedSetup();
+  await saveReusableSection(deps, { actorId: 'dane', name: 'Footer', section: newSiteSection() }, TOOL);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'vee', name: 'Other', section: newSiteSection() }, TOOL)), /Manage website/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'eddie', name: 'Other', section: newSiteSection() }, TOOL)), /Manage website/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: '  ', section: newSiteSection() }, TOOL)), /needs a name/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'x'.repeat(SITE_SAVED_SECTION_NAME_MAX + 1), section: newSiteSection() }, TOOL)), /at most/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'footer', section: newSiteSection() }, TOOL)), /already a saved section called "Footer"/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'List', section: [] }, TOOL)), /Only a section/);
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'No tool', section: newSiteSection() }, '')), /tool/i);
+  assert.equal(deps.savedSections.rows.length, 1);
+});
+
+test('changing a saved section refuses the wrong role or a missing original; a save that did not stick says so (rule 6)', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Footer', section: newSiteSection() }, TOOL);
+  assert.match(await refused(changeSavedSection(deps, { actorId: 'vee', id: original.id, section: newSiteSection('two-column') }, TOOL)), /Manage website/);
+  assert.match(await refused(changeSavedSection(deps, { actorId: 'dane', id: 'nope', section: newSiteSection('two-column') }, TOOL)), /not found/);
+  deps.savedSections.failNextSave = true;
+  assert.match(await refused(changeSavedSection(deps, { actorId: 'dane', id: original.id, section: newSiteSection('two-column') }, TOOL)), /did not save.*as it was/);
+  assert.equal(deps.savedSections.rows[0].section.layout, 'single');
+  deps.savedSections.failNextSave = true;
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'Header', section: newSiteSection() }, TOOL)), /did not save/);
+});
+
+test('saved sections sort A to Z by name, ignoring capitals', () => {
+  const row = (id: string, name: string) => ({ id, name, section: normalizeSavedSectionContent({}), createdBy: null, tool: TOOL, createdAt: '', updatedAt: '' });
+  assert.deepEqual(sortSavedSections([row('1', 'footer'), row('2', 'Banner'), row('3', 'Header')]).map((s) => s.name), ['Banner', 'footer', 'Header']);
 });

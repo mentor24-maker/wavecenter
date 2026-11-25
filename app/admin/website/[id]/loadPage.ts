@@ -11,7 +11,8 @@ import { loadWebsite, type WebsiteHeader } from "../loadWebsite";
 const PAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type PageLoad =
-  | { ok: true; header: WebsiteHeader; page: SitePage }
+  /** `pages` is every page the member sees, this one among them. */
+  | { ok: true; header: WebsiteHeader; page: SitePage; pages: SitePage[] }
   | { ok: false; header: WebsiteHeader; kind: "error" | "note"; problem: string };
 
 export async function loadSitePage(id: string): Promise<PageLoad> {
@@ -22,5 +23,5 @@ export async function loadSitePage(id: string): Promise<PageLoad> {
   }
   const page = PAGE_ID.test(id) ? load.pages.find((p) => p.id === id) : undefined;
   if (!page) return { ok: false, header: load.header, kind: "error", problem: "This page was not found. It may have been deleted, or the link may be wrong." };
-  return { ok: true, header: load.header, page };
+  return { ok: true, header: load.header, page, pages: load.pages };
 }
