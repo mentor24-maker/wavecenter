@@ -1157,3 +1157,26 @@ dialog.meeting-dialog .task-facts { margin-bottom: 0.25rem; }
 .section-cell { display: grid; gap: 0.2rem; min-height: 4.5rem; padding: 0.6rem; border: 2px dashed var(--muted); border-radius: var(--radius); background: var(--field); color: var(--fg); }
 .section-add, .section-save { margin: 0 0 var(--space); }
 .section-save p { margin: 0.4rem 0 0; }
+
+/* The website manager's modules and their settings panel (WC-209). */
+.builder.with-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem); gap: var(--space); align-items: start; }
+.builder-main { min-width: 0; }
+.module-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem; background: var(--level-1); }
+.module-panel .module-fields { grid-template-columns: 1fr; }
+.module-card { display: grid; gap: 0.3rem; padding: 0.4rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--level-1); text-align: inherit; }
+.module-card.chosen { outline: 2px solid var(--accent); }
+.module-card.has-problem { border-color: #b3261e; }
+.module-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem; text-align: left; }
+.module-add { margin-top: 0.2rem; text-align: left; }
+.site-heading, .site-text p { margin: 0.2rem 0; overflow-wrap: anywhere; }
+/* A page's own headings, not the app's small capital panel headings. */
+.site-heading { text-transform: none; letter-spacing: normal; font-weight: 700; line-height: 1.2; color: var(--fg); }
+h1.site-heading { font-size: 2.2rem; }
+h2.site-heading { font-size: 1.7rem; }
+h3.site-heading { font-size: 1.35rem; }
+h4.site-heading { font-size: 1.1rem; }
+.builder input[type="color"] { width: 3.5rem; height: 2.2rem; padding: 0.15rem; cursor: pointer; }
+.module-panel input[type="checkbox"] { justify-self: start; }
+.site-image { display: inline-block; max-width: 100%; height: auto; border-radius: var(--radius); }
+.site-button { display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid; border-radius: var(--radius); font-weight: 700; text-decoration: none; }
+@media (max-width: 60rem) { .builder.with-panel { grid-template-columns: 1fr; } .module-panel { position: static; max-height: none; } }

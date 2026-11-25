@@ -26,6 +26,7 @@ export default function CommentEditor({
   placeholder,
   autoFocus,
   maxLength = MAX_COMMENT_LENGTH,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -34,6 +35,8 @@ export default function CommentEditor({
   autoFocus?: boolean;
   /** The most the box holds: a comment's limit unless the words are for something else. */
   maxLength?: number;
+  /** While true (a save is running), the box and its toolbar take no changes. */
+  disabled?: boolean;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const [preview, setPreview] = useState(false);
@@ -100,11 +103,11 @@ export default function CommentEditor({
     <div className="comment-editor">
       <div className="toolbar" role="toolbar" aria-label={`Formatting for ${label}`}>
         {BUTTONS.map((b) => (
-          <button key={b.format} type="button" aria-label={b.label} title={b.title} disabled={preview} onClick={() => format(b.format)}>
+          <button key={b.format} type="button" aria-label={b.label} title={b.title} disabled={disabled || preview} onClick={() => format(b.format)}>
             {b.shown}
           </button>
         ))}
-        <button type="button" aria-label="Link" title="Link (Ctrl or ⌘ + K)" disabled={preview} onClick={link}>
+        <button type="button" aria-label="Link" title="Link (Ctrl or ⌘ + K)" disabled={disabled || preview} onClick={link}>
           Link
         </button>
         <button type="button" className="link preview-toggle" aria-pressed={preview} onClick={() => setPreview(!preview)}>
@@ -124,6 +127,7 @@ export default function CommentEditor({
           maxLength={maxLength}
           value={value}
           autoFocus={autoFocus}
+          disabled={disabled}
           onKeyDown={keys}
           onChange={(e) => {
             setProblem("");
