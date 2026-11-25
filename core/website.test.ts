@@ -13,7 +13,7 @@ import {
   SITE_SAVED_SECTION_BYTES_MAX, SITE_SAVED_SECTION_NAME_MAX, changeSavedSection, insertSavedSection, isLinkedSiteSection,
   normalizeSavedSectionContent, pagesFollowing, resolveSiteSections, saveReusableSection, sortSavedSections, unlinkSiteSection,
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
-  publicSitePage, sitePagePath, siteSectionStyle,
+  publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
@@ -547,6 +547,29 @@ test('the public screen shows only a published page at exactly its own address (
   assert.equal(publicSitePage(null, 'about'), null);
   assert.equal(publicSitePage(undefined, '../about'), null);
   assert.equal(sitePagePath('about-us'), '/site/about-us');
+});
+
+test('a published page shows "nothing on it yet" unless some module draws on the live page (WC-210)', () => {
+  const heading = newSiteModule('heading', 'main');
+  const text = newSiteModule('text', 'main');
+  const image = newSiteModule('image', 'main');
+  const button = newSiteModule('button', 'main');
+  assert.equal(siteModuleDrawsLive(heading), true);
+  assert.equal(siteModuleDrawsLive({ ...heading, settings: { ...heading.settings, text: '' } } as SiteModule), false);
+  assert.equal(siteModuleDrawsLive({ ...heading, settings: { ...heading.settings, text: '   ' } } as SiteModule), false);
+  assert.equal(siteModuleDrawsLive(text), false);
+  assert.equal(siteModuleDrawsLive({ ...text, settings: { body: 'Hello' } } as SiteModule), true);
+  assert.equal(siteModuleDrawsLive(image), false);
+  assert.equal(siteModuleDrawsLive({ ...image, settings: { ...image.settings, url: 'http://example.com/a.png' } } as SiteModule), false);
+  assert.equal(siteModuleDrawsLive({ ...image, settings: { ...image.settings, url: 'https://example.com/a.png' } } as SiteModule), true);
+  assert.equal(siteModuleDrawsLive(button), true);
+
+  const [empty] = normalizeSiteSections([{ id: 's1' }]);
+  assert.equal(sitePageHasContent([]), false);
+  // A fresh section, published as it is, draws nothing: the page must say so in words.
+  assert.equal(sitePageHasContent([empty]), false);
+  assert.equal(sitePageHasContent([empty, { ...empty, id: 's2', modules: [text, image] }]), false);
+  assert.equal(sitePageHasContent([empty, { ...empty, id: 's2', modules: [text, button] }]), true);
 });
 
 test('a section is laid out the same way on every screen: its grid, alignment, spacing and background', () => {

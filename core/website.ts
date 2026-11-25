@@ -957,3 +957,31 @@ export function siteSectionStyle(section: SiteSection): {
     ...(section.background ? { background: section.background } : {}),
   };
 }
+
+/**
+ * Whether a module draws anything on a live page. A heading or text with no
+ * words, or a picture with no usable address, draws nothing there (the
+ * editor names what is missing instead); a button always draws.
+ * SiteModuleView asks this, so the two never disagree.
+ */
+export function siteModuleDrawsLive(module: SiteModule): boolean {
+  switch (module.type) {
+    case 'heading':
+      return module.settings.text.trim() !== '';
+    case 'text':
+      return module.settings.body.trim() !== '';
+    case 'image':
+      return Boolean(siteImageUrl(module.settings.url));
+    case 'button':
+      return true;
+  }
+}
+
+/**
+ * Whether a page shows anything to a visitor: some section holds a module
+ * that draws live. A page with no sections, or only empty ones, says
+ * "nothing on it yet" instead of a blank screen (rule 7).
+ */
+export function sitePageHasContent(sections: readonly SiteSection[]): boolean {
+  return sections.some((s) => s.modules.some(siteModuleDrawsLive));
+}

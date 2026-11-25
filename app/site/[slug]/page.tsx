@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { isLinkedSiteSection, isSitePageSlug, publicSitePage, resolveSiteSections, type SitePage } from "../../../core/website.ts";
+import { isLinkedSiteSection, isSitePageSlug, publicSitePage, resolveSiteSections, sitePageHasContent, type SitePage } from "../../../core/website.ts";
 import { headerPoints } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
@@ -48,7 +48,11 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
       : isSitePageSlug(slug)
         ? readPage(supabase, slug).then(
             (page) => ({ page }),
-            (err: unknown) => ({ problem: `This page could not be loaded: ${err instanceof Error ? err.message : String(err)}. Try reloading in a minute.` }),
+            (err: unknown) => {
+              // The database's own words stay in the server's log; a visitor gets a plain sentence.
+              console.error(`/site/${slug}: the page could not be read:`, err);
+              return { problem: "This page could not be loaded just now. Try reloading in a minute." };
+            },
           )
         : { page: null },
   ]);
@@ -68,7 +72,7 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
             <p className="note" role="status">There is no page at this address.</p>
             <p><Link href="/">← Home</Link></p>
           </>
-        ) : read.page.sections.length === 0 ? (
+        ) : !sitePageHasContent(read.page.sections) ? (
           <>
             <h1>{read.page.name}</h1>
             <p className="note" role="status">This page has nothing on it yet.</p>

@@ -14,3 +14,9 @@ a **View page** button.
 
 The drawing is done by one shared piece, so the coming phone, tablet and
 desktop preview (WC-211) shows exactly what visitors see.
+
+Review caught one gap: a published page whose sections held nothing visible
+yet (a fresh empty section, or a heading with no words) showed a blank screen.
+Now the page says "This page has nothing on it yet." whenever nothing on it
+would draw. And if the page cannot be read from the database, a visitor sees
+a plain sentence; the technical error goes only to the server's log.
