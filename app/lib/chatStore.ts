@@ -13,7 +13,7 @@
  * `my_chat_unread`, which counts by core's rule under row-level security.
  *
  * `latestChatMessages` reads the newest message of each chat, for the chat
- * window's list (app/chat); `chatTaskTitles` reads the titles of the tasks
+ * window's list (app/comm); `chatTaskTitles` reads the titles of the tasks
  * chats are about, for their labels.
  *
  * It only translates names and turns a failed or unconfirmed database call
@@ -116,7 +116,7 @@ export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
 const LATEST_SCAN = 1000;
 
 /**
- * The newest message in each of `chatIds`, for the chat list (app/chat).
+ * The newest message in each of `chatIds`, for the chat list (app/comm).
  * One read of the most recent messages covers the busy chats; any chat with
  * no message among them is then asked on its own, so a quiet chat still
  * shows its last message. Row-level security keeps it to the member's own

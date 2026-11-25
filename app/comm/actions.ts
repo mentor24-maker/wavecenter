@@ -48,7 +48,7 @@ export async function startChatWith(otherMemberId: string, taskId: string | null
     const me = await signedIn("no chat was started");
     if (!me.ok) return me;
     const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId, taskId }, WAVECENTER_TOOL);
-    revalidatePath("/chat");
+    revalidatePath("/comm");
     if (taskId) revalidatePath(`/tasks/${taskId}`);
     return { ok: true, id };
   } catch (err) {
@@ -73,7 +73,7 @@ export async function sendChat(chatId: string, body: string): Promise<ChatSendRe
     console.error("chat: could not send a message:", err);
     return { ok: false, error: "Could not send the message. Nothing was saved; try again." };
   }
-  revalidatePath("/chat");
+  revalidatePath("/comm");
   return { ok: true };
 }
 

@@ -20,9 +20,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import type { LiveSettings } from "../../lib/realtimeClient";
-import { startChatWith } from "../../chat/actions";
-import { CHAT_PAUSED, Conversation, useChatLive, type OpenChat } from "../../chat/ChatWindow";
-import { listTimeLabel, notStarted, preview, type ChatListItem } from "../../chat/chatView";
+import { startChatWith } from "../../comm/actions";
+import { CHAT_PAUSED, Conversation, useChatLive, type OpenChat } from "../../comm/ChatWindow";
+import { listTimeLabel, notStarted, preview, type ChatListItem } from "../../comm/chatView";
 
 /** A member the panel offers to chat with. */
 export interface ChatPartnerOption {
@@ -160,7 +160,7 @@ export default function TaskChats({
       {open && (
         <div className="task-chat-open">
           <Conversation key={open.id} me={me} chat={open} showTopic={false} />
-          <p className="note"><Link href={`/chat/${open.id}`}>Open in Chat</Link> · <Link href={`/tasks/${taskId}`} scroll={false}>Close</Link></p>
+          <p className="note"><Link href={`/comm/${open.id}`}>Open in Comm</Link> · <Link href={`/tasks/${taskId}`} scroll={false}>Close</Link></p>
         </div>
       )}
     </aside>

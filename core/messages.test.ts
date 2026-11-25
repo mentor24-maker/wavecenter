@@ -55,7 +55,7 @@ test('the email names its sender, and says replies are not read and where to ans
   assert.equal(email.subject, 'Message from Kim Lee: Plans');
   assert.match(email.text, /^Kim Lee sent you this message through WaveCenter:\n\nSee you Tuesday\.\n\n--\n/);
   assert.match(email.text, /Replies to this email are not read, and Kim Lee does not see your email address\./);
-  assert.ok(email.text.endsWith(`To answer, open Your profile in WaveCenter and use Send Message: ${REPLY_URL}`));
+  assert.ok(email.text.endsWith(`To answer, open Comm in WaveCenter and use Send Message: ${REPLY_URL}`));
   assert.equal(email.text.includes('@'), false);
 });
 

@@ -708,15 +708,12 @@ dialog.message-form h2 { margin-top: 0; }
 dialog.message-form label { display: block; margin-bottom: 0.75rem; font-weight: 600; }
 dialog.message-form input, dialog.message-form textarea { display: block; width: 100%; margin-top: 0.25rem; font-weight: 400; }
 dialog.message-form .buttons { display: flex; gap: 1rem; align-items: center; }
-/* Your profile's top section: the form on the left, Messaging on the right; stacked on a narrow screen. */
-.profile-top { display: grid; gap: var(--space); align-items: start; margin-bottom: var(--space); }
-@media (min-width: 56rem) { .profile-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .messaging h3 { font-size: 1.05rem; margin: 0.75rem 0 0.4rem; }
 .message-compose { max-width: none; margin-bottom: 0.5rem; }
 .message-compose label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; }
 .message-compose input, .message-compose select, .message-compose textarea { font-weight: 400; width: 100%; }
 .message-compose .buttons { display: flex; gap: 1rem; align-items: center; }
-/* The Messages table on Your profile (WC-180): the Members table's look,
+/* The Messages table in Comm's Async mode (WC-180, moved from Your profile in WC-234): the Members table's look,
    scrolling sideways in a narrow column rather than squashing. A starred
    message's star is amber (5.0:1 on white); a trashed row, shown only with
    Show trash ticked, is dimmed. */
@@ -969,12 +966,24 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .task-score .score-parts dd { margin: 0; overflow-wrap: anywhere; }
 
 /*
- * The chat window (app/chat): the member's chats on the left, the open chat
+ * Comm's Sync / Async switch (WC-234): two joined buttons under the heading;
+ * the current mode is filled with the accent colour and marked
+ * aria-current, so it is clear by colour, weight and to a screen reader.
+ */
+.comm-modes { display: inline-flex; border: 1px solid var(--accent); border-radius: 999px; overflow: hidden; margin-bottom: 0.5rem; }
+.comm-modes a { padding: 0.35rem 1.1rem; font-weight: 600; text-decoration: none; color: var(--fg); }
+.comm-modes a + a { border-left: 1px solid var(--accent); }
+.comm-modes a:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.comm-modes a.current { background: var(--accent); color: var(--on-accent); }
+.comm-help { margin-top: 0; }
+
+/*
+ * The chat window (Comm's Sync mode, app/comm): the member's chats on the left, the open chat
  * on the right. The window is a level-1 box; the message pane inside it is
  * level 2, so it reads one step darker (lighter in dark mode), as every
  * nested box does. Your own messages sit on the right with an accent edge.
- * Under 48rem only one side shows: the list on /chat, the chat on
- * /chat/<id>, with "All chats" to go back.
+ * Under 48rem only one side shows: the list on /comm, the chat on
+ * /comm/<id>, with "All chats" to go back.
  */
 .chat-window { --surface: var(--level-1); display: grid; grid-template-columns: minmax(14rem, 18rem) 1fr; gap: var(--space); }
 .chat-window .chat-messages { --surface: var(--level-2); }

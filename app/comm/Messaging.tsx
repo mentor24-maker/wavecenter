@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The Messaging section of Your profile: a Send Message block, folded shut
+ * Comm's Async mode (CommScreen.tsx; until WC-234 the Messaging section of
+ * Your profile): a Send Message block, folded shut
  * until clicked, and the Messages table (WC-180): the messages the member
  * sent or received, with Direction, Member, Subject, Sent and Actions
  * columns, headings that sort when clicked (newest first to start), and a
@@ -29,7 +30,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { messageProblem, type MarkChange } from "../../core/messages.ts";
 import { sendMemberMessage } from "../members/actions";
-import { markMyMessage } from "./actions";
+import { markMyMessage } from "./messageActions";
 import {
   DEFAULT_MESSAGE_SORT,
   NO_MESSAGE_FILTER,
@@ -87,9 +88,9 @@ export default function Messaging({
   const reply = (m: ShownMessage) => setDraft({ n: (draft?.n ?? 0) + 1, to: m.otherId, subject: replySubject(m.subject) });
   return (
     <section className="panel messaging" aria-labelledby="messaging-heading">
-      <h2 id="messaging-heading">Messaging</h2>
+      <h2 id="messaging-heading">Messages</h2>
       <SendMessage key={draft?.n ?? 0} recipients={recipients} blocked={sendBlocked} draft={draft} />
-      <h3>Messages</h3>
+      <h3>Sent and received</h3>
       <MessageTable messages={messages} readError={readError} marksError={marksError} onReply={reply} />
     </section>
   );

@@ -3,12 +3,12 @@
 /**
  * The Chat button in a member's row: a speech bubble that finds or starts
  * your chat with them (startChatWith, on the server) and opens it at
- * `/chat/<id>`. Clicking it again opens the same chat. A failure says why
+ * `/comm/<id>` (Comm, Sync mode). Clicking it again opens the same chat. A failure says why
  * beside the button and opens nothing (engineering rule 6).
  */
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { startChatWith } from "../chat/actions";
+import { startChatWith } from "../comm/actions";
 
 const UNREACHABLE = "Could not reach WaveCenter, so no chat was started. Check your connection and try again.";
 
@@ -26,7 +26,7 @@ export default function ChatButton({ memberId, label }: { memberId: string; labe
           setFailure(result.error);
           return;
         }
-        router.push(`/chat/${result.id}`);
+        router.push(`/comm/${result.id}`);
       } catch {
         setFailure(UNREACHABLE);
       }

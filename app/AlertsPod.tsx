@@ -20,8 +20,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { alertText, noAlerts, type AlertCount } from "../core/alerts.ts";
 import { myOpenTaskCount } from "./alerts/actions";
-import { unreadChatCount } from "./chat/actions";
-import { CHAT_UNREAD_EVENT } from "./chat/chatView";
+import { unreadChatCount } from "./comm/actions";
+import { CHAT_UNREAD_EVENT } from "./comm/chatView";
 
 const UNREACHABLE = "Could not reach WaveCenter to count your alerts.";
 
@@ -89,7 +89,7 @@ export default function AlertsPod() {
   }
   return (
     <nav className="alerts" aria-label="Alerts">
-      <Link href="/chat" className="quiet" title={messages.ok ? undefined : messages.error}>
+      <Link href="/comm" className="quiet" title={messages.ok ? undefined : messages.error}>
         {alertText("messages", messages)}
       </Link>
       <span className="sep" aria-hidden="true">|</span>
