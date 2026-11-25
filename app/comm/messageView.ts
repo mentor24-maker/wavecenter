@@ -1,5 +1,5 @@
 /**
- * How the Messages table on Your profile is filtered and sorted in the
+ * How the Messages table in Comm's Async mode is filtered and sorted in the
  * browser, on the messages the page already loaded: nothing here reads or
  * writes the database. Plain functions with their own tests
  * (messageView.test.ts), modelled on the Members table's (memberView.ts).

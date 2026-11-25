@@ -1,7 +1,8 @@
-import ChatScreen from "../ChatScreen";
+import { redirect } from "next/navigation";
+import { commHref } from "../../comm/commMode";
 
-/** `/chat/<id>`: the member's chats with one open, so every chat has a link (ChatScreen.tsx). */
-export default async function OpenChatPage({ params }: { params: Promise<{ id: string }> }) {
+/** `/chat/<id>` is now `/comm/<id>` (WC-234, Dane's "C"): an old link to a chat still opens it. */
+export default async function OldChatLink({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <ChatScreen openId={id} />;
+  redirect(commHref("sync", id));
 }

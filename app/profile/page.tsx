@@ -1,22 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { mayDo, mayOpenAdmin, ROLES, STARTING_ROLE_PERMISSIONS, type RoleKey } from "../../core/members.ts";
-import { listMessageMarks, listMessages, unmarked, type MessageMark, type SavedMessage } from "../../core/messages.ts";
+import { mayOpenAdmin } from "../../core/members.ts";
 import { loadProfile, type MemberProfile } from "../../core/profiles.ts";
-import { shownName } from "../members/memberView";
 import { headerPoints } from "../lib/engagementStore";
 import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
-import { listMembers, myRole, readRolesAndPermissions, type MemberRow } from "../lib/memberRoleStore";
-import { supabaseMessageStore } from "../lib/messageStore";
+import { myRole } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
-import Messaging, { type Recipient, type ShownMessage } from "./Messaging";
 import PrivacySummary from "./PrivacySummary";
 import ProfileForm from "./ProfileForm";
-
-/** Messages and join dates are shown in Mountain time, Dane's own. */
-const WHEN = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-const DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
@@ -28,59 +20,14 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
   }
 }
 
-/** Everyone but the member, by the name their profile shows; two members who show the same name are told apart by when they joined. */
-function recipientsFrom(members: MemberRow[], me: string): Recipient[] {
-  const others = members.filter((m) => m.memberId !== me);
-  const count = new Map<string, number>();
-  for (const m of others) count.set(shownName(m), (count.get(shownName(m)) ?? 0) + 1);
-  return others
-    .map((m) => ({
-      memberId: m.memberId,
-      label: (count.get(shownName(m)) ?? 0) > 1 ? `${shownName(m)} (joined ${DAY.format(new Date(m.joinedAt))})` : shownName(m),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base", numeric: true }));
-}
-
-function shownMessages(messages: SavedMessage[], me: string, members: MemberRow[] | null, marks: Map<string, MessageMark>): ShownMessage[] {
-  const byId = new Map((members ?? []).map((m) => [m.memberId, shownName(m)]));
-  return messages.map((m) => {
-    const direction = m.senderId === me && m.recipientId === me ? "self" : m.senderId === me ? "to" : "from";
-    const otherId = direction === "from" ? m.senderId : m.recipientId;
-    const mark = marks.get(m.id) ?? unmarked(m.id);
-    return {
-      id: m.id,
-      direction,
-      otherId,
-      other: byId.get(otherId) ?? "a member",
-      subject: m.subject,
-      body: m.body,
-      sentAt: m.sentAt,
-      when: WHEN.format(new Date(m.sentAt)),
-      starred: mark.starred,
-      trashed: mark.trashedAt !== null,
-    };
-  });
-}
-
-/** Why the member cannot send, or null if they can. */
-function sendBlockedBy(role: Read<RoleKey>, grants: Readonly<Record<string, readonly string[]>>, members: Read<MemberRow[]>): string | null {
-  if (role.error !== null) return `Your role could not be loaded, so Send Message is off: ${role.error}. Try reloading the page.`;
-  if (!mayDo(role.value, "member.message", grants)) {
-    return `Your role, ${ROLES.find((r) => r.key === role.value)?.name ?? role.value}, cannot send messages yet.`;
-  }
-  if (members.error !== null) return `The list of members could not be loaded, so there is no one to pick: ${members.error}. Try reloading the page.`;
-  return null;
-}
-
 /**
  * "Your profile": the signed-in member's display name, avatar, bio and who
  * may see them (core/profiles.ts). A member who has never saved one sees the
  * anonymous default, and the page says so. Below it, a short note on how
  * WaveCenter treats privacy, shown whatever happens to the profile itself.
- * To the right of the form, Messaging: the messages the member sent or
- * received, and a Send Message form for any role with "Message members"
- * (every role; Dane, 2026-11-01, "B"). Signed-out visitors are sent to sign
- * in.
+ * Messages lived here until WC-234 (Dane's "C") moved them into Comm's
+ * Async mode; a line under the form points there. Signed-out visitors are
+ * sent to sign in.
  */
 export default async function Profile() {
   const supabase = await supabaseForRequest();
@@ -101,28 +48,8 @@ export default async function Profile() {
     );
   }
 
-  const messageStore = supabaseMessageStore(supabase);
-  const [role, lists, members, messages, marks, points] = await Promise.all([
-    read(() => myRole(supabase, user.id)),
-    read(() => readRolesAndPermissions(supabase)),
-    read(() => listMembers(supabase)),
-    read(() => listMessages(messageStore, user.id)),
-    read(() => listMessageMarks(messageStore, user.id)),
-    headerPoints(supabase, user.id),
-  ]);
+  const [role, points] = await Promise.all([read(() => myRole(supabase, user.id)), headerPoints(supabase, user.id)]);
   const isAdmin = role.error === null && mayOpenAdmin(role.value);
-  // The database's grants when they could be read; the starting ones
-  // otherwise. send_message checks the database's own either way.
-  const grants = lists.value?.grants ?? STARTING_ROLE_PERMISSIONS;
-  const messaging = (
-    <Messaging
-      messages={messages.value ? shownMessages(messages.value, user.id, members.value, marks.value ?? new Map()) : []}
-      readError={messages.error}
-      marksError={marks.error}
-      recipients={members.value ? recipientsFrom(members.value, user.id) : []}
-      sendBlocked={sendBlockedBy(role, grants, members)}
-    />
-  );
   let profile: MemberProfile | null = null;
   let neverSaved = false;
   let readError: string | null = null;
@@ -143,27 +70,23 @@ export default async function Profile() {
           Your profile starts completely anonymous. You choose what, if anything, other members can see.{" "}
           <Link href="/privacy">Why WaveCenter puts privacy first</Link>
         </p>
-        <div className="profile-top">
-          <div>
-            {readError !== null || !profile ? (
-              <p className="error" role="alert">
-                Your profile could not be loaded: {readError}. Nothing is shown so nothing wrong is saved over it; try reloading the page.
+        {readError !== null || !profile ? (
+          <p className="error" role="alert">
+            Your profile could not be loaded: {readError}. Nothing is shown so nothing wrong is saved over it; try reloading the page.
+          </p>
+        ) : (
+          <>
+            {neverSaved && (
+              <p className="note" role="status">
+                You have not set up a profile yet, so you are <strong>Anonymous</strong>: no name, just an avatar.
               </p>
-            ) : (
-              <>
-                {neverSaved && (
-                  <p className="note" role="status">
-                    You have not set up a profile yet, so you are <strong>Anonymous</strong>: no name, just an avatar.
-                  </p>
-                )}
-                <div className="panel">
-                  <ProfileForm initial={profile} />
-                </div>
-              </>
             )}
-          </div>
-          {messaging}
-        </div>
+            <div className="panel">
+              <ProfileForm initial={profile} />
+            </div>
+          </>
+        )}
+        <p className="note">Your messages are in <Link href="/comm?mode=async">Comm</Link>, under Async.</p>
         <PrivacySummary />
       </main>
     </>

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { listChatMessages, listChats, unreadChats, type Chat, type ChatMessage } from "../../core/chat.ts";
@@ -12,6 +13,9 @@ import { shownName } from "../members/memberView";
 import SiteHeader from "../SiteHeader";
 import ChatWindow, { type OpenChat } from "./ChatWindow";
 import { CHAT_ID, SOMEONE, chatList, chatPartner, chatTopic } from "./chatView";
+import { COMM_MODES, commHref, type CommMode } from "./commMode";
+import { loadMessaging } from "./messageList";
+import Messaging from "./Messaging";
 
 type Read<T> = { value: T; error: null } | { value: null; error: string };
 
@@ -24,29 +28,49 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
 }
 
 /**
- * The chat window (Dane, 2026-11-12: "two WaveCenter users could chat with
- * each other in real-time in a dedicated window"), shared by `/chat` and
- * `/chat/<id>`. On the left, the member's chats, newest activity first; on
- * the right, the open chat's messages and the send box. Everything is read
- * through the member's own session, so row-level security keeps every chat
- * private to the members in it; this screen adds no access of its own.
+ * Comm (WC-234): one panel for talking to other members, with a Sync / Async
+ * switch (Dane: "one main comm panel ... a toggle that switches between
+ * synchronous (sync) and asynchronous (async) modes"). Shared by `/comm` and
+ * `/comm/<id>`; the mode is in the address (commMode.ts).
  *
- * The page is the one source of what is shown. The window (ChatWindow.tsx)
- * listens live and reloads this page's data when a message arrives, so a
- * message shows once, in its place. Every empty or failed part says why
+ * Sync is the chat window (Dane, 2026-11-12: "two WaveCenter users could
+ * chat with each other in real-time in a dedicated window"): on the left,
+ * the member's chats, newest activity first; on the right, the open chat's
+ * messages and the send box. The window (ChatWindow.tsx) listens live and
+ * reloads this page's data when a message arrives, so a message shows once,
+ * in its place.
+ *
+ * Async is Messages (Messaging.tsx, which lived on Your profile until
+ * Dane's "C" on this ticket): the messages the member sent or received, with
+ * Send Message and Reply through the same server action as the Members
+ * page, so a message saves, emails and scores the same way.
+ *
+ * Everything is read through the member's own session, so row-level
+ * security keeps every chat and message private to the members in it; this
+ * screen adds no access of its own. Every empty or failed part says why
  * (rule 7). Signed-out visitors are sent to sign in.
  */
-export default async function ChatScreen({ openId }: { openId: string | null }) {
+export default async function CommScreen({ mode, openId }: { mode: CommMode; openId: string | null }) {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   if (supabase && !user && !checkFailed) redirect("/sign-in");
 
   if (!supabase || !user) {
     return (
-      <Shell>
+      <Shell mode={mode}>
         <p className="error" role="alert">
-          {!supabase ? "This copy of WaveCenter has no chat settings (no database settings), so there are no chats to show." : SIGN_IN_CHECK_FAILED}
+          {!supabase ? `This copy of WaveCenter has no database settings, so there are no ${mode === "async" ? "messages" : "chats"} to show.` : SIGN_IN_CHECK_FAILED}
         </p>
+      </Shell>
+    );
+  }
+
+  if (mode === "async") {
+    const [name, role, points] = await Promise.all([headerName(supabase, user), read(() => myRole(supabase, user.id)), headerPoints(supabase, user.id)]);
+    const messaging = await loadMessaging(supabase, user.id, role);
+    return (
+      <Shell mode={mode} name={name} isAdmin={role.error === null && mayOpenAdmin(role.value)} points={points}>
+        <Messaging {...messaging} />
       </Shell>
     );
   }
@@ -63,7 +87,7 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
 
   if (chats.error !== null) {
     return (
-      <Shell name={name} isAdmin={isAdmin} points={points}>
+      <Shell mode={mode} name={name} isAdmin={isAdmin} points={points}>
         <p className="error" role="alert">Your chats could not be loaded: {chats.error}. Nothing has been lost; try reloading the page.</p>
       </Shell>
     );
@@ -111,7 +135,7 @@ export default async function ChatScreen({ openId }: { openId: string | null }) 
   }
 
   return (
-    <Shell name={name} isAdmin={isAdmin} points={points}>
+    <Shell mode={mode} name={name} isAdmin={isAdmin} points={points}>
       {members.error !== null && (
         <p className="note" role="status">Members&apos; names could not be loaded ({members.error}), so chats show &quot;{SOMEONE}&quot;. Try reloading the page.</p>
       )}
@@ -146,12 +170,22 @@ function liveSettings() {
   return "missing" in settings ? null : { url: settings.url, anonKey: settings.anonKey };
 }
 
-function Shell({ name, isAdmin, points, children }: { name?: string; isAdmin?: boolean; points?: HeaderPoints; children: ReactNode }) {
+/** The page around either mode: the header, the heading, and the Sync / Async switch with one line on what the current mode is for. */
+function Shell({ mode, name, isAdmin, points, children }: { mode: CommMode; name?: string; isAdmin?: boolean; points?: HeaderPoints; children: ReactNode }) {
+  const current = COMM_MODES.find((m) => m.mode === mode) ?? COMM_MODES[0];
   return (
     <>
       <SiteHeader name={name} isAdmin={isAdmin} points={points} />
       <main className="chat-page">
-        <h1>Chat</h1>
+        <h1>Comm</h1>
+        <nav className="comm-modes" aria-label="Comm mode">
+          {COMM_MODES.map((m) => (
+            <Link key={m.mode} href={commHref(m.mode)} aria-current={m.mode === mode ? "page" : undefined} className={m.mode === mode ? "current" : undefined}>
+              {m.label}
+            </Link>
+          ))}
+        </nav>
+        <p className="note comm-help">{current.help}</p>
         {children}
       </main>
     </>

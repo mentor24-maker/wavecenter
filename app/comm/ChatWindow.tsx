@@ -3,7 +3,7 @@
 /**
  * The chat window itself: the member's chats on the left, the open chat on
  * the right, and the box to type in. On a phone-width screen only one side
- * shows at a time: the list on `/chat`, the open chat on `/chat/<id>`, with
+ * shows at a time: the list on `/comm`, the open chat on `/comm/<id>`, with
  * a link back to the list.
  *
  * Live (Dane, 2026-11-12: "chat with each other in real-time"): while the
@@ -86,7 +86,7 @@ export default function ChatWindow({
                 return (
                   <li key={c.id}>
                     <Link
-                      href={`/chat/${c.id}`}
+                      href={`/comm/${c.id}`}
                       className={`chat-item${isOpen ? " open" : ""}${badge ? " unread" : ""}`}
                       aria-current={isOpen ? "page" : undefined}
                       aria-label={badge ? `${c.otherName}, ${c.unread} unread ${c.unread === 1 ? "message" : "messages"}` : undefined}
@@ -114,7 +114,7 @@ export default function ChatWindow({
         </nav>
 
         <section className="chat-conversation" aria-label={open ? `Chat with ${open.otherName}` : "Open chat"}>
-          <p className="chat-back"><Link href="/chat">&larr; All chats</Link></p>
+          <p className="chat-back"><Link href="/comm">&larr; All chats</Link></p>
           {openProblem ? (
             <p className="error" role="alert">{openProblem}</p>
           ) : !open ? (

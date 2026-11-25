@@ -40,8 +40,8 @@ export function messageEnvelopeNote(emailing: boolean): string {
 export const SUBJECT_MAX = 200;
 export const BODY_MAX = 10000;
 
-/** Where a member answers a message: Messaging on Your profile. */
-export const REPLY_URL = 'https://app.wavecenter.com/profile';
+/** Where a member answers a message: Comm's Async mode (WC-234; it was Your profile before). */
+export const REPLY_URL = 'https://app.wavecenter.com/comm?mode=async';
 
 /** What the email calls a sender whose profile does not show their name to other members. */
 export const ANONYMOUS_SENDER = 'An anonymous WaveCenter member';
@@ -68,7 +68,7 @@ export function messageEmail(sender: string, subject: string, body: string): { s
     text:
       `${sender} sent you this message through WaveCenter:\n\n${body}\n\n--\n` +
       `Replies to this email are not read, and ${sender} does not see your email address. ` +
-      `To answer, open Your profile in WaveCenter and use Send Message: ${REPLY_URL}`,
+      `To answer, open Comm in WaveCenter and use Send Message: ${REPLY_URL}`,
   };
 }
 

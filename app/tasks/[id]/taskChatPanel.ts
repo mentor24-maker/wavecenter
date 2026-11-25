@@ -13,8 +13,8 @@ import { latestChatMessages, supabaseChatStore } from "../../lib/chatStore";
 import { listMembers } from "../../lib/memberRoleStore";
 import type { supabaseForRequest } from "../../lib/supabase";
 import { shownName } from "../../members/memberView";
-import type { OpenChat } from "../../chat/ChatWindow";
-import { CHAT_ID, SOMEONE, chatList, chatPartner, type ChatListItem } from "../../chat/chatView";
+import type { OpenChat } from "../../comm/ChatWindow";
+import { CHAT_ID, SOMEONE, chatList, chatPartner, type ChatListItem } from "../../comm/chatView";
 import type { ChatPartnerOption } from "./TaskChats";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;

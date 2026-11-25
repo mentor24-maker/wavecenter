@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The header's Chat link, with the number of chats that have a message
+ * The header's Comm link (it said Chat until WC-234), with the number of chats that have a message
  * waiting (WC-176: "Members cannot tell when a chat message is waiting: show
  * unread count"). Hidden at 0, "9+" above 9 (core/chat.ts `unreadBadge`).
  *
@@ -20,8 +20,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { unreadBadge } from "../core/chat.ts";
-import { unreadChatCount } from "./chat/actions";
-import { CHAT_UNREAD_EVENT } from "./chat/chatView";
+import { unreadChatCount } from "./comm/actions";
+import { CHAT_UNREAD_EVENT } from "./comm/chatView";
 import { listenToTable, type LiveSettings } from "./lib/realtimeClient";
 
 type Count = { state: "loading" } | { state: "ok"; chats: number } | { state: "failed"; error: string };
@@ -89,13 +89,13 @@ export default function ChatLink({ liveUrl, liveKey }: { liveUrl: string | null;
   const badge = count.state === "ok" ? unreadBadge(count.chats) : null;
   const label =
     count.state === "failed"
-      ? `Chat (unread chats could not be counted: ${count.error})`
+      ? `Comm (unread chats could not be counted: ${count.error})`
       : count.state === "ok" && badge
-        ? `Chat, ${count.chats} ${count.chats === 1 ? "chat" : "chats"} with unread messages`
+        ? `Comm, ${count.chats} ${count.chats === 1 ? "chat" : "chats"} with unread messages`
         : undefined;
   return (
-    <Link href="/chat" className="quiet chat-link" aria-label={label} title={count.state === "failed" ? count.error : undefined}>
-      Chat
+    <Link href="/comm" className="quiet chat-link" aria-label={label} title={count.state === "failed" ? count.error : undefined}>
+      Comm
       {badge && <span className="unread-badge" aria-hidden="true">{badge}</span>}
       {count.state === "failed" && <span className="unread-badge unknown" aria-hidden="true">?</span>}
     </Link>

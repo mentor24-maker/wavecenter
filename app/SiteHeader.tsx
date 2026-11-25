@@ -18,9 +18,9 @@ import TokenAnimation from "./TokenAnimation";
  * for a change that could become a task, at `/proposals`), then Tasks (the list, at
  * `/tasks`), then the Game page, where their
  * points are, then Teams (`/teams`, the Team Manager: the groups members
- * work in), then Members (`/members`), then Chat (`/chat`, live chats
+ * work in), then Members (`/members`), then Comm (`/comm`, live chats and messages
  * between members, with the number of chats that have a message waiting,
- * live: ChatLink.tsx). Every member gets Teams, Members and Chat; each page itself
+ * live: ChatLink.tsx). Every member gets Teams, Members and Comm; each page itself
  * decides what the member's role may see and do there. The menu holds only
  * the places every member goes, and runs along the bottom of the bar, under
  * the name and Log out. An admin also gets an Admin link (`/admin`), not in
