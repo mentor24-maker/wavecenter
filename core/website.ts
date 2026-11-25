@@ -50,8 +50,8 @@ export interface SitePageStore {
   list(): Promise<SitePage[]>;
   /** Save a new draft page. Returns what is now saved, or null if nothing was. */
   insert(row: { name: string; slug: string; tool: string }): Promise<SitePage | null>;
-  /** Change a page's name, address or published state. Returns what is now saved, or null if no page changed. */
-  update(id: string, patch: { name?: string; slug?: string; isPublished?: boolean }): Promise<SitePage | null>;
+  /** Change a page's name, address or published state, on behalf of `tool`. Returns what is now saved, or null if no page changed. */
+  update(id: string, patch: { name?: string; slug?: string; isPublished?: boolean }, tool: string): Promise<SitePage | null>;
   /** Delete a page. True only when a page was removed. */
   remove(id: string): Promise<boolean>;
 }
@@ -127,6 +127,7 @@ function refuseTakenSlug(pages: readonly SitePage[], slug: string, selfId?: stri
  * trimmed and lower-cased; left blank, it is made from the name. Throws a
  * CoreError, in words for a person, when the role may not, the name or
  * address is not allowed, the address is taken, or the save did not stick.
+ * The database credits "Made a page" to the maker, naming `tool` (WC-213).
  */
 export async function addSitePage(
   deps: SitePageDeps,
@@ -153,14 +154,14 @@ export async function addSitePage(
  * read back; throws a CoreError in plain words when the role may not, the
  * page is gone, a value is not allowed, or the save did not stick (rule 6).
  * `tool` is checked like every write's, though the page keeps the tool that
- * made it.
+ * made it; publishing a draft earns "Published a page" naming `tool` (WC-213).
  */
 export async function changeSitePage(
   deps: SitePageDeps,
   change: { actorId: string; id: string; name?: string; slug?: string; isPublished?: boolean },
   tool: string,
 ): Promise<SitePage> {
-  requireTool(tool);
+  const named = requireTool(tool);
   await requireManager(deps, change.actorId, 'change pages');
   const pages = await deps.pages.list();
   const page = pages.find((p) => p.id === change.id);
@@ -176,7 +177,7 @@ export async function changeSitePage(
     patch.isPublished = change.isPublished;
   }
   if (Object.keys(patch).length === 0) return page;
-  const saved = await deps.pages.update(page.id, patch);
+  const saved = await deps.pages.update(page.id, patch, named);
   if (
     !saved ||
     saved.id !== page.id ||

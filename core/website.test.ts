@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ROLES } from './members.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
+import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemorySitePageStore } from './memorySitePageStore.ts';
 import {
   SITE_PAGE_NAME_MAX, SITE_PAGE_SLUG_MAX, addSitePage, changeSitePage, deleteSitePage, isSitePageSlug, mayManageWebsite, sitePageSlug, sortSitePages,
@@ -11,12 +12,12 @@ import {
 
 const TOOL = 'wavecenter';
 
-function setup(): SitePageDeps & { pages: MemorySitePageStore; roles: MemoryMemberRoleStore } {
+function setup(ledger: MemoryEngagementStore | null = null): SitePageDeps & { pages: MemorySitePageStore; roles: MemoryMemberRoleStore } {
   const roles = new MemoryMemberRoleStore();
   roles.rows.set('dane', { role: 'admin', tool: 'migration' });
   roles.rows.set('eddie', { role: 'editor', tool: TOOL });
   roles.rows.set('vee', { role: 'viewer', tool: TOOL });
-  return { pages: new MemorySitePageStore(), roles };
+  return { pages: new MemorySitePageStore(ledger), roles };
 }
 
 const refused = (p: Promise<unknown>) => p.then(() => 'saved', (e: Error) => e.message);
@@ -188,4 +189,96 @@ test('a role without Manage website cannot change, publish or delete a page', as
   }
   assert.deepEqual(deps.pages.rows.find((p) => p.id === test1.id), test1);
   assert.equal(deps.pages.rows.length, 2);
+});
+
+const scored = (ledger: MemoryEngagementStore, kind: string) => ledger.rows.filter((e) => e.kind === kind).map((e) => [e.memberId, e.points, e.tool, e.taskId]);
+
+test('making a page records one engagement for its maker, naming the tool; a refused or failed one, or a service-key one, records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const worth = (await ledger.rules()).find((r) => r.kind === 'made_a_page')!.points;
+  assert.equal(worth, 1);
+  const deps = setup(ledger);
+  deps.pages.signedIn = 'dane';
+
+  // Refused: by role, a blank name, a bad or taken address, a blank tool. Nothing is recorded.
+  deps.pages.signedIn = 'vee';
+  assert.match(await refused(addSitePage(deps, { actorId: 'vee', name: 'Viewer page' }, TOOL)), /may not manage the website/);
+  deps.pages.signedIn = 'dane';
+  await addSitePage(deps, { actorId: 'dane', name: 'First' }, 'page-tool');
+  assert.match(await refused(addSitePage(deps, { actorId: 'dane', name: 'Again', slug: 'first' }, TOOL)), /already used/);
+  assert.match(await refused(addSitePage(deps, { actorId: 'dane', name: '  ' }, TOOL)), /needs a name/);
+  assert.match(await refused(addSitePage(deps, { actorId: 'dane', name: 'Bad', slug: 'a b' }, TOOL)), /cannot be a page's address/);
+  assert.match(await refused(addSitePage(deps, { actorId: 'dane', name: 'No tool' }, ' ')), /tool/i);
+  // The made one: one engagement for its maker, at the rule's points, naming the tool.
+  assert.deepEqual(scored(ledger, 'made_a_page'), [['dane', worth, 'page-tool', null]]);
+
+  // A save that did not stick records nothing.
+  deps.pages.failNextSave = true;
+  assert.match(await refused(addSitePage(deps, { actorId: 'dane', name: 'Lost' }, TOOL)), /did not save/);
+  assert.equal(scored(ledger, 'made_a_page').length, 1);
+
+  // If the engagement cannot be written, the page is not saved either.
+  ledger.failInsert = true;
+  await assert.rejects(addSitePage(deps, { actorId: 'dane', name: 'Unscored' }, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.deepEqual(deps.pages.rows.map((p) => p.slug), ['first']);
+
+  // A service-key write (nobody signed in) saves the page and scores nothing.
+  deps.pages.signedIn = null;
+  await addSitePage(deps, { actorId: 'dane', name: 'By key' }, TOOL);
+  assert.equal(deps.pages.rows.length, 2);
+  assert.equal(scored(ledger, 'made_a_page').length, 1);
+});
+
+test('publishing a draft page records one engagement for the member who published it, naming the tool; a rename, a refused or failed one, or a service-key one, records none', async () => {
+  const ledger = new MemoryEngagementStore();
+  const worth = (await ledger.rules()).find((r) => r.kind === 'published_a_page')!.points;
+  assert.equal(worth, 1);
+  const deps = setup(ledger);
+  deps.pages.signedIn = 'dane';
+  const page = await addSitePage(deps, { actorId: 'dane', name: 'About' }, TOOL);
+  const published = () => scored(ledger, 'published_a_page');
+
+  // A change that does not publish, or a refused one, records nothing.
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, name: 'About us' }, TOOL);
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: false }, TOOL);
+  assert.match(await refused(changeSitePage(deps, { actorId: 'vee', id: page.id, isPublished: true }, TOOL)), /may not manage the website/);
+  assert.match(await refused(changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true }, ' ')), /tool/i);
+  deps.pages.failNextSave = true;
+  assert.match(await refused(changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true }, TOOL)), /did not save/);
+  assert.deepEqual(published(), []);
+
+  // If the engagement cannot be written, the page stays a draft.
+  ledger.failInsert = true;
+  await assert.rejects(changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true }, TOOL), /ledger is down/);
+  ledger.failInsert = false;
+  assert.equal(deps.pages.rows[0].isPublished, false);
+
+  // Published: one engagement for the member who did it, naming the tool that published.
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true }, 'publish-tool');
+  assert.deepEqual(published(), [['dane', worth, 'publish-tool', null]]);
+  // Saving it published again, or renaming it, is not a second publish.
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true, name: 'About WaveCenter' }, TOOL);
+  assert.equal(published().length, 1);
+
+  // A service-key publish (nobody signed in) is saved and scores nothing.
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: false }, TOOL);
+  deps.pages.signedIn = null;
+  await changeSitePage(deps, { actorId: 'dane', id: page.id, isPublished: true }, TOOL);
+  assert.equal(deps.pages.rows[0].isPublished, true);
+  assert.equal(published().length, 1);
+});
+
+test('the database scores making a page for its maker and publishing one for whoever published it, naming the tool', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261124150000_score_made_a_page.sql', import.meta.url), 'utf8');
+  assert.match(sql, /if new\.created_by is not null and new\.created_by = auth\.uid\(\) then\s+perform public\.record_engagement\(new\.created_by, 'made_a_page', new\.tool, null\);/);
+  assert.match(sql, /create trigger site_pages_score_made\s+after insert on public\.site_pages/);
+  assert.match(sql, /if v_member is not null then\s+perform public\.record_engagement\(v_member, 'published_a_page', public\.engagement_tool\(new\.tool\), null\);/);
+  assert.match(sql, /create trigger site_pages_score_published\s+after update of is_published on public\.site_pages\s+for each row\s+when \(not old\.is_published and new\.is_published\)/);
+  for (const fn of ['site_pages_score_made', 'site_pages_score_published']) {
+    assert.match(sql, new RegExp(`revoke execute on function public\\.${fn}\\(\\) from public, anon, authenticated`), fn);
+  }
+  // The page's maker is stamped by the database: the browser cannot claim someone else's credit.
+  const table = readFileSync(new URL('../supabase/migrations/20261124120000_site_pages.sql', import.meta.url), 'utf8');
+  assert.match(table, /new\.created_by := auth\.uid\(\);/);
 });

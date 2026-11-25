@@ -96,3 +96,13 @@ order.
 - `/admin/website/<id>`: a page's details (name, address, status, made, last
   changed) with Edit, Publish / Back to draft, and Delete with an "are you
   sure" step. The page list's names link to it.
+
+## Built in WC-213: making and publishing pages earns points
+
+- `supabase/migrations/20261124150000_score_made_a_page.sql` lists two
+  actions on Game → Manage, "Made a page" and "Published a page", at 1 point
+  each with their factors left for an admin to score, and two triggers on
+  `site_pages` that record them inside the same save: making a page credits
+  its maker, and a change from draft to published credits the member who
+  published it, each naming the tool. A refused save, a rename and a
+  service-key write earn nothing (`docs/scoring/granular.md`).

@@ -18,7 +18,8 @@ later never rewrites what someone already earned (`docs/DATA_MODEL.md`,
 "The game layer"). The one way past points move is a rescore, which adds
 correction rows instead ([Rescoring past points](#rescoring-past-points)).
 
-40 actions are listed on a fresh database, and all 40 earn points today;
+42 actions are listed on a fresh database, and all 42 earn points today.
+The first 40 came from the app itself and two sweeps of it;
 the second sweep of the app on 2026-11-22 (WC-188,
 `supabase/migrations/20261122140000_scoring_actions_sweep_2.sql`) found
 fifteen more, and each shows "Not active yet" on Game → Manage until it is
@@ -32,6 +33,25 @@ reason for a factor" (WC-198), "Added a token size" (WC-199),
 "Rescored past points" (WC-202) and "Made points final" (WC-203) are
 wired; none is left to come
 (`docs/GRANULAR_SCORING_ALGORITHM.md`, "The table").
+
+### The website manager's actions
+
+The website manager (Admin → Website, `docs/WEBSITE_MANAGER.md`) added two
+more on 2026-11-24 (WC-213,
+`supabase/migrations/20261124150000_score_made_a_page.sql`), each worth 1
+point to start, with its four factors left blank for an admin to score on
+Game → Manage:
+
+| Action | Counts when | Credited to |
+|---|---|---|
+| Made a page (`made_a_page`) | A new page of the website is saved. | The member who made it. |
+| Published a page (`published_a_page`) | A draft page is made public. | The member who published it. |
+
+A refused save, a rename, saving a page that is already published, and a
+write made with the service key (nobody signed in) earn nothing. Taking a
+page back to a draft and publishing it again is a second publish; only a
+role with the Manage website permission (admins, to start) can do either.
+Changing a page's sections is not scored yet.
 
 ## Rescoring past points
 

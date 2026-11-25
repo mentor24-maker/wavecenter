@@ -12,6 +12,7 @@
 import { CoreError } from "../../core/tool.ts";
 import { sortSitePages, type SitePage, type SitePageStore } from "../../core/website.ts";
 import type { supabaseForRequest } from "./supabase";
+import { TOOL_HEADER } from "./taskStore";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -41,12 +42,13 @@ export function supabaseSitePageStore(supabase: Client): SitePageStore {
       if (error) throw new Error(`The database refused to save the page: ${error.message}`);
       return data ? fromRow(data) : null;
     },
-    async update(id, patch) {
+    async update(id, patch, tool) {
       const row: Record<string, unknown> = {};
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.slug !== undefined) row.slug = patch.slug;
       if (patch.isPublished !== undefined) row.is_published = patch.isPublished;
-      const { data, error } = await supabase.from("site_pages").update(row).eq("id", id).select(COLUMNS).maybeSingle();
+      // The tool goes in a header: publishing a page earns "Published a page" naming it (WC-213).
+      const { data, error } = await supabase.from("site_pages").update(row).eq("id", id).select(COLUMNS).setHeader(TOOL_HEADER, tool).maybeSingle();
       if (error?.code === "23505") throw new CoreError(`The address "${patch.slug}" is already used by another page. Pick another address.`);
       if (error) throw new Error(`The database refused to save the change: ${error.message}`);
       return data ? fromRow(data) : null;

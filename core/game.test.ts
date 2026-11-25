@@ -38,6 +38,9 @@ const SWEEP_SQL = readFileSync(new URL('../supabase/migrations/20261102120000_sc
 /** Actions listed after the formula was written, each worth its formula value from the start, by the migration that wires it. */
 const LATER_ACTION_MIGRATIONS = ['20261112120000_chats.sql'];
 
+/** Actions added after both sweeps, each listed at 1 point with its factors left for an admin to score, by the migration that wires it. */
+const NEW_ACTION_MIGRATIONS = ['20261124150000_score_made_a_page.sql'];
+
 const SWEEP_2_SQL = readFileSync(new URL('../supabase/migrations/20261122140000_scoring_actions_sweep_2.sql', import.meta.url), 'utf8');
 
 /** The second sweep's rows, in its order. */
@@ -141,7 +144,11 @@ test('the migrations seed exactly the starting rules core knows', () => {
   const afterLater = Math.max(afterSweep, ...later.map((r) => r.position));
   const swept2 = sweep2Rows().filter((r) => isWired(r.kind)).map(({ ord, ...r }) => ({ ...r, position: afterLater + ord }));
   assert.ok(swept2.length >= 1);
-  assert.deepEqual([...seeded, ...swept, ...later, ...swept2], STARTING_SCORING_RULES);
+  // Actions added after both sweeps go after everything listed before them.
+  const afterSweep2 = Math.max(afterLater, ...swept2.map((r) => r.position));
+  const added = rowsOf(NEW_ACTION_MIGRATIONS.map(read).join('\n')).map((r) => ({ ...r, position: afterSweep2 + r.position }));
+  assert.ok(added.length >= 1);
+  assert.deepEqual([...seeded, ...swept, ...later, ...swept2, ...added], STARTING_SCORING_RULES);
 });
 
 test('making, changing, finishing and deleting a task each record exactly one engagement', async () => {

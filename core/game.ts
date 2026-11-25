@@ -71,6 +71,8 @@ export const ENGAGEMENT_KINDS = [
   'deleted_a_token_size',
   'rescored_past_points',
   'made_points_final',
+  'made_a_page',
+  'published_a_page',
 ] as const;
 export type EngagementKind = (typeof ENGAGEMENT_KINDS)[number];
 
@@ -249,6 +251,11 @@ export const STARTING_SCORING_RULES: readonly (ScoringRule & { kind: EngagementK
   // fifteenth and last of its rows, so a fresh database puts it after the 25
   // above and the fourteen second-sweep rows before it.
   { kind: 'made_points_final', name: 'Made points final', description: 'Ended the provisional phase of scoring on the Admin page.', criteria: 'Scoring is declared final. This can happen only once.', points: 1, position: 40 },
+  // The website manager's two actions (WC-213,
+  // supabase/migrations/20261124150000_score_made_a_page.sql), listed after
+  // both sweeps' 40 rows, worth 1 each until an admin scores their factors.
+  { kind: 'made_a_page', name: 'Made a page', description: 'Made a new page of the website on the Admin page\'s website manager.', criteria: 'A new page is saved.', points: 1, position: 41 },
+  { kind: 'published_a_page', name: 'Published a page', description: 'Made a draft page of the website public.', criteria: 'A draft page is published.', points: 1, position: 42 },
 ];
 
 /** Returns the kind if it is one WaveCenter knows, or throws a message a person can read. */
@@ -502,6 +509,14 @@ export const SCORING_TRIGGERS: Record<EngagementKind, ScoringTrigger> = {
   made_points_final: {
     fn: 'makeScoringFinal', file: 'core/game.ts', database: 'game_settings_score_final',
     test: 'making points final records one engagement for the admin who did it, naming the tool; a refused, repeated or failed one, or a service-key one, records none', testFile: 'core/game.test.ts',
+  },
+  made_a_page: {
+    fn: 'addSitePage', file: 'core/website.ts', database: 'site_pages_score_made',
+    test: 'making a page records one engagement for its maker, naming the tool; a refused or failed one, or a service-key one, records none', testFile: 'core/website.test.ts',
+  },
+  published_a_page: {
+    fn: 'changeSitePage', file: 'core/website.ts', database: 'site_pages_score_published',
+    test: 'publishing a draft page records one engagement for the member who published it, naming the tool; a rename, a refused or failed one, or a service-key one, records none', testFile: 'core/website.test.ts',
   },
 };
 
