@@ -10,31 +10,38 @@
  *
  * Nothing is saved until Save. While anything is unsaved the screen names
  * it ("1 section added, the order changed"), and leaving asks first. A save
- * that failed says so and keeps the sections on screen (rule 6). Each cell
- * of a layout shows where modules will go (WC-209).
+ * that failed says so and keeps the sections on screen (rule 6).
+ *
+ * Each cell of a layout holds modules (WC-209): a heading, text, a picture or
+ * a button. Add one to a cell, choose it to edit it in the settings panel
+ * beside the sections (ModulePanel), move it up or down its cell or to
+ * another cell, or remove it. Modules save with the sections.
  *
  * Saved sections (WC-212): any section can be saved as a reusable section,
  * and a saved one inserted either linked (it follows the original, shown
- * with the original's content, and cannot be edited here) or as a plain
- * copy. Unlink turns a linked section into a plain copy; Update the original
- * pushes a copy's content to the original, changing every page that follows
- * it at once, and links this section to it again. Those two writes save at
- * once; the page's own list still waits for Save.
+ * with the original's content, and cannot be edited here, modules included)
+ * or as a plain copy. Unlink turns a linked section into a plain copy; Update
+ * the original pushes a copy's content to the original, changing every page
+ * that follows it at once, and links this section to it again. Those two
+ * writes save at once; the page's own list still waits for Save.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, useTransition, type CSSProperties, type MouseEvent } from "react";
 import {
-  SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
+  SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
   SITE_SAVED_SECTION_NAME_MAX,
-  insertSavedSection, isLinkedSiteSection, newSiteSection, pagesFollowing, resolveSiteSections, siteSectionCells, siteSectionChanges,
-  siteSectionGrid, sortSavedSections, unlinkSiteSection,
-  type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
+  insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
+  siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection,
+  type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { changeReusable, saveReusable, saveSections, type SavedSectionResult } from "../../actions";
+import SiteModuleView from "../../SiteModuleView";
+import ModulePanel from "./ModulePanel";
 
 const UNREACHABLE = "Could not reach WaveCenter, so nothing was saved. Check your connection and try again.";
 const CELL_NAMES: Record<string, string> = { main: "Main", left: "Left", center: "Middle", right: "Right" };
+const cellName = (cell: string) => CELL_NAMES[cell] ?? cell;
 
 function layoutLabel(layout: SiteSectionLayout): string {
   return SITE_SECTION_LAYOUTS.find((l) => l.key === layout)?.label ?? layout;
@@ -54,6 +61,10 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   const [page, setPage] = useState(initial);
   const [sections, setSections] = useState<SiteSection[]>(initial.sections);
   const [newLayout, setNewLayout] = useState<SiteSectionLayout>("single");
+  /** The module whose settings panel is open, by id. */
+  const [chosen, setChosen] = useState<string | null>(null);
+  /** The type each cell's Add module picker shows, by "<section id>/<cell>". */
+  const [newType, setNewType] = useState<Record<string, SiteModuleType>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -95,6 +106,54 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
     [next[i], next[j]] = [next[j], next[i]];
     edited(next);
   }
+
+  /**
+   * A new layout for section `i`. A module in a cell the new layout does not
+   * have moves to its first cell in the same change, so it never drops off
+   * the screen (and an open panel's Cell list still holds its cell).
+   */
+  function changeLayout(i: number, layout: SiteSectionLayout) {
+    update(i, { layout, modules: siteModulesInLayout(sections[i].modules, layout) });
+  }
+
+  /** Change module `mid` in section `i` (its settings, or its cell). */
+  function updateModule(i: number, next: SiteModule) {
+    update(i, { modules: sections[i].modules.map((m) => (m.id === next.id ? next : m)) });
+  }
+
+  /** Move module `mid` one place up or down among the modules of its own cell. */
+  function moveModule(i: number, mid: string, by: -1 | 1) {
+    const list = [...sections[i].modules];
+    const at = list.findIndex((m) => m.id === mid);
+    if (at < 0) return;
+    let j = at + by;
+    while (j >= 0 && j < list.length && list[j].cell !== list[at].cell) j += by;
+    if (j < 0 || j >= list.length) return;
+    [list[at], list[j]] = [list[j], list[at]];
+    update(i, { modules: list });
+  }
+
+  function removeModule(i: number, mid: string) {
+    if (chosen === mid) setChosen(null);
+    update(i, { modules: sections[i].modules.filter((m) => m.id !== mid) });
+  }
+
+  function addModule(i: number, cell: string) {
+    const m = newSiteModule(newType[`${sections[i].id}/${cell}`] ?? "heading", cell, sections);
+    update(i, { modules: [...sections[i].modules, m] });
+    setChosen(m.id);
+  }
+
+  /** The chosen module and where it is, while its panel is open. */
+  const open = useMemo(() => {
+    for (const [i, s] of sections.entries()) {
+      if (isLinkedSiteSection(s)) continue; // a section that follows its original is not edited here
+      const m = s.modules.find((x) => x.id === chosen);
+      if (m) return { i, m };
+    }
+    return null;
+  }, [sections, chosen]);
+  const problems = useMemo(() => sections.flatMap((s) => s.modules).filter((m) => siteModuleProblem(m) !== null).length, [sections]);
 
   function add() {
     if (full) return;
@@ -187,12 +246,14 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   }
 
   return (
-    <section aria-label="Section editor">
+    <section aria-label="Section editor" className={open ? "builder with-panel" : "builder"}>
+      <div className="builder-main">
       <p className="note"><Link href={`/admin/website/${page.id}`} onClick={leaving}>← {page.name}</Link></p>
       <h1>Edit sections: {page.name}</h1>
       <p className="note">
-        A page is a stack of sections, top to bottom. Each section&apos;s layout splits it into cells; modules
-        (headings, text, pictures, buttons) go in the cells in the next step. Nothing is saved until you click Save.
+        A page is a stack of sections, top to bottom. Each section&apos;s layout splits it into cells, and each
+        cell holds modules: headings, text, pictures and buttons. Choose a module to change it in the panel.
+        Nothing is saved until you click Save.
       </p>
 
       {sections.length === 0 && (
@@ -228,7 +289,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                 <span className="section-moves">
                   <button type="button" disabled={pending || i === 0} onClick={() => move(i, -1)} aria-label={`Move section ${i + 1} up`}>↑ Up</button>{" "}
                   <button type="button" disabled={pending || i === sections.length - 1} onClick={() => move(i, 1)} aria-label={`Move section ${i + 1} down`}>↓ Down</button>{" "}
-                  <button type="button" disabled={pending} onClick={() => edited(sections.filter((_, j) => j !== i))} aria-label={`Remove section ${i + 1}`}>Remove</button>
+                  <button type="button" disabled={pending} onClick={() => { if (open?.i === i) setChosen(null); edited(sections.filter((_, j) => j !== i)); }} aria-label={`Remove section ${i + 1}`}>Remove</button>
                 </span>
               </div>
 
@@ -237,7 +298,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                 <input id={`${sid}-title`} type="text" maxLength={SITE_SECTION_TITLE_MAX} value={s.title} disabled={locked}
                   placeholder="Optional, for your own reference" onChange={(e) => update(i, { title: e.target.value })} />
                 <label htmlFor={`${sid}-layout`}>Layout</label>
-                <select id={`${sid}-layout`} value={s.layout} disabled={locked} onChange={(e) => update(i, { layout: e.target.value as SiteSectionLayout })}>
+                <select id={`${sid}-layout`} value={s.layout} disabled={locked} onChange={(e) => changeLayout(i, e.target.value as SiteSectionLayout)}>
                   {SITE_SECTION_LAYOUTS.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
                 </select>
                 <label htmlFor={`${sid}-align`}>Alignment</label>
@@ -296,12 +357,41 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
 
               <div className="section-preview-frame">
                 <div className="section-preview" style={style}>
-                  {siteSectionCells(s.layout).map((cell) => (
-                    <div key={cell} className="section-cell">
-                      <strong>{CELL_NAMES[cell] ?? cell}</strong>
-                      <span className="note">Empty: modules will go here.</span>
-                    </div>
-                  ))}
+                  {siteSectionCells(s.layout).map((cell) => {
+                    const here = s.modules.filter((m) => m.cell === cell);
+                    const key = `${s.id}/${cell}`;
+                    const where = `section ${i + 1}, ${cellName(cell).toLowerCase()} cell`;
+                    return (
+                      <div key={cell} className="section-cell" aria-label={`Section ${i + 1}, ${cellName(cell)} cell`}>
+                        <strong>{cellName(cell)}</strong>
+                        {here.length === 0 && <span className="note">Empty: add a module below.</span>}
+                        {here.map((m, k) => {
+                          const name = `${siteModuleLabel(m.type)} ${k + 1} in ${where}`;
+                          return (
+                            <div key={m.id} className={`module-card${chosen === m.id ? " chosen" : ""}${siteModuleProblem(m) ? " has-problem" : ""}`}>
+                              <div className="module-head">
+                                <span className="note">{siteModuleLabel(m.type)}</span>
+                                <span className="section-moves">
+                                  <button type="button" disabled={locked} aria-pressed={chosen === m.id} onClick={() => setChosen(chosen === m.id ? null : m.id)} aria-label={`Edit ${name}`}>Edit</button>{" "}
+                                  <button type="button" disabled={locked || k === 0} onClick={() => moveModule(i, m.id, -1)} aria-label={`Move ${name} up`}>↑</button>{" "}
+                                  <button type="button" disabled={locked || k === here.length - 1} onClick={() => moveModule(i, m.id, 1)} aria-label={`Move ${name} down`}>↓</button>{" "}
+                                  <button type="button" disabled={locked} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
+                                </span>
+                              </div>
+                              <SiteModuleView module={m} />
+                            </div>
+                          );
+                        })}
+                        <span className="module-add">
+                          <select value={newType[key] ?? "heading"} disabled={locked} aria-label={`New module for ${where}`}
+                            onChange={(e) => setNewType({ ...newType, [key]: e.target.value as SiteModuleType })}>
+                            {SITE_MODULE_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                          </select>{" "}
+                          <button type="button" disabled={locked} onClick={() => addModule(i, cell)} aria-label={`Add module to ${where}`}>Add module</button>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </li>
@@ -352,8 +442,19 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         )}
       </div>
 
+      {problems > 0 && (
+        <p className="error" role="alert">
+          {problems === 1 ? "1 module has" : `${problems} modules have`} an address that cannot be saved, marked in red. Fix it, or Save will refuse.
+        </p>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="note" role="status">{notice}</p>}
+      </div>
+
+      {open && (
+        <ModulePanel key={open.m.id} module={open.m} where={`Section ${open.i + 1}`} cells={siteSectionCells(sections[open.i].layout)}
+          cellName={cellName} disabled={pending} onChange={(next) => updateModule(open.i, next)} onClose={() => setChosen(null)} />
+      )}
     </section>
   );
 }

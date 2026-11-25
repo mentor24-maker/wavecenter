@@ -12,7 +12,8 @@ import {
   saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
   SITE_SAVED_SECTION_BYTES_MAX, SITE_SAVED_SECTION_NAME_MAX, changeSavedSection, insertSavedSection, isLinkedSiteSection,
   normalizeSavedSectionContent, pagesFollowing, resolveSiteSections, saveReusableSection, sortSavedSections, unlinkSiteSection,
-  type SitePageDeps,
+  SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
+  type SiteModule, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
 const TOOL = 'wavecenter';
@@ -316,10 +317,10 @@ test('anything malformed in layout_sections is tidied into a well-formed list, n
     { background: { mode: 'gradient', color: '#00ff00' }, title: 'x'.repeat(200) },
   ]);
   assert.deepEqual(tidy, [
-    { id: 'hero', title: 'Big hello', layout: 'three-column', alignment: 'center', marginTop: 24, marginBottom: 160, background: '#aabbcc' },
-    { id: 'section-1', title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' },
-    { id: 'section-2', title: '', layout: 'five-one', alignment: 'left', marginTop: 0, marginBottom: 0, background: '#00ff00' },
-    { id: 'section-3', title: 'x'.repeat(SITE_SECTION_TITLE_MAX), layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' },
+    { id: 'hero', title: 'Big hello', layout: 'three-column', alignment: 'center', marginTop: 24, marginBottom: 160, background: '#aabbcc', modules: [] },
+    { id: 'section-1', title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] },
+    { id: 'section-2', title: '', layout: 'five-one', alignment: 'left', marginTop: 0, marginBottom: 0, background: '#00ff00', modules: [] },
+    { id: 'section-3', title: 'x'.repeat(SITE_SECTION_TITLE_MAX), layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] },
   ]);
   // A JSON string is read; a made-up id never takes one a later section already has.
   assert.deepEqual(normalizeSiteSections('[{"id":"x"},{},{"id":"section-1"}]').map((s) => s.id), ['x', 'section-2', 'section-1']);
@@ -341,7 +342,7 @@ test("the size is counted as Postgres writes jsonb's text", () => {
   assert.equal(jsonbText([]), '[]');
   assert.equal(siteSectionsBytes([]), 2);
   assert.equal(siteSectionsBytes(normalizeSiteSections([{ id: 's', title: 'é' }])),
-    new TextEncoder().encode('[{"id": "s", "title": "é", "layout": "single", "alignment": "left", "marginTop": 0, "marginBottom": 0, "background": ""}]').length);
+    new TextEncoder().encode('[{"id": "s", "title": "é", "layout": "single", "alignment": "left", "marginTop": 0, "marginBottom": 0, "background": "", "modules": []}]').length);
 });
 
 test('the unsaved changes are named in words', () => {
@@ -370,7 +371,7 @@ test('an admin adds three sections with different layouts, reorders them and sav
 test('what is sent is tidied before it is saved', async () => {
   const { deps, test1 } = await withPages();
   const saved = await saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [{ id: 'x', layout: 'sideways', marginTop: 500 }, 'junk'] }, TOOL);
-  assert.deepEqual(saved.sections, [{ id: 'x', title: '', layout: 'single', alignment: 'left', marginTop: 160, marginBottom: 0, background: '' }]);
+  assert.deepEqual(saved.sections, [{ id: 'x', title: '', layout: 'single', alignment: 'left', marginTop: 160, marginBottom: 0, background: '', modules: [] }]);
 });
 
 test('too many sections, too large, not a list, a missing page or tool, or the wrong role are refused; nothing changes', async () => {
@@ -396,6 +397,142 @@ test('a save of sections that did not stick says so, and the page keeps what it 
   assert.equal(await refused(saveSitePageSections(deps, { actorId: 'dane', id: test1.id, sections: [newSiteSection()] }, TOOL)),
     'The sections did not save. The page is as it was; try again.');
   assert.deepEqual(deps.pages.rows.find((p) => p.id === test1.id)?.sections, []);
+});
+
+// WC-209: the first modules, headings, text, pictures and buttons.
+
+test("a picture's address must be https:, and a button links only to http:, https: or a WaveCenter address", () => {
+  assert.equal(siteImageUrl(''), '');
+  assert.equal(siteImageUrl('  https://example.com/a.png '), 'https://example.com/a.png');
+  for (const bad of ['http://example.com/a.png', 'javascript:alert(1)', 'data:image/png;base64,AAAA', '/brand/logo.png', 'example.com/a.png', 'https://a b.com', 7, null]) {
+    assert.equal(siteImageUrl(bad), null, String(bad));
+  }
+  assert.equal(siteButtonHref(''), '');
+  assert.equal(siteButtonHref('/about'), '/about');
+  assert.equal(siteButtonHref('/forum?tag=1#top'), '/forum?tag=1#top');
+  assert.equal(siteButtonHref('https://Example.com'), 'https://example.com/');
+  assert.equal(siteButtonHref('http://example.com/x'), 'http://example.com/x');
+  for (const bad of ['javascript:alert(1)', 'JavaScript:alert(1)', ' javascript:alert(1)', 'data:text/html,hi', 'mailto:a@b.c', '//evil.com', '/\\evil.com', 'about', '/a b', 'java\nscript:x', 3]) {
+    assert.equal(siteButtonHref(bad), null, String(bad));
+  }
+});
+
+test('an address too long once encoded is refused, not cleared later on read-back', () => {
+  // 700 "é" are 720 characters as typed but 4,220 once encoded.
+  const long = `https://example.com/${'é'.repeat(700)}`;
+  assert.ok(long.length <= SITE_ADDRESS_MAX);
+  assert.equal(siteImageUrl(long), null);
+  assert.equal(siteButtonHref(long), null);
+  assert.ok(siteModuleProblem({ type: 'image', settings: { url: long } }));
+  assert.ok(siteModuleProblem({ type: 'button', settings: { href: long } }));
+  const fits = `https://example.com/${'é'.repeat(300)}`;
+  assert.ok((siteImageUrl(fits) ?? '').length <= SITE_ADDRESS_MAX);
+});
+
+test("a picture's width is whole percent from the least to 100", () => {
+  assert.equal(siteImageWidth(50), 50);
+  assert.equal(siteImageWidth('42.6'), 43);
+  assert.equal(siteImageWidth(5), SITE_IMAGE_WIDTH_MIN);
+  assert.equal(siteImageWidth(150), 100);
+  for (const odd of ['', 'wide', null, undefined, NaN]) assert.equal(siteImageWidth(odd), 100, String(odd));
+});
+
+test("changing a section's layout moves modules from a cell it no longer has to its first cell", () => {
+  const sections: SiteSection[] = [];
+  const left = newSiteModule('heading', 'left', sections);
+  const right = { ...newSiteModule('button', 'right', sections), id: 'module-right' };
+  const middle = { ...newSiteModule('text', 'center', sections), id: 'module-middle' };
+  const mods = [left, right, middle];
+  assert.deepEqual(siteModulesInLayout(mods, 'single').map((m) => m.cell), ['main', 'main', 'main']);
+  assert.deepEqual(siteModulesInLayout(mods, 'two-column').map((m) => m.cell), ['left', 'right', 'left']);
+  const three = siteModulesInLayout(mods, 'three-column');
+  assert.equal(three, mods, 'nothing moves, so the same list');
+  // Each module kept whole, only its cell changed.
+  assert.deepEqual(siteModulesInLayout(mods, 'single')[1], { ...right, cell: 'main' });
+  // The same answer as the tidy-up on read-back.
+  assert.deepEqual(normalizeSiteModules(mods, 'single').map((m) => m.cell), siteModulesInLayout(mods, 'single').map((m) => m.cell));
+});
+
+test('each of the four modules is added, saved and read back', async () => {
+  const deps = setup();
+  const page = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  const section = newSiteSection('two-column');
+  const heading = newSiteModule('heading', 'left', [section]);
+  const text = newSiteModule('text', 'left', [{ modules: [heading] }]);
+  const image = newSiteModule('image', 'right', [{ modules: [heading, text] }]);
+  const button = newSiteModule('button', 'right', [{ modules: [heading, text, image] }]);
+  assert.equal(new Set([heading, text, image, button].map((m) => m.id)).size, 4);
+  if (heading.type !== 'heading' || text.type !== 'text' || image.type !== 'image' || button.type !== 'button') throw new Error('wrong types');
+  heading.settings = { text: 'Hello', level: 'h1', color: '#18324a' };
+  text.settings = { body: 'Welcome to **WaveCenter**.\n\n- one\n- two' };
+  image.settings = { url: 'https://example.com/wave.jpg', alt: 'A wave', width: 60 };
+  button.settings = { label: 'About us', href: '/about', color: '#214c71', textColor: '#ffffff', newTab: false };
+  section.modules = [heading, text, image, button];
+  const saved = await saveSitePageSections(deps, { actorId: 'dane', id: page.id, sections: [section] }, TOOL);
+  assert.deepEqual(saved.sections[0].modules, [heading, text, image, button]);
+  const reread = (await deps.pages.list()).find((p) => p.id === page.id);
+  assert.deepEqual(normalizeSiteSections(reread?.sections), [section]);
+  // Each new module starts plain and is already tidy.
+  for (const type of ['heading', 'text', 'image', 'button'] as const) {
+    const m = newSiteModule(type, 'main');
+    assert.deepEqual(normalizeSiteModules([m], 'single'), [m], type);
+  }
+});
+
+test('a javascript: link or an http: picture is refused in plain words, and nothing is saved', async () => {
+  const deps = setup();
+  const page = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  const withModule = (m: unknown) => [{ ...newSiteSection(), modules: [m] }];
+  assert.equal(await refused(saveSitePageSections(deps, { actorId: 'dane', id: page.id,
+    sections: withModule({ id: 'b', type: 'button', cell: 'main', settings: { label: 'Go', href: 'javascript:alert(1)' } }) }, TOOL)),
+    'Section 1, module 1: The button link "javascript:alert(1)" cannot be used. A button may link to a web address starting with https:// or http://, or to a WaveCenter page such as /about. Nothing was saved.');
+  assert.equal(await refused(saveSitePageSections(deps, { actorId: 'dane', id: page.id,
+    sections: withModule({ id: 'p', type: 'image', cell: 'main', settings: { url: 'http://example.com/a.png', alt: '' } }) }, TOOL)),
+    'Section 1, module 1: The picture address "http://example.com/a.png" cannot be used. A picture\'s address must be a secure web address, starting with https://. Nothing was saved.');
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: page.id,
+    sections: withModule({ id: 'v', type: 'video', cell: 'main' }) }, TOOL)), /"video" is not a kind of module WaveCenter has/);
+  assert.match(await refused(saveSitePageSections(deps, { actorId: 'dane', id: page.id,
+    sections: [{ ...newSiteSection(), modules: 'lots' }] }, TOOL)), /Section 1's modules must be a list/);
+  assert.deepEqual(deps.pages.rows.find((p) => p.id === page.id)?.sections, []);
+  // The editor asks the same question of one module.
+  assert.equal(siteModuleProblem(newSiteModule('button', 'main')), null);
+  assert.equal(siteModulesProblem([{ modules: [newSiteModule('image', 'main')] }]), null);
+});
+
+test('malformed stored modules are tidied into well-formed ones, never a crash', () => {
+  for (const junk of [null, 3, 'x', {}, [null, 4, 'x', [1], { type: 'slider' }, { settings: {} }]]) {
+    assert.deepEqual(normalizeSiteModules(junk, 'single'), [], JSON.stringify(junk));
+  }
+  const sections = normalizeSiteSections([
+    {
+      id: 's1', layout: 'two-column',
+      modules: [
+        { id: 'h', type: 'heading', cell: 'right', settings: { text: '  Big   hello ', level: 'h9', color: '#ABC' } },
+        { id: 'h', type: 'heading', cell: 'center', settings: 'junk' },
+        { type: 'text', settings: { body: '\r\n  Line one\r\nLine two  ' + 'x'.repeat(SITE_TEXT_MAX) } },
+        { id: 'p', type: 'image', settings: { url: 'http://example.com/a.png', alt: 5, width: '250' } },
+        { id: 'b', type: 'button', cell: 'left', settings: { label: 'x'.repeat(300), href: 'javascript:alert(1)', color: 'red', newTab: 'yes' } },
+      ],
+    },
+    { id: 's2', modules: [{ id: 'h', type: 'heading', settings: { text: 'x'.repeat(500) } }, { id: 'module-1', type: 'image', settings: { width: 1 } }] },
+  ]);
+  const modules: SiteModule[][] = sections.map((s) => s.modules);
+  assert.deepEqual(modules[0], [
+    { id: 'h', type: 'heading', cell: 'right', settings: { text: 'Big hello', level: 'h2', color: '#aabbcc' } },
+    { id: 'module-1', type: 'heading', cell: 'left', settings: { text: '', level: 'h2', color: '' } },
+    { id: 'module-2', type: 'text', cell: 'left', settings: { body: ('Line one\nLine two  ' + 'x'.repeat(SITE_TEXT_MAX)).slice(0, SITE_TEXT_MAX) } },
+    { id: 'p', type: 'image', cell: 'left', settings: { url: '', alt: '', width: 100 } },
+    { id: 'b', type: 'button', cell: 'left', settings: { label: 'x'.repeat(80), href: '', color: '#214c71', textColor: '#ffffff', newTab: false } },
+  ]);
+  // Ids stay unique across the whole page; a cell the layout lacks becomes its first cell.
+  assert.deepEqual(modules[1], [
+    { id: 'module-3', type: 'heading', cell: 'main', settings: { text: 'x'.repeat(SITE_HEADING_MAX), level: 'h2', color: '' } },
+    { id: 'module-4', type: 'image', cell: 'main', settings: { url: '', alt: '', width: 10 } },
+  ]);
+  // Already tidy stays exactly as it is, so a save reads back what it sent.
+  assert.deepEqual(normalizeSiteSections(sections), sections);
+  // Changing a section's layout keeps its modules, moved into a cell it has.
+  assert.deepEqual(normalizeSiteSections([{ ...sections[0], layout: 'single' }])[0].modules.map((m) => m.cell), ['main', 'main', 'main', 'main', 'main']);
 });
 
 // ── Saved sections, reused on many pages (WC-212) ─────────────────────────
@@ -435,7 +572,7 @@ test('a link names its original by id; a malformed id is no link, and linked is 
 
 test("an original's content is tidied and never carries a link of its own", () => {
   const content = normalizeSavedSectionContent({ id: 'x', title: ' Header ', layout: 'two-column', savedSectionId: '0f8fad5b-d9cb-469f-a165-70867728950e', linked: true });
-  assert.deepEqual(content, { id: 'section', title: 'Header', layout: 'two-column', alignment: 'left', marginTop: 0, marginBottom: 0, background: '' });
+  assert.deepEqual(content, { id: 'section', title: 'Header', layout: 'two-column', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', modules: [] });
   assert.deepEqual(normalizeSavedSectionContent('not json').layout, 'single');
   assert.deepEqual(normalizeSavedSectionContent([1, 2]).layout, 'single');
 });
@@ -487,6 +624,29 @@ test('an unlinked copy, or one inserted as a plain copy, no longer changes with 
   assert.equal(b.layout, 'single');
   assert.equal(c.layout, 'single');
   assert.deepEqual(unlinkSiteSection(newSiteSection()).linked, undefined, 'a plain section has nothing to unlink');
+});
+
+test('a saved section carries its modules; every copy inserted gets module ids of its own, so two copies never share one', async () => {
+  const deps = savedSetup();
+  const section = { ...newSiteSection('two-column'), modules: [newSiteModule('heading', 'left'), newSiteModule('button', 'right')] };
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Hero', section }, TOOL);
+  assert.deepEqual(original.section.modules.map((m) => m.type), ['heading', 'button']);
+  const first = insertSavedSection(original, false);
+  const second = insertSavedSection(original, false, [first]);
+  const ids = [...first.modules, ...second.modules].map((m) => m.id);
+  assert.equal(new Set(ids).size, 4);
+  assert.deepEqual(second.modules.map((m) => [m.type, m.cell]), [['heading', 'left'], ['button', 'right']]);
+  assert.deepEqual(normalizeSiteSections([first, second]), [first, second], 'the page saves them as they are');
+});
+
+test('saving or changing a saved section refuses a module link that is not allowed, in words; nothing is saved', async () => {
+  const deps = savedSetup();
+  const bad = { ...newSiteSection(), modules: [{ ...newSiteModule('button', 'main'), settings: { label: 'Go', href: 'javascript:alert(1)' } }] };
+  assert.match(await refused(saveReusableSection(deps, { actorId: 'dane', name: 'Bad', section: bad }, TOOL)), /^Module 1: The button link .* Nothing was saved\.$/);
+  assert.equal(deps.savedSections.rows.length, 0);
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Good', section: newSiteSection() }, TOOL);
+  assert.match(await refused(changeSavedSection(deps, { actorId: 'dane', id: original.id, section: bad }, TOOL)), /button link/);
+  assert.deepEqual((await deps.savedSections.list())[0].section.modules, []);
 });
 
 test('a linked section whose original cannot be read keeps the content it was saved with', () => {
