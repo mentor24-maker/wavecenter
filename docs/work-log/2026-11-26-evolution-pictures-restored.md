@@ -1,4 +1,4 @@
-## 2026-11-26 — Evolution pictures have stopped: the Mac Mini cannot take them (#PR)
+## 2026-11-26 — Evolution pictures have stopped: the Mac Mini cannot take them (#211)
 
 **What was wrong.** From about 8:36 this morning, every ten-minute pass of the
 Evolution lane (the one that photographs each merged change for the Home
