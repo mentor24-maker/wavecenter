@@ -41,6 +41,7 @@ import {
   type SiteDevice, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { changeReusable, saveReusable, saveSections, type SavedSectionResult } from "../../actions";
+import type { LeaderboardTop } from "../../../../../core/leaderboard.ts";
 import SiteModuleView from "../../SiteModuleView";
 import DevicePreview from "./DevicePreview";
 import ModulePanel from "./ModulePanel";
@@ -55,13 +56,15 @@ function layoutLabel(layout: SiteSectionLayout): string {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem }: {
+export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem, leaderboard }: {
   page: SitePage;
   /** Every page the member sees, to say how many follow a saved section. */
   pages: SitePage[];
   /** The saved sections, A to Z, or none when they could not be read (`savedProblem` says why). */
   saved: SiteSavedSection[];
   savedProblem: string | null;
+  /** The leaderboard's top ten, read on the server, for any Leaderboard module (WC-237). */
+  leaderboard?: LeaderboardTop;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(initial);
@@ -271,7 +274,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         ))}
         {device && <button type="button" onClick={() => setDevice(null)}>Close preview</button>}
       </div>
-      {device && <DevicePreview sections={sections} device={device} />}
+      {device && <DevicePreview sections={sections} device={device} leaderboard={leaderboard} />}
 
       {sections.length === 0 && (
         <p className="note" role="status">This page has no sections yet. Pick a layout below and click Add section.</p>
@@ -412,7 +415,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                                   <button type="button" disabled={locked} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
                                 </span>
                               </div>
-                              <SiteModuleView module={m} />
+                              <SiteModuleView module={m} leaderboard={leaderboard} />
                             </div>
                           );
                         })}

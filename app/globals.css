@@ -1195,6 +1195,14 @@ h4.site-heading { font-size: 1.1rem; }
 .module-panel input[type="checkbox"] { justify-self: start; }
 .site-image { display: inline-block; max-width: 100%; height: auto; border-radius: var(--radius); }
 .site-button { display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid; border-radius: var(--radius); font-weight: 700; text-decoration: none; }
+/* The Leaderboard module (WC-237): the Game leaderboard's top ten, rank, name and Total. */
+.site-leaderboard { text-align: left; }
+.site-leaderboard-rows { list-style: none; margin: 0.4rem 0; padding: 0; }
+.site-leaderboard-rows li { display: grid; grid-template-columns: 2.2rem 1fr auto; gap: 0.6rem; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+.site-leaderboard-rank { font-variant-numeric: tabular-nums; color: var(--muted); }
+.site-leaderboard-name { overflow-wrap: anywhere; }
+.site-leaderboard-total { font-variant-numeric: tabular-nums; text-align: right; }
+.site-leaderboard-link { text-decoration: underline; }
 /* A published page at /site/<address> (WC-210): each section a grid of its cells; one column on a phone. */
 /* The page is a container, and phone and desktop are its own width (WC-211, core's SITE_PHONE_MAX_WIDTH and
    SITE_DESKTOP_MIN_WIDTH; core/website.test.ts holds these numbers to core's). So the editor's 390-pixel preview gets

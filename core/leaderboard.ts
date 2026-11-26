@@ -118,3 +118,30 @@ export function rankLeaderboard(entries: readonly LeaderboardEntry[]): Leaderboa
     return { ...row, rank };
   });
 }
+
+/** How many members the Leaderboard module on a website page shows (WC-237). */
+export const LEADERBOARD_TOP = 10;
+
+/**
+ * The first `count` rows of a ranked board (rankLeaderboard): the same order,
+ * ranks, names and Totals as the full page, cut short. The Leaderboard module
+ * shows these. A shared rank at the cut keeps its number; the rows after the
+ * cut are simply not shown.
+ */
+export function topOfLeaderboard(rows: readonly LeaderboardRow[], count: number = LEADERBOARD_TOP): LeaderboardRow[] {
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  return rows.slice(0, n);
+}
+
+/**
+ * What the Leaderboard module on a website page has to draw, read on the
+ * server when the page is drawn (WC-237):
+ * - `signed-out`: the visitor is not signed in, so the module shows only a
+ *   note to sign in, no names and no scores (Dane's answer, 2026-11-25);
+ * - `rows`: the top of the board, at most LEADERBOARD_TOP, maybe none;
+ * - `failed`: the board could not be read, in plain words.
+ */
+export type LeaderboardTop =
+  | { kind: 'signed-out' }
+  | { kind: 'rows'; rows: LeaderboardRow[] }
+  | { kind: 'failed'; problem: string };

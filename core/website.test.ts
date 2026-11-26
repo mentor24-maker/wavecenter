@@ -15,7 +15,7 @@ import {
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
-  type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
+  SITE_LEADERBOARD_HEADING, SITE_MODULE_TYPES, type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
 const TOOL = 'wavecenter';
@@ -475,7 +475,7 @@ test('each of the four modules is added, saved and read back', async () => {
   const reread = (await deps.pages.list()).find((p) => p.id === page.id);
   assert.deepEqual(normalizeSiteSections(reread?.sections), [section]);
   // Each new module starts plain and is already tidy.
-  for (const type of ['heading', 'text', 'image', 'button'] as const) {
+  for (const type of ['heading', 'text', 'image', 'button', 'leaderboard'] as const) {
     const m = newSiteModule(type, 'main');
     assert.deepEqual(normalizeSiteModules([m], 'single'), [m], type);
   }
@@ -773,4 +773,39 @@ test("the page's CSS draws phone and desktop at core's own widths (WC-211)", () 
     const device = d.width <= SITE_PHONE_MAX_WIDTH ? 'phone' : d.width >= SITE_DESKTOP_MIN_WIDTH ? 'desktop' : 'tablet';
     assert.equal(device, d.key, `${d.label} is previewed at a ${d.key} width`);
   }
+});
+
+// WC-237: the Leaderboard module.
+test('a Leaderboard module can be added beside the other four, and starts with its plain heading', () => {
+  assert.deepEqual(SITE_MODULE_TYPES.map((t) => t.label), ['Heading', 'Text', 'Picture', 'Button', 'Leaderboard']);
+  const m = newSiteModule('leaderboard', 'main');
+  assert.equal(m.type, 'leaderboard');
+  assert.deepEqual(m.settings, { heading: SITE_LEADERBOARD_HEADING });
+  assert.equal(siteModuleProblem(m), null);
+  // A leaderboard always draws on a live page: it says in words when it has nobody to show.
+  assert.equal(siteModuleDrawsLive(m), true);
+  assert.equal(sitePageHasContent([{ ...newSiteSection(), modules: [m] }]), true);
+});
+
+test("a Leaderboard module's heading is tidied on read: trimmed, cut to length, cleared on purpose kept clear", () => {
+  const read = normalizeSiteModules([
+    { id: 'a', type: 'leaderboard', cell: 'main', settings: { heading: '  Top players  ' } },
+    { id: 'b', type: 'leaderboard', cell: 'main', settings: { heading: 'x'.repeat(SITE_HEADING_MAX + 50) } },
+    { id: 'c', type: 'leaderboard', cell: 'main', settings: { heading: '' } },
+    { id: 'd', type: 'leaderboard', cell: 'main' },
+    { id: 'e', type: 'leaderboard', cell: 'main', settings: { heading: 42, rows: 50 } },
+  ], 'single');
+  assert.deepEqual(read.map((m) => m.settings), [
+    { heading: 'Top players' },
+    { heading: 'x'.repeat(SITE_HEADING_MAX) },
+    { heading: '' },
+    { heading: SITE_LEADERBOARD_HEADING },
+    { heading: '' },
+  ]);
+});
+
+test('a page saved before the Leaderboard module reads exactly as it did', () => {
+  const old = [{ id: 's1', layout: 'single', modules: [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }] }];
+  const [section] = normalizeSiteSections(old);
+  assert.deepEqual(section.modules, [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }]);
 });

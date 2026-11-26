@@ -28,7 +28,7 @@
 import type {
   Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringPhase, ScoringPhaseStore, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
-import type { LeaderboardEntry } from "../../core/leaderboard.ts";
+import { rankLeaderboard, topOfLeaderboard, type LeaderboardEntry, type LeaderboardTop } from "../../core/leaderboard.ts";
 import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
 import type { supabaseForRequest } from "./supabase";
@@ -299,4 +299,23 @@ export async function readLeaderboard(supabase: Client): Promise<LeaderboardEntr
     tasks: Number(r.tasks ?? 0),
     memberId: typeof r.member_id === "string" ? r.member_id : null,
   }));
+}
+
+/**
+ * What a website page's Leaderboard module draws (WC-237), read on the server
+ * with the visitor's own session (never the service key, rule 3). A visitor
+ * who is not signed in gets `signed-out`, and nothing is read: the module
+ * shows them no names and no scores (Dane's answer, 2026-11-25). A failed
+ * read is `failed` in plain words, never an empty board (rule 7); the
+ * database's own words stay in the server's log.
+ */
+export async function readLeaderboardTop(supabase: Client | null, signedIn: boolean): Promise<LeaderboardTop> {
+  if (!signedIn) return { kind: "signed-out" };
+  if (!supabase) return { kind: "failed", problem: "This copy of WaveCenter has no database settings, so there is no leaderboard to show." };
+  try {
+    return { kind: "rows", rows: topOfLeaderboard(rankLeaderboard(await readLeaderboard(supabase))) };
+  } catch (err) {
+    console.error("The leaderboard module could not read the leaderboard:", err);
+    return { kind: "failed", problem: "The leaderboard could not be loaded just now. Try reloading in a minute." };
+  }
 }

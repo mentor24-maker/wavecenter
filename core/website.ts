@@ -693,7 +693,7 @@ export async function changeSavedSection(
   return saved;
 }
 
-// ── Modules: headings, text, pictures and buttons (WC-209) ─────────────────
+// ── Modules: headings, text, pictures, buttons and leaderboards (WC-209, WC-237) ─────────────────
 //
 // What fills a section's cells. Each module has an id (unique on its page), a
 // type, the cell it sits in, and that type's own settings. Ported from
@@ -713,6 +713,7 @@ export const SITE_MODULE_TYPES = [
   { key: 'text', label: 'Text' },
   { key: 'image', label: 'Picture' },
   { key: 'button', label: 'Button' },
+  { key: 'leaderboard', label: 'Leaderboard' },
 ] as const;
 
 export type SiteModuleType = (typeof SITE_MODULE_TYPES)[number]['key'];
@@ -739,6 +740,16 @@ export const SITE_IMAGE_WIDTH_MIN = 10;
 export interface SiteHeadingSettings { text: string; level: SiteHeadingLevel; /** "#rrggbb", or "" for the page's own colour. */ color: string }
 export interface SiteTextSettings { /** WaveCenter's rich text (core/richText.ts), never HTML. */ body: string }
 export interface SiteImageSettings { /** An https: address, or "" for none yet. */ url: string; /** Words describing the picture for anyone who cannot see it. */ alt: string; /** Percent of the cell's width. */ width: number }
+/**
+ * The Leaderboard module (WC-237): the Game leaderboard's top ten
+ * (core/leaderboard.ts), name and Total only, with a link to the full board.
+ * Its one setting is the heading above the list.
+ */
+export interface SiteLeaderboardSettings { /** Plain words; "" draws no heading. */ heading: string }
+
+/** The heading a new Leaderboard module starts with. */
+export const SITE_LEADERBOARD_HEADING = 'Leaderboard';
+
 export interface SiteButtonSettings {
   label: string;
   /** An http: or https: address, a WaveCenter address starting "/", or "" for none yet. */
@@ -756,7 +767,8 @@ export type SiteModule =
   | (SiteModuleBase & { type: 'heading'; settings: SiteHeadingSettings })
   | (SiteModuleBase & { type: 'text'; settings: SiteTextSettings })
   | (SiteModuleBase & { type: 'image'; settings: SiteImageSettings })
-  | (SiteModuleBase & { type: 'button'; settings: SiteButtonSettings });
+  | (SiteModuleBase & { type: 'button'; settings: SiteButtonSettings })
+  | (SiteModuleBase & { type: 'leaderboard'; settings: SiteLeaderboardSettings });
 
 const BUTTON_COLOR = '#214c71';
 const BUTTON_TEXT_COLOR = '#ffffff';
@@ -835,6 +847,9 @@ function settingsOf(type: SiteModuleType, value: unknown): SiteModule['settings'
         textColor: colour(s.textColor) || BUTTON_TEXT_COLOR,
         newTab: s.newTab === true,
       };
+    case 'leaderboard':
+      // A heading never saved (an older module) takes the plain default; one cleared on purpose stays "".
+      return { heading: s.heading === undefined ? SITE_LEADERBOARD_HEADING : text(s.heading, SITE_HEADING_MAX) };
   }
 }
 
@@ -843,7 +858,7 @@ const isEntry = (m: unknown): m is Record<string, unknown> => Boolean(m) && type
 /**
  * Whatever is stored as a section's modules, as a well-formed list: never
  * throws. Anything but a list is no modules; an entry that is not an object,
- * or not one of the four types, is dropped. A cell the layout does not have
+ * or not one of the module types, is dropped. A cell the layout does not have
  * (the section's layout changed) becomes its first cell, so nothing is lost.
  * Every setting is checked: a picture address that is not https:, or a link
  * that is not allowed, is cleared; anything else not allowed takes its plain
@@ -890,7 +905,7 @@ const shown = (value: string) => (value.length > 60 ? `${value.slice(0, 57)}…`
  */
 export function siteModuleProblem(module: unknown): string | null {
   if (!isEntry(module)) return 'A module was not readable.';
-  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture or button).`;
+  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture, button or leaderboard).`;
   const s = isEntry(module.settings) ? module.settings : {};
   if (module.type === 'image' && s.url !== undefined && siteImageUrl(s.url) === null) {
     return `The picture address "${shown(String(s.url))}" cannot be used. A picture's address must be a secure web address, starting with https://.`;
@@ -936,6 +951,8 @@ export function newSiteModule(type: SiteModuleType, cell: string, sections: read
       return { id, cell, type, settings: { url: '', alt: '', width: 100 } };
     case 'button':
       return { id, cell, type, settings: { label: 'Button', href: '', color: BUTTON_COLOR, textColor: BUTTON_TEXT_COLOR, newTab: false } };
+    case 'leaderboard':
+      return { id, cell, type, settings: { heading: SITE_LEADERBOARD_HEADING } };
   }
 }
 
@@ -972,7 +989,8 @@ export function siteSectionStyle(section: SiteSection): {
 /**
  * Whether a module draws anything on a live page. A heading or text with no
  * words, or a picture with no usable address, draws nothing there (the
- * editor names what is missing instead); a button always draws.
+ * editor names what is missing instead); a button and a leaderboard always
+ * draw (a leaderboard says in words when it has nobody to show).
  * SiteModuleView asks this, so the two never disagree.
  */
 export function siteModuleDrawsLive(module: SiteModule): boolean {
@@ -984,6 +1002,7 @@ export function siteModuleDrawsLive(module: SiteModule): boolean {
     case 'image':
       return Boolean(siteImageUrl(module.settings.url));
     case 'button':
+    case 'leaderboard':
       return true;
   }
 }
