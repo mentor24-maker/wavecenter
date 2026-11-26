@@ -283,6 +283,7 @@ export async function headerPoints(supabase: Client, memberId: string): Promise<
  * (supabase/migrations/20261125120000_leaderboard.sql). It returns totals
  * only, with each name and avatar already left out where the member's
  * profile does not allow them, so this never sees anyone's engagements.
+ * A member's id comes only with a Public name, as its profile link (WC-238).
  * A failed read throws; it never becomes an empty board.
  */
 export async function readLeaderboard(supabase: Client): Promise<LeaderboardEntry[]> {
@@ -296,5 +297,6 @@ export async function readLeaderboard(supabase: Client): Promise<LeaderboardEntr
     granular: Number(r.granular ?? 0),
     globular: Number(r.globular ?? 0),
     tasks: Number(r.tasks ?? 0),
+    memberId: typeof r.member_id === "string" ? r.member_id : null,
   }));
 }

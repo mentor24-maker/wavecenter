@@ -14,9 +14,11 @@
  * the Members page and Evolution cards): the name of a profile that is not
  * Public, and the avatar of a Private one. Who is shown how is core's
  * `cardCredit`, the placeholder for the permissions settings to come, so the
- * leaderboard follows them when they arrive.
+ * leaderboard follows them when they arrive. A shown name links to the
+ * member's profile page (WC-238); every other row is plain text, and the
+ * database sends no id for it.
  */
-import { cardCredit, type MemberProfile } from './profiles.ts';
+import { cardCredit, isMemberId, type MemberProfile } from './profiles.ts';
 
 /** One member's row as the database gives it. */
 export interface LeaderboardEntry {
@@ -30,6 +32,11 @@ export interface LeaderboardEntry {
   globular: number;
   /** How many tasks the member has finished. */
   tasks: number;
+  /**
+   * The member's id, the link to their profile page. The database sends it
+   * only for a Public member with a name; null for everyone else.
+   */
+  memberId?: string | null;
 }
 
 /** One row of the board, ranked and ready to show. */
@@ -46,6 +53,13 @@ export interface LeaderboardRow extends LeaderboardEntry {
   name: string;
   /** Whether the name is the member's own Public one (false for "Anonymous member"). */
   named: boolean;
+  /** Where the name links: the member's profile page, or null for no link (WC-238). */
+  profileHref: string | null;
+}
+
+/** The address of a member's profile page. */
+export function profileHref(memberId: string): string {
+  return `/members/${encodeURIComponent(memberId)}`;
 }
 
 /** What a member whose name may not be shown appears as. */
@@ -83,6 +97,7 @@ export function rankLeaderboard(entries: readonly LeaderboardEntry[]): Leaderboa
         avatarLabel: shown.avatarLabel ?? NEUTRAL.label,
         name: shown.name ?? ANONYMOUS_MEMBER,
         named: shown.name != null,
+        profileHref: shown.profileLink && isMemberId(entry.memberId) ? profileHref(entry.memberId) : null,
       },
     };
   });

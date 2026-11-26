@@ -151,8 +151,9 @@ function short(words: string): string {
  * Who made the change and its points, from the WaveCenter task behind it.
  * The avatar and name show only where core's cardCredit allows them (a
  * Private creator's card shows the points alone).
- * No profile page exists yet, so `profileLink` is false and the name is
- * plain text; once one does, the name links to it here.
+ * The name stays plain text here even where `profileLink` allows a link:
+ * evolution_credits() sends no member id, so there is nothing to link to
+ * yet. The leaderboard's names link to the profile page (WC-238).
  */
 function Credit({ credit }: { credit: NonNullable<EvolutionCard["credit"]> }) {
   const name = credit.name ? <span className="evolution-creator-name">{credit.name}</span> : null;

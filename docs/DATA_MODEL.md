@@ -787,11 +787,38 @@ definer` (it runs with the owner's rights, past row-level security) and
 returns, per member, only those totals, whether the row is the caller's own
 (`you`), and what their profile lets other members see, by the same rule as
 `list_members()` and `evolution_credits()`: the name only for a Public
-profile, the avatar never for a Private one. Never a member's id, bio,
-privacy setting or any single engagement. Signed-out visitors are refused.
+profile, the avatar never for a Private one. Never a bio, privacy setting
+or any single engagement, and a member's id only as the link to their
+profile page, on the row of a Public member with a name (`member_id`,
+added by WC-238; see below). Signed-out visitors are refused.
 It returns one JSON array, not rows, so the API's 1,000-row limit can never
 cut the board short. No table or row-level security changed. The ranking
 (ties share a rank) is `rankLeaderboard` in `core/leaderboard.ts`.
+
+### A member's profile page: `member_profile(member)`
+
+`/members/<id>` (WC-238, "Member profile page, linked from leaderboard
+names"; Dane's "3) B" on WC-236) shows one member's profile to another,
+read only. A member's `member_profiles` row stays theirs alone, so the page
+reads it through `member_profile(member)`
+(`20261126120000_member_profile_page.sql`), `security definer` like
+`leaderboard()` and under the same rule:
+
+| The member's profile | What comes back |
+|---|---|
+| Public | avatar, display name and bio |
+| Anonymous, or never saved | the avatar alone |
+| Private, or no such member | nothing (`null`), the two alike |
+
+Never the privacy setting itself and never anything for a signed-out
+visitor. Because Private and unknown look the same, the page says one thing
+for both ("private, or there is no member at this address") and never
+confirms that a hidden member exists. What the page shows is `shownProfile`
+in `core/profiles.ts`; which names link is `cardCredit`'s `profileLink`,
+true only where a Public name shows. The leaderboard sends `member_id` for
+exactly those rows, so an Anonymous or Private row has no link and its id
+is nowhere on the page. Evolution cards follow the same rule but stay
+unlinked for now: `evolution_credits()` sends no id.
 
 ### The AI's task ratings: `ai_task_ratings` and `ai_task_model_ratings`
 
