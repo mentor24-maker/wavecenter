@@ -28,10 +28,10 @@
 import type {
   Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringPhase, ScoringPhaseStore, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
-import { rankLeaderboard, topOfLeaderboard, type LeaderboardEntry, type LeaderboardTop } from "../../core/leaderboard.ts";
+import { leaderboardTopAccess, rankLeaderboard, topOfLeaderboard, type LeaderboardEntry, type LeaderboardTop, type LeaderboardVisitor } from "../../core/leaderboard.ts";
 import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
-import type { supabaseForRequest } from "./supabase";
+import { SIGN_IN_CHECK_FAILED, type supabaseForRequest } from "./supabase";
 import { listTokenSizes } from "./tokenStore";
 import { TOOL_HEADER } from "./taskStore";
 
@@ -305,13 +305,17 @@ export async function readLeaderboard(supabase: Client): Promise<LeaderboardEntr
  * What a website page's Leaderboard module draws (WC-237), read on the server
  * with the visitor's own session (never the service key, rule 3). A visitor
  * who is not signed in gets `signed-out`, and nothing is read: the module
- * shows them no names and no scores (Dane's answer, 2026-11-25). A failed
+ * shows them no names and no scores (Dane's answer, 2026-11-25). A sign-in
+ * check that errored is `failed` with SIGN_IN_CHECK_FAILED, never "Sign in"
+ * to someone who may be signed in (core leaderboardTopAccess). A failed
  * read is `failed` in plain words, never an empty board (rule 7); the
  * database's own words stay in the server's log.
  */
-export async function readLeaderboardTop(supabase: Client | null, signedIn: boolean): Promise<LeaderboardTop> {
-  if (!signedIn) return { kind: "signed-out" };
-  if (!supabase) return { kind: "failed", problem: "This copy of WaveCenter has no database settings, so there is no leaderboard to show." };
+export async function readLeaderboardTop(supabase: Client | null, visitor: LeaderboardVisitor): Promise<LeaderboardTop> {
+  const access = leaderboardTopAccess(visitor, Boolean(supabase));
+  if (access === "no-database") return { kind: "failed", problem: "This copy of WaveCenter has no database settings, so there is no leaderboard to show." };
+  if (access === "check-failed") return { kind: "failed", problem: SIGN_IN_CHECK_FAILED };
+  if (access === "signed-out" || !supabase) return { kind: "signed-out" };
   try {
     return { kind: "rows", rows: topOfLeaderboard(rankLeaderboard(await readLeaderboard(supabase))) };
   } catch (err) {

@@ -17,8 +17,8 @@ async function readSavedSections(): Promise<SiteSavedSection[] | string> {
 /** The leaderboard's top ten as the signed-in editor sees it (WC-237). */
 async function readEditorLeaderboard() {
   const supabase = await supabaseForRequest();
-  const { user } = supabase ? await currentUser(supabase) : { user: null };
-  return readLeaderboardTop(supabase, Boolean(user));
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
+  return readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed });
 }
 
 /**

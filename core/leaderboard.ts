@@ -145,3 +145,32 @@ export type LeaderboardTop =
   | { kind: 'signed-out' }
   | { kind: 'rows'; rows: LeaderboardRow[] }
   | { kind: 'failed'; problem: string };
+
+/** What the visitor's sign-in check said, as `currentUser` reports it. */
+export interface LeaderboardVisitor {
+  signedIn: boolean;
+  /** The check itself errored, so whether they are signed in is unknown. */
+  checkFailed: boolean;
+}
+
+/**
+ * Whether the Leaderboard module may read the board for this visitor, and if
+ * not, why (WC-237), decided before any read:
+ * - `check-failed`: the sign-in check errored. The visitor may well be signed
+ *   in, so the module says the check failed, never "Sign in" (rule 7);
+ * - `signed-out`: the check worked and they are not signed in, so nothing is
+ *   read and the module shows only the note to sign in;
+ * - `no-database`: this copy has no database settings;
+ * - `read`: a signed-in member; read the board.
+ * A failed check wins over a missing sign-in, since a failed check also
+ * reports no user.
+ */
+export function leaderboardTopAccess(
+  visitor: LeaderboardVisitor,
+  hasDatabase: boolean,
+): 'check-failed' | 'signed-out' | 'no-database' | 'read' {
+  if (!hasDatabase) return 'no-database';
+  if (visitor.checkFailed) return 'check-failed';
+  if (!visitor.signedIn) return 'signed-out';
+  return 'read';
+}

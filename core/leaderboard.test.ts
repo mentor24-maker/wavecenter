@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANONYMOUS_MEMBER, LEADERBOARD_TOP, rankLeaderboard, topOfLeaderboard, type LeaderboardEntry } from './leaderboard.ts';
+import { ANONYMOUS_MEMBER, LEADERBOARD_TOP, leaderboardTopAccess, rankLeaderboard, topOfLeaderboard, type LeaderboardEntry } from './leaderboard.ts';
 
 const entry = (over: Partial<LeaderboardEntry>): LeaderboardEntry => ({
   you: false, avatar: 'wave', displayName: null, granular: 0, globular: 0, tasks: 0, ...over,
@@ -119,4 +119,21 @@ test('a count that is not a whole positive number shows nobody', () => {
   assert.deepEqual(topOfLeaderboard(board, 0), []);
   assert.deepEqual(topOfLeaderboard(board, -3), []);
   assert.deepEqual(topOfLeaderboard(board, Number.NaN), []);
+});
+
+test('leaderboard module: a failed sign-in check is never told to sign in', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: true }, true), 'check-failed');
+});
+
+test('leaderboard module: a signed-out visitor reads nothing', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: false }, true), 'signed-out');
+});
+
+test('leaderboard module: a signed-in member reads the board', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: true, checkFailed: false }, true), 'read');
+});
+
+test('leaderboard module: no database settings says so', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: false }, false), 'no-database');
+  assert.equal(leaderboardTopAccess({ signedIn: true, checkFailed: false }, false), 'no-database');
 });

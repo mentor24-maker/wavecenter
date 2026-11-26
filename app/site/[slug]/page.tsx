@@ -42,7 +42,7 @@ async function readPage(supabase: Client, slug: string): Promise<SitePage | null
 export default async function PublicSitePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const supabase = await supabaseForRequest();
-  const { user } = supabase ? await currentUser(supabase) : { user: null };
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   const [name, isAdmin, points, read] = await Promise.all([
     supabase && user ? headerName(supabase, user) : null,
     supabase && user ? headerIsAdmin(supabase, user.id) : false,
@@ -62,7 +62,7 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
   ]);
   const page = "page" in read ? read.page : null;
   const hasLeaderboard = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "leaderboard")));
-  const leaderboard = hasLeaderboard ? await readLeaderboardTop(supabase, Boolean(user)) : undefined;
+  const leaderboard = hasLeaderboard ? await readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }) : undefined;
 
   return (
     <>
