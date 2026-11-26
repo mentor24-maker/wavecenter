@@ -772,6 +772,27 @@ Dane, 2026-11-01, named the game layer's two basic types of score:
   task are designed in `docs/GLOBULAR_SCORING_ALGORITHM.md`. The AI's
   ratings have their own tables, below.
 
+### The leaderboard: `leaderboard()`
+
+Game → Leaderboard (Dane, 2026-11-25, "Create Leaderboard") ranks every
+member by four scores: **Granular** (the sum of their `engagements`, the
+number My Points shows), **Globular** (the sum of `points` on their tasks
+with status `done`), **Tasks** (how many tasks they have finished, a count,
+not points) and **Total** (Granular + Globular; the board is ranked by it).
+
+Members may read only their own engagements and their own profile, so the
+board reads everyone's totals through one function,
+`leaderboard()` (`20261125120000_leaderboard.sql`). It is `security
+definer` (it runs with the owner's rights, past row-level security) and
+returns, per member, only those totals, whether the row is the caller's own
+(`you`), and what their profile lets other members see, by the same rule as
+`list_members()` and `evolution_credits()`: the name only for a Public
+profile, the avatar never for a Private one. Never a member's id, bio,
+privacy setting or any single engagement. Signed-out visitors are refused.
+It returns one JSON array, not rows, so the API's 1,000-row limit can never
+cut the board short. No table or row-level security changed. The ranking
+(ties share a rank) is `rankLeaderboard` in `core/leaderboard.ts`.
+
 ### The AI's task ratings: `ai_task_ratings` and `ai_task_model_ratings`
 
 From the globular design Dane approved (`docs/GLOBULAR_SCORING_ALGORITHM.md`,

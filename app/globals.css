@@ -1214,3 +1214,13 @@ h4.site-heading { font-size: 1.1rem; }
 .device-preview-stage { margin: 0 auto; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg, #fff); }
 .device-preview-screen { transform-origin: top left; }
 @media (max-width: 60rem) { .builder.with-panel { grid-template-columns: 1fr; } .module-panel { position: static; max-height: none; } }
+
+/* The Game leaderboard: the Members table's look, with the signed-in
+   member's own row marked by an accent bar and a tint. */
+table.game.leaderboard tr.you td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+table.game.leaderboard tr.you td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+table.game.leaderboard th.num, table.game.leaderboard td.num { padding-left: 0.75rem; }
+table.game.leaderboard td:last-child, table.game.leaderboard th:last-child { padding-right: 0.5rem; }
+.leaderboard-avatar { font-size: 1.15rem; }
+.leaderboard-anonymous { color: var(--muted); }
+.leaderboard-you { color: var(--accent); }

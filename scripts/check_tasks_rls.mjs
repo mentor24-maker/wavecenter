@@ -2640,6 +2640,39 @@ try {
   const creditAnon = await call('/rest/v1/rpc/evolution_credits', { method: 'POST', body: {} });
   check('a signed-out visitor cannot read who made each change', creditAnon.status >= 400, `HTTP ${creditAnon.status} ${JSON.stringify(creditAnon.json)}`);
 
+  // leaderboard(): every member's totals (Granular, Globular, Tasks) and what
+  // their profile lets others see (A is Public, B is Private). Never an id,
+  // a bio, the privacy setting or a single engagement; never signed out.
+  {
+    const board = await call('/rest/v1/rpc/leaderboard', { method: 'POST', token: b.token, body: {} });
+    const rows = Array.isArray(board.json) ? board.json : [];
+    const allowed = ['you', 'avatar', 'display_name', 'granular', 'globular', 'tasks'];
+    const extra = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !allowed.includes(k));
+    const accounts = await admin('/auth/v1/admin/users?per_page=1000');
+    const userCount = Array.isArray(accounts.json?.users) ? accounts.json.users.length : null;
+    check('the leaderboard has one row per member and only totals and what a profile may show: no id, bio, privacy setting or engagement',
+      board.status === 200 && rows.length > 0 && rows.length === userCount && extra.length === 0,
+      `HTTP ${board.status}, ${rows.length} row(s) for ${userCount} member(s), extra fields ${JSON.stringify(extra)}`);
+
+    const granularA = Number((await admin(`/rest/v1/engagement_totals?member_id=eq.${a.id}&select=points`)).json?.[0]?.points ?? 0);
+    const doneA = (await admin(`/rest/v1/tasks?owner_id=eq.${a.id}&status=eq.done&select=points`)).json ?? [];
+    const rowsA = rows.filter((r) => r.display_name === 'A' && r.avatar === 'sun');
+    const rowA = rowsA[0];
+    check('the leaderboard shows a Public member\'s name and avatar, with Granular, Globular and Tasks matching their engagements and finished tasks',
+      rowsA.length === 1 && rowA.you === false && Number(rowA.granular) === granularA
+        && Number(rowA.globular) === doneA.reduce((s, t) => s + t.points, 0) && Number(rowA.tasks) === doneA.length,
+      `A's row ${JSON.stringify(rowsA)}, expected granular ${granularA}, finished ${JSON.stringify(doneA)}`);
+
+    const own = rows.filter((r) => r.you === true);
+    const granularB = Number((await admin(`/rest/v1/engagement_totals?member_id=eq.${b.id}&select=points`)).json?.[0]?.points ?? 0);
+    check('the leaderboard marks the caller\'s own row, and a Private member shows neither avatar nor name, even to themselves',
+      own.length === 1 && own[0].avatar === null && own[0].display_name === null && Number(own[0].granular) === granularB && !rows.some((r) => r.display_name === 'B'),
+      `own row(s) ${JSON.stringify(own)}, expected granular ${granularB}`);
+
+    const boardAnon = await call('/rest/v1/rpc/leaderboard', { method: 'POST', body: {} });
+    check('a signed-out visitor cannot read the leaderboard', boardAnon.status >= 400, `HTTP ${boardAnon.status} ${JSON.stringify(boardAnon.json)}`);
+  }
+
   const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });
   check('a member can read a stored screenshot', evoObj.status === 200, `HTTP ${evoObj.status}`);
   const evoPublic = await call(`/storage/v1/object/public/${EVO_BUCKET}/${evoPath}`);
