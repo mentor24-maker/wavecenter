@@ -28,6 +28,7 @@
 import type {
   Engagement, EngagementLedger, FactorReasons, RescoreStore, ScoringFactors, ScoringPhase, ScoringPhaseStore, ScoringRule, ScoringRuleStore,
 } from "../../core/game.ts";
+import type { LeaderboardEntry } from "../../core/leaderboard.ts";
 import type { Earning, TokenSize } from "../../core/tokens.ts";
 import { CoreError } from "../../core/tool.ts";
 import type { supabaseForRequest } from "./supabase";
@@ -274,4 +275,26 @@ export async function headerPoints(supabase: Client, memberId: string): Promise<
     await catchUp;
     return { value: null, error: err instanceof Error ? err.message : String(err), catchUp: null };
   }
+}
+
+/**
+ * Every member's row for the Game leaderboard (core/leaderboard.ts), from the
+ * database's `leaderboard()` function
+ * (supabase/migrations/20261125120000_leaderboard.sql). It returns totals
+ * only, with each name and avatar already left out where the member's
+ * profile does not allow them, so this never sees anyone's engagements.
+ * A failed read throws; it never becomes an empty board.
+ */
+export async function readLeaderboard(supabase: Client): Promise<LeaderboardEntry[]> {
+  const { data, error } = await supabase.rpc("leaderboard");
+  if (error) failed("the leaderboard", error);
+  if (!Array.isArray(data)) throw new Error("The database's reply for the leaderboard could not be read.");
+  return data.map((r: any) => ({
+    you: r.you === true,
+    avatar: r.avatar ?? null,
+    displayName: r.display_name ?? null,
+    granular: Number(r.granular ?? 0),
+    globular: Number(r.globular ?? 0),
+    tasks: Number(r.tasks ?? 0),
+  }));
 }
