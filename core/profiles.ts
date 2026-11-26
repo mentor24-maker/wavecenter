@@ -6,9 +6,9 @@
  * anonymous: no name, a built-in avatar, and visibility `anonymous`. A member
  * reveals more only when they choose to.
  *
- * Masks, Filters and vendor access are later work. There is no screen yet
- * that shows one member's profile to another; `visibility` records the
- * member's choice now so that screen can honour it when it comes.
+ * Masks, Filters and vendor access are later work. Another member sees a
+ * profile on its own page, `/members/<id>` (WC-238), only as `visibility`
+ * allows: `shownProfile` below, behind the database's `member_profile()`.
  *
  * Like the AI agents switch (core/agents.ts), the profile is reached through
  * a store a client supplies, and every change names its tool.
@@ -170,9 +170,11 @@ export interface CreditShown {
  * the visibility the creator chose on their profile: `public` shows the
  * avatar and name; `anonymous` shows the avatar alone; `private` shows
  * neither, the same as the Members page (Dane, 2026-11-02: "A"). Never the
- * bio. An avatar this code does not know shows as the neutral 👤. `profileLink` stays false while no screen shows one member's profile
- * to another; it becomes true here once that screen exists and the rule
- * allows it.
+ * bio. An avatar this code does not know shows as the neutral 👤.
+ * `profileLink` is true only where a name shows (a Public profile with a
+ * name): that name may link to the member's profile page (WC-238). A screen
+ * links it only when it also has the member's id, which the database sends
+ * for exactly those members.
  *
  * On Evolution cards this runs on a visibility the app infers from which
  * fields `evolution_credits()` left empty; that SQL function is the real
@@ -185,5 +187,53 @@ export function cardCredit(
   if (creator.visibility === 'private') return { avatar: null, avatarLabel: null, name: null, profileLink: false };
   const avatar = AVATARS.find((a) => a.id === creator.avatar) ?? { symbol: '👤', label: 'Member' };
   const name = creator.visibility === 'public' ? creator.displayName?.trim() || null : null;
-  return { avatar: avatar.symbol, avatarLabel: avatar.label, name, profileLink: false };
+  return { avatar: avatar.symbol, avatarLabel: avatar.label, name, profileLink: name !== null };
+}
+
+/** A member's id as the database writes it (a UUID). Anything else names nobody. */
+export function isMemberId(text: unknown): text is string {
+  return typeof text === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text);
+}
+
+/** One member's profile as the database's `member_profile()` gives it: null for Private or nobody. */
+export interface ProfileReply {
+  avatar: string | null;
+  displayName: string | null;
+  bio: string | null;
+}
+
+/** What another member's profile page shows of them. */
+export interface ProfileShown {
+  /** The avatar's symbol, e.g. "🌊". */
+  avatar: string;
+  /** The avatar's name, for a screen reader. */
+  avatarLabel: string;
+  /** The Public name, or null: the page then says "Anonymous member". */
+  name: string | null;
+  /** The Public bio, or null when there is none or it may not be shown. */
+  bio: string | null;
+}
+
+/**
+ * What a member's profile page (WC-238) shows another member, from what the
+ * database's `member_profile()` let through. That function is the real gate:
+ * it sends nothing at all for a Private profile or an unknown id, the avatar
+ * alone for an Anonymous one, and the name and bio only for a Public one.
+ * Null here means there is nothing to show. The visibility is read back from
+ * what came through (a name means Public) and run through `cardCredit`, so the
+ * page follows the permissions settings when they plug in there. A bio shows
+ * only because the database sent one, which it does only for a Public
+ * profile.
+ */
+export function shownProfile(reply: ProfileReply | null): ProfileShown | null {
+  if (!reply || reply.avatar == null) return null;
+  const name = reply.displayName?.trim() || null;
+  const credit = cardCredit({ displayName: name, avatar: reply.avatar as AvatarId, visibility: name ? 'public' : 'anonymous' });
+  if (!credit.avatar || !credit.avatarLabel) return null;
+  return {
+    avatar: credit.avatar,
+    avatarLabel: credit.avatarLabel,
+    name: credit.name,
+    bio: reply.bio?.trim() || null,
+  };
 }

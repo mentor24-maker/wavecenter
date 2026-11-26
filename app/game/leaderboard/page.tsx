@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { rankLeaderboard, type LeaderboardRow } from "../../../core/leaderboard.ts";
 import { headerPoints, readLeaderboard } from "../../lib/engagementStore";
@@ -24,8 +25,9 @@ const n = (value: number) => value.toLocaleString("en-US");
  * ranked by Total, with their Granular, Globular, Tasks and Total scores
  * (core/leaderboard.ts says what each one is). The signed-in member's own
  * row is marked. A member whose profile is not Public shows as "Anonymous
- * member"; the database never sends their name. Names are not links yet: no
- * page shows one member's profile to another.
+ * member"; the database never sends their name. A shown name links to that
+ * member's profile page (WC-238); "Anonymous member" is plain text, and the
+ * database sends no id for it.
  *
  * It treats visitors as `/game` does: signed out goes to sign in; no database
  * settings, a failed sign-in check, a failed read and an empty board each say
@@ -105,7 +107,13 @@ function Board({ rows }: { rows: LeaderboardRow[] }) {
             <td className="num">{row.rank}</td>
             <td>
               <span className="leaderboard-avatar" role="img" aria-label={row.avatarLabel}>{row.avatarSymbol}</span>{" "}
-              {row.named ? row.name : <i className="leaderboard-anonymous">{row.name}</i>}
+              {row.named && row.profileHref ? (
+                <Link href={row.profileHref}>{row.name}</Link>
+              ) : row.named ? (
+                row.name
+              ) : (
+                <i className="leaderboard-anonymous">{row.name}</i>
+              )}
               {row.you && <b className="leaderboard-you"> (you)</b>}
             </td>
             <td className="num">{n(row.granular)}</td>

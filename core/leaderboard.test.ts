@@ -72,3 +72,21 @@ test('a missing or negative number counts as 0', () => {
   const [row] = rankLeaderboard([entry({ granular: Number.NaN, globular: -4, tasks: -1 })]);
   assert.deepEqual([row.granular, row.globular, row.tasks, row.total], [0, 0, 0, 0]);
 });
+
+test('a shown name links to the member\'s profile page; anonymous and private rows never link (WC-238)', () => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  const rows = rankLeaderboard([
+    entry({ displayName: 'Named', memberId: id, granular: 3 }),
+    entry({ displayName: null, memberId: id, granular: 2 }),
+    entry({ avatar: null, displayName: null, memberId: id, granular: 1 }),
+    entry({ displayName: 'No id', granular: 0 }),
+    entry({ displayName: 'Bad id', memberId: '../admin', granular: 0 }),
+  ]);
+  assert.deepEqual(rows.map((r) => [r.name, r.profileHref]), [
+    ['Named', `/members/${id}`],
+    [ANONYMOUS_MEMBER, null],
+    [ANONYMOUS_MEMBER, null],
+    ['Bad id', null],
+    ['No id', null],
+  ]);
+});

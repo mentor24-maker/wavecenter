@@ -89,7 +89,7 @@ test('creditsByCommit credits each change to its task owner: name only if Public
     // A Private owner: the database sends no avatar; should it ever send a name, core still hides it.
     { commit_sha: 'c', points: 2, avatar: null, display_name: 'Hidden' },
   ]);
-  assert.deepEqual(credits.get('a'), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: false, points: 5 });
+  assert.deepEqual(credits.get('a'), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: true, points: 5 });
   assert.deepEqual(credits.get('b'), { avatar: '🌙', avatarLabel: 'Moon', name: null, profileLink: false, points: 0 });
   assert.deepEqual(credits.get('c'), { avatar: null, avatarLabel: null, name: null, profileLink: false, points: 2 });
   assert.equal(credits.get('none'), undefined);

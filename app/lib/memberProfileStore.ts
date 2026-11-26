@@ -6,7 +6,7 @@
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core.
  */
-import type { MemberProfile, MemberProfileStore } from "../../core/profiles.ts";
+import type { MemberProfile, MemberProfileStore, ProfileReply } from "../../core/profiles.ts";
 import type { supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -63,4 +63,21 @@ export async function headerName(supabase: Client, user: { id: string; email?: s
   } catch {
     return email;
   }
+}
+
+/**
+ * One member's profile as another member may see it (WC-238), from the
+ * database's `member_profile()` function
+ * (supabase/migrations/20261126120000_member_profile_page.sql). Null means
+ * the profile is Private or there is no such member; the database does not
+ * say which. A failed read throws; it never becomes "nothing to show".
+ */
+export async function readMemberProfile(supabase: Client, memberId: string): Promise<ProfileReply | null> {
+  const { data, error } = await supabase.rpc("member_profile", { member: memberId });
+  if (error) throw new Error(`The database refused to read this member's profile: ${error.message}`);
+  if (data === null || data === undefined) return null;
+  if (typeof data !== "object" || Array.isArray(data)) throw new Error("The database's reply for this member's profile could not be read.");
+  const r = data as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" ? v : null);
+  return { avatar: text(r.avatar), displayName: text(r.display_name), bio: text(r.bio) };
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  AVATARS, BIO_MAX, DEFAULT_MEMBER_PROFILE, DISPLAY_NAME_MAX, PROFILE_VISIBILITIES, cardCredit, loadProfile, saveProfile,
+  AVATARS, BIO_MAX, DEFAULT_MEMBER_PROFILE, DISPLAY_NAME_MAX, PROFILE_VISIBILITIES, cardCredit, isMemberId, loadProfile, saveProfile, shownProfile,
   type MemberProfile, type MemberProfileStore,
 } from './profiles.ts';
 
@@ -69,7 +69,7 @@ test('the migration allows exactly the avatars, visibilities and lengths core kn
 
 test('cardCredit shows the name only for a Public profile, and nothing of a Private one', () => {
   const sun = { displayName: 'Dane', avatar: 'sun' as const };
-  assert.deepEqual(cardCredit({ ...sun, visibility: 'public' }), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: false });
+  assert.deepEqual(cardCredit({ ...sun, visibility: 'public' }), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', profileLink: true });
   assert.deepEqual(cardCredit({ ...sun, visibility: 'anonymous' }), { avatar: '☀️', avatarLabel: 'Sun', name: null, profileLink: false });
   assert.deepEqual(cardCredit({ ...sun, visibility: 'private' }), { avatar: null, avatarLabel: null, name: null, profileLink: false });
 });
@@ -79,8 +79,22 @@ test('cardCredit: a Public profile with no name shows the avatar alone; an unkno
   assert.equal(cardCredit({ displayName: 'X', avatar: 'nope' as never, visibility: 'public' }).avatar, '👤');
 });
 
-test('cardCredit never links to a profile while no profile page exists', () => {
-  for (const visibility of PROFILE_VISIBILITIES) {
-    assert.equal(cardCredit({ displayName: 'Dane', avatar: 'wave', visibility }, { memberId: 'someone' }).profileLink, false);
-  }
+test('cardCredit links to a profile only where a Public name shows (WC-238)', () => {
+  assert.equal(cardCredit({ displayName: 'Dane', avatar: 'wave', visibility: 'public' }).profileLink, true);
+  assert.equal(cardCredit({ displayName: ' ', avatar: 'wave', visibility: 'public' }).profileLink, false);
+  assert.equal(cardCredit({ displayName: 'Dane', avatar: 'wave', visibility: 'anonymous' }).profileLink, false);
+  assert.equal(cardCredit({ displayName: 'Dane', avatar: 'wave', visibility: 'private' }).profileLink, false);
+});
+
+test('shownProfile: Public shows avatar, name and bio; Anonymous the avatar alone; nothing for Private or nobody', () => {
+  assert.deepEqual(shownProfile({ avatar: 'sun', displayName: 'Dane', bio: ' Builder ' }), { avatar: '☀️', avatarLabel: 'Sun', name: 'Dane', bio: 'Builder' });
+  assert.deepEqual(shownProfile({ avatar: 'moon', displayName: null, bio: null }), { avatar: '🌙', avatarLabel: 'Moon', name: null, bio: null });
+  assert.equal(shownProfile(null), null);
+  assert.equal(shownProfile({ avatar: null, displayName: 'X', bio: 'Y' }), null);
+  assert.equal(shownProfile({ avatar: 'nope', displayName: null, bio: null })?.avatar, '👤');
+});
+
+test('isMemberId accepts a UUID and nothing else', () => {
+  assert.equal(isMemberId('11111111-2222-4333-8444-555555555555'), true);
+  for (const bad of ['', 'abc', '../admin', '11111111-2222-4333-8444-55555555555z', null, 5]) assert.equal(isMemberId(bad), false);
 });

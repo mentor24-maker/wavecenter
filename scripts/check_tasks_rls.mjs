@@ -2646,11 +2646,11 @@ try {
   {
     const board = await call('/rest/v1/rpc/leaderboard', { method: 'POST', token: b.token, body: {} });
     const rows = Array.isArray(board.json) ? board.json : [];
-    const allowed = ['you', 'avatar', 'display_name', 'granular', 'globular', 'tasks'];
+    const allowed = ['you', 'avatar', 'display_name', 'granular', 'globular', 'tasks', 'member_id'];
     const extra = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !allowed.includes(k));
     const accounts = await admin('/auth/v1/admin/users?per_page=1000');
     const userCount = Array.isArray(accounts.json?.users) ? accounts.json.users.length : null;
-    check('the leaderboard has one row per member and only totals and what a profile may show: no id, bio, privacy setting or engagement',
+    check('the leaderboard has one row per member and only totals and what a profile may show: no bio, privacy setting or engagement',
       board.status === 200 && rows.length > 0 && rows.length === userCount && extra.length === 0,
       `HTTP ${board.status}, ${rows.length} row(s) for ${userCount} member(s), extra fields ${JSON.stringify(extra)}`);
 
@@ -2669,8 +2669,42 @@ try {
       own.length === 1 && own[0].avatar === null && own[0].display_name === null && Number(own[0].granular) === granularB && !rows.some((r) => r.display_name === 'B'),
       `own row(s) ${JSON.stringify(own)}, expected granular ${granularB}`);
 
+    // WC-238: the link to a profile page. Only a Public member with a name
+    // carries their id; an Anonymous or Private row never does.
+    const withId = rows.filter((r) => 'member_id' in r);
+    check('the leaderboard carries a member id only on a Public named row, as its profile link; never on an Anonymous or Private row',
+      rowA?.member_id === a.id && !('member_id' in (own[0] ?? {}))
+        && withId.every((r) => typeof r.display_name === 'string' && r.display_name.trim() !== '' && r.avatar !== null)
+        && !rows.some((r) => r.member_id === b.id || r.member_id === outsider.id),
+      `rows with an id ${JSON.stringify(withId)}, own row ${JSON.stringify(own)}`);
+
     const boardAnon = await call('/rest/v1/rpc/leaderboard', { method: 'POST', body: {} });
     check('a signed-out visitor cannot read the leaderboard', boardAnon.status >= 400, `HTTP ${boardAnon.status} ${JSON.stringify(boardAnon.json)}`);
+  }
+
+  // member_profile(member) (WC-238): one member's profile as another may see
+  // it. Public (A): avatar, name and bio. Anonymous (the chat outsider never
+  // saved one): the avatar alone. Private (B), even to B, and an unknown id:
+  // null, alike. Never the privacy setting; never signed out.
+  {
+    const profileOf = (who, member) => call('/rest/v1/rpc/member_profile', { method: 'POST', token: who?.token, body: { member } });
+    const keysOk = (j) => j !== null && typeof j === 'object' && Object.keys(j).every((k) => ['avatar', 'display_name', 'bio'].includes(k));
+    const pubA = await profileOf(b, a.id);
+    check('a member sees a Public member\'s avatar, name and bio, and nothing else (no privacy setting, no id)',
+      pubA.status === 200 && keysOk(pubA.json) && pubA.json.avatar === 'sun' && pubA.json.display_name === 'A' && pubA.json.bio === 'A’s bio',
+      `HTTP ${pubA.status} ${JSON.stringify(pubA.json)}`);
+    const anonO = await profileOf(a, outsider.id);
+    check('a member sees an Anonymous member\'s avatar alone, no name or bio',
+      anonO.status === 200 && keysOk(anonO.json) && anonO.json.avatar === 'wave' && anonO.json.display_name == null && anonO.json.bio == null,
+      `HTTP ${anonO.status} ${JSON.stringify(anonO.json)}`);
+    const privB = await profileOf(a, b.id);
+    const privSelf = await profileOf(b, b.id);
+    const nobody = await profileOf(a, '00000000-0000-4000-8000-000000000000');
+    check('a Private member\'s profile and an unknown id both come back empty, the same, even to the member themselves',
+      [privB, privSelf, nobody].every((r) => r.status === 200 && r.json === null),
+      `private ${privB.status} ${JSON.stringify(privB.json)}, self ${privSelf.status} ${JSON.stringify(privSelf.json)}, unknown ${nobody.status} ${JSON.stringify(nobody.json)}`);
+    const profAnon = await profileOf(null, a.id);
+    check('a signed-out visitor cannot read a member\'s profile', profAnon.status >= 400, `HTTP ${profAnon.status} ${JSON.stringify(profAnon.json)}`);
   }
 
   const evoObj = await call(`/storage/v1/object/authenticated/${EVO_BUCKET}/${evoPath}`, { token: b.token });

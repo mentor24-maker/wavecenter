@@ -1224,3 +1224,9 @@ table.game.leaderboard td:last-child, table.game.leaderboard th:last-child { pad
 .leaderboard-avatar { font-size: 1.15rem; }
 .leaderboard-anonymous { color: var(--muted); }
 .leaderboard-you { color: var(--accent); }
+
+/* A member's profile page (WC-238): the avatar large beside the name, the bio below. */
+.member-profile { margin: var(--space) 0; }
+.member-profile-name { font-size: 1.4rem; display: flex; align-items: center; gap: 0.5rem; }
+.member-profile-avatar { font-size: 2.5rem; }
+.member-profile-bio { white-space: pre-wrap; max-width: 40rem; }
