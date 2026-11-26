@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, chatList, chatTopic, chatPartner, listTimeLabel, newestFromOthers, notStarted, preview, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, chatList, chatPartnerOptions, chatTopic, chatPartner, isSearching, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -110,4 +110,53 @@ test("a refused start says no chat was started exactly once", () => {
     "There is no task of that id you may read, so no chat was started.",
   );
   assert.equal(notStarted("You are signed out, so no chat was started. Reload the page and log in again."), "You are signed out, so no chat was started. Reload the page and log in again.");
+});
+
+test("the contact selector offers every other member A–Z, never yourself", () => {
+  const options = chatPartnerOptions(
+    [
+      { memberId: "me", name: "Dane" },
+      { memberId: "sam", name: "sam" },
+      { memberId: "lee", name: "Lee" },
+      { memberId: "kim", name: "Kim" },
+    ],
+    "me",
+  );
+  assert.deepEqual(options, [
+    { id: "kim", name: "Kim" },
+    { id: "lee", name: "Lee" },
+    { id: "sam", name: "sam" },
+  ]);
+  assert.deepEqual(chatPartnerOptions([{ memberId: "me", name: "Dane" }], "me"), []);
+});
+
+test("the open chat shows the newest message first, without changing the list it was given", () => {
+  const messages = [
+    message("a", "me", "first", "2026-11-10T10:00:00Z"),
+    message("a", "lee", "second", "2026-11-10T10:01:00Z"),
+    message("a", "me", "third", "2026-11-10T10:02:00Z"),
+  ];
+  assert.deepEqual(newestFirst(messages).map((m) => m.body), ["third", "second", "first"]);
+  assert.deepEqual(messages.map((m) => m.body), ["first", "second", "third"]);
+});
+
+test("search finds messages holding every word typed, case-blind, and a blank search keeps them all", () => {
+  const messages = [
+    message("a", "me", "Hello from the top", "2026-11-10T10:00:00Z"),
+    message("a", "lee", "hello again", "2026-11-10T10:01:00Z"),
+    message("a", "me", "<b>bold</b> is just text", "2026-11-10T10:02:00Z"),
+  ];
+  assert.deepEqual(searchMessages(messages, "HELLO").map((m) => m.body), ["Hello from the top", "hello again"]);
+  assert.deepEqual(searchMessages(messages, "  top   hello ").map((m) => m.body), ["Hello from the top"]);
+  assert.deepEqual(searchMessages(messages, "<b>").map((m) => m.body), ["<b>bold</b> is just text"]);
+  assert.deepEqual(searchMessages(messages, "zzz"), []);
+  assert.equal(searchMessages(messages, "   ").length, 3);
+  assert.equal(isSearching("   "), false);
+  assert.equal(isSearching(" hi "), true);
+});
+
+test("search says plainly when nothing matches and how many do", () => {
+  assert.equal(noMatchLine("  zzz "), 'No messages match "zzz".');
+  assert.equal(matchCountLine(2, 9, "hello"), '2 of 9 messages match "hello".');
+  assert.equal(matchCountLine(1, 1, "hi"), '1 of 1 message matches "hi".');
 });

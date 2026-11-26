@@ -12,7 +12,7 @@ import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings
 import { shownName } from "../members/memberView";
 import SiteHeader from "../SiteHeader";
 import ChatWindow, { type OpenChat } from "./ChatWindow";
-import { CHAT_ID, SOMEONE, chatList, chatPartner, chatTopic } from "./chatView";
+import { CHAT_ID, SOMEONE, chatList, chatPartner, chatPartnerOptions, chatTopic } from "./chatView";
 import { COMM_MODES, commHref, type CommMode } from "./commMode";
 import { loadMessaging } from "./messageList";
 import Messaging from "./Messaging";
@@ -38,7 +38,9 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * the member's chats, newest activity first; on the right, the open chat's
  * messages and the send box. The window (ChatWindow.tsx) listens live and
  * reloads this page's data when a message arrives, so a message shows once,
- * in its place.
+ * in its place. On top of the chat area, a contact selector (WC-235) offers
+ * every other member, by the name their profile shows, to open or start a
+ * chat with without going to the Members page first.
  *
  * Async is Messages (Messaging.tsx, which lived on Your profile until
  * Dane's "C" on this ticket): the messages the member sent or received, with
@@ -155,6 +157,8 @@ export default async function CommScreen({ mode, openId }: { mode: CommMode; ope
         openProblem={openProblem}
         openId={openId}
         live={liveSettings()}
+        partners={chatPartnerOptions((members.value ?? []).map((m) => ({ memberId: m.memberId, name: shownName(m) })), user.id)}
+        partnersError={members.error}
       />
     </Shell>
   );

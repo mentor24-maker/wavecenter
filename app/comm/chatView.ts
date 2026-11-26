@@ -137,3 +137,61 @@ export function sendsOnKey(e: { key: string; shiftKey: boolean; isComposing?: bo
 export function notStarted(reason: string): string {
   return /no chat was started/i.test(reason) ? reason : `No chat was started. ${reason}`;
 }
+
+/** A member the contact selector offers: their id and the name their profile shows. */
+export interface ChatPartnerOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * The members the Sync mode's contact selector offers (WC-235): everyone but
+ * the viewer, A–Z by the name their profile shows (case-blind), so the
+ * viewer can never start a chat with themself. One member per chat today; a
+ * group picker can take this same list later.
+ */
+export function chatPartnerOptions(members: { memberId: string; name: string }[], me: string): ChatPartnerOption[] {
+  return members
+    .filter((m) => m.memberId !== me)
+    .map((m) => ({ id: m.memberId, name: m.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** The open chat's messages, newest first (WC-235: "Keep the most recent entries on top"). A copy; the input is untouched. */
+export function newestFirst<T extends Pick<ChatMessage, "sentAt">>(messages: readonly T[]): T[] {
+  return [...messages].sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0));
+}
+
+/** The words of a search, lower-cased; none for a blank search. */
+function searchWords(query: string): string[] {
+  return query.toLocaleLowerCase("en").split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The messages whose body holds every word of `query`, case-blind, in their
+ * order (WC-235: "a search field to search the conversation body"). A blank
+ * search keeps them all. Bodies are compared as plain text, never as HTML.
+ */
+export function searchMessages<T extends Pick<ChatMessage, "body">>(messages: readonly T[], query: string): T[] {
+  const words = searchWords(query);
+  if (words.length === 0) return [...messages];
+  return messages.filter((m) => {
+    const body = m.body.toLocaleLowerCase("en");
+    return words.every((w) => body.includes(w));
+  });
+}
+
+/** Whether `query` searches at all: anything but blank. */
+export function isSearching(query: string): boolean {
+  return searchWords(query).length > 0;
+}
+
+/** The plain line when a search finds nothing (rule 7). */
+export function noMatchLine(query: string): string {
+  return `No messages match "${query.trim()}".`;
+}
+
+/** The line over a search's results: how many of the chat's messages match. */
+export function matchCountLine(shown: number, total: number, query: string): string {
+  return `${shown} of ${total} ${total === 1 ? "message matches" : "messages match"} "${query.trim()}".`;
+}
