@@ -123,7 +123,8 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
-import { isLocalUrl, lastJson, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
+import { isLocalUrl, cliError, scrub, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
+import { ensureTestDb, mainCheckout, projectId } from './lib/testDbStack.mjs';
 import { loadProjectConfig } from '../loop/lib/projectConfig.mjs';
 import { addChatWords, asOf, BUCKET, captureWords, chatWords, choosePage, COPIED_TABLES, danesWords, entryRow, noTaskLine, failureComment, fillPage, typedWords, laneCapturedOnMerge, listLine, missingShas, nextRunState, parseSubject, previousCard, nextRecaptureState, recaptureDoneNote, recaptureDue, recaptureFailedComment, recoveredNote, RULES_FILE, RUN_ALERT_NAME, runAlertCard, runAlertDescription, samePage, ticketId, ticketUrl } from './lib/evolution.mjs';
 
@@ -288,10 +289,23 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 // ---------------------------------------------------------------- the test database
 
+/**
+ * The test database's address and keys. Called only while holding the test
+ * database lock: a stack found stopped, mounting a deleted worktree's file, or
+ * not reporting its address is restarted once from the main checkout (WC-240).
+ */
 function localStack() {
-  const status = sh('supabase', ['status', '-o', 'json']);
-  const s = lastJson(status.stdout, 'API_URL');
-  if (!status.ok || !s) throw new RunFailed('`supabase status` did not report the test database. Start it with `npm run db:test` (Docker must be running: `colima status`).');
+  const main = mainCheckout(REPO, (cmd, args, { cwd }) => spawnSync(cmd, args, { cwd, encoding: 'utf8' }));
+  const stack = ensureTestDb({
+    run: (cmd, args, { cwd }) => spawnSync(cmd, args, { cwd, encoding: 'utf8' }),
+    exists: existsSync,
+    main,
+    project: projectId(readFileSync(join(main, 'supabase/config.toml'), 'utf8')),
+    log: (line) => console.log(`  ${line}`),
+  });
+  if (!stack.ok) throw new RunFailed(`${stack.message} Start it with \`npm run db:test\`.`);
+  if (stack.message) console.log(`  note — ${stack.message}`);
+  const s = stack.status;
   if (!isLocalUrl(s.API_URL)) throw new RunFailed(`the test database address ${s.API_URL} is not on this machine. Refusing.`);
   return { url: s.API_URL, anon: s.ANON_KEY, service: s.SERVICE_ROLE_KEY };
 }
@@ -634,12 +648,13 @@ async function capture(rev, { dryRun = null, previous, retake = null } = {}) {
   let stopApp = null;
   try {
     dir = buildAt(info.sha);
-    const local = usesDb ? localStack() : { url: 'http://127.0.0.1:1', anon: 'none' };
+    let local = { url: 'http://127.0.0.1:1', anon: 'none' };
     let cookies = [];
     if (usesDb) {
       const lock = takeTestDbLock();
       if (!lock.ok) throw new Busy(`another run is using the test database (lock ${TEST_DB_LOCK}). Try again when it finishes.`);
       locked = true;
+      local = localStack();
       console.log(`  rebuilding the test database from this change's migrations and copying in the live rows as of ${info.mergedAt}...`);
       resetTestDb(info.sha);
       const { session, tasks } = await copyLive(local, info.mergedAt);

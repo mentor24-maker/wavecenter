@@ -6,7 +6,10 @@
  *   npm run db:test
  *
  * 1. Starts WaveCenter's local Supabase (Docker on the Mac Mini; ports in
- *    supabase/config.toml are the defaults +200, clear of StarCaster's +100).
+ *    supabase/config.toml are the defaults +200, clear of StarCaster's +100),
+ *    always from the main checkout, so no container mounts a file from a
+ *    worktree that is later deleted. A stack found stopped or mounting a
+ *    missing path is restarted once from there (WC-240).
  * 2. Rebuilds it from nothing with every migration in this folder
  *    (`supabase db reset`), so a broken migration fails here.
  * 3. Runs scripts/check_tasks_rls.mjs against it.
@@ -23,11 +26,15 @@
  * Exit 0 = migrations applied and every check held. Exit 1 = something failed.
  */
 import { join, dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { isLocalUrl, lastJson, takeTestDbLock, releaseTestDbLock, TEST_DB_LOCK } from './lib/migrations.mjs';
+import { ensureTestDb, mainCheckout, projectId } from './lib/testDbStack.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
+const runQuiet = (cmd, args, { cwd }) => spawnSync(cmd, args, { cwd, encoding: 'utf8' });
+const MAIN = mainCheckout(REPO, runQuiet);
 
 class Refused extends Error {}
 /** Stop the run. Thrown, not process.exit, so the lock is always released. */
@@ -35,8 +42,8 @@ function fail(why) {
   throw new Refused(why);
 }
 
-function supabase(args, { quiet = false } = {}) {
-  const r = spawnSync('supabase', args, { cwd: REPO, encoding: 'utf8', stdio: quiet ? 'pipe' : ['ignore', 'inherit', 'inherit'] });
+function supabase(args, { quiet = false, cwd = REPO } = {}) {
+  const r = spawnSync('supabase', args, { cwd, encoding: 'utf8', stdio: quiet ? 'pipe' : ['ignore', 'inherit', 'inherit'] });
   if (r.error) fail(`could not run the supabase CLI (${r.error.message}). On the Mac Mini it is /opt/homebrew/bin/supabase; Docker (colima) must be running.`);
   return r;
 }
@@ -50,15 +57,25 @@ if (lock.tookOverMinutes !== null) console.log(`db:test: taking over a lock left
 
 let code = 1;
 try {
-  console.log('db:test: starting the WaveCenter test database (Docker)...');
-  if (supabase(['start']).status !== 0) fail('`supabase start` failed (is Docker running? `colima status`).');
+  console.log(`db:test: starting the WaveCenter test database (Docker) from ${MAIN}...`);
+  if (supabase(['start'], { cwd: MAIN }).status !== 0) fail('`supabase start` failed (is Docker running? `colima status`).');
+  const stack = ensureTestDb({
+    run: runQuiet,
+    exists: existsSync,
+    main: MAIN,
+    project: projectId(readFileSync(join(MAIN, 'supabase/config.toml'), 'utf8')),
+    log: (line) => console.log(`db:test: ${line}`),
+  });
+  if (!stack.ok) fail(stack.message);
+  if (stack.repaired) console.log('db:test: the test database was restarted and answers again.');
+  if (stack.message) console.log(`db:test: note — ${stack.message}`);
 
   console.log('db:test: rebuilding it from every migration in this folder...');
   if (supabase(['db', 'reset', '--local', '--yes']).status !== 0) fail('a migration did not apply on the test database — see the error above.');
 
   const status = supabase(['status', '-o', 'json'], { quiet: true });
   const s = lastJson(status.stdout, 'API_URL');
-  if (status.status !== 0 || !s) fail('`supabase status` did not report the test database address.');
+  if (status.status !== 0 || !s) fail('`supabase status` did not report the test database address after the rebuild.');
   if (!isLocalUrl(s.API_URL)) fail(`the test database address ${s.API_URL} is not on this machine. Refusing.`);
 
   const env = { ...process.env, SUPABASE_URL: s.API_URL, SUPABASE_ANON_KEY: s.ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: s.SERVICE_ROLE_KEY };
