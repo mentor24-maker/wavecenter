@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { isLinkedSiteSection, isSitePageSlug, publicSitePage, resolveSiteSections, sitePageHasContent, type SitePage } from "../../../core/website.ts";
-import { headerPoints } from "../../lib/engagementStore";
+import { headerPoints, readLeaderboardTop } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
 import { readPublishedSitePage, readSavedSectionsByIds } from "../../lib/sitePageStore";
@@ -34,11 +34,15 @@ async function readPage(supabase: Client, slug: string): Promise<SitePage | null
  *
  * A draft, an unknown address, or a page that could not be read each say so
  * in words, never a blank screen (rule 7).
+ *
+ * A page with a Leaderboard module (WC-237) reads the leaderboard's top ten
+ * here, on the server, with the visitor's own session. A visitor who is not
+ * signed in is never read for: the module shows them only a note to sign in.
  */
 export default async function PublicSitePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const supabase = await supabaseForRequest();
-  const { user } = supabase ? await currentUser(supabase) : { user: null };
+  const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
   const [name, isAdmin, points, read] = await Promise.all([
     supabase && user ? headerName(supabase, user) : null,
     supabase && user ? headerIsAdmin(supabase, user.id) : false,
@@ -56,6 +60,9 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
           )
         : { page: null },
   ]);
+  const page = "page" in read ? read.page : null;
+  const hasLeaderboard = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "leaderboard")));
+  const leaderboard = hasLeaderboard ? await readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }) : undefined;
 
   return (
     <>
@@ -78,7 +85,7 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
             <p className="note" role="status">This page has nothing on it yet.</p>
           </>
         ) : (
-          <SiteSections sections={read.page.sections} />
+          <SiteSections sections={read.page.sections} leaderboard={leaderboard} />
         )}
       </main>
     </>

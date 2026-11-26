@@ -795,6 +795,17 @@ It returns one JSON array, not rows, so the API's 1,000-row limit can never
 cut the board short. No table or row-level security changed. The ranking
 (ties share a rank) is `rankLeaderboard` in `core/leaderboard.ts`.
 
+**The Leaderboard module (WC-237).** A website page (`site_pages`) can hold
+a fifth kind of module, `leaderboard`, beside heading, text, picture and
+button. It is stored in `layout_sections` like the others, with one setting,
+`heading` (plain words, default "Leaderboard"); no column or table changed,
+and a page saved before it reads exactly as it did. When a page with one is
+drawn, the server calls the same `leaderboard()` with the visitor's own
+session and shows the top ten (`topOfLeaderboard`), rank, name and Total
+only, with a link to `/game/leaderboard`. A visitor who is not signed in is
+never read for: the module shows only "Sign in to see the leaderboard", no
+names and no scores (Dane's answer, 2026-11-25).
+
 ### A member's profile page: `member_profile(member)`
 
 `/members/<id>` (WC-238, "Member profile page, linked from leaderboard

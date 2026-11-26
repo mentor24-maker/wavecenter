@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANONYMOUS_MEMBER, rankLeaderboard, type LeaderboardEntry } from './leaderboard.ts';
+import { ANONYMOUS_MEMBER, LEADERBOARD_TOP, leaderboardTopAccess, rankLeaderboard, topOfLeaderboard, type LeaderboardEntry } from './leaderboard.ts';
 
 const entry = (over: Partial<LeaderboardEntry>): LeaderboardEntry => ({
   you: false, avatar: 'wave', displayName: null, granular: 0, globular: 0, tasks: 0, ...over,
@@ -89,4 +89,51 @@ test('a shown name links to the member\'s profile page; anonymous and private ro
     ['Bad id', null],
     ['No id', null],
   ]);
+});
+
+test('the Leaderboard module shows the top ten, in the full board\'s order and ranks (WC-237)', () => {
+  const board = rankLeaderboard(Array.from({ length: 14 }, (_, i) => entry({ displayName: `M${String(i).padStart(2, '0')}`, avatar: 'wave', granular: i })));
+  const top = topOfLeaderboard(board);
+  assert.equal(LEADERBOARD_TOP, 10);
+  assert.equal(top.length, 10);
+  assert.deepEqual(top, board.slice(0, 10));
+  assert.equal(top[0].name, 'M13');
+  assert.equal(top[0].rank, 1);
+  assert.equal(top[9].rank, 10);
+});
+
+test('fewer than ten members: all of them; none: an empty list', () => {
+  const board = rankLeaderboard([entry({ granular: 1 }), entry({ granular: 2 })]);
+  assert.equal(topOfLeaderboard(board).length, 2);
+  assert.deepEqual(topOfLeaderboard([]), []);
+});
+
+test('the top ten keeps anonymous members anonymous', () => {
+  const [row] = topOfLeaderboard(rankLeaderboard([entry({ displayName: null, avatar: 'wave', granular: 3 })]));
+  assert.equal(row.name, ANONYMOUS_MEMBER);
+  assert.equal(row.named, false);
+});
+
+test('a count that is not a whole positive number shows nobody', () => {
+  const board = rankLeaderboard([entry({ granular: 1 })]);
+  assert.deepEqual(topOfLeaderboard(board, 0), []);
+  assert.deepEqual(topOfLeaderboard(board, -3), []);
+  assert.deepEqual(topOfLeaderboard(board, Number.NaN), []);
+});
+
+test('leaderboard module: a failed sign-in check is never told to sign in', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: true }, true), 'check-failed');
+});
+
+test('leaderboard module: a signed-out visitor reads nothing', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: false }, true), 'signed-out');
+});
+
+test('leaderboard module: a signed-in member reads the board', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: true, checkFailed: false }, true), 'read');
+});
+
+test('leaderboard module: no database settings says so', () => {
+  assert.equal(leaderboardTopAccess({ signedIn: false, checkFailed: false }, false), 'no-database');
+  assert.equal(leaderboardTopAccess({ signedIn: true, checkFailed: false }, false), 'no-database');
 });
