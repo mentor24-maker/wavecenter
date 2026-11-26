@@ -11,9 +11,15 @@
  *
  * So the stack is always started from the main checkout, and before it is
  * used, `ensureTestDb` looks at it: a container that exists but is not
- * running, a mount whose host path is gone, a stack started from a folder
- * that is gone, or a status with no address means one `supabase stop` +
- * `supabase start` from the main checkout, then the status is read again.
+ * running, a mount whose host path is gone, or a status with no address means
+ * one `supabase stop` + `supabase start` from the main checkout, then the
+ * status is read again.
+ *
+ * A container's `com.supabase.cli.workdir` label naming a folder that is gone
+ * is NOT a reason: `supabase db reset` (run by db:test from any worktree, and
+ * by Evolution capture from a temp folder it deletes) re-creates the db
+ * container with that label but no bind mount from it, so the stack is fine.
+ * Only a missing bind-mount source breaks anything (WC-240 review).
  *
  * `supabase status` always lists the services config.toml turns off (studio,
  * imgproxy, ...) as "Stopped services"; those have no container, so that list
@@ -51,7 +57,6 @@ export function parseContainers(inspectJson) {
     name: String(c?.Name || '').replace(/^\//, ''),
     running: Boolean(c?.State?.Running),
     state: String(c?.State?.Status || 'unknown'),
-    workdir: c?.Config?.Labels?.['com.supabase.cli.workdir'] || null,
     mounts: (Array.isArray(c?.Mounts) ? c.Mounts : []).filter((m) => m?.Type === 'bind' && m.Source).map((m) => String(m.Source)),
   }));
 }
@@ -68,8 +73,6 @@ export function repairReasons({ reported, containers, exists }) {
   if (stopped.length) reasons.push(`stopped: ${stopped.join(', ')}`);
   const missing = [...new Set(containers.flatMap((c) => c.mounts.filter((p) => !exists(p))))];
   if (missing.length) reasons.push(`mounts a path that no longer exists: ${missing.join(', ')}`);
-  const gone = [...new Set(containers.map((c) => c.workdir).filter((w) => w && !exists(w)))];
-  if (gone.length) reasons.push(`was started from a folder that no longer exists: ${gone.join(', ')}`);
   return reasons;
 }
 

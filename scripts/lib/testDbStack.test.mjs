@@ -81,6 +81,19 @@ test('a healthy stack is not restarted', () => {
   assert.equal(m.calls.filter((c) => c.cmd.startsWith('supabase stop') || c.cmd.startsWith('supabase start')).length, 0);
 });
 
+test('a gone folder in the workdir label, with no bind mount from it, is not restarted', () => {
+  // `supabase db reset` run from a worktree (db:test) or a deleted temp folder
+  // (Evolution capture) re-creates supabase_db_wavecenter labelled with that
+  // folder, but mounts nothing from it, so the stack is healthy.
+  const db = container('supabase_db_wavecenter', { workdir: GONE });
+  db.Mounts = [{ Type: 'volume', Name: 'db', Source: '/var/lib/docker/volumes/db' }];
+  const m = fakeMachine({ before: [db, container('supabase_kong_wavecenter')] });
+  const got = ensureTestDb({ run: m.run, exists, main: MAIN, project: 'wavecenter' });
+  assert.equal(got.ok, true);
+  assert.equal(got.repaired, false, got.reasons.join(' | '));
+  assert.equal(m.calls.filter((c) => c.cmd === 'supabase stop' || c.cmd === 'supabase start').length, 0);
+});
+
 test('disabled services in "Stopped services" are never a reason to restart', () => {
   // The fake status always prints "Stopped services: [supabase_studio_wavecenter]"
   // with no such container, as the real CLI does for services config.toml turns off.
