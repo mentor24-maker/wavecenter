@@ -18,6 +18,14 @@
  * connecting is missed; when it cannot start, is slow, or drops, one plain
  * line says so (rule 7).
  *
+ * Talk to anyone from here (WC-235): a contact selector on top of the chat
+ * area picks a member and opens your chat with them, or starts one, through
+ * the same startChatWith action as the Members page's Chat button, so
+ * picking someone you already chat with never makes a second chat. The open
+ * chat shows its newest message on top, under the send box, with older ones
+ * scrolling off the bottom, and a search field finds messages by the words
+ * in them.
+ *
  * Messages are plain text, shown as text, never as HTML.
  */
 import Link from "next/link";
@@ -25,8 +33,26 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
-import { markChatReadNow, sendChat } from "./actions";
-import { A_TASK, CHAT_UNREAD_EVENT, DELETED_TASK, listTimeLabel, newestFromOthers, preview, sendsOnKey, sentLabel, type ChatListItem, type ChatTopic } from "./chatView";
+import { markChatReadNow, sendChat, startChatWith } from "./actions";
+import {
+  A_TASK,
+  CHAT_UNREAD_EVENT,
+  DELETED_TASK,
+  isSearching,
+  listTimeLabel,
+  matchCountLine,
+  newestFirst,
+  newestFromOthers,
+  noMatchLine,
+  notStarted,
+  preview,
+  searchMessages,
+  sendsOnKey,
+  sentLabel,
+  type ChatListItem,
+  type ChatPartnerOption,
+  type ChatTopic,
+} from "./chatView";
 
 /** The chat the page opened, with its messages oldest first. */
 export interface OpenChat {
@@ -42,9 +68,14 @@ export interface OpenChat {
 
 /** Shown while live updates are not arriving. */
 export const CHAT_PAUSED = "Live updates paused, reload to see new messages.";
-/** Shown in an open chat with nothing said yet. */
+/** Shown in an open chat with nothing said yet, when the send box is under the messages. */
 export const NO_MESSAGES = "No messages yet. Say hello below.";
+/** The same, when the send box is on top (the Sync mode's chat window). */
+export const NO_MESSAGES_ABOVE = "No messages yet. Say hello above.";
+/** The contact selector when there is nobody else to pick (rule 7). */
+export const NO_PARTNERS = "There is nobody else to chat with yet: you are the only member.";
 const UNREACHABLE = "Could not reach WaveCenter, so the message was not sent. Check your connection and try again.";
+const START_UNREACHABLE = "Could not reach WaveCenter, so no chat was started. Check your connection and try again.";
 
 export default function ChatWindow({
   me,
@@ -53,6 +84,8 @@ export default function ChatWindow({
   openProblem,
   openId,
   live,
+  partners,
+  partnersError,
 }: {
   me: string;
   chats: ChatListItem[];
@@ -63,6 +96,10 @@ export default function ChatWindow({
   openId: string | null;
   /** Where to listen for live updates; null when this deployment has no database settings. */
   live: LiveSettings;
+  /** The members the contact selector offers: everyone but the viewer. */
+  partners: ChatPartnerOption[];
+  /** Why the members could not be listed, or null. */
+  partnersError: string | null;
 }) {
   const liveState = useChatLive(me, live);
 
@@ -75,7 +112,7 @@ export default function ChatWindow({
           <h2>Your chats</h2>
           {chats.length === 0 ? (
             <p className="note" role="status">
-              No chats yet. Start one from <Link href="/members">Members</Link>.
+              No chats yet. Pick a member under &quot;Chat with&quot; to start one, or start one from <Link href="/members">Members</Link>.
             </p>
           ) : (
             <ul>
@@ -115,14 +152,15 @@ export default function ChatWindow({
 
         <section className="chat-conversation" aria-label={open ? `Chat with ${open.otherName}` : "Open chat"}>
           <p className="chat-back"><Link href="/comm">&larr; All chats</Link></p>
+          <ContactPicker partners={partners} problem={partnersError} />
           {openProblem ? (
             <p className="error" role="alert">{openProblem}</p>
           ) : !open ? (
             <p className="note" role="status">
-              {chats.length ? "Pick a chat from the list to read it." : "When you start a chat, it opens here."}
+              {chats.length ? "Pick a chat from the list to read it, or pick a member above." : "Pick a member above to start a chat; it opens here."}
             </p>
           ) : (
-            <Conversation key={open.id} me={me} chat={open} />
+            <Conversation key={open.id} me={me} chat={open} newestOnTop searchable />
           )}
         </section>
       </div>
@@ -131,12 +169,85 @@ export default function ChatWindow({
 }
 
 /**
- * One open chat: its messages, oldest first, and the box to send from. Used
- * by the chat window and by the task page's "Chat about this task" panel
+ * The contact selector on top of the Sync mode's chat area (WC-235): pick a
+ * member and open your chat with them, or start one, at `/comm/<id>`. One
+ * member per chat for now (Dane: "we can address multiple members later").
+ * It says why when the members cannot be listed or there is nobody else
+ * (rule 7), and a failed start says so and opens nothing (rule 6).
+ */
+function ContactPicker({ partners, problem }: { partners: ChatPartnerOption[]; problem: string | null }) {
+  const router = useRouter();
+  const [partner, setPartner] = useState("");
+  const [failure, setFailure] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  if (problem !== null) {
+    return <p className="error chat-picker" role="alert">The members could not be listed, so no new chat can be started here right now: {problem}. Try reloading the page.</p>;
+  }
+  if (partners.length === 0) return <p className="note chat-picker" role="status">{NO_PARTNERS}</p>;
+
+  function start(e: FormEvent) {
+    e.preventDefault();
+    if (!partner) {
+      setFailure("No chat was started. Pick a member first.");
+      return;
+    }
+    setFailure(null);
+    startTransition(async () => {
+      try {
+        const result = await startChatWith(partner);
+        if (!result.ok) {
+          setFailure(notStarted(result.error));
+          return;
+        }
+        setPartner("");
+        router.push(`/comm/${result.id}`);
+      } catch {
+        setFailure(START_UNREACHABLE);
+      }
+    });
+  }
+
+  return (
+    <form className="chat-picker task-chat-start" onSubmit={start}>
+      <label htmlFor="chat-partner">Chat with</label>
+      <select id="chat-partner" value={partner} onChange={(e) => setPartner(e.target.value)}>
+        <option value="">Pick a member…</option>
+        {partners.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <button type="submit" disabled={pending}>{pending ? "Opening…" : "Open chat"}</button>
+      {failure && <p className="error" role="alert">{failure}</p>}
+    </form>
+  );
+}
+
+/**
+ * One open chat: its messages and the box to send from. Used by the chat
+ * window and by the task page's "Chat about this task" panel
  * (app/tasks/[id]/TaskChats.tsx), which hides the task line (`showTopic`)
  * because the task is the page itself.
+ *
+ * By default the messages run oldest first with the send box under them
+ * (the task page). `newestOnTop` (the Sync mode's window, WC-235) puts the
+ * send box on top and the newest message right under it, older ones
+ * scrolling off the bottom. `searchable` adds a field that shows only the
+ * messages holding the words typed.
  */
-export function Conversation({ me, chat, showTopic = true }: { me: string; chat: OpenChat; showTopic?: boolean }) {
+export function Conversation({
+  me,
+  chat,
+  showTopic = true,
+  newestOnTop = false,
+  searchable = false,
+}: {
+  me: string;
+  chat: OpenChat;
+  showTopic?: boolean;
+  newestOnTop?: boolean;
+  searchable?: boolean;
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
@@ -144,15 +255,21 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
   const sending = useRef(false);
   const box = useRef<HTMLDivElement>(null);
 
+  const [query, setQuery] = useState("");
+  const searching = searchable && isSearching(query);
+  const ordered = newestOnTop ? newestFirst(chat.messages) : chat.messages;
+  const shownMessages = searching ? searchMessages(ordered, query) : ordered;
+
   // Keep the newest message in view as messages arrive, by scrolling the
-  // messages box itself. Never scrollIntoView: that scrolls the whole page
-  // too, and on the task page it threw the reader back to the top whenever
-  // a message arrived (WC-175 review).
+  // messages box itself: to the top when the newest is on top, else to the
+  // bottom. Never scrollIntoView: that scrolls the whole page too, and on
+  // the task page it threw the reader back to the top whenever a message
+  // arrived (WC-175 review).
   const count = chat.messages.length;
   useEffect(() => {
     const el = box.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [count]);
+    if (el) el.scrollTop = newestOnTop ? 0 : el.scrollHeight;
+  }, [count, newestOnTop]);
 
   // Opening the chat marks it read, and so does each new message from the
   // other member while it is open and on screen (WC-176). In a hidden tab it
@@ -222,20 +339,57 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
     }
   }
 
+  const sendForm = (
+    <form className="chat-send" onSubmit={send}>
+      <label className="sr-only" htmlFor={`chat-box-${chat.id}`}>Message {chat.otherName}</label>
+      <textarea
+        id={`chat-box-${chat.id}`}
+        rows={2}
+        value={text}
+        maxLength={CHAT_BODY_MAX + 200}
+        placeholder={`Message ${chat.otherName}`}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <button type="submit" disabled={pending}>{pending ? "Sending…" : "Send"}</button>
+      <p className="note chat-hint">Enter sends; Shift+Enter makes a new line.</p>
+      {failure && <p className="error" role="alert">{failure}</p>}
+    </form>
+  );
+  const readLine = readProblem && <p className="note" role="status">This chat could not be marked read, so it may still show as unread: {readProblem}</p>;
+
   return (
     <>
       <h2 className="chat-with">
         <span aria-hidden="true">{chat.otherSymbol}</span> {chat.otherName}
       </h2>
       {showTopic && chat.topic && <TopicLine topic={chat.topic} />}
-      <div ref={box} className="chat-messages box" aria-live="polite">
+      {newestOnTop && sendForm}
+      {searchable && chat.error === null && chat.messages.length > 0 && (
+        <div className="chat-search">
+          <label htmlFor={`chat-search-${chat.id}`}>Search this chat</label>
+          <input
+            id={`chat-search-${chat.id}`}
+            type="search"
+            value={query}
+            placeholder="Words in a message"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {/* No match says so once, in the messages box below. */}
+          {searching && shownMessages.length > 0 && <p className="note" role="status">{matchCountLine(shownMessages.length, chat.messages.length, query)}</p>}
+        </div>
+      )}
+      {newestOnTop && readLine}
+      <div ref={box} className={`chat-messages box${newestOnTop ? " newest-on-top" : ""}`} aria-live="polite">
         {chat.error !== null ? (
           <p className="error" role="alert">The messages could not be loaded: {chat.error}. Nothing has been lost; try reloading the page.</p>
         ) : chat.messages.length === 0 ? (
-          <p className="note" role="status">{NO_MESSAGES}</p>
+          <p className="note" role="status">{newestOnTop ? NO_MESSAGES_ABOVE : NO_MESSAGES}</p>
+        ) : shownMessages.length === 0 ? (
+          <p className="note" role="status">{noMatchLine(query)}</p>
         ) : (
           <ol>
-            {chat.messages.map((m) => {
+            {shownMessages.map((m) => {
               const mine = m.senderId === me;
               return (
                 <li key={m.id} className={mine ? "chat-message mine" : "chat-message"}>
@@ -249,22 +403,8 @@ export function Conversation({ me, chat, showTopic = true }: { me: string; chat:
           </ol>
         )}
       </div>
-      {readProblem && <p className="note" role="status">This chat could not be marked read, so it may still show as unread: {readProblem}</p>}
-      <form className="chat-send" onSubmit={send}>
-        <label className="sr-only" htmlFor={`chat-box-${chat.id}`}>Message {chat.otherName}</label>
-        <textarea
-          id={`chat-box-${chat.id}`}
-          rows={2}
-          value={text}
-          maxLength={CHAT_BODY_MAX + 200}
-          placeholder={`Message ${chat.otherName}`}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        <button type="submit" disabled={pending}>{pending ? "Sending…" : "Send"}</button>
-        <p className="note chat-hint">Enter sends; Shift+Enter makes a new line.</p>
-        {failure && <p className="error" role="alert">{failure}</p>}
-      </form>
+      {!newestOnTop && readLine}
+      {!newestOnTop && sendForm}
     </>
   );
 }

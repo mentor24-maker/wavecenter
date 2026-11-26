@@ -1015,10 +1015,17 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .chat-send textarea { resize: none; }
 .chat-send .chat-hint, .chat-send .error { grid-column: 1 / -1; margin: 0; }
 .chat-hint { font-size: 0.8rem; }
+/* WC-235: the contact selector on top of the chat area, and the send box and search above the newest-first messages. */
+.chat-picker { margin: 0 0 var(--space); }
+.chat-messages.newest-on-top { margin-top: 0.5rem; }
+.chat-search { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.5rem; align-items: center; margin-top: 0.5rem; }
+.chat-search .note { grid-column: 1 / -1; margin: 0; }
 .chat-start-error { display: block; margin-top: 0.25rem; font-size: 0.85rem; }
 @media (max-width: 48rem) {
   .chat-window { grid-template-columns: 1fr; }
-  .chat-window.showing-list .chat-conversation { display: none; }
+  /* On a phone the list shows alone, with the contact selector over it (WC-235). */
+  .chat-window.showing-list .chat-conversation { order: -1; }
+  .chat-window.showing-list .chat-conversation > :not(.chat-picker) { display: none; }
   .chat-window.showing-conversation .chat-list { display: none; }
   .chat-back { display: block; }
   .chat-messages { height: 55vh; }
