@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  afterEmailLink, looksLikeEmail, MIN_PASSWORD_LENGTH, newPasswordFailure, passwordProblem, registerFailure,
+  afterEmailLink, googleButtonPage, googleReturnFailure, googleSwitchedOn, looksLikeEmail, MIN_PASSWORD_LENGTH, newPasswordFailure, passwordProblem, registerFailure,
   resetFailure, signInFailure,
 } from "./authErrors.ts";
 
@@ -55,4 +55,29 @@ test("only a reset link goes on to the set-a-new-password page", () => {
   assert.equal(afterEmailLink(null, null), "/");
   // Anything else in ?next= is ignored, so a link cannot point off the site.
   assert.equal(afterEmailLink("https://evil.example", null), "/");
+});
+
+test("Google sign-in is on only when Supabase's settings say so plainly", () => {
+  assert.equal(googleSwitchedOn({ external: { google: true, email: true } }), "on");
+  assert.equal(googleSwitchedOn({ external: { google: false, email: true } }), "off");
+  // An answer without the switch, or no answer at all, is "could not tell", never "on".
+  assert.equal(googleSwitchedOn({ external: { email: true } }), "unknown");
+  assert.equal(googleSwitchedOn({ msg: "Invalid API key" }), "unknown");
+  assert.equal(googleSwitchedOn(null), "unknown");
+  assert.equal(googleSwitchedOn("google"), "unknown");
+});
+
+test("a Google sign-in cancelled at Google is told apart from one that failed", () => {
+  assert.equal(googleReturnFailure("access_denied", null), "google-cancelled");
+  assert.equal(googleReturnFailure("server_error", "access_denied"), "google-cancelled");
+  assert.equal(googleReturnFailure("server_error", "unexpected_failure"), "google-failed");
+  assert.equal(googleReturnFailure(null, null), "google-failed");
+});
+
+test("the Google button's messages only go back to the pages it sits on", () => {
+  assert.equal(googleButtonPage("/"), "/");
+  assert.equal(googleButtonPage("/register"), "/register");
+  assert.equal(googleButtonPage("/sign-in"), "/sign-in");
+  assert.equal(googleButtonPage("https://example.com"), "/sign-in");
+  assert.equal(googleButtonPage(""), "/sign-in");
 });

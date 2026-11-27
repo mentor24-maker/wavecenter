@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signIn } from "../auth/actions";
+import GoogleButton, { GOOGLE_ERRORS } from "../auth/GoogleButton";
 import { SIGN_IN_CHECK_FAILED, supabaseSettings } from "../lib/supabase";
 
 // Every message is fixed text chosen by a code, so nothing typed into the
@@ -13,6 +14,7 @@ const ERRORS: Record<string, string> = {
   expired: "That email link has expired or was already used. Log in below, or ask for a new link with \"Forgot your password?\".",
   link: "That email link did not work. Links only work in the browser you registered or asked for the reset in. If you were confirming your email, it is confirmed: log in below.",
   setup: "Logging in is not switched on for this copy of WaveCenter yet: its Supabase settings are missing.",
+  ...GOOGLE_ERRORS,
 };
 
 /**
@@ -35,7 +37,7 @@ export default function SignInForm({
 
   return (
     <>
-      <p className="lede">Log in with your email and password.</p>
+      <p className="lede">Log in with Google, or with your email and password.</p>
       {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
       {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
       {missing.length > 0 ? (
@@ -43,14 +45,17 @@ export default function SignInForm({
           {ERRORS.setup} Missing: {missing.join(", ")}.
         </p>
       ) : (
-        <form action={signIn} className="stack panel">
-          <input type="hidden" name="from" value={from} />
-          <label htmlFor="email">Email</label>
-          <input id="email" name="email" type="email" autoComplete="email" required />
-          <label htmlFor="password">Password</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required />
-          <button type="submit">Log in</button>
-        </form>
+        <>
+          <GoogleButton from={from} />
+          <form action={signIn} className="stack panel">
+            <input type="hidden" name="from" value={from} />
+            <label htmlFor="email">Email</label>
+            <input id="email" name="email" type="email" autoComplete="email" required />
+            <label htmlFor="password">Password</label>
+            <input id="password" name="password" type="password" autoComplete="current-password" required />
+            <button type="submit">Log in</button>
+          </form>
+        </>
       )}
       <p className="note">
         <Link href="/forgot-password">Forgot your password?</Link> Members who joined before passwords

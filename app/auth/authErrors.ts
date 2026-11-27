@@ -66,3 +66,33 @@ export function newPasswordFailure(e: AuthFailure): "short" | "same" | "expired"
 export function afterEmailLink(next: string | null, type: string | null): "/" | "/reset-password" {
   return next === "reset" || type === "recovery" ? "/reset-password" : "/";
 }
+
+/**
+ * Whether Google sign-in is switched on, read from what Supabase's public
+ * `/auth/v1/settings` answers (`{ external: { google: true } }`). Anything
+ * that is not a plain `true` or `false` there means we could not tell.
+ */
+export function googleSwitchedOn(settings: unknown): "on" | "off" | "unknown" {
+  const external = (settings as { external?: Record<string, unknown> } | null)?.external;
+  if (!external || typeof external !== "object") return "unknown";
+  if (external.google === true) return "on";
+  if (external.google === false) return "off";
+  return "unknown";
+}
+
+/**
+ * Why a Google sign-in came back without signing anyone in, from what
+ * Supabase put on the address it sent the browser back to. Cancelling at
+ * Google comes back as `error=access_denied`.
+ */
+export function googleReturnFailure(error: string | null, errorCode: string | null): "google-cancelled" | "google-failed" {
+  return error === "access_denied" || errorCode === "access_denied" ? "google-cancelled" : "google-failed";
+}
+
+/**
+ * The page a Google button's message goes back to. Only the pages the button
+ * sits on are honoured, so the form cannot send a visitor anywhere else.
+ */
+export function googleButtonPage(from: string): "/" | "/sign-in" | "/register" {
+  return from === "/" || from === "/register" ? from : "/sign-in";
+}

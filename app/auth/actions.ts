@@ -1,16 +1,17 @@
 "use server";
 
 /**
- * Register, log in, reset a password and sign out, run on the server. The
- * browser only submits a form; it never holds a Supabase key.
+ * Register, log in (email and password, or Google), reset a password and
+ * sign out, run on the server. The browser only submits a form; it never
+ * holds a Supabase key.
  */
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { newAccountData } from "../../core/accounts.ts";
 import { WAVECENTER_TOOL } from "../../core/tool.ts";
-import { supabaseForRequest } from "../lib/supabase";
+import { supabaseForRequest, supabaseSettings } from "../lib/supabase";
 import {
-  looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resetFailure, signInFailure,
+  googleButtonPage, googleSwitchedOn, looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resetFailure, signInFailure,
   type AuthFailure,
 } from "./authErrors";
 
@@ -91,6 +92,61 @@ export async function signIn(formData: FormData) {
     redirect(`${back}?error=${signInFailure(error)}`);
   }
   redirect("/");
+}
+
+/**
+ * Is Google sign-in switched on in this copy's Supabase? Asked of Supabase's
+ * public settings address with the public anon key, on the server. Until Dane
+ * switches the provider on (docs/GOOGLE_SIGN_IN_SETUP.md), Supabase would
+ * answer the Google button with a raw error page, so the button says so
+ * itself instead.
+ */
+async function googleIsOn(): Promise<"on" | "off" | "unknown"> {
+  const settings = supabaseSettings();
+  if ("missing" in settings) return "unknown";
+  try {
+    const res = await fetch(`${settings.url}/auth/v1/settings`, {
+      headers: { apikey: settings.anonKey },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.error(`Google sign-in check: Supabase settings answered HTTP ${res.status}`);
+      return "unknown";
+    }
+    return googleSwitchedOn(await res.json());
+  } catch (e) {
+    console.error(`Google sign-in check: ${(e as Error).message}`);
+    return "unknown";
+  }
+}
+
+/**
+ * "Continue with Google": the same button logs in a member and registers a
+ * new one. Supabase hands back Google's address with a one-time code
+ * challenge (its cookie is set here), the browser goes to Google, and Google
+ * sends it back through Supabase to /auth/callback, which signs the member
+ * in. A first Google sign-in makes the account, and the database records its
+ * `joined_wavecenter` point in that same save, as for email registering.
+ */
+export async function signInWithGoogle(formData: FormData) {
+  const back = googleButtonPage(field(formData, "from"));
+
+  const supabase = await supabaseForRequest();
+  if (!supabase) redirect(`${back}?error=setup`);
+
+  const on = await googleIsOn();
+  if (on === "off") redirect(`${back}?error=google-off`);
+  if (on === "unknown") redirect(`${back}?error=google-check`);
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${await origin()}/auth/callback` },
+  });
+  if (error || !data.url) {
+    if (error) logFailure("Google sign-in", error);
+    redirect(`${back}?error=google-failed`);
+  }
+  redirect(data.url);
 }
 
 /**
