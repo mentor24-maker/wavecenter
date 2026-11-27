@@ -957,7 +957,7 @@ test('an uploaded picture is stored under its own random folder, its name unable
 });
 
 test('the site-images bucket is public to read, its limits match core, and only Manage website may add to it', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261127140000_site_images.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
+  const sql = readFileSync(new URL('../supabase/migrations/20261128130000_site_images.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
   const types = `array[${SITE_IMAGE_UPLOAD_TYPES.map((t) => `'${t}'`).join(', ')}]`;
   assert.match(sql, new RegExp(`values \\('${SITE_IMAGES_BUCKET}', '${SITE_IMAGES_BUCKET}', true, ${SITE_IMAGE_UPLOAD_MAX_BYTES}, ${types.replace(/[[\]+]/g, '\\$&')}\\)`));
   assert.equal(sql.split(types).length - 1, 2, 'the allowed types are set both on making and on re-running');

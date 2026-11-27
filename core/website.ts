@@ -899,7 +899,7 @@ export function siteImageUrl(raw: unknown): string | null {
  * the public `site-images` bucket (visitors to a published page are not
  * signed in, so it is read without a link); only a role with Manage website
  * may add one. The bucket's own limits in
- * supabase/migrations/20261127140000_site_images.sql are these same values,
+ * supabase/migrations/20261128130000_site_images.sql are these same values,
  * so the button and the bucket refuse the same files.
  */
 export const SITE_IMAGES_BUCKET = 'site-images';
