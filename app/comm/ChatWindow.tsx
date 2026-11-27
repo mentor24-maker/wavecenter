@@ -26,6 +26,13 @@
  * scrolling off the bottom, and a search field finds messages by the words
  * in them.
  *
+ * From and To days (WC-245, moved beside "Chat with" by WC-253) narrow what
+ * shows to what happened on those Mountain-time days, and a toggle chooses
+ * what they narrow (Dane: "C) Provide a toggle"): the open chat's messages,
+ * the chat list by each chat's latest activity, or both. Nothing is read
+ * again: they hide what the page already has. Comm's layout holds them, so
+ * they stay put while the member opens one chat after another.
+ *
  * Messages are plain text, shown as text, never as HTML.
  */
 import Link from "next/link";
@@ -34,12 +41,26 @@ import { Fragment, useEffect, useRef, useState, useTransition, type FormEvent, t
 import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
 import { markChatReadNow, sendChat, startChatWith } from "./actions";
+import { useCommDates } from "./CommDates";
 import {
   A_TASK,
   CHAT_UNREAD_EVENT,
   clockLabel,
   DELETED_TASK,
+  ANY_DATE,
+  backwardsRangeLine,
+  chatCountLine,
+  chatsInRange,
+  DATES_APPLY_TO,
+  datesNarrowChats,
+  datesNarrowMessages,
+  noChatsLine,
+  type DatesApplyTo,
+  isDateFiltering,
+  isRangeBackwards,
   isSearching,
+  messagesInRange,
+  type DateRange,
   listTimeLabel,
   matchCountLine,
   newestFirst,
@@ -104,6 +125,13 @@ export default function ChatWindow({
   partnersError: string | null;
 }) {
   const liveState = useChatLive(me, live);
+  // WC-253: the From and To days ("YYYY-MM-DD", or "" for no limit) and what
+  // they narrow, held by Comm's layout so opening a chat keeps them (CommDates.tsx).
+  const { range, setRange, applyTo, setApplyTo } = useCommDates();
+  const dating = isDateFiltering(range);
+  const backwards = dating && isRangeBackwards(range);
+  const listDating = dating && datesNarrowChats(applyTo);
+  const shownChats = !listDating ? chats : backwards ? [] : chatsInRange(chats, range);
 
   const showing = openId ? "conversation" : "list";
   return (
@@ -116,9 +144,15 @@ export default function ChatWindow({
             <p className="note" role="status">
               No chats yet. Pick a member under &quot;Chat with&quot; to start one, or start one from <Link href="/members">Members</Link>.
             </p>
+          ) : listDating && backwards ? (
+            <p className="note" role="status">{backwardsRangeLine(range, undefined, "chat")}</p>
+          ) : shownChats.length === 0 ? (
+            <p className="note" role="status">{noChatsLine(range)}</p>
           ) : (
+            <>
+            {listDating && shownChats.length < chats.length && <p className="note chat-list-count" role="status">{chatCountLine(shownChats.length, chats.length, range)}</p>}
             <ul>
-              {chats.map((c) => {
+              {shownChats.map((c) => {
                 // The open chat is being read right now, so it never shows as unread.
                 const isOpen = c.id === openId;
                 const badge = isOpen ? null : unreadBadge(c.unread);
@@ -149,12 +183,17 @@ export default function ChatWindow({
                 );
               })}
             </ul>
+            </>
           )}
         </nav>
 
         <section className="chat-conversation" aria-label={open ? `Chat with ${open.otherName}` : "Open chat"}>
           <p className="chat-back"><Link href="/comm">&larr; All chats</Link></p>
-          <ContactPicker partners={partners} problem={partnersError} />
+          {/* WC-253: one row: From, To, what they narrow, then "Chat with". */}
+          <div className="chat-top-row">
+            <DateFilter range={range} onRange={setRange} applyTo={applyTo} onApplyTo={setApplyTo} />
+            <ContactPicker partners={partners} problem={partnersError} />
+          </div>
           {openProblem ? (
             <p className="error" role="alert">{openProblem}</p>
           ) : !open ? (
@@ -162,11 +201,52 @@ export default function ChatWindow({
               {chats.length ? "Pick a chat from the list to read it, or pick a member above." : "Pick a member above to start a chat; it opens here."}
             </p>
           ) : (
-            <Conversation key={open.id} me={me} chat={open} newestOnTop searchable />
+            <Conversation key={open.id} me={me} chat={open} newestOnTop searchable range={datesNarrowMessages(applyTo) ? range : ANY_DATE} />
           )}
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * The From and To days and the toggle choosing what they narrow (WC-253),
+ * to the left of "Chat with". Emptying both days, or "Clear dates", shows
+ * everything again.
+ */
+function DateFilter({
+  range,
+  onRange,
+  applyTo,
+  onApplyTo,
+}: {
+  range: DateRange;
+  onRange: (update: (r: DateRange) => DateRange) => void;
+  applyTo: DatesApplyTo;
+  onApplyTo: (value: DatesApplyTo) => void;
+}) {
+  return (
+    <div className="chat-dates" role="group" aria-label="Dates">
+      <span className="chat-date">
+        <label htmlFor="chat-from">From:</label>
+        <input id="chat-from" type="date" value={range.from} onChange={(e) => onRange((r) => ({ ...r, from: e.target.value }))} />
+      </span>
+      <span className="chat-date">
+        <label htmlFor="chat-to">To:</label>
+        <input id="chat-to" type="date" value={range.to} onChange={(e) => onRange((r) => ({ ...r, to: e.target.value }))} />
+      </span>
+      <span className="chat-date">
+        <label htmlFor="chat-dates-apply">Dates filter</label>
+        <select id="chat-dates-apply" value={applyTo} onChange={(e) => onApplyTo(e.target.value as DatesApplyTo)}>
+          {DATES_APPLY_TO.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </span>
+      {isDateFiltering(range) && (
+        <button type="button" className="link chat-dates-clear" onClick={() => onRange(() => ANY_DATE)}>Clear dates</button>
+      )}
+    </div>
   );
 }
 
@@ -235,7 +315,8 @@ function ContactPicker({ partners, problem }: { partners: ChatPartnerOption[]; p
  * (the task page). `newestOnTop` (the Sync mode's window, WC-235) puts the
  * send box on top and the newest message right under it, older ones
  * scrolling off the bottom. `searchable` adds a field that shows only the
- * messages holding the words typed.
+ * messages holding the words typed; `range` (the From and To days the chat
+ * window picks, WC-245/WC-253) shows only the messages sent between them.
  */
 export function Conversation({
   me,
@@ -243,12 +324,14 @@ export function Conversation({
   showTopic = true,
   newestOnTop = false,
   searchable = false,
+  range = ANY_DATE,
 }: {
   me: string;
   chat: OpenChat;
   showTopic?: boolean;
   newestOnTop?: boolean;
   searchable?: boolean;
+  range?: DateRange;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -259,8 +342,13 @@ export function Conversation({
 
   const [query, setQuery] = useState("");
   const searching = searchable && isSearching(query);
+  const dating = searchable && isDateFiltering(range);
+  const backwards = dating && isRangeBackwards(range);
   const ordered = newestOnTop ? newestFirst(chat.messages) : chat.messages;
-  const shownMessages = searching ? searchMessages(ordered, query) : ordered;
+  const byWords = searching ? searchMessages(ordered, query) : ordered;
+  const shownMessages = backwards ? [] : dating ? messagesInRange(byWords, range) : byWords;
+  const filtering = searching || dating;
+  const usedRange = dating ? range : ANY_DATE;
 
   // Keep the newest message in view as messages arrive, by scrolling the
   // messages box itself: to the top when the newest is on top, else to the
@@ -369,16 +457,18 @@ export function Conversation({
       {newestOnTop && sendForm}
       {searchable && chat.error === null && chat.messages.length > 0 && (
         <div className="chat-search">
-          <label htmlFor={`chat-search-${chat.id}`}>Search this chat</label>
-          <input
-            id={`chat-search-${chat.id}`}
-            type="search"
-            value={query}
-            placeholder="Words in a message"
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <span className="chat-search-words">
+            <label htmlFor={`chat-search-${chat.id}`}>Search this chat</label>
+            <input
+              id={`chat-search-${chat.id}`}
+              type="search"
+              value={query}
+              placeholder="Words in a message"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </span>
           {/* No match says so once, in the messages box below. */}
-          {searching && shownMessages.length > 0 && <p className="note" role="status">{matchCountLine(shownMessages.length, chat.messages.length, query)}</p>}
+          {filtering && shownMessages.length > 0 && <p className="note" role="status">{matchCountLine(shownMessages.length, chat.messages.length, searching ? query : "", usedRange)}</p>}
         </div>
       )}
       {newestOnTop && readLine}
@@ -387,8 +477,10 @@ export function Conversation({
           <p className="error" role="alert">The messages could not be loaded: {chat.error}. Nothing has been lost; try reloading the page.</p>
         ) : chat.messages.length === 0 ? (
           <p className="note" role="status">{newestOnTop ? NO_MESSAGES_ABOVE : NO_MESSAGES}</p>
+        ) : backwards ? (
+          <p className="note" role="status">{backwardsRangeLine(range)}</p>
         ) : shownMessages.length === 0 ? (
-          <p className="note" role="status">{noMatchLine(query)}</p>
+          <p className="note" role="status">{noMatchLine(searching ? query : "", usedRange)}</p>
         ) : (
           <>
             {/* WC-241: the two sides named once, over their columns, instead of on every message.

@@ -196,8 +196,20 @@ order.
   naming how many pages follow it, and links this section to it again.
 - Row-level security from the creating migration: a role with Manage website
   reads, saves and changes originals; anyone else reads only one a published
-  page follows. Deleting or renaming an original is not offered yet.
+  page follows. Renaming and deleting an original came next (WC-246, below).
+- **Rename and Delete** (WC-246), beside the Insert picker, act on the picked
+  original. A rename is checked as a new name is (not blank, at most 80
+  characters, not another original's name ignoring capitals). Delete first
+  says how many pages follow it and asks; on yes, core's `deleteSavedSection`
+  rewrites every page that follows it so each linked instance becomes a plain
+  copy of the original's current content, and only when every page saved
+  does it delete the original. So no page is ever left following an original
+  that is gone; if a page did not save, nothing is deleted and the screen
+  names the page. There is no undo. The database grants the name change and
+  the delete to a role with Manage website only
+  (`20261127120000_site_sections_rename_delete.sql`).
 - `core/website.ts`: `saveReusableSection`, `changeSavedSection`,
+  `renameSavedSection`, `deleteSavedSection`, `copyFollowersOf`,
   `resolveSiteSections`, `insertSavedSection`, `unlinkSiteSection`, with
   tests. **The public page at its own address (WC-210) must read a page's
   sections through `resolveSiteSections`**, or linked sections would show
