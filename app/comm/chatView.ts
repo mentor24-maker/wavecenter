@@ -195,3 +195,60 @@ export function noMatchLine(query: string): string {
 export function matchCountLine(shown: number, total: number, query: string): string {
   return `${shown} of ${total} ${total === 1 ? "message matches" : "messages match"} "${query.trim()}".`;
 }
+
+const WEEKDAY_DAY = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, weekday: "long", month: "short", day: "numeric" });
+const WEEKDAY_DAY_YEAR = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, weekday: "long", month: "short", day: "numeric", year: "numeric" });
+
+/** The label a date break shows when a message's time cannot be read. */
+export const UNKNOWN_DAY = "Unknown date";
+
+/** The Mountain-time day (YYYY-MM-DD) before `key`. */
+function dayBefore(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * The heading of a date break (WC-242), in Mountain time: "Today",
+ * "Yesterday", the weekday and date this year ("Tuesday, Nov 24"), and the
+ * year too before this year.
+ */
+export function dayLabel(iso: string, now: Date = new Date()): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return UNKNOWN_DAY;
+  const key = DATE_KEY.format(at);
+  const today = DATE_KEY.format(now);
+  if (key === today) return "Today";
+  if (key === dayBefore(today)) return "Yesterday";
+  return (key.slice(0, 4) === today.slice(0, 4) ? WEEKDAY_DAY : WEEKDAY_DAY_YEAR).format(at);
+}
+
+/** A message's clock time alone, in Mountain time: what it shows under a date break, which already names the day. */
+export function clockLabel(iso: string): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? "" : CLOCK.format(at);
+}
+
+/** A message as the conversation lays it out: with the date break that goes before it, or null when it is on the same day as the one before. */
+export interface DayBreakRow<T> {
+  /** The break before this message: its Mountain-time day and label. */
+  day: { key: string; label: string } | null;
+  message: T;
+}
+
+/**
+ * Where a new day starts in `messages`, taken in the order shown (WC-242:
+ * "a div between dates"). The first message always gets a break, and so does
+ * every message on a different Mountain-time day from the one shown before
+ * it, so it works oldest-first and newest-first alike.
+ */
+export function withDayBreaks<T extends Pick<ChatMessage, "sentAt">>(messages: readonly T[], now: Date = new Date()): DayBreakRow<T>[] {
+  let previous: string | null = null;
+  return messages.map((message) => {
+    const at = new Date(message.sentAt);
+    const key = Number.isNaN(at.getTime()) ? "" : DATE_KEY.format(at);
+    const day = key === previous ? null : { key, label: dayLabel(message.sentAt, now) };
+    previous = key;
+    return { day, message };
+  });
+}

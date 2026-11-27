@@ -1010,6 +1010,10 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .chat-message { display: flex; flex-direction: column; max-width: 80%; align-self: flex-start; padding: 0.35rem 0.6rem; border-radius: 0.5rem; background: var(--level-1); }
 .chat-message.mine { align-self: flex-end; border-right: 3px solid var(--accent); }
 .chat-meta { font-size: 0.8rem; }
+/* WC-242: a line between days, with the day in larger, bold text on it. */
+.chat-day-break { display: flex; align-items: center; gap: 0.75rem; margin: 0.5rem 0 0.25rem; }
+.chat-day-break::before, .chat-day-break::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.chat-day-label { font-size: 1.05rem; font-weight: 700; color: var(--fg); white-space: nowrap; }
 /* WC-241: your own message's time sits at the bubble's right edge, the other member's at its left. */
 .chat-message.mine .chat-meta { text-align: right; }
 /* WC-241: the column heads over the messages, the other member on the left and You on the right, kept in view while scrolling. */

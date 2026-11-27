@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, chatList, chatPartnerOptions, chatTopic, chatPartner, isSearching, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -159,4 +159,53 @@ test("search says plainly when nothing matches and how many do", () => {
   assert.equal(noMatchLine("  zzz "), 'No messages match "zzz".');
   assert.equal(matchCountLine(2, 9, "hello"), '2 of 9 messages match "hello".');
   assert.equal(matchCountLine(1, 1, "hi"), '1 of 1 message matches "hi".');
+});
+
+test("a date break says Today, Yesterday, the weekday and date this year, and the year before this year", () => {
+  const now = new Date("2026-11-26T19:00:00Z"); // Thu Nov 26, noon Mountain
+  assert.equal(dayLabel("2026-11-26T15:00:00Z", now), "Today");
+  assert.equal(dayLabel("2026-11-25T15:00:00Z", now), "Yesterday");
+  assert.equal(dayLabel("2026-11-24T15:00:00Z", now), "Tuesday, Nov 24");
+  assert.equal(dayLabel("2025-11-24T15:00:00Z", now), "Monday, Nov 24, 2025");
+  assert.equal(dayLabel("not a date", now), UNKNOWN_DAY);
+});
+
+test("Yesterday works across a month and a year end", () => {
+  assert.equal(dayLabel("2026-11-30T19:00:00Z", new Date("2026-12-01T19:00:00Z")), "Yesterday");
+  assert.equal(dayLabel("2026-12-31T19:00:00Z", new Date("2027-01-01T19:00:00Z")), "Yesterday");
+});
+
+test("days are Mountain-time days: 11 pm Mountain is still that day, not the next UTC day", () => {
+  const now = new Date("2026-11-26T19:00:00Z");
+  // 2026-11-26T06:00Z is 11 pm Mountain on Nov 25.
+  assert.equal(dayLabel("2026-11-26T06:00:00Z", now), "Yesterday");
+  const rows = withDayBreaks([{ sentAt: "2026-11-26T05:30:00Z" }, { sentAt: "2026-11-26T06:00:00Z" }, { sentAt: "2026-11-26T07:30:00Z" }], now);
+  assert.deepEqual(rows.map((r) => r.day?.label ?? null), ["Yesterday", null, "Today"]);
+});
+
+test("a break goes before the first message of each day, oldest first and newest first alike", () => {
+  const now = new Date("2026-11-26T19:00:00Z");
+  const oldestFirst = [
+    { sentAt: "2026-11-24T15:00:00Z" },
+    { sentAt: "2026-11-25T15:00:00Z" },
+    { sentAt: "2026-11-25T16:00:00Z" },
+    { sentAt: "2026-11-26T15:00:00Z" },
+  ];
+  assert.deepEqual(withDayBreaks(oldestFirst, now).map((r) => r.day?.label ?? null), ["Tuesday, Nov 24", "Yesterday", null, "Today"]);
+  const newest = newestFirst(oldestFirst);
+  const rows = withDayBreaks(newest, now);
+  assert.deepEqual(rows.map((r) => r.day?.label ?? null), ["Today", "Yesterday", null, "Tuesday, Nov 24"]);
+  assert.deepEqual(rows.map((r) => r.message), newest, "every message once, in the order given");
+});
+
+test("a chat all from one day gets one break, at the top; no messages, no breaks", () => {
+  const now = new Date("2026-11-26T19:00:00Z");
+  const rows = withDayBreaks([{ sentAt: "2026-11-26T15:00:00Z" }, { sentAt: "2026-11-26T16:00:00Z" }], now);
+  assert.deepEqual(rows.map((r) => r.day?.label ?? null), ["Today", null]);
+  assert.deepEqual(withDayBreaks([], now), []);
+});
+
+test("under a break a message shows its clock time alone, in Mountain time", () => {
+  assert.equal(clockLabel("2026-11-26T06:00:00Z"), "11:00 PM");
+  assert.equal(clockLabel("nope"), "");
 });
