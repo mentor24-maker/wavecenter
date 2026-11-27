@@ -2,7 +2,8 @@
 
 /**
  * Adding a topic or a tag to the Forum, and changing or deleting a topic
- * (WC-183) or a tag (WC-186), run on the server through core (core/forum.ts) as the tool
+ * (WC-183) or a tag (WC-186), and attaching or removing a topic's tags
+ * (WC-249), run on the server through core (core/forum.ts) as the tool
  * `wavecenter`, acting as the signed-in member.
  *
  * Returns `{ ok: true }` only after the database confirmed the write.
@@ -12,8 +13,10 @@
 import { revalidatePath } from "next/cache";
 import {
   addForumEntry,
+  attachTopicTag as attachTopicTagRule,
   deleteTag as deleteTagRule,
   deleteTopic as deleteTopicRule,
+  detachTopicTag as detachTopicTagRule,
   editTag as editTagRule,
   editTopic as editTopicRule,
   setTopicParent as setTopicParentRule,
@@ -21,7 +24,7 @@ import {
 } from "../../core/forum.ts";
 import { mayOpenAdmin } from "../../core/members.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
-import { supabaseForumStore, supabaseTagStore, supabaseTopicStore } from "../lib/forumStore";
+import { supabaseForumStore, supabaseTagStore, supabaseTopicStore, supabaseTopicTagStore } from "../lib/forumStore";
 import { myRole } from "../lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
@@ -120,5 +123,21 @@ export async function deleteTag(id: string): Promise<ForumSaveResult> {
   return run("delete the tag", "Nothing was deleted", async ({ supabase, memberId }) => {
     const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
     await deleteTagRule(supabaseTagStore(supabase), id, actor, WAVECENTER_TOOL);
+  });
+}
+
+/** Attach an existing tag to a topic (WC-249). Only the topic's adder or an admin may. */
+export async function attachTopicTag(topicId: string, tagId: string): Promise<ForumSaveResult> {
+  return run("attach the tag", "Nothing was saved", async ({ supabase, memberId }) => {
+    const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
+    await attachTopicTagRule(supabaseTopicTagStore(supabase), topicId, tagId, actor, WAVECENTER_TOOL);
+  });
+}
+
+/** Remove a tag from a topic (WC-249). Only the topic's adder or an admin may. */
+export async function detachTopicTag(topicId: string, tagId: string): Promise<ForumSaveResult> {
+  return run("remove the tag", "Nothing was changed", async ({ supabase, memberId }) => {
+    const actor = { memberId, isAdmin: mayOpenAdmin(await myRole(supabase, memberId)) };
+    await detachTopicTagRule(supabaseTopicTagStore(supabase), topicId, tagId, actor, WAVECENTER_TOOL);
   });
 }
