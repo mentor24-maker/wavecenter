@@ -899,7 +899,7 @@ export function siteImageUrl(raw: unknown): string | null {
  * the public `site-images` bucket (visitors to a published page are not
  * signed in, so it is read without a link); only a role with Manage website
  * may add one. The bucket's own limits in
- * supabase/migrations/20261128130000_site_images.sql are these same values,
+ * supabase/migrations/20261128140000_site_images.sql are these same values,
  * so the button and the bucket refuse the same files.
  */
 export const SITE_IMAGES_BUCKET = 'site-images';
@@ -920,7 +920,9 @@ export function siteImageUploadProblem(file: { name: unknown; type: unknown; siz
     return `"${name}" is empty or its size could not be read. Nothing was uploaded.`;
   }
   if (file.sizeBytes > SITE_IMAGE_UPLOAD_MAX_BYTES) {
-    return `"${name}" is ${(file.sizeBytes / (1024 * 1024)).toFixed(1)} MB, and a picture can be at most 5 MB. Nothing was uploaded.`;
+    // Rounded up, so a file only just over the cap never reads as "5.0 MB".
+    const mb = Math.ceil((file.sizeBytes / (1024 * 1024)) * 10) / 10;
+    return `"${name}" is ${mb.toFixed(1)} MB, and a picture can be at most 5 MB. Nothing was uploaded.`;
   }
   return null;
 }
@@ -931,8 +933,23 @@ export function siteImageUploadProblem(file: { name: unknown; type: unknown; siz
  * folder, and the random folder so two uploads never share an address.
  */
 export function siteImagePath(randomId: string, name: string): string {
-  const safe = name.trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '_').slice(-120) || 'picture';
+  // Cut to length first, so the cut can never leave a name starting with a dot.
+  const safe = name.trim().replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120).replace(/^\.+/, '_') || 'picture';
   return `${randomId}/${safe}`;
+}
+
+/**
+ * The page's sections with picture module `moduleId`'s address set to `url`,
+ * wherever that module now is (WC-251). An upload finishes after the manager
+ * may have edited, moved or removed other things, so it is applied to the
+ * page as it is then, never to the page as it was when the upload began: the
+ * rest is returned untouched, and nothing changes when the module is gone,
+ * is not a picture, or sits in a section locked to its original.
+ */
+export function withSiteImageUrl(sections: readonly SiteSection[], moduleId: string, url: string): SiteSection[] {
+  const isIt = (m: SiteModule) => m.id === moduleId && m.type === 'image';
+  return sections.map((s) => (isLinkedSiteSection(s) || !s.modules.some(isIt) ? s
+    : { ...s, modules: s.modules.map((m) => (isIt(m) ? { ...m, settings: { ...m.settings, url } } as SiteModule : m)) }));
 }
 
 /**

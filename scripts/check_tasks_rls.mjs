@@ -2508,7 +2508,7 @@ try {
     }
   }
 
-  // The site-images bucket (20261128130000_site_images.sql, WC-251): only a
+  // The site-images bucket (20261128140000_site_images.sql, WC-251): only a
   // role with site.edit (A) adds a picture, through a one-time link or
   // directly; B (a viewer) cannot do either. Anyone, signed in or not, reads
   // a picture by its public address. The bucket refuses a file that is not a

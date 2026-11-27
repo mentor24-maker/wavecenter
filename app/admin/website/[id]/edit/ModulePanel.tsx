@@ -20,7 +20,7 @@ import { startSiteImageUpload } from "../../actions";
 const UNREACHABLE = "Could not reach WaveCenter, so the picture was not uploaded. Check your connection and try again; the picture is as it was.";
 
 export default function ModulePanel({
-  module: m, where, cells, cellName, disabled, onChange, onClose,
+  module: m, where, cells, cellName, disabled, onChange, onPictureUploaded, onClose,
 }: {
   module: SiteModule;
   /** Which section it is in, in words ("Section 2"). */
@@ -29,6 +29,13 @@ export default function ModulePanel({
   cellName: (cell: string) => string;
   disabled: boolean;
   onChange: (next: SiteModule) => void;
+  /**
+   * An uploaded picture's address, for this module. Applied by the editor to
+   * the page as it is when the upload finishes (core/website.ts,
+   * withSiteImageUrl), not as it was when it began, so edits made meanwhile
+   * elsewhere on the page are kept.
+   */
+  onPictureUploaded: (url: string) => void;
   onClose: () => void;
 }) {
   const id = useId();
@@ -36,9 +43,6 @@ export default function ModulePanel({
   /** The picture width as typed, while the box is being edited; tidied when it is left. */
   const [widthTyped, setWidthTyped] = useState<string | null>(null);
   const set = (settings: Partial<SiteModule["settings"]>) => onChange({ ...m, settings: { ...m.settings, ...settings } } as SiteModule);
-  /** The module as it is now, for an upload that finishes after other fields were changed. */
-  const latest = useRef(m);
-  latest.current = m;
   /** A picture being uploaded (WC-251), and why the last one could not be. */
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -58,8 +62,7 @@ export default function ModulePanel({
       const sent = await fetch(ticket.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file }).catch(() => null);
       if (!sent) return setUploadError(UNREACHABLE);
       if (!sent.ok) return setUploadError(`File storage refused "${file.name}" (error ${sent.status}), so it was not uploaded. The picture is as it was; try again.`);
-      const now = latest.current;
-      if (now.type === "image") onChange({ ...now, settings: { ...now.settings, url } });
+      onPictureUploaded(url);
     } finally {
       setUploading(false);
     }
@@ -118,7 +121,6 @@ export default function ModulePanel({
             <label htmlFor={`${id}-url`}>Picture address</label>
             <input id={`${id}-url`} type="url" inputMode="url" maxLength={SITE_ADDRESS_MAX} value={m.settings.url} disabled={disabled} autoFocus
               placeholder="https://…" onChange={(e) => set({ url: e.target.value })} />
-            <span />
             <span className="picture-upload">
               <button type="button" disabled={disabled || uploading} onClick={() => fileBox.current?.click()}>
                 {uploading ? "Uploading…" : "Upload"}

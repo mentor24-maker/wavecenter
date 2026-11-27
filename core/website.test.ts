@@ -16,7 +16,7 @@ import {
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
-  SITE_IMAGES_BUCKET, SITE_IMAGE_UPLOAD_MAX_BYTES, SITE_IMAGE_UPLOAD_TYPES, planSiteImageUpload, siteImagePath, siteImageUploadProblem,
+  SITE_IMAGES_BUCKET, SITE_IMAGE_UPLOAD_MAX_BYTES, SITE_IMAGE_UPLOAD_TYPES, planSiteImageUpload, siteImagePath, siteImageUploadProblem, withSiteImageUrl,
   SITE_LEADERBOARD_HEADING, SITE_MODULE_TYPES, type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
@@ -942,7 +942,9 @@ test('only a website manager may upload a picture, and only a png, jpeg, gif or 
   assert.match(siteImageUploadProblem({ name: 'logo.svg', type: 'image/svg+xml', sizeBytes: 10 }) ?? '', /not a picture/);
   assert.match(siteImageUploadProblem({ name: 'x.png', type: '', sizeBytes: 10 }) ?? '', /not a picture/);
   assert.equal(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: SITE_IMAGE_UPLOAD_MAX_BYTES }), null);
-  assert.match(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: SITE_IMAGE_UPLOAD_MAX_BYTES + 1 }) ?? '', /"big\.png" is 5\.0 MB.*at most 5 MB/);
+  assert.match(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: SITE_IMAGE_UPLOAD_MAX_BYTES + 1 }) ?? '', /"big\.png" is 5\.1 MB.*at most 5 MB/);
+  // Rounded up: 5,300,000 bytes is 5.05 MB, never shown as "5.0 MB".
+  assert.match(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: 5_300_000 }) ?? '', /is 5\.1 MB/);
   assert.match(siteImageUploadProblem({ name: 'e.png', type: 'image/png', sizeBytes: 0 }) ?? '', /empty/);
   assert.match(siteImageUploadProblem({ name: '  ', type: 'image/png', sizeBytes: 1 }) ?? '', /file name/);
 });
@@ -954,10 +956,39 @@ test('an uploaded picture is stored under its own random folder, its name unable
   assert.equal(siteImagePath('abc', '.hidden.png'), 'abc/_hidden.png');
   assert.equal(siteImagePath('abc', '日本'), 'abc/_');
   assert.equal(siteImagePath('abc', 'a'.repeat(300) + '.png').length, 'abc/'.length + 120);
+  // A long name whose last 120 characters start with a dot still never makes a hidden file.
+  const cut = siteImagePath('abc', 'a'.repeat(50) + '.' + 'b'.repeat(119)).split('/')[1];
+  assert.equal(cut, '_' + 'b'.repeat(119));
+});
+
+test('an upload that finishes late sets only its own picture, on the page as it is by then', () => {
+  const page = normalizeSiteSections([
+    { id: 's1', layout: 'single', modules: [{ id: 'pic', type: 'image', cell: 'main', settings: { url: 'https://old.example/a.png' } }, { id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hello' } }] },
+    { id: 's2', layout: 'single', modules: [{ id: 'other', type: 'image', cell: 'main', settings: { url: 'https://old.example/b.png' } }] },
+  ]);
+  const url = 'https://store.example/new.png';
+  const pic = (sections: SiteSection[]) => sections.flatMap((s) => s.modules).find((m) => m.id === 'pic');
+  const urlOf = (m: SiteModule | undefined) => (m?.type === 'image' ? m.settings.url : undefined);
+  // While it uploaded, the manager edited the heading and moved the picture's section down.
+  const edited = page.map((s) => (s.id === 's1' ? { ...s, modules: s.modules.map((m) => (m.type === 'heading' ? { ...m, settings: { ...m.settings, text: 'Changed' } } : m)) } : s)).reverse();
+  const after = withSiteImageUrl(edited, 'pic', url);
+  assert.equal(urlOf(pic(after)), url);
+  assert.deepEqual(after.map((s) => s.id), ['s2', 's1'], 'the move is kept');
+  const heading = after[1].modules.find((m) => m.id === 'h');
+  assert.equal(heading?.type === 'heading' ? heading.settings.text : undefined, 'Changed', 'the other edit is kept');
+  assert.equal(urlOf(after[0].modules[0]), 'https://old.example/b.png', 'no other picture changes');
+  assert.equal(after[0], edited[0], 'an untouched section is the same object');
+  // The module was removed meanwhile: nothing changes.
+  const gone = edited.map((s) => ({ ...s, modules: s.modules.filter((m) => m.id !== 'pic') }));
+  assert.deepEqual(withSiteImageUrl(gone, 'pic', url), gone);
+  // A heading of that id, or a section locked to its original, is never changed.
+  assert.deepEqual(withSiteImageUrl(edited, 'h', url), edited);
+  const locked = edited.map((s) => (s.id === 's1' ? { ...s, savedSectionId: 'o1', linked: true } : s));
+  assert.equal(urlOf(pic(withSiteImageUrl(locked, 'pic', url))), 'https://old.example/a.png');
 });
 
 test('the site-images bucket is public to read, its limits match core, and only Manage website may add to it', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261128130000_site_images.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
+  const sql = readFileSync(new URL('../supabase/migrations/20261128140000_site_images.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
   const types = `array[${SITE_IMAGE_UPLOAD_TYPES.map((t) => `'${t}'`).join(', ')}]`;
   assert.match(sql, new RegExp(`values \\('${SITE_IMAGES_BUCKET}', '${SITE_IMAGES_BUCKET}', true, ${SITE_IMAGE_UPLOAD_MAX_BYTES}, ${types.replace(/[[\]+]/g, '\\$&')}\\)`));
   assert.equal(sql.split(types).length - 1, 2, 'the allowed types are set both on making and on re-running');
