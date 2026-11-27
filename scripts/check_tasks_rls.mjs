@@ -2421,6 +2421,75 @@ try {
     }
   }
 
+  // The site-images bucket (20261127140000_site_images.sql, WC-251): only a
+  // role with site.edit (A) adds a picture, through a one-time link or
+  // directly; B (a viewer) cannot do either. Anyone, signed in or not, reads
+  // a picture by its public address. The bucket refuses a file that is not a
+  // picture, and no member may delete or overwrite one.
+  {
+    const IMAGES = 'site-images';
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const kept = [];
+    const sign = (who, path) => call(`/storage/v1/object/upload/sign/${IMAGES}/${path}`, { method: 'POST', token: who?.token, body: {} });
+    const put = async (signed, type, body) => {
+      const res = await fetch(`${URL_}/storage/v1${signed.json.url}`, { method: 'PUT', headers: { 'Content-Type': type }, body });
+      return { status: res.status, json: await res.json().catch(() => null) };
+    };
+    const direct = async (who, path, type, body) => {
+      const res = await fetch(`${URL_}/storage/v1/object/${IMAGES}/${path}`, {
+        method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${who?.token ?? ANON}`, 'Content-Type': type }, body,
+      });
+      return { status: res.status, json: await res.json().catch(() => null) };
+    };
+    try {
+      const pathA = `${randomUUID()}/rls-a.png`;
+      kept.push(pathA);
+      const signedA = await sign(a, pathA);
+      const upA = signedA.status === 200 ? await put(signedA, 'image/png', PNG) : signedA;
+      check('a website manager uploads a picture to site-images with a one-time link', upA.status === 200, `HTTP ${upA.status} ${JSON.stringify(upA.json)}`);
+
+      const readAnon = await fetch(`${URL_}/storage/v1/object/public/${IMAGES}/${pathA}`);
+      const readBytes = Buffer.from(await readAnon.arrayBuffer());
+      check('a signed-out visitor reads the picture by its public address', readAnon.status === 200 && readBytes.equals(PNG), `HTTP ${readAnon.status}, ${readBytes.length} bytes`);
+
+      const pathB = `${randomUUID()}/rls-b.png`;
+      kept.push(pathB);
+      const signedB = await sign(b, pathB);
+      const upB = signedB.status === 200 ? await put(signedB, 'image/png', PNG) : signedB;
+      check('a member without Manage website cannot upload a picture with a one-time link', upB.status >= 400, `HTTP ${upB.status} ${JSON.stringify(upB.json)}`);
+      const directB = await direct(b, pathB, 'image/png', PNG);
+      check('a member without Manage website cannot upload a picture directly either', directB.status >= 400, `HTTP ${directB.status} ${JSON.stringify(directB.json)}`);
+      const directAnon = await direct(null, pathB, 'image/png', PNG);
+      check('a signed-out visitor cannot upload a picture', directAnon.status >= 400, `HTTP ${directAnon.status} ${JSON.stringify(directAnon.json)}`);
+
+      const pathPdf = `${randomUUID()}/rls-a.pdf`;
+      kept.push(pathPdf);
+      const pdf = await direct(a, pathPdf, 'application/pdf', Buffer.from('%PDF-1.4'));
+      check('the bucket refuses a file that is not a picture, even from a website manager', pdf.status >= 400, `HTTP ${pdf.status} ${JSON.stringify(pdf.json)}`);
+
+      const pathBig = `${randomUUID()}/rls-big.png`;
+      kept.push(pathBig);
+      const big = await direct(a, pathBig, 'image/png', Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024)]));
+      check('the bucket refuses a picture over 5 MB', big.status >= 400, `HTTP ${big.status} ${JSON.stringify(big.json)}`);
+
+      const delB = await call(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', token: b.token, body: { prefixes: [pathA] } });
+      const delA = await call(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', token: a.token, body: { prefixes: [pathA] } });
+      check('no member may delete an uploaded picture (clearing them out is a later ticket)',
+        Array.isArray(delB.json) && delB.json.length === 0 && Array.isArray(delA.json) && delA.json.length === 0,
+        `B: HTTP ${delB.status} ${JSON.stringify(delB.json)}; A: HTTP ${delA.status} ${JSON.stringify(delA.json)}`);
+      const over = await fetch(`${URL_}/storage/v1/object/${IMAGES}/${pathA}`, {
+        method: 'PUT', headers: { apikey: ANON, Authorization: `Bearer ${a.token}`, 'Content-Type': 'image/png' }, body: Buffer.from(PNG).reverse(),
+      });
+      check('no member may overwrite an uploaded picture', over.status >= 400, `HTTP ${over.status}`);
+    } finally {
+      const cleared = await admin(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', body: { prefixes: kept } });
+      if (cleared.status >= 300) {
+        failures += 1;
+        console.error(`could not delete the test pictures ${kept.join(', ')}: HTTP ${cleared.status} — delete them by hand in the Supabase dashboard`);
+      }
+    }
+  }
+
   // task_files and the task-files bucket: a member's attached files are their own.
   const pathA = filePath(a.id, insA.id, randomUUID(), 'a-logo.txt');
   storedPaths.push(pathA);

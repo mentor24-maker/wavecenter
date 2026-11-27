@@ -8,12 +8,16 @@
  * as it is typed (core/website.ts, siteModuleProblem), and Save refuses it the
  * same way.
  */
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
+  SITE_IMAGE_UPLOAD_TYPES, siteImageUploadProblem, siteImageUrl,
   SITE_ADDRESS_MAX, SITE_BUTTON_LABEL_MAX, SITE_HEADING_LEVELS, SITE_HEADING_MAX, SITE_IMAGE_ALT_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX,
   siteImageWidth, siteModuleLabel, siteModuleProblem, type SiteModule,
 } from "../../../../../core/website.ts";
 import CommentEditor from "../../../../tasks/CommentEditor";
+import { startSiteImageUpload } from "../../actions";
+
+const UNREACHABLE = "Could not reach WaveCenter, so the picture was not uploaded. Check your connection and try again; the picture is as it was.";
 
 export default function ModulePanel({
   module: m, where, cells, cellName, disabled, onChange, onClose,
@@ -32,6 +36,34 @@ export default function ModulePanel({
   /** The picture width as typed, while the box is being edited; tidied when it is left. */
   const [widthTyped, setWidthTyped] = useState<string | null>(null);
   const set = (settings: Partial<SiteModule["settings"]>) => onChange({ ...m, settings: { ...m.settings, ...settings } } as SiteModule);
+  /** The module as it is now, for an upload that finishes after other fields were changed. */
+  const latest = useRef(m);
+  latest.current = m;
+  /** A picture being uploaded (WC-251), and why the last one could not be. */
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileBox = useRef<HTMLInputElement>(null);
+
+  async function upload(file: File) {
+    setUploadError(null);
+    const problem = siteImageUploadProblem({ name: file.name, type: file.type, sizeBytes: file.size });
+    if (problem) return setUploadError(problem);
+    setUploading(true);
+    try {
+      const ticket = await startSiteImageUpload(file.name, file.type, file.size).catch(() => ({ ok: false as const, error: UNREACHABLE }));
+      if (!ticket.ok) return setUploadError(ticket.error);
+      // Checked before sending, so a picture is never stored at an address the field would refuse.
+      const url = siteImageUrl(ticket.publicUrl);
+      if (!url) return setUploadError("File storage gave the picture an address that is not a secure https: one, so it was not used. The picture is as it was.");
+      const sent = await fetch(ticket.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file }).catch(() => null);
+      if (!sent) return setUploadError(UNREACHABLE);
+      if (!sent.ok) return setUploadError(`File storage refused "${file.name}" (error ${sent.status}), so it was not uploaded. The picture is as it was; try again.`);
+      const now = latest.current;
+      if (now.type === "image") onChange({ ...now, settings: { ...now.settings, url } });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <aside className="module-panel" aria-label={`${siteModuleLabel(m.type)} settings`}>
@@ -86,6 +118,21 @@ export default function ModulePanel({
             <label htmlFor={`${id}-url`}>Picture address</label>
             <input id={`${id}-url`} type="url" inputMode="url" maxLength={SITE_ADDRESS_MAX} value={m.settings.url} disabled={disabled} autoFocus
               placeholder="https://…" onChange={(e) => set({ url: e.target.value })} />
+            <span />
+            <span className="picture-upload">
+              <button type="button" disabled={disabled || uploading} onClick={() => fileBox.current?.click()}>
+                {uploading ? "Uploading…" : "Upload"}
+              </button>
+              <input ref={fileBox} type="file" hidden accept={SITE_IMAGE_UPLOAD_TYPES.join(",")} disabled={disabled || uploading}
+                aria-label="Picture to upload"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void upload(file);
+                }} />{" "}
+              <span className="note">A PNG, JPEG, GIF or WebP from your computer, at most 5 MB. Then save the page.</span>
+              {uploadError && <span className="error" role="alert"> {uploadError}</span>}
+            </span>
             <label htmlFor={`${id}-alt`}>Description</label>
             <input id={`${id}-alt`} type="text" maxLength={SITE_IMAGE_ALT_MAX} value={m.settings.alt} disabled={disabled}
               placeholder="What the picture shows, for anyone who cannot see it" onChange={(e) => set({ alt: e.target.value })} />

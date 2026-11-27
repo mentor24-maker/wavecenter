@@ -16,6 +16,7 @@ import {
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
+  SITE_IMAGES_BUCKET, SITE_IMAGE_UPLOAD_MAX_BYTES, SITE_IMAGE_UPLOAD_TYPES, planSiteImageUpload, siteImagePath, siteImageUploadProblem,
   SITE_LEADERBOARD_HEADING, SITE_MODULE_TYPES, type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
@@ -921,4 +922,51 @@ test('deleting refuses the wrong role, a missing original or tool; a delete that
   assert.match(await del('dane'), /"Footer" was not deleted; try again\.$/);
   assert.equal(deps.savedSections.rows.length, 1);
   assert.deepEqual(await deleteSavedSection(deps, { actorId: 'dane', id: original.id }, TOOL), { name: 'Footer', pagesCopied: 0 });
+});
+
+// Uploading a picture for a picture module (WC-251).
+test('only a website manager may upload a picture, and only a png, jpeg, gif or webp of at most 5 MB', async () => {
+  const deps = setup();
+  const plan = (actorId: string, file: { name: unknown; type: unknown; sizeBytes: unknown }, randomId = 'r1') =>
+    planSiteImageUpload(deps, { actorId, ...file, randomId });
+  const photo = { name: 'Team photo (2026).JPG', type: 'image/jpeg', sizeBytes: 1024 };
+  assert.deepEqual(await plan('dane', photo), { path: 'r1/Team_photo_2026_.JPG' });
+  assert.match(await refused(plan('eddie', photo)), /Manage website.*Nothing was uploaded/);
+  assert.match(await refused(plan('vee', photo)), /Manage website/);
+  assert.match(await refused(plan('stranger', photo)), /Manage website/);
+  // The database's grants decide, as for every other website change.
+  assert.deepEqual(await planSiteImageUpload({ ...deps, grants: { editor: ['site.edit'] } }, { actorId: 'eddie', ...photo, randomId: 'r2' }), { path: 'r2/Team_photo_2026_.JPG' });
+
+  for (const type of SITE_IMAGE_UPLOAD_TYPES) assert.equal(siteImageUploadProblem({ name: 'a', type, sizeBytes: 1 }), null, type);
+  assert.match(await refused(plan('dane', { name: 'notes.pdf', type: 'application/pdf', sizeBytes: 10 })), /"notes\.pdf" is not a picture.*PNG, JPEG, GIF or WebP/);
+  assert.match(siteImageUploadProblem({ name: 'logo.svg', type: 'image/svg+xml', sizeBytes: 10 }) ?? '', /not a picture/);
+  assert.match(siteImageUploadProblem({ name: 'x.png', type: '', sizeBytes: 10 }) ?? '', /not a picture/);
+  assert.equal(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: SITE_IMAGE_UPLOAD_MAX_BYTES }), null);
+  assert.match(siteImageUploadProblem({ name: 'big.png', type: 'image/png', sizeBytes: SITE_IMAGE_UPLOAD_MAX_BYTES + 1 }) ?? '', /"big\.png" is 5\.0 MB.*at most 5 MB/);
+  assert.match(siteImageUploadProblem({ name: 'e.png', type: 'image/png', sizeBytes: 0 }) ?? '', /empty/);
+  assert.match(siteImageUploadProblem({ name: '  ', type: 'image/png', sizeBytes: 1 }) ?? '', /file name/);
+});
+
+test('an uploaded picture is stored under its own random folder, its name unable to step out of it', () => {
+  const sneaky = siteImagePath('abc', '../../etc/passwd.png');
+  assert.equal(sneaky, 'abc/__.._etc_passwd.png');
+  assert.equal(sneaky.split('/').length, 2, 'no slash survives from the name');
+  assert.equal(siteImagePath('abc', '.hidden.png'), 'abc/_hidden.png');
+  assert.equal(siteImagePath('abc', '日本'), 'abc/_');
+  assert.equal(siteImagePath('abc', 'a'.repeat(300) + '.png').length, 'abc/'.length + 120);
+});
+
+test('the site-images bucket is public to read, its limits match core, and only Manage website may add to it', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261127140000_site_images.sql', import.meta.url), 'utf8').replace(/--.*$/gm, '');
+  const types = `array[${SITE_IMAGE_UPLOAD_TYPES.map((t) => `'${t}'`).join(', ')}]`;
+  assert.match(sql, new RegExp(`values \\('${SITE_IMAGES_BUCKET}', '${SITE_IMAGES_BUCKET}', true, ${SITE_IMAGE_UPLOAD_MAX_BYTES}, ${types.replace(/[[\]+]/g, '\\$&')}\\)`));
+  assert.equal(sql.split(types).length - 1, 2, 'the allowed types are set both on making and on re-running');
+  assert.match(sql, /set public = true,\s+file_size_limit = 5242880/);
+  // One write rule, for adding, and only for a role with Manage website. No update or delete rule.
+  const policies = [...sql.matchAll(/create policy "([^"]+)" on storage\.objects\s+for (\w+) to (\w+)\s+with check \(([^;]+)\);/g)];
+  assert.equal((sql.match(/create policy/g) ?? []).length, 1);
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0][2], 'insert');
+  assert.equal(policies[0][3], 'authenticated');
+  assert.match(policies[0][4], /bucket_id = 'site-images' and \(select private\.may\('site\.edit'\)\)/);
 });

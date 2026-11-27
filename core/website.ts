@@ -895,6 +895,65 @@ export function siteImageUrl(raw: unknown): string | null {
 }
 
 /**
+ * Uploading a picture for a picture module (WC-251). The stored copy goes in
+ * the public `site-images` bucket (visitors to a published page are not
+ * signed in, so it is read without a link); only a role with Manage website
+ * may add one. The bucket's own limits in
+ * supabase/migrations/20261127140000_site_images.sql are these same values,
+ * so the button and the bucket refuse the same files.
+ */
+export const SITE_IMAGES_BUCKET = 'site-images';
+export const SITE_IMAGE_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export const SITE_IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Why a picked file cannot be uploaded as a picture, in plain words, or null
+ * when it may: a png, jpeg, gif or webp of at most 5 MB, with a name.
+ */
+export function siteImageUploadProblem(file: { name: unknown; type: unknown; sizeBytes: unknown }): string | null {
+  const name = typeof file.name === 'string' ? file.name.trim() : '';
+  if (!name) return 'A picture needs a file name. Nothing was uploaded.';
+  if (typeof file.type !== 'string' || !(SITE_IMAGE_UPLOAD_TYPES as readonly string[]).includes(file.type)) {
+    return `"${name}" is not a picture WaveCenter can show. Upload a PNG, JPEG, GIF or WebP file. Nothing was uploaded.`;
+  }
+  if (typeof file.sizeBytes !== 'number' || !Number.isInteger(file.sizeBytes) || file.sizeBytes <= 0) {
+    return `"${name}" is empty or its size could not be read. Nothing was uploaded.`;
+  }
+  if (file.sizeBytes > SITE_IMAGE_UPLOAD_MAX_BYTES) {
+    return `"${name}" is ${(file.sizeBytes / (1024 * 1024)).toFixed(1)} MB, and a picture can be at most 5 MB. Nothing was uploaded.`;
+  }
+  return null;
+}
+
+/**
+ * Where a new picture is stored in the bucket: `<random id>/<file name>`,
+ * awkward characters in the name replaced so it can never step into another
+ * folder, and the random folder so two uploads never share an address.
+ */
+export function siteImagePath(randomId: string, name: string): string {
+  const safe = name.trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '_').slice(-120) || 'picture';
+  return `${randomId}/${safe}`;
+}
+
+/**
+ * `actorId` asks to upload a picture (WC-251). Throws a CoreError in plain
+ * words when their role may not manage the website or the file is not one a
+ * picture module may show; otherwise says where in the bucket it goes. The
+ * bucket's own rules refuse the same, so a direct write is refused too.
+ */
+export async function planSiteImageUpload(
+  deps: Pick<SitePageDeps, 'roles' | 'grants'>,
+  change: { actorId: string; name: unknown; type: unknown; sizeBytes: unknown; randomId: string },
+): Promise<{ path: string }> {
+  if (!mayManageWebsite(await roleOf(deps.roles, change.actorId), deps.grants)) {
+    throw new CoreError('Your role may not manage the website. Only a role with the Manage website permission can upload pictures. Nothing was uploaded.');
+  }
+  const problem = siteImageUploadProblem(change);
+  if (problem) throw new CoreError(problem);
+  return { path: siteImagePath(change.randomId, String(change.name)) };
+}
+
+/**
  * A button's link as it may be saved: "" when blank; a WaveCenter address
  * ("/about", "/forum?x=1") as typed; a well-formed http: or https: address;
  * otherwise null (not allowed: `javascript:`, `data:`, `mailto:`, "//elsewhere").
