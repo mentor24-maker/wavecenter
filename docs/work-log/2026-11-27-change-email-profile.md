@@ -18,6 +18,14 @@ and names every failure (address already in use, too many emails, signed out)
 instead of pretending it worked. Both links come back to the profile page, which
 reports what the account really shows.
 
+Review sent back two dead ends, now fixed. A link that had expired or was
+already used dropped a signed-in member on the home page with no word; it now
+lands on the profile page saying the link changed nothing and naming the address
+the account still has. And a link opened while signed out (on a phone, say)
+landed on a bare log-in page; the log-in page now says the link was opened and to
+log in to see the address. The form also no longer claims a change is waiting
+when Supabase does not say so.
+
 Tested end to end on the private test database: change requested, both emails
 arrived, both links clicked, then logged in with the new address and found the
 same account and the same points. Still open: whether the hosted Supabase

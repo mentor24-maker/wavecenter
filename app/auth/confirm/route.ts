@@ -12,7 +12,9 @@
  * link too" note, and nothing says which link it was. And by the
  * time a link reaches here Supabase has already applied it, so a code that
  * cannot be traded (the link opened in another browser) does not mean the
- * change failed.
+ * change failed: that visitor goes to the log-in page with a note saying the
+ * link was opened. A link Supabase refused (expired, already used) goes to
+ * the profile page with a note saying so.
  *
  * Supabase's default email sends `?code=` (the PKCE flow: the code only works
  * in the browser that registered or asked for the reset). A customised email
@@ -21,23 +23,26 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseForRequest } from "../../lib/supabase";
-import { afterEmailLink, EMAIL_LINK_PAGE, isEmailChangeLink } from "../authErrors";
+import { afterEmailLink, afterRefusedEmailLink, EMAIL_LINK_PAGE, EMAIL_LINK_SIGNED_OUT, isEmailChangeLink } from "../authErrors";
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const to = (path: string) => NextResponse.redirect(new URL(path, request.url));
 
-  // Supabase itself reports an expired or already-used link this way.
-  if (params.get("error") || params.get("error_code")) {
-    console.error(`email link refused by Supabase: ${params.get("error_code")} ${params.get("error_description")}`);
-    return to("/sign-in?error=expired");
-  }
-
   const code = params.get("code");
   const tokenHash = params.get("token_hash");
   const type = params.get("type") as EmailOtpType | null;
-
   const emailChange = isEmailChangeLink(params.get("next"), type);
+
+  // Supabase itself reports an expired or already-used link this way. An
+  // email-change link goes to the profile page, which says the link failed
+  // and names the address the account still has (the log-in page would send
+  // a signed-in member straight home, saying nothing).
+  if (params.get("error") || params.get("error_code")) {
+    console.error(`email link refused by Supabase: ${params.get("error_code")} ${params.get("error_description")}`);
+    return to(afterRefusedEmailLink(params.get("next"), type));
+  }
+
   if (emailChange && !code && !tokenHash) return to(EMAIL_LINK_PAGE);
 
   const supabase = await supabaseForRequest();
@@ -51,7 +56,10 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error(`email link failed: ${error.message}`);
-    return to(emailChange ? EMAIL_LINK_PAGE : "/sign-in?error=link");
+    // An email-change link that cannot sign this browser in was still
+    // applied by Supabase; the log-in page says so (and sends a member who
+    // is signed in after all on to the profile page).
+    return to(emailChange ? EMAIL_LINK_SIGNED_OUT.link : "/sign-in?error=link");
   }
   return to(afterEmailLink(params.get("next"), type));
 }

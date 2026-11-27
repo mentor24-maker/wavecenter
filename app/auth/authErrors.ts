@@ -72,6 +72,46 @@ export function isEmailChangeLink(next: string | null, type: string | null): boo
 }
 
 /**
+ * Where an email-change link goes when Supabase refused it (expired, or
+ * already used): the profile page with its own note, which names the address
+ * the account still has. Any other refused link goes to the log-in page.
+ */
+export const EMAIL_LINK_EXPIRED_PAGE = "/profile?email=expired";
+
+export function afterRefusedEmailLink(
+  next: string | null,
+  type: string | null,
+): "/sign-in?error=expired" | typeof EMAIL_LINK_EXPIRED_PAGE {
+  return isEmailChangeLink(next, type) ? EMAIL_LINK_EXPIRED_PAGE : "/sign-in?error=expired";
+}
+
+/**
+ * The log-in page's two email-change notes, for a member who opened the
+ * link signed out (on a phone, say): `email-link` when the link was opened,
+ * `email-expired` when Supabase refused it. The profile page cannot show
+ * either to a signed-out visitor, so it sends them here with the marker.
+ */
+export const EMAIL_LINK_SIGNED_OUT = { link: "/sign-in?error=email-link", expired: "/sign-in?error=email-expired" } as const;
+
+/** The profile page's `?email=` marker for a signed-out visitor: where they go instead. */
+export function signedOutProfilePage(emailMarker: string | undefined): string {
+  if (emailMarker === "link") return EMAIL_LINK_SIGNED_OUT.link;
+  if (emailMarker === "expired") return EMAIL_LINK_SIGNED_OUT.expired;
+  return "/sign-in";
+}
+
+/**
+ * The log-in page's email-change marker for a visitor who is in fact signed
+ * in (the link opened in the same browser after all): back to the profile
+ * page with the matching note. Anyone else signed in goes home, as before.
+ */
+export function signedInSignInPage(error: string | undefined): "/" | typeof EMAIL_LINK_PAGE | typeof EMAIL_LINK_EXPIRED_PAGE {
+  if (error === "email-link") return EMAIL_LINK_PAGE;
+  if (error === "email-expired") return EMAIL_LINK_EXPIRED_PAGE;
+  return "/";
+}
+
+/**
  * Where a link from a WaveCenter email goes once it has signed the member in.
  * Only a fixed list of codes is honoured, so a link cannot send anyone to
  * another site.
@@ -95,7 +135,8 @@ export function emailChangeProblem(newEmail: string, currentEmail: string | null
 /** Asking Supabase to change the member's email failed. */
 export function emailChangeFailure(e: AuthFailure): "taken" | "email" | "rate" | "signed-out" | "failed" {
   if (e.code === "email_exists" || e.code === "user_already_exists") return "taken";
-  if (e.code === "email_address_invalid" || e.code === "validation_failed") return "email";
+  // Not `validation_failed`: Supabase uses it for other things too (a bad redirect address, say).
+  if (e.code === "email_address_invalid") return "email";
   if (rateLimited(e)) return "rate";
   if (e.code === "session_not_found" || e.code === "session_expired" || e.code === "reauthentication_needed" || e.status === 401) {
     return "signed-out";

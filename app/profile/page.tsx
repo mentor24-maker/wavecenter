@@ -7,6 +7,7 @@ import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { myRole } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import { signedOutProfilePage } from "../auth/authErrors";
 import EmailForm from "./EmailForm";
 import PrivacySummary from "./PrivacySummary";
 import ProfileForm from "./ProfileForm";
@@ -29,8 +30,10 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * Messages lived here until WC-234 (Dane's "C") moved them into Comm's
  * Async mode; a line under the form points there. Beside the profile form,
  * "Email address" lets the member change the address they sign in with
- * (WC-255); an email-change link comes back here with `?email=link`, and
- * the page says what the account shows, never a guess at which link it was. Signed-out visitors are sent to sign in.
+ * (WC-255); an email-change link comes back here with `?email=link` (or
+ * `?email=expired` when Supabase refused it), and the page says what the
+ * account shows, never a guess at which link it was. A signed-out visitor
+ * with either marker goes to the log-in page with the matching note. Signed-out visitors are sent to sign in.
  */
 export default async function Profile({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const { email: emailLink } = await searchParams;
@@ -38,7 +41,7 @@ export default async function Profile({ searchParams }: { searchParams: Promise<
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
 
   if (!supabase || !user) {
-    if (supabase && !checkFailed) redirect("/sign-in");
+    if (supabase && !checkFailed) redirect(signedOutProfilePage(emailLink));
     return (
       <>
         <SiteHeader />
@@ -91,6 +94,12 @@ export default async function Profile({ searchParams }: { searchParams: Promise<
           </>
         )}
         <h2>Email address</h2>
+        {emailLink === "expired" && (
+          <p className="error" role="alert">
+            That link has expired or was already used, so it changed nothing. Your email is{" "}
+            <strong>{user.email}</strong>.
+          </p>
+        )}
         {emailLink === "link" && (
           <p className="note" role="status">
             {user.new_email ? (

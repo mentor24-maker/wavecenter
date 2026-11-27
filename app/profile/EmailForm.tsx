@@ -15,9 +15,33 @@ import { changeMyEmail } from "./actions";
 const UNREACHABLE =
   "Could not reach WaveCenter, so nothing was changed. Check your connection and try again; what you typed is still here.";
 
+/** What the form says after Supabase accepted the request, from what the account now shows. */
+function emailChangeOutcome(asked: string, current: string | null, pending: string | null): { ok: boolean; text: string } {
+  if (pending) {
+    return {
+      ok: true,
+      text: `We sent a confirmation link to your old and new addresses. Your email stays ${current ?? "as it is"} until both are clicked.`,
+    };
+  }
+  if (current && current.toLowerCase() === asked.trim().toLowerCase()) {
+    return { ok: true, text: `Your email address has changed to ${current}.` };
+  }
+  return {
+    ok: false,
+    text: "WaveCenter could not confirm the change was started, so your email may not have changed. Reload the page to see what your account shows.",
+  };
+}
+
 export default function EmailForm({ current, pending: initialPending }: { current: string | null; pending: string | null }) {
   const [email, setEmail] = useState("");
   const [waitingFor, setWaitingFor] = useState<string | null>(initialPending);
+  // Follow the page's own reading of the account after it refreshes
+  // (revalidatePath), so a waiting address never goes stale.
+  const [seenPending, setSeenPending] = useState<string | null>(initialPending);
+  if (initialPending !== seenPending) {
+    setSeenPending(initialPending);
+    setWaitingFor(initialPending);
+  }
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, startTransition] = useTransition();
 
@@ -30,10 +54,7 @@ export default function EmailForm({ current, pending: initialPending }: { curren
         if (result.ok) {
           setWaitingFor(result.pending);
           setEmail("");
-          setMessage({
-            ok: true,
-            text: `We sent a confirmation link to your old and new addresses. Your email stays ${result.current ?? current ?? "as it is"} until both are clicked.`,
-          });
+          setMessage(emailChangeOutcome(email, result.current ?? current, result.pending));
         } else {
           setMessage({ ok: false, text: result.error });
         }

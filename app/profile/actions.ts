@@ -48,7 +48,7 @@ export async function saveMyProfile(input: ProfileInput): Promise<ProfileSaveRes
 }
 
 export type EmailChangeResult =
-  | { ok: true; current: string | null; pending: string }
+  | { ok: true; current: string | null; pending: string | null }
   | { ok: false; error: string };
 
 /**
@@ -86,7 +86,10 @@ export async function changeMyEmail(newEmail: string): Promise<EmailChangeResult
       return { ok: false, error: EMAIL_CHANGE_ERRORS[emailChangeFailure(error)] };
     }
     revalidatePath("/profile");
-    return { ok: true, current: data.user?.email ?? user.email ?? null, pending: data.user?.new_email ?? email };
+    // Only what Supabase says is waiting. With no waiting address, the
+    // change was either applied at once (confirmations switched off) or not
+    // recorded; the form tells those apart from `current`, never guessing.
+    return { ok: true, current: data.user?.email ?? user.email ?? null, pending: data.user?.new_email ?? null };
   } catch (err) {
     console.error("change email: could not start:", err);
     return { ok: false, error: EMAIL_CHANGE_ERRORS.failed };
