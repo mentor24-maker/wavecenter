@@ -1,8 +1,18 @@
 /**
  * Where the links in WaveCenter's emails land: the confirm-your-address email
- * sent on registering, and the set-a-new-password email. It trades the
- * one-time code in the link for a session cookie, then sends the member on:
- * a reset link to the set-a-new-password page, everything else home.
+ * sent on registering, the set-a-new-password email and the two
+ * change-your-email emails (WC-255). It trades the one-time code in the link
+ * for a session cookie, then sends the member on: a reset link to the
+ * set-a-new-password page, an email-change link to the profile page,
+ * everything else home.
+ *
+ * An email-change link always goes on to the profile page, which reads the
+ * account and says what is true. With "Secure email change" on, the first of
+ * the two links comes back with no code, only Supabase's "open the other
+ * link too" note, and nothing says which link it was. And by the
+ * time a link reaches here Supabase has already applied it, so a code that
+ * cannot be traded (the link opened in another browser) does not mean the
+ * change failed.
  *
  * Supabase's default email sends `?code=` (the PKCE flow: the code only works
  * in the browser that registered or asked for the reset). A customised email
@@ -11,7 +21,7 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseForRequest } from "../../lib/supabase";
-import { afterEmailLink } from "../authErrors";
+import { afterEmailLink, EMAIL_LINK_PAGE, isEmailChangeLink } from "../authErrors";
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -23,12 +33,15 @@ export async function GET(request: NextRequest) {
     return to("/sign-in?error=expired");
   }
 
-  const supabase = await supabaseForRequest();
-  if (!supabase) return to("/sign-in?error=setup");
-
   const code = params.get("code");
   const tokenHash = params.get("token_hash");
   const type = params.get("type") as EmailOtpType | null;
+
+  const emailChange = isEmailChangeLink(params.get("next"), type);
+  if (emailChange && !code && !tokenHash) return to(EMAIL_LINK_PAGE);
+
+  const supabase = await supabaseForRequest();
+  if (!supabase) return to("/sign-in?error=setup");
 
   const { error } = code
     ? await supabase.auth.exchangeCodeForSession(code)
@@ -38,7 +51,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error(`email link failed: ${error.message}`);
-    return to("/sign-in?error=link");
+    return to(emailChange ? EMAIL_LINK_PAGE : "/sign-in?error=link");
   }
   return to(afterEmailLink(params.get("next"), type));
 }

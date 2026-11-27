@@ -7,6 +7,7 @@ import { supabaseMemberProfileStore } from "../lib/memberProfileStore";
 import { myRole } from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
+import EmailForm from "./EmailForm";
 import PrivacySummary from "./PrivacySummary";
 import ProfileForm from "./ProfileForm";
 
@@ -26,10 +27,13 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * anonymous default, and the page says so. Below it, a short note on how
  * WaveCenter treats privacy, shown whatever happens to the profile itself.
  * Messages lived here until WC-234 (Dane's "C") moved them into Comm's
- * Async mode; a line under the form points there. Signed-out visitors are
- * sent to sign in.
+ * Async mode; a line under the form points there. Beside the profile form,
+ * "Email address" lets the member change the address they sign in with
+ * (WC-255); an email-change link comes back here with `?email=link`, and
+ * the page says what the account shows, never a guess at which link it was. Signed-out visitors are sent to sign in.
  */
-export default async function Profile() {
+export default async function Profile({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const { email: emailLink } = await searchParams;
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
 
@@ -86,6 +90,24 @@ export default async function Profile() {
             </div>
           </>
         )}
+        <h2>Email address</h2>
+        {emailLink === "link" && (
+          <p className="note" role="status">
+            {user.new_email ? (
+              <>
+                Your email has not changed yet. If you just opened one of the two links, open the one sent to the
+                other address too.
+              </>
+            ) : (
+              <>
+                Your email address is <strong>{user.email}</strong>.
+              </>
+            )}
+          </p>
+        )}
+        <div className="panel">
+          <EmailForm current={user.email ?? null} pending={user.new_email ?? null} />
+        </div>
         <p className="note">Your messages are in <Link href="/comm?mode=async">Comm</Link>, under Async.</p>
         <PrivacySummary />
       </main>
