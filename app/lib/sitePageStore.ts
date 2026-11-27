@@ -4,7 +4,8 @@
  * row-level security decides what it may read (published pages; every page
  * for a role with `site.edit`) and add, change (its sections too, WC-208) or
  * delete (a role with `site.edit`), repeating core's rules. Below it, the
- * same for the saved sections reused on many pages (`site_sections`, WC-212).
+ * same for the saved sections reused on many pages (`site_sections`, WC-212;
+ * renamed or deleted, WC-246).
  *
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core. A save the
@@ -84,7 +85,8 @@ export function supabaseSitePageStore(supabase: Client): SitePageStore {
 
 // ── Saved sections (WC-212) ───────────────────────────────────────────────
 // The `site_sections` table, through the member's own session: a role with
-// `site.edit` reads every original and saves or changes one; anyone else
+// `site.edit` reads every original and saves, changes, renames or deletes
+// one (WC-246); anyone else
 // reads only an original a published page follows (row-level security).
 
 const SAVED_COLUMNS = "id, name, section, created_by, tool, created_at, updated_at";
@@ -130,6 +132,18 @@ export function supabaseSavedSectionStore(supabase: Client): SiteSavedSectionSto
       if (error?.code === "23514") throw new CoreError("The database refused this section: it is too large. Nothing was saved.");
       if (error) throw new Error(`The database refused to save the change to the saved section: ${error.message}`);
       return data ? fromSavedRow(data) : null;
+    },
+    // Renaming and deleting one (WC-246): a role with site.edit only, as row-level security repeats.
+    async rename(id, name) {
+      const { data, error } = await supabase.from("site_sections").update({ name }).eq("id", id).select(SAVED_COLUMNS).maybeSingle();
+      if (error?.code === "23514") throw new CoreError("The database refused this name: a saved section's name must be 1 to 80 characters. Nothing was saved.");
+      if (error) throw new Error(`The database refused to rename the saved section: ${error.message}`);
+      return data ? fromSavedRow(data) : null;
+    },
+    async remove(id) {
+      const { data, error } = await supabase.from("site_sections").delete().eq("id", id).select("id");
+      if (error) throw new Error(`The database refused to delete the saved section: ${error.message}`);
+      return (data ?? []).length === 1;
     },
   };
 }

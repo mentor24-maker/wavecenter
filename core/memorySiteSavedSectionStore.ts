@@ -1,6 +1,7 @@
 /**
- * The website's saved sections kept in memory, for core's tests (WC-212).
- * The rules about who may save or change one are core's, so this store does
+ * The website's saved sections kept in memory, for core's tests (WC-212;
+ * renaming and deleting one, WC-246). The rules about who may save, change,
+ * rename or delete one are core's, so this store does
  * not repeat them. Like the database it stores a copy, so a later change to
  * the caller's object does not reach it.
  */
@@ -38,5 +39,27 @@ export class MemorySiteSavedSectionStore implements SiteSavedSectionStore {
     if (i < 0) return null;
     this.rows[i] = { ...this.rows[i], section: structuredClone(patch.section), updatedAt: new Date().toISOString() };
     return structuredClone(this.rows[i]);
+  }
+
+  async rename(id: string, name: string) {
+    if (this.failNextSave) {
+      this.failNextSave = false;
+      return null;
+    }
+    const i = this.rows.findIndex((s) => s.id === id);
+    if (i < 0) return null;
+    this.rows[i] = { ...this.rows[i], name, updatedAt: new Date().toISOString() };
+    return structuredClone(this.rows[i]);
+  }
+
+  async remove(id: string) {
+    if (this.failNextSave) {
+      this.failNextSave = false;
+      return false;
+    }
+    const i = this.rows.findIndex((s) => s.id === id);
+    if (i < 0) return false;
+    this.rows.splice(i, 1);
+    return true;
   }
 }

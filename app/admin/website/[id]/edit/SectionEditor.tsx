@@ -25,6 +25,12 @@
  * that follows it at once, and links this section to it again. Those two
  * writes save at once; the page's own list still waits for Save.
  *
+ * Beside the Insert picker (WC-246), the picked saved section can be renamed
+ * or deleted. Delete first says how many pages follow it and asks; on yes,
+ * every page that follows it keeps its content as its own plain copy (core
+ * rewrites those pages before it deletes the original), and so does any
+ * section here that followed it. Both save at once.
+ *
  * Preview (WC-211): Phone, Tablet or Desktop draws the unsaved sections with
  * the public renderer at that device's width (DevicePreview). Each section
  * can be hidden on a phone or on a desktop, and its columns can stack on a
@@ -36,11 +42,11 @@ import { useEffect, useId, useMemo, useState, useTransition, type CSSProperties,
 import {
   SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
   SITE_SAVED_SECTION_NAME_MAX, SITE_DEVICES,
-  insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
+  copyFollowersOf, insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
   siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection,
   type SiteDevice, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
-import { changeReusable, saveReusable, saveSections, type SavedSectionResult } from "../../actions";
+import { changeReusable, deleteReusable, renameReusable, saveReusable, saveSections, type SavedSectionDeleteResult, type SavedSectionResult } from "../../actions";
 import type { LeaderboardTop } from "../../../../../core/leaderboard.ts";
 import SiteModuleView from "../../SiteModuleView";
 import DevicePreview from "./DevicePreview";
@@ -82,6 +88,10 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   const [pick, setPick] = useState(initialSaved[0]?.id ?? "");
   const [pickLinked, setPickLinked] = useState(true);
   const [naming, setNaming] = useState<{ sectionId: string; name: string } | null>(null);
+  /** The new name being typed for the picked saved section, or null when not renaming (WC-246). */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  /** The "are you sure" step for deleting the picked saved section is showing (WC-246). */
+  const [confirmDelete, setConfirmDelete] = useState(false);
   /** The screen the preview draws, or null when it is closed. */
   const [device, setDevice] = useState<SiteDevice | null>(null);
   const savedById = useMemo(() => new Map(saved.map((o) => [o.id, o])), [saved]);
@@ -229,6 +239,73 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
       (o) => `Changed "${o.name}" on every page that follows it. This section follows it again.`);
   }
 
+  /** Pick another saved section; any rename or delete step for the last one closes. */
+  function choosePick(next: string) {
+    setPick(next);
+    setRenaming(null);
+    setConfirmDelete(false);
+  }
+
+  /** Give the picked saved section the name typed (WC-246); the picker and every label here show it at once. */
+  function renamePicked() {
+    const original = savedById.get(pick);
+    if (!original || renaming === null) return;
+    const name = renaming;
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      let result: SavedSectionResult;
+      try {
+        result = await renameReusable(original.id, name);
+      } catch {
+        result = { ok: false, error: UNREACHABLE };
+      }
+      if (!result.ok) {
+        setError(`Not renamed. ${result.error}`);
+        return;
+      }
+      const renamed = result.saved;
+      setSaved((list) => sortSavedSections([...list.filter((o) => o.id !== renamed.id), renamed]));
+      setRenaming(null);
+      setNotice(`Renamed "${original.name}" to "${renamed.name}".`);
+    });
+  }
+
+  /**
+   * Delete the picked saved section, after the "are you sure" step (WC-246).
+   * The server turns every page that follows it into a plain copy first; here
+   * every section that followed it, on screen and in the saved baseline,
+   * becomes the same plain copy, so this page shows no unsaved change for it.
+   */
+  function deletePicked() {
+    const original = savedById.get(pick);
+    if (!original) return;
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      let result: SavedSectionDeleteResult;
+      try {
+        result = await deleteReusable(original.id);
+      } catch {
+        result = { ok: false, error: UNREACHABLE };
+      }
+      setConfirmDelete(false);
+      if (!result.ok) {
+        setError(`Not deleted. ${result.error}`);
+        return;
+      }
+      const list = saved.filter((o) => o.id !== original.id);
+      setSaved(list);
+      setPick(list[0]?.id ?? "");
+      setSections((now) => copyFollowersOf(now, original));
+      setPage((pg) => ({ ...pg, sections: copyFollowersOf(pg.sections, original) }));
+      const kept = result.pagesCopied
+        ? ` ${result.pagesCopied === 1 ? "The 1 page that followed it keeps" : `The ${result.pagesCopied} pages that followed it keep`} its content as their own copy.`
+        : "";
+      setNotice(`Deleted the saved section "${result.name}".${kept}`);
+    });
+  }
+
   function save() {
     setError(null);
     setNotice(null);
@@ -304,7 +381,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                   </span>
                 )}
                 {!linked && s.savedSectionId && (
-                  <span className="note">Copy of {original ? <>&ldquo;{original.name}&rdquo;</> : "a saved section that could not be found"}</span>
+                  <span className="note">Copy of {original ? <>&ldquo;{original.name}&rdquo;</> : "a saved section that was deleted or could not be found"}</span>
                 )}
                 <span className="section-moves">
                   <button type="button" disabled={pending || i === 0} onClick={() => move(i, -1)} aria-label={`Move section ${i + 1} up`}>↑ Up</button>{" "}
@@ -453,7 +530,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         ) : (
           <p>
             <label htmlFor={`${id}-saved`}>Insert a saved section</label>{" "}
-            <select id={`${id}-saved`} value={pick} disabled={pending || full} onChange={(e) => setPick(e.target.value)}>
+            <select id={`${id}-saved`} value={pick} disabled={pending} onChange={(e) => choosePick(e.target.value)}>
               {saved.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>{" "}
             <label>
@@ -464,9 +541,38 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
               <input type="radio" name={`${id}-saved-how`} checked={!pickLinked} disabled={pending || full} onChange={() => setPickLinked(false)} />{" "}
               A plain copy
             </label>{" "}
-            <button type="button" disabled={pending || full || !savedById.has(pick)} onClick={insertSaved}>Insert saved section</button>
+            <button type="button" disabled={pending || full || !savedById.has(pick)} onClick={insertSaved}>Insert saved section</button>{" "}
+            <button type="button" disabled={pending || !savedById.has(pick)} aria-pressed={renaming !== null}
+              onClick={() => { setConfirmDelete(false); setRenaming(renaming === null ? savedById.get(pick)?.name ?? "" : null); }}>Rename</button>{" "}
+            <button type="button" disabled={pending || !savedById.has(pick)} aria-pressed={confirmDelete}
+              onClick={() => { setRenaming(null); setConfirmDelete(!confirmDelete); }}>Delete</button>
           </p>
         )}
+        {!savedProblem && renaming !== null && savedById.has(pick) && (
+          <p>
+            <label htmlFor={`${id}-rename`}>New name for &ldquo;{savedById.get(pick)?.name}&rdquo;</label>{" "}
+            <input id={`${id}-rename`} type="text" maxLength={SITE_SAVED_SECTION_NAME_MAX} value={renaming} disabled={pending}
+              onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") renamePicked(); }} />{" "}
+            <button type="button" disabled={pending || !renaming.trim()} onClick={renamePicked}>Save name</button>{" "}
+            <button type="button" disabled={pending} onClick={() => setRenaming(null)}>Cancel</button>
+          </p>
+        )}
+        {!savedProblem && confirmDelete && savedById.has(pick) && (() => {
+          const name = savedById.get(pick)?.name ?? "";
+          const n = followers(pick);
+          return (
+            <div role="alertdialog" aria-label={`Delete the saved section ${name}?`} className="confirm-step">
+              <p>
+                {n === 0
+                  ? <>No page follows &ldquo;{name}&rdquo;. </>
+                  : <>{n === 1 ? "1 page follows" : `${n} pages follow`} &ldquo;{name}&rdquo;. {n === 1 ? "It" : "Each"} will keep its content as its own copy. </>}
+                Delete the saved section &ldquo;{name}&rdquo;? This cannot be undone.
+              </p>
+              <button type="button" disabled={pending} onClick={deletePicked}>{pending ? "Deleting…" : `Yes, delete "${name}"`}</button>{" "}
+              <button type="button" disabled={pending} onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="section-save">
