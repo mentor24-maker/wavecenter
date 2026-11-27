@@ -11,7 +11,7 @@ import { WAVECENTER_TOOL } from "../../core/tool.ts";
 import { requestOrigin } from "../lib/requestOrigin";
 import { supabaseForRequest, supabaseSettings } from "../lib/supabase";
 import {
-  googleButtonPage, googleSwitchedOn, looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resetFailure, signInFailure,
+  googleButtonPage, googleSwitchedOn, looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resendFailure, resetFailure, signInFailure,
   type AuthFailure,
 } from "./authErrors";
 
@@ -137,6 +137,32 @@ export async function signInWithGoogle(formData: FormData) {
     redirect(`${back}?error=google-failed`);
   }
   redirect(data.url);
+}
+
+/**
+ * Send the confirmation email again, from the register page's "Check your
+ * email" screen. The screen does not know the address (an email is never put
+ * in the address bar), so the visitor types it again. The answer is worded
+ * the same for any address, so the form cannot tell anyone who has an
+ * account; a failed send says so and never shows that answer.
+ */
+export async function resendConfirmation(formData: FormData) {
+  const email = field(formData, "email").trim();
+  if (!looksLikeEmail(email)) redirect("/register?sent=1&error=email");
+
+  const supabase = await supabaseForRequest();
+  if (!supabase) redirect("/register?sent=1&error=setup");
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${await requestOrigin()}/auth/confirm` },
+  });
+  if (error) {
+    logFailure("resend confirmation email", error);
+    redirect(`/register?sent=1&error=${resendFailure(error)}`);
+  }
+  redirect("/register?sent=1&resent=1");
 }
 
 /**

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { register } from "../auth/actions";
+import { register, resendConfirmation } from "../auth/actions";
 import { MIN_PASSWORD_LENGTH } from "../auth/authErrors";
 import GoogleButton, { GOOGLE_ERRORS } from "../auth/GoogleButton";
 import SiteHeader from "../SiteHeader";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../lib/supabase";
+
+const RESENT = "If that address is waiting to be confirmed, a new confirmation email is on its way.";
 
 // Every message is fixed text chosen by a code, so nothing typed into the
 // address bar is ever echoed onto the page.
@@ -15,6 +17,7 @@ const ERRORS: Record<string, string> = {
   taken: "That email is already registered. Log in instead, or use \"Forgot your password?\" to set a new one.",
   rate: "Too many emails were sent in a short time. Wait a few minutes, then try again.",
   send: "Your account could not be created, or the confirmation email could not be sent. Try again in a minute; if it keeps failing, the email service needs a look.",
+  resend: "The confirmation email could not be sent again. Try again in a minute; if it keeps failing, the email service needs a look.",
   setup: "Registering is not switched on for this copy of WaveCenter yet: its Supabase settings are missing.",
   ...GOOGLE_ERRORS,
 };
@@ -24,7 +27,7 @@ const ERRORS: Record<string, string> = {
  * address from the email Supabase sends.
  */
 export default async function Register({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const { sent, error } = await searchParams;
+  const { sent, resent, error } = await searchParams;
 
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
@@ -44,6 +47,7 @@ export default async function Register({ searchParams }: { searchParams: Promise
         ) : (
           <p className="lede">Create your WaveCenter account with Google, or with your email and a password.</p>
         )}
+        {sent && resent && !error && <p className="note" role="status">{RESENT}</p>}
         {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
         {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
         {missing.length > 0 ? (
@@ -51,7 +55,18 @@ export default async function Register({ searchParams }: { searchParams: Promise
             {ERRORS.setup} Missing: {missing.join(", ")}.
           </p>
         ) : (
-          !sent && (
+          sent ? (
+            // A plain disclosure, no browser script: the link opens a one-box
+            // form, and stays open after a send or a failed one.
+            <details className="panel resend" open={Boolean(resent || error)}>
+              <summary>Resend confirmation email</summary>
+              <form action={resendConfirmation} className="stack">
+                <label htmlFor="resend-email">Email you registered with</label>
+                <input id="resend-email" name="email" type="email" autoComplete="email" required />
+                <button type="submit">Send</button>
+              </form>
+            </details>
+          ) : (
             <>
               <GoogleButton from="/register" />
               <form action={register} className="stack panel">
