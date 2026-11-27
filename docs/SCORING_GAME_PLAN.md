@@ -91,8 +91,9 @@ Read from the code on 2026-11-01.
 ### The Game pages
 
 `/game` (My Points) shows the member's ledger total, finished tasks and the
-scoring rules. `/game/leaderboard` is a placeholder saying it is not built
-yet. `/game/manage` is the admin's rule editor. Nothing shows a guess, a
+scoring rules. `/game/leaderboard` ranks members by points (#208), each
+Public name linking to that member's profile at `/members/<id>` (#209).
+`/game/manage` is the admin's rule editor. Nothing shows a guess, a
 deviance score or a DQ.
 
 ## The scores, as Dane described them

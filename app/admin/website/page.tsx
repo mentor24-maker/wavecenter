@@ -7,8 +7,9 @@ import WebsitePages from "./WebsitePages";
  * Admin → Website: the website manager, WaveCenter's own page builder
  * (WC-206; the plan is docs/WEBSITE_MANAGER.md). It lists the site's pages
  * (name, address, published or draft) and makes a new one with a name and an
- * address; a page's name opens its details screen (WC-207). The editor and
- * serving pages at their addresses are later tickets.
+ * address; a page's name opens its details screen (WC-207), where its
+ * sections are edited (app/admin/website/[id], WC-208 onward). Published
+ * pages are served at /site/<slug> (app/site/[slug], #204).
  *
  * Only a role with "Manage website" (core/website.ts `mayManageWebsite`)
  * may use it. Hiding the link does not stop someone typing the address, so the
