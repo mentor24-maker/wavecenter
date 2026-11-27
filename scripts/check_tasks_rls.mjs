@@ -55,7 +55,9 @@
  * loops (`public.forum_topics`); and the same for a tag, whose related tags
  * are two-way, never itself, changed only by whoever may change one of the
  * two tags and gone when either tag is (`public.forum_tags`,
- * `public.forum_tag_relations`); and that only a role with Manage website adds
+ * `public.forum_tag_relations`); and that only a topic's adder or an admin
+ * attaches or removes its tags, once each, gone with the topic or the tag
+ * (`public.forum_topic_tags`); and that only a role with Manage website adds
  * a page of the website, as an empty draft only it sees, a published page is
  * seen by anyone, and only such a role renames, readdresses, publishes or
  * deletes one, or saves its sections (at most 50, at most 200000 bytes),
@@ -1904,6 +1906,91 @@ try {
     } finally {
       if (ids.length) await admin(`/rest/v1/forum_tags?id=in.(${ids.join(',')})`, { method: 'DELETE' });
       if (topicIds.length) await admin(`/rest/v1/forum_topics?id=in.(${topicIds.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // Tags on a Forum topic (20261128120000_forum_topic_tags.sql, WC-249):
+  // every member reads every pair; only the topic's adder (B here, a viewer)
+  // or an admin (A) attaches or removes a tag, never in someone else's name;
+  // a pair is stored once; nobody changes a pair; signed-out visitors read and
+  // write nothing; deleting the tag or the topic deletes its pairs. The
+  // topics and tags are added with the service key, so nothing is scored and
+  // the point totals other checks keep are untouched.
+  {
+    const word = randomUUID().slice(0, 8);
+    const topicIds = [];
+    const tagIds = [];
+    const make = async (table, ids, name, by) => {
+      const r = await admin(`/rest/v1/${table}`, { method: 'POST', prefer: 'return=representation', body: { name, created_by: by.id } });
+      if (r.json?.[0]?.id) ids.push(r.json[0].id);
+      return r.json?.[0];
+    };
+    const attach = (who, topic, tagRow, more = {}) => call('/rest/v1/forum_topic_tags', {
+      method: 'POST', token: who?.token, prefer: 'return=representation', body: { topic_id: topic?.id, tag_id: tagRow?.id, ...more },
+    });
+    const detach = (who, topic, tagRow) => call(`/rest/v1/forum_topic_tags?topic_id=eq.${topic?.id}&tag_id=eq.${tagRow?.id}`, {
+      method: 'DELETE', token: who?.token, prefer: 'return=representation',
+    });
+    const pairs = async () => (topicIds.length
+      ? (await admin(`/rest/v1/forum_topic_tags?topic_id=in.(${topicIds.join(',')})&select=topic_id,tag_id,created_by`)).json ?? []
+      : []);
+    try {
+      const bTopic = await make('forum_topics', topicIds, `RLS tagged topic ${word}`, b);
+      const aTopic = await make('forum_topics', topicIds, `RLS admin topic ${word}`, a);
+      const voting = await make('forum_tags', tagIds, `RLS Voting tag ${word}`, a);
+      const budget = await make('forum_tags', tagIds, `RLS Budget tag ${word}`, b);
+
+      const own = await attach(b, bTopic, voting);
+      check('the topic’s adder attaches an existing tag (someone else’s) to it, in their own name',
+        own.status === 201 && own.json?.[0]?.created_by === b.id && (await pairs()).length === 1,
+        `HTTP ${own.status} ${JSON.stringify(own.json)}`);
+      const seen = await call(`/rest/v1/forum_topic_tags?tag_id=eq.${voting?.id}&select=topic_id`, { token: a.token });
+      check('every member reads a topic’s tags, and a tag’s topics', seen.status === 200 && seen.json?.length === 1 && seen.json[0].topic_id === bTopic?.id,
+        `HTTP ${seen.status} ${JSON.stringify(seen.json)}`);
+      const twice = await attach(b, bTopic, voting);
+      check('the same tag cannot be stored on a topic twice', twice.status === 409 && (await pairs()).length === 1, `HTTP ${twice.status} ${JSON.stringify(twice.json)}`);
+
+      const notYours = await attach(b, aTopic, budget);
+      const forged = await attach(b, bTopic, budget, { created_by: a.id });
+      check('a non-admin cannot tag a topic someone else added (even with their own tag), nor attach in someone else’s name',
+        notYours.status >= 400 && forged.status >= 400 && (await pairs()).length === 1,
+        `not yours HTTP ${notYours.status}, forged adder HTTP ${forged.status}, pairs ${JSON.stringify(await pairs())}`);
+
+      const byAdmin = await attach(a, bTopic, budget);
+      const adminOwn = await attach(a, aTopic, voting);
+      check('an admin tags any topic', byAdmin.status === 201 && adminOwn.status === 201 && (await pairs()).length === 3,
+        `HTTP ${byAdmin.status} / ${adminOwn.status} ${JSON.stringify(byAdmin.json)}`);
+
+      const bDelOther = await detach(b, aTopic, voting);
+      const patch = await call(`/rest/v1/forum_topic_tags?topic_id=eq.${bTopic?.id}&tag_id=eq.${voting?.id}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { tag_id: budget?.id } });
+      check('a non-admin cannot remove a tag from a topic someone else added, and nobody changes a pair',
+        (bDelOther.json?.length ?? 0) === 0 && patch.status >= 400 && (await pairs()).length === 3,
+        `delete HTTP ${bDelOther.status} ${JSON.stringify(bDelOther.json)}, patch HTTP ${patch.status}`);
+      const bDelOwn = await detach(b, bTopic, budget);
+      check('the topic’s adder removes a tag from it, even one an admin attached', bDelOwn.status === 200 && bDelOwn.json?.length === 1 && (await pairs()).length === 2,
+        `HTTP ${bDelOwn.status} ${JSON.stringify(bDelOwn.json)}`);
+      const adminDel = await detach(a, bTopic, voting);
+      check('an admin removes a tag from any topic', adminDel.status === 200 && adminDel.json?.length === 1 && (await pairs()).length === 1,
+        `HTTP ${adminDel.status} ${JSON.stringify(adminDel.json)}`);
+
+      const anonRead = await call(`/rest/v1/forum_topic_tags?topic_id=in.(${topicIds.join(',')})&select=topic_id`);
+      const anonAdd = await attach(null, bTopic, voting);
+      const anonDel = await detach(null, aTopic, voting);
+      check('a signed-out visitor reads, attaches and removes no topic’s tags',
+        (anonRead.status >= 400 || (anonRead.json?.length ?? 0) === 0) && anonAdd.status >= 400 && (anonDel.json?.length ?? 0) === 0 && (await pairs()).length === 1,
+        `read HTTP ${anonRead.status} ${JSON.stringify(anonRead.json)}, add HTTP ${anonAdd.status}, delete HTTP ${anonDel.status}`);
+
+      await attach(b, bTopic, budget);
+      await admin(`/rest/v1/forum_tags?id=eq.${voting?.id}`, { method: 'DELETE' });
+      const afterTag = await pairs();
+      await admin(`/rest/v1/forum_topics?id=eq.${bTopic?.id}`, { method: 'DELETE' });
+      const afterTopic = await pairs();
+      check('deleting a tag deletes its pairs, and deleting a topic deletes its pairs',
+        afterTag.length === 1 && afterTag[0].tag_id === budget?.id && afterTopic.length === 0,
+        `after the tag ${JSON.stringify(afterTag)}, after the topic ${JSON.stringify(afterTopic)}`);
+    } finally {
+      if (topicIds.length) await admin(`/rest/v1/forum_topics?id=in.(${topicIds.join(',')})`, { method: 'DELETE' });
+      if (tagIds.length) await admin(`/rest/v1/forum_tags?id=in.(${tagIds.join(',')})`, { method: 'DELETE' });
     }
   }
 

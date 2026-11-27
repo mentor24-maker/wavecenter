@@ -7,7 +7,8 @@
  * It only translates between core's names and the tables' columns, and turns
  * a failed database call into a thrown error. Every value it writes was
  * decided and checked in core. A topic also reads and writes its details
- * (WC-183), and so does a tag, with its related tags (WC-186); a change or
+ * (WC-183), and so does a tag, with its related tags (WC-186), and a topic
+ * carries tags through `forum_topic_tags` (WC-249); a change or
  * delete that row-level security quietly skipped
  * comes back as zero rows, and that is thrown too, never taken as done
  * (engineering rule 6).
@@ -22,6 +23,8 @@ import {
   type ForumTopic,
   type TagStore,
   type TopicStore,
+  type TopicTagPair,
+  type TopicTagStore,
 } from "../../core/forum.ts";
 import type { supabaseForRequest } from "./supabase";
 
@@ -180,6 +183,45 @@ export function supabaseTagStore(supabase: Client): TagStore {
       const { data, error } = await supabase.from("forum_tags").delete().eq("id", id).select("id");
       if (error) failed("delete the tag", error);
       if (!data?.length) throw new CoreError("The tag was not deleted: it may already be gone, or you may not be allowed to delete it.");
+    },
+  };
+}
+
+/**
+ * The topic-and-tag pairs (WC-249): every pair, or only one topic's, or only
+ * one tag's. A failed read throws, so a page never shows "no tags" when it
+ * simply could not tell (rule 7).
+ */
+export async function listTopicTags(supabase: Client, only: { topicId?: string; tagId?: string } = {}): Promise<TopicTagPair[]> {
+  let query = supabase.from("forum_topic_tags").select("topic_id, tag_id");
+  if (only.topicId) query = query.eq("topic_id", only.topicId);
+  if (only.tagId) query = query.eq("tag_id", only.tagId);
+  const { data, error } = await query;
+  if (error) failed("read the topics' tags", error);
+  return (data ?? []).map((r: any) => ({ topicId: r.topic_id, tagId: r.tag_id }));
+}
+
+export function supabaseTopicTagStore(supabase: Client): TopicTagStore {
+  return {
+    listTopics: () => listTopics(supabase),
+    listTags: () => listTags(supabase),
+    async topicTagIds(topicId) {
+      return (await listTopicTags(supabase, { topicId })).map((p) => p.tagId);
+    },
+    async attachTopicTag(topicId, tagId) {
+      const { data, error } = await supabase.from("forum_topic_tags").insert({ topic_id: topicId, tag_id: tagId }).select("topic_id");
+      // 23505: the same pair, attached a moment ago in another window. It is on the topic, as asked.
+      if (error?.code === "23505") return;
+      if (error?.code === "23503") throw new CoreError("The topic or the tag was not found. It may have been deleted; reload and try again.");
+      // 42501: row-level security refused the insert.
+      if (error?.code === "42501") throw new CoreError("The tag was not attached: only the member who added the topic, or an admin, can change its tags.");
+      if (error) failed("attach the tag", error);
+      if (!data?.length) throw new CoreError("The tag was not attached: the database saved nothing. Reload and try again.");
+    },
+    async detachTopicTag(topicId, tagId) {
+      const { data, error } = await supabase.from("forum_topic_tags").delete().eq("topic_id", topicId).eq("tag_id", tagId).select("topic_id");
+      if (error) failed("remove the tag", error);
+      if (!data?.length) throw new CoreError("The tag was not removed: it may already be gone, or you may not be allowed to change this topic's tags.");
     },
   };
 }

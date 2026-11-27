@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addForumEntry, deleteTag, deleteTopic, editTag, editTopic, findForumEntryByName, FORUM_NAME_MAX, mayChangeTag, mayChangeTopic, possibleParents,
-  possibleSubTopics, setTopicParent, subTopicsOf, topicSlug, uniqueTopicSlug, type ForumEntry, type ForumTopic,
+  addForumEntry, attachTopicTag, deleteTag, deleteTopic, detachTopicTag, editTag, editTopic, entriesByName, findForumEntryByName, FORUM_NAME_MAX, mayChangeTag, mayChangeTopic, possibleParents,
+  possibleSubTopics, setTopicParent, subTopicsOf, topicSlug, uniqueTopicSlug, type ForumEntry, type ForumTopic, type TopicTagPair,
 } from './forum.ts';
 import { MemoryForumStore } from './memoryForumStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
@@ -342,4 +342,74 @@ test('deleting a tag takes it off every other tag’s related tags', async () =>
   assert.deepEqual(await related(dane, voting.id), []);
   assert.equal(relations.length, 0);
   await assert.rejects(deleteTag(dane, budget.id, DANE, 'wavecenter'), /tag was not found/);
+});
+
+// Tags on a topic (WC-249).
+
+async function tagged() {
+  const rows: ForumEntry[] = [];
+  const pairs: TopicTagPair[] = [];
+  const dane = new MemoryForumStore('dane', rows, [], null, pairs);
+  const other = new MemoryForumStore('other', rows, [], null, pairs);
+  const topic = await addForumEntry(dane, 'topic', 'How we decide', 'wavecenter');
+  const voting = await addForumEntry(other, 'tag', 'Voting', 'wavecenter');
+  const budget = await addForumEntry(dane, 'tag', 'Budget', 'wavecenter');
+  return { dane, other, pairs, topic, voting, budget };
+}
+
+test('attachTopicTag attaches an existing tag to the topic, and detachTopicTag removes it', async () => {
+  const { dane, pairs, topic, voting, budget } = await tagged();
+  assert.deepEqual(await attachTopicTag(dane, topic.id, voting.id, DANE, 'wavecenter'), [voting.id]);
+  assert.deepEqual(await attachTopicTag(dane, topic.id, budget.id, DANE, 'wavecenter'), [voting.id, budget.id]);
+  assert.deepEqual(pairs, [{ topicId: topic.id, tagId: voting.id }, { topicId: topic.id, tagId: budget.id }]);
+  assert.deepEqual(await detachTopicTag(dane, topic.id, voting.id, DANE, 'wavecenter'), [budget.id]);
+  assert.deepEqual(pairs, [{ topicId: topic.id, tagId: budget.id }]);
+});
+
+test('attaching a tag twice adds nothing new, and removing one it does not carry changes nothing', async () => {
+  const { dane, pairs, topic, voting, budget } = await tagged();
+  await attachTopicTag(dane, topic.id, voting.id, DANE, 'wavecenter');
+  assert.deepEqual(await attachTopicTag(dane, topic.id, voting.id, DANE, 'wavecenter'), [voting.id]);
+  assert.equal(pairs.length, 1);
+  assert.deepEqual(await detachTopicTag(dane, topic.id, budget.id, DANE, 'wavecenter'), [voting.id]);
+  assert.equal(pairs.length, 1);
+});
+
+test('only the topic’s adder or an admin may attach or remove its tags, whoever added the tag', async () => {
+  const { dane, other, pairs, topic, voting } = await tagged();
+  // Other added the Voting tag, but not the topic.
+  await assert.rejects(attachTopicTag(other, topic.id, voting.id, OTHER, 'wavecenter'), /Only the member who added "How we decide", or an admin, can change its tags/);
+  assert.equal(pairs.length, 0);
+  assert.deepEqual(await attachTopicTag(other, topic.id, voting.id, ADMIN, 'wavecenter'), [voting.id]);
+  await assert.rejects(detachTopicTag(other, topic.id, voting.id, OTHER, 'wavecenter'), /can change its tags/);
+  assert.equal(pairs.length, 1);
+  assert.deepEqual(await detachTopicTag(dane, topic.id, voting.id, ADMIN, 'wavecenter'), []);
+});
+
+test('an unknown topic or tag, or no tool, is refused and nothing is saved', async () => {
+  const { dane, pairs, topic, voting } = await tagged();
+  await assert.rejects(attachTopicTag(dane, 'gone', voting.id, DANE, 'wavecenter'), /topic was not found/);
+  await assert.rejects(attachTopicTag(dane, topic.id, 'gone', DANE, 'wavecenter'), /tag was not found/);
+  await assert.rejects(attachTopicTag(dane, topic.id, undefined, DANE, 'wavecenter'), /tag was not found/);
+  await assert.rejects(detachTopicTag(dane, topic.id, 'gone', DANE, 'wavecenter'), /tag was not found/);
+  await assert.rejects(attachTopicTag(dane, topic.id, voting.id, DANE, ''), /tool/i);
+  assert.equal(pairs.length, 0);
+});
+
+test('deleting the topic or the tag removes its pairs', async () => {
+  const { dane, pairs, topic, voting, budget } = await tagged();
+  const second = await addForumEntry(dane, 'topic', 'Second', 'wavecenter');
+  await attachTopicTag(dane, topic.id, voting.id, DANE, 'wavecenter');
+  await attachTopicTag(dane, topic.id, budget.id, DANE, 'wavecenter');
+  await attachTopicTag(dane, second.id, voting.id, DANE, 'wavecenter');
+  await deleteTag(dane, voting.id, ADMIN, 'wavecenter');
+  assert.deepEqual(pairs, [{ topicId: topic.id, tagId: budget.id }]);
+  await deleteTopic(dane, topic.id, DANE, 'wavecenter');
+  assert.deepEqual(pairs, []);
+});
+
+test('entriesByName picks the entries with the given ids, A to Z', () => {
+  const e = (id: string, name: string) => ({ id, name });
+  assert.deepEqual(entriesByName([e('1', 'voting'), e('2', 'Budget'), e('3', 'Roads')], ['1', '2']).map((x) => x.name), ['Budget', 'voting']);
+  assert.deepEqual(entriesByName([e('1', 'Voting')], []), []);
 });
