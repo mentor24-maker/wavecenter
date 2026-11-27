@@ -1030,6 +1030,12 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .chat-hint { font-size: 0.8rem; }
 /* WC-235: the contact selector on top of the chat area, and the send box and search above the newest-first messages. */
 .chat-picker { margin: 0 0 var(--space); }
+.chat-pick { position: relative; min-width: 0; }
+.chat-pick > summary { cursor: pointer; padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 0.4rem; background: var(--surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-pick-list { position: absolute; z-index: 5; min-width: 14rem; max-height: 16rem; overflow-y: auto; margin: 0.25rem 0 0; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.4rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.15); }
+.chat-pick-list label { display: flex; gap: 0.4rem; align-items: center; padding: 0.15rem 0; }
+.chat-pick-list .note { margin: 0.3rem 0 0; }
+.chat-sender { font-size: 0.8rem; }
 .chat-messages.newest-on-top { margin-top: 0.5rem; }
 /* WC-245: the word search above the messages, narrow, with its count line under it. */
 .chat-search { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: center; margin-top: 0.5rem; }

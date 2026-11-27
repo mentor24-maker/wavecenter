@@ -2,7 +2,8 @@
  * The app's `ChatStore` (core/chat.ts): how core reaches the `chats`,
  * `chat_members` and `chat_messages` tables. It acts through the member's
  * session, never the service key. Every write goes through a database
- * function that repeats core's rules: `start_chat` finds or makes a chat,
+ * function that repeats core's rules: `start_chat` finds or makes a chat
+ * (with one other member or a group),
  * `send_chat_message` saves a message (and scores it, in the same save);
  * a new chat is scored for its starter in the same save too.
  * Reading goes straight to the tables, whose row-level security lets a
@@ -31,11 +32,12 @@ const MESSAGE_READ_LIMIT = 500;
 
 export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
   return {
-    async start(otherMemberId, taskId, tool) {
+    async start(otherMemberIds, taskId, tool) {
       // The tool rides in a header: start_chat takes none, and chats_score
-      // names it on the new chat's engagement (public.engagement_tool).
+      // names it on the new chat's engagement (public.engagement_tool). The
+      // list form takes one member or a group (20261128130000_group_chats.sql).
       const { data, error } = await supabase
-        .rpc("start_chat", { other_member: otherMemberId, about_task: taskId })
+        .rpc("start_chat", { other_members: otherMemberIds, about_task: taskId })
         .setHeader(TOOL_HEADER, tool);
       if (error) {
         // Only start_chat's own refusals (raised with these codes, in plain

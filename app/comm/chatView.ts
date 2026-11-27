@@ -29,11 +29,14 @@ export interface ChatListItem {
   id: string;
   /** The task it is about, if any. */
   topic: ChatTopic;
-  /** The other member's id; null if they are gone. */
+  /** The other member's id (in a group, the first named); null if they are gone. */
   otherId: string | null;
+  /** The other member's name, or in a group every other member's ("Ana, Ben and Cal"). */
   otherName: string;
-  /** The other member's avatar symbol. */
+  /** The other member's avatar symbol; a group's is GROUP_SYMBOL. */
   otherSymbol: string;
+  /** Whether it is a group chat: more than two members (WC-252). */
+  group: boolean;
   /** The newest message, or null when nothing has been said yet. */
   last: { body: string; sentAt: string; mine: boolean } | null;
   /** When anything last happened: the newest message, or when it was started. */
@@ -62,6 +65,53 @@ export function chatPartner(chat: Pick<Chat, "memberIds">, me: string): string |
   return chat.memberIds.find((id) => id !== me) ?? null;
 }
 
+/** The avatar a group chat shows in place of one member's. */
+export const GROUP_SYMBOL = "👥";
+
+/** Names in words: "Ana", "Ana and Ben", "Ana, Ben and Cal". */
+export function namesInWords(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** Who a chat is with, as the window names it (WC-252). */
+export interface ChatPeople {
+  /** The first other member named; null if only the viewer is left. */
+  otherId: string | null;
+  /** The other member's name, or every other member's in a group, A–Z. */
+  otherName: string;
+  otherSymbol: string;
+  /** More than two members. */
+  group: boolean;
+  /** Each other member's id to their name, for naming who sent a message. */
+  names: Record<string, string>;
+}
+
+/**
+ * Who `chat` is with, seen by `me`: in a two-person chat the other member,
+ * as before; in a group every other member, named A–Z (case-blind) under the
+ * group avatar.
+ */
+export function chatPeople(chat: Pick<Chat, "memberIds">, me: string, who: (memberId: string | null) => { name: string; symbol: string }): ChatPeople {
+  const others = chat.memberIds.filter((id) => id !== me);
+  const group = chat.memberIds.length > 2;
+  const names: Record<string, string> = {};
+  for (const id of others) names[id] = who(id).name;
+  if (!group) {
+    const otherId = others[0] ?? null;
+    const person = who(otherId);
+    return { otherId, otherName: person.name, otherSymbol: person.symbol, group, names };
+  }
+  const sorted = [...others].sort((a, b) => names[a].localeCompare(names[b], "en", { sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0));
+  return { otherId: sorted[0] ?? null, otherName: namesInWords(sorted.map((id) => names[id])), otherSymbol: GROUP_SYMBOL, group, names };
+}
+
+/** Who sent a message, as a group chat names it: "You", their name, or SOMEONE when the page could not name them. */
+export function senderName(senderId: string, me: string, names: Readonly<Record<string, string>>): string {
+  if (senderId === me) return "You";
+  return Object.prototype.hasOwnProperty.call(names, senderId) ? names[senderId] : SOMEONE;
+}
+
 /**
  * The chats as the list shows them, newest activity first: a chat with a
  * new message moves to the top, and one nobody has written in yet sorts by
@@ -77,12 +127,11 @@ export function chatList(
 ): ChatListItem[] {
   return chats
     .map((chat) => {
-      const otherId = chatPartner(chat, me);
-      const person = who(otherId);
+      const people = chatPeople(chat, me, who);
       const message = latest.get(chat.id) ?? null;
       const last = message ? { body: message.body, sentAt: message.sentAt, mine: message.senderId === me } : null;
       const activeAt = message && message.sentAt > chat.createdAt ? message.sentAt : chat.createdAt;
-      return { id: chat.id, topic: chatTopic(chat, titles), otherId, otherName: person.name, otherSymbol: person.symbol, last, activeAt, unread: unread.get(chat.id) ?? 0 };
+      return { id: chat.id, topic: chatTopic(chat, titles), otherId: people.otherId, otherName: people.otherName, otherSymbol: people.otherSymbol, group: people.group, last, activeAt, unread: unread.get(chat.id) ?? 0 };
     })
     .sort((a, b) => (a.activeAt < b.activeAt ? 1 : a.activeAt > b.activeAt ? -1 : 0));
 }
@@ -147,8 +196,8 @@ export interface ChatPartnerOption {
 /**
  * The members the Sync mode's contact selector offers (WC-235): everyone but
  * the viewer, A–Z by the name their profile shows (case-blind), so the
- * viewer can never start a chat with themself. One member per chat today; a
- * group picker can take this same list later.
+ * viewer can never start a chat with themself. The picker lets a member tick
+ * several for a group chat (WC-252).
  */
 export function chatPartnerOptions(members: { memberId: string; name: string }[], me: string): ChatPartnerOption[] {
   return members
