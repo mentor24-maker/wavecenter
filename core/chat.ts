@@ -11,7 +11,8 @@
  *
  * The database repeats every rule here (`start_chat` and `send_chat_message`,
  * supabase/migrations/20261112120000_chats.sql; the group form of
- * `start_chat`, 20261128130000_group_chats.sql), so a client that skips core
+ * `start_chat`, 20261128130000_group_chats.sql; `add_chat_member`,
+ * 20261128150000_add_chat_member.sql), so a client that skips core
  * is refused too. Its row-level security lets a member read a chat, its
  * members and its messages only when they are in it; `listChats` and
  * `listChatMessages` drop anything else a store hands back, so a store that
@@ -81,6 +82,13 @@ export interface ChatStore {
   chats(memberId: string): Promise<Chat[]>;
   /** The messages of one chat, in any order. Empty for a chat the member is not in. */
   messages(chatId: string): Promise<ChatMessage[]>;
+  /**
+   * Bring `newMemberId` into chat `chatId`, as the signed-in member (WC-256).
+   * Hands back the chat's id once the database confirms it. Throws if the
+   * signed-in member is not in the chat, the new one is unknown or already
+   * in it, or the chat is full.
+   */
+  addMember(chatId: string, newMemberId: string): Promise<{ id: string }>;
 }
 
 /** The other members of a chat to start: one id, or a list of them. */
@@ -112,6 +120,44 @@ export function startChatProblem(memberId: string, others: ChatOthers): string |
 /** Whether `chat` is a group chat: more than two members. */
 export function isGroupChat(chat: Pick<Chat, 'memberIds'>): boolean {
   return chat.memberIds.length > 2;
+}
+
+/**
+ * Why `memberId` cannot bring `newMemberId` into `chat`, in plain words, or
+ * null if they can (WC-256, "Let a chat member add one more person to a
+ * chat"): only a member already in the chat may add someone; the new person
+ * must be named and not already in it; and the chat must stay within
+ * CHAT_MEMBERS_MAX. A two-person chat may grow into a group, and a chat about
+ * a task may grow too. The database (`add_chat_member`) checks the rules in
+ * this same order, and also that the new person is a member who exists.
+ */
+export function addChatMemberProblem(chat: Pick<Chat, 'memberIds'>, memberId: string, newMemberId: string): string | null {
+  if (!memberId) return 'You are signed out, so nobody was added.';
+  if (!isInChat(chat, memberId)) return 'You are not in that chat, so nobody was added.';
+  if (!newMemberId) return 'There is no such member, so nobody was added.';
+  if (chat.memberIds.includes(newMemberId)) return 'That member is already in this chat, so nobody was added.';
+  if (chat.memberIds.length + 1 > CHAT_MEMBERS_MAX) return `A chat can have at most ${CHAT_MEMBERS_MAX} members, so nobody was added.`;
+  return null;
+}
+
+/**
+ * `memberId` brings `newMemberId` into `chat` (WC-256). The person added
+ * reads the whole chat from then on, earlier messages included, since the
+ * read rule lets any member of a chat read all of it. Not a scored action.
+ * Throws a CoreError, with nobody added, for an add breaking
+ * addChatMemberProblem's rules; a store refusal (an unknown member, a chat
+ * that changed meanwhile) throws too. A failed save throws: it is never
+ * reported as done.
+ */
+export async function addChatMember(
+  store: ChatStore,
+  input: { memberId: string; chat: Chat; newMemberId: string },
+): Promise<{ id: string }> {
+  const problem = addChatMemberProblem(input.chat, input.memberId, input.newMemberId);
+  if (problem) throw new CoreError(problem);
+  const added = await store.addMember(input.chat.id, input.newMemberId);
+  if (added?.id !== input.chat.id) throw new CoreError('Nobody was added: the database did not confirm it. Try again.');
+  return { id: added.id };
 }
 
 /** Why a chat message cannot be sent, in plain words, or null if it can. Nothing is saved for a refused message. */

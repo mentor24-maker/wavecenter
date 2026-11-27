@@ -132,6 +132,7 @@ export default async function CommScreen({ mode, openId }: { mode: CommMode; ope
         otherSymbol: people.otherSymbol,
         group: people.group,
         senderNames: people.names,
+        memberIds: [...chat.memberIds],
         messages: messages.value ?? [],
         error: messages.error,
       };

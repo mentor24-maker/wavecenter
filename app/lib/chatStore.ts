@@ -5,6 +5,7 @@
  * function that repeats core's rules: `start_chat` finds or makes a chat
  * (with one other member or a group),
  * `send_chat_message` saves a message (and scores it, in the same save);
+ * `add_chat_member` brings one more member into a chat (WC-256);
  * a new chat is scored for its starter in the same save too.
  * Reading goes straight to the tables, whose row-level security lets a
  * member read only the chats they are in.
@@ -48,6 +49,17 @@ export function supabaseChatStore(supabase: Client): ChatStore & ChatReadStore {
         throw new Error(`The database could not start the chat (${error.code ?? "no code"}): ${error.message}`);
       }
       if (typeof data !== "string" || !data) throw new Error("The database did not confirm the chat was started.");
+      return { id: data };
+    },
+    async addMember(chatId, newMemberId) {
+      // add_chat_member repeats core's rules (20261128150000_add_chat_member.sql, WC-256).
+      const { data, error } = await supabase.rpc("add_chat_member", { chat: chatId, new_member: newMemberId });
+      if (error) {
+        // Only its own refusals (these codes, in plain words) may show on screen.
+        if (error.code === "22023" || error.code === "42501") throw new Error(`The database refused to add the member: ${error.message}`);
+        throw new Error(`The database could not add the member (${error.code ?? "no code"}): ${error.message}`);
+      }
+      if (typeof data !== "string" || !data) throw new Error("The database did not confirm the member was added.");
       return { id: data };
     },
     async send(chatId, body, tool) {
