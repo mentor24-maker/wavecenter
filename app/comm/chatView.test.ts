@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, chatsInRange, chatCountLine, noChatsLine, DATES_APPLY_TO, datesNarrowMessages, datesNarrowChats, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -273,4 +273,38 @@ test("the count and no-match lines name the dates when some are picked", () => {
   assert.equal(matchCountLine(1, 1, "", { from: "", to: "2026-11-20" }, now), "1 of 1 message was sent up to Nov 20.");
   assert.equal(matchCountLine(2, 9, "hello", range, now), '2 of 9 messages match "hello" from Nov 1 to Nov 20.');
   assert.equal(matchCountLine(2, 9, "hello"), '2 of 9 messages match "hello".');
+});
+
+// WC-253: the same From and To days on the chat list, by each chat's latest activity, and the toggle choosing what they narrow.
+const listed = [
+  { id: "a", activeAt: "2026-11-20T17:00:00Z" },
+  // 11:30pm Nov 1 in Mountain time: still Nov 1 there, though Nov 2 in UTC.
+  { id: "b", activeAt: "2026-11-02T06:30:00Z" },
+  { id: "c", activeAt: "2026-10-31T18:00:00Z" },
+  { id: "d", activeAt: "garbled" },
+];
+const ids = (cs: { id: string }[]) => cs.map((c) => c.id);
+
+test("the chat list keeps the chats last active within the days, both ends inclusive, in Mountain time", () => {
+  assert.deepEqual(ids(chatsInRange(listed, { from: "2026-11-01", to: "2026-11-01" })), ["b"]);
+  assert.deepEqual(ids(chatsInRange(listed, { from: "2026-11-01", to: "" })), ["a", "b"]);
+  assert.deepEqual(ids(chatsInRange(listed, { from: "", to: "2026-10-31" })), ["c"]);
+  assert.deepEqual(ids(chatsInRange(listed, { from: "2026-11-02", to: "2026-11-19" })), []);
+});
+
+test("no dates keeps every chat, even one whose time cannot be read", () => {
+  assert.deepEqual(ids(chatsInRange(listed, ANY_DATE)), ["a", "b", "c", "d"]);
+});
+
+test("the chat list's lines name the dates and say why it is empty", () => {
+  const range = { from: "2026-11-01", to: "2026-11-20" };
+  assert.equal(chatCountLine(2, 4, range, now), "2 of 4 chats were active from Nov 1 to Nov 20.");
+  assert.equal(chatCountLine(1, 1, { from: "2026-11-01", to: "" }, now), "1 of 1 chat was active from Nov 1.");
+  assert.equal(noChatsLine({ from: "2026-11-03", to: "2026-11-03" }, now), "No chats were active on Nov 3. Change or clear the dates to see the rest.");
+  assert.equal(backwardsRangeLine({ from: "2026-11-20", to: "2026-11-01" }, now, "chat"), "The From date (Nov 20) is after the To date (Nov 1), so no chat can fall between them. Change one of the dates.");
+});
+
+test("the toggle offers Messages, Chat list and Both, and each narrows what it names", () => {
+  assert.deepEqual(DATES_APPLY_TO.map((o) => o.label), ["Messages", "Chat list", "Both"]);
+  assert.deepEqual(DATES_APPLY_TO.map((o) => [datesNarrowMessages(o.value), datesNarrowChats(o.value)]), [[true, false], [false, true], [true, true]]);
 });
