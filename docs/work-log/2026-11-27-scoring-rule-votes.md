@@ -1,4 +1,4 @@
-## 2026-11-26 — Let members vote on what each game action is worth (#222)
+## 2026-11-27 — Let members vote on what each game action is worth (#222)
 
 Until now, only an admin decided what each game action is worth: making a
 task, finishing one, voting on one, and so on. The DEO whitepaper says
