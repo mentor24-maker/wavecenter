@@ -1014,6 +1014,12 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .chat-day-break { display: flex; align-items: center; gap: 0.75rem; margin: 0.5rem 0 0.25rem; }
 .chat-day-break::before, .chat-day-break::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .chat-day-label { font-size: 1.05rem; font-weight: 700; color: var(--fg); white-space: nowrap; }
+/* WC-241: your own message's time sits at the bubble's right edge, the other member's at its left. */
+.chat-message.mine .chat-meta { text-align: right; }
+/* WC-241: the column heads over the messages, the other member on the left and You on the right, kept in view while scrolling. */
+.chat-heads { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; padding: 0.2rem 0; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.chat-heads b:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-heads b:last-child { flex: none; }
 .chat-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-send { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.5rem; align-items: end; }
 .chat-send textarea { resize: none; }

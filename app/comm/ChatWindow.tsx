@@ -390,26 +390,34 @@ export function Conversation({
         ) : shownMessages.length === 0 ? (
           <p className="note" role="status">{noMatchLine(query)}</p>
         ) : (
-          <ol>
-            {withDayBreaks(shownMessages).map(({ day, message: m }) => {
-              const mine = m.senderId === me;
-              return (
-                <Fragment key={m.id}>
-                  {day && (
-                    <li className="chat-day-break" role="separator" aria-label={day.label}>
-                      <span className="chat-day-label">{day.label}</span>
+          <>
+            {/* WC-241: the two sides named once, over their columns, instead of on every message.
+                Hidden from screen readers: each message says its own sender to them below. */}
+            <div className="chat-heads" aria-hidden="true">
+              <b>{chat.otherName}</b>
+              <b>You</b>
+            </div>
+            <ol>
+              {withDayBreaks(shownMessages).map(({ day, message: m }) => {
+                const mine = m.senderId === me;
+                return (
+                  <Fragment key={m.id}>
+                    {day && (
+                      <li className="chat-day-break" role="separator" aria-label={day.label}>
+                        <span className="chat-day-label">{day.label}</span>
+                      </li>
+                    )}
+                    <li className={mine ? "chat-message mine" : "chat-message"}>
+                      <span className="sr-only">{mine ? "You" : chat.otherName}: </span>
+                      {/* WC-242: the day break above names the day, so the clock time alone; hover for the full date. */}
+                      <time className="chat-meta note" dateTime={m.sentAt} title={sentLabel(m.sentAt)}>{clockLabel(m.sentAt)}</time>
+                      <span className="chat-body">{m.body}</span>
                     </li>
-                  )}
-                  <li className={mine ? "chat-message mine" : "chat-message"}>
-                    <span className="chat-meta note">
-                      <b>{mine ? "You" : chat.otherName}</b> · <time dateTime={m.sentAt} title={sentLabel(m.sentAt)}>{clockLabel(m.sentAt)}</time>
-                    </span>
-                    <span className="chat-body">{m.body}</span>
-                  </li>
-                </Fragment>
-              );
-            })}
-          </ol>
+                  </Fragment>
+                );
+              })}
+            </ol>
+          </>
         )}
       </div>
       {!newestOnTop && readLine}
