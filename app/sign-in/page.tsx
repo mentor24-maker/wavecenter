@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import SiteHeader from "../SiteHeader";
+import { signedInSignInPage } from "../auth/authErrors";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 import SignInForm from "./SignInForm";
 
@@ -9,7 +10,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<R
 
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
-  if (user) redirect("/");
+  if (user) redirect(signedInSignInPage(error));
 
   return (
     <>

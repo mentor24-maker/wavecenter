@@ -5,25 +5,15 @@
  * sign out, run on the server. The browser only submits a form; it never
  * holds a Supabase key.
  */
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { newAccountData } from "../../core/accounts.ts";
 import { WAVECENTER_TOOL } from "../../core/tool.ts";
+import { requestOrigin } from "../lib/requestOrigin";
 import { supabaseForRequest, supabaseSettings } from "../lib/supabase";
 import {
   googleButtonPage, googleSwitchedOn, looksLikeEmail, newPasswordFailure, passwordProblem, registerFailure, resetFailure, signInFailure,
   type AuthFailure,
 } from "./authErrors";
-
-/**
- * The address this request came in on. Links in WaveCenter's emails come back
- * to this same site, whichever copy (preview, production, local) the member
- * is using.
- */
-async function origin() {
-  const h = await headers();
-  return h.get("origin") ?? `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
-}
 
 const field = (formData: FormData, name: string) => String(formData.get(name) ?? "");
 
@@ -51,7 +41,7 @@ export async function register(formData: FormData) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: `${await origin()}/auth/confirm`, data: newAccountData(WAVECENTER_TOOL) },
+    options: { emailRedirectTo: `${await requestOrigin()}/auth/confirm`, data: newAccountData(WAVECENTER_TOOL) },
   });
   if (error) {
     logFailure("register", error);
@@ -140,7 +130,7 @@ export async function signInWithGoogle(formData: FormData) {
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: `${await origin()}/auth/callback` },
+    options: { redirectTo: `${await requestOrigin()}/auth/callback` },
   });
   if (error || !data.url) {
     if (error) logFailure("Google sign-in", error);
@@ -162,7 +152,7 @@ export async function sendPasswordReset(formData: FormData) {
 
   // `next=reset` tells /auth/confirm to go on to the set-a-new-password page.
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${await origin()}/auth/confirm?next=reset`,
+    redirectTo: `${await requestOrigin()}/auth/confirm?next=reset`,
   });
   if (error) {
     logFailure("password reset email", error);
