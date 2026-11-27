@@ -124,6 +124,35 @@ export function mayOpenAdmin(role: RoleKey | null | undefined): boolean {
   return role === 'admin';
 }
 
+/**
+ * Only an admin sees members' email addresses and how they sign in, on the
+ * Members page (WC-260). The database's `list_member_emails` refuses
+ * everyone else with the same rule, so the page and the database agree.
+ */
+export function maySeeMemberEmails(role: RoleKey | null | undefined): boolean {
+  return role === 'admin';
+}
+
+/** The sign-in providers' names as shown, in the order they are listed. */
+const SIGN_IN_NAMES: Record<string, string> = { google: 'Google', email: 'Email' };
+
+/**
+ * How a member signs in, in words: "Google", "Email", "Google and email".
+ * A provider not named above shows by its own name; none at all says so.
+ */
+export function signInMethodLabel(providers: readonly string[]): string {
+  const known = Object.keys(SIGN_IN_NAMES);
+  const unique = [...new Set(providers.map((p) => p.trim().toLowerCase()).filter(Boolean))].sort(
+    (a, b) => (known.indexOf(a) + 1 || known.length + 1) - (known.indexOf(b) + 1 || known.length + 1) || a.localeCompare(b),
+  );
+  if (!unique.length) return 'Unknown';
+  const words = unique.map((p, i) => {
+    const name = SIGN_IN_NAMES[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
+    return i === 0 ? name : name.toLowerCase();
+  });
+  return words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
 /** What core needs from storage for members' roles. */
 export interface MemberRoleStore {
   /** The member's recorded role, or null if none is recorded. */

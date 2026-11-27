@@ -73,6 +73,31 @@ export async function listMembers(supabase: Client): Promise<MemberRow[]> {
   }));
 }
 
+/** One member's email address and how they sign in: for an admin only. */
+export interface MemberEmail {
+  memberId: string;
+  email: string | null;
+  /** The sign-in providers on their account, as the database names them ("google", "email"). */
+  providers: string[];
+}
+
+/**
+ * Every member's email address and sign-in providers, keyed by member id.
+ * Only an admin may (maySeeMemberEmails in core/members.ts); the database's
+ * `list_member_emails` refuses anyone else, and a refusal throws so the page
+ * can say so.
+ */
+export async function listMemberEmails(supabase: Client): Promise<Map<string, MemberEmail>> {
+  const { data, error } = await supabase.rpc("list_member_emails");
+  if (error) throw new Error(`The database refused to read the members' email addresses: ${error.message}`);
+  return new Map(
+    ((data ?? []) as any[]).map((r) => [
+      r.member_id,
+      { memberId: r.member_id, email: r.email ?? null, providers: Array.isArray(r.providers) ? r.providers : [] },
+    ]),
+  );
+}
+
 export interface RolesAndPermissions {
   roles: { key: string; name: string; description: string }[];
   permissions: { key: string; label: string }[];
