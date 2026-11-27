@@ -1139,6 +1139,13 @@ td.forum-actions button.link:disabled { color: var(--muted); cursor: not-allowed
 .topic-picker-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
 .topic-picker-row select { min-width: 16rem; }
 
+/* A topic's tags (WC-249): as links on its page, and with Remove buttons on its edit page. */
+.topic-tags-editor { display: grid; gap: 0.6rem; max-width: 46rem; margin: calc(var(--space) * 1.5) 0 var(--space); }
+.topic-tags-editor h2 { margin: 0; }
+.topic-tag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; }
+.topic-tag-list li { display: inline-flex; gap: 0.35rem; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.15rem 0.5rem; }
+.topic-tag-list button { padding: 0.05rem 0.4rem; font-size: 0.85em; }
+
 /* A tag's edit form: its related tags as a list of tick boxes. */
 .tag-related { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin: 0; }
 .tag-related legend { font-weight: 600; padding: 0 0.25rem; }

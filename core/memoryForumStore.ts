@@ -6,7 +6,9 @@
  * topic a slug made from its name, and clears the parent of a deleted
  * topic's sub-topics. A tag gets a slug too, and its related tags are kept
  * once per pair and read both ways; deleting a tag drops its relations.
- * Two stores given the same `rows` and `relations` are two members looking
+ * A topic's tags are kept once per pair; deleting the topic or the tag drops
+ * its pairs (WC-249).
+ * Two stores given the same `rows`, `relations` and `topicTags` are two members looking
  * at one Forum. Given an engagement store, a new topic or tag is scored
  * for the member who added it, as `forum_topics_score` and
  * `forum_tags_score` do; if the engagement cannot be written, the topic or
@@ -29,6 +31,8 @@ import {
   type TagStore,
   type TopicChangeRow,
   type TopicStore,
+  type TopicTagPair,
+  type TopicTagStore,
 } from './forum.ts';
 
 let next = 1;
@@ -38,10 +42,12 @@ const isTopic = (r: ForumEntry): r is ForumTopic => r.kind === 'topic';
 type StoredTag = Omit<ForumTag, 'relatedIds'>;
 const isTag = (r: ForumEntry): r is StoredTag => r.kind === 'tag';
 
-export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
+export class MemoryForumStore implements ForumStore, TopicStore, TagStore, TopicTagStore {
   readonly rows: ForumEntry[];
   /** Each pair of related tags, once, smaller id first, as the table keeps them. */
   readonly relations: [string, string][];
+  /** Each topic-and-tag pair, once, as `forum_topic_tags` keeps them. */
+  readonly topicTags: TopicTagPair[];
   private readonly memberId: string;
   private readonly engagements: EngagementStore | null;
 
@@ -50,11 +56,13 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
     rows: ForumEntry[] = [],
     relations: [string, string][] = [],
     engagements: EngagementStore | null = null,
+    topicTags: TopicTagPair[] = [],
   ) {
     this.memberId = memberId;
     this.rows = rows;
     this.relations = relations;
     this.engagements = engagements;
+    this.topicTags = topicTags;
   }
 
   async insert(kind: ForumKind, row: NewForumEntryRow): Promise<ForumEntry> {
@@ -121,6 +129,7 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
     if (at < 0) throw new CoreError('That topic was not found. It may have been deleted.');
     this.rows.splice(at, 1);
     for (const t of this.rows.filter(isTopic)) if (t.parentId === id) t.parentId = null;
+    this.dropTopicTags((p) => p.topicId === id);
   }
 
   private related(id: string): string[] {
@@ -154,11 +163,36 @@ export class MemoryForumStore implements ForumStore, TopicStore, TagStore {
     if (at < 0) throw new CoreError('That tag was not found. It may have been deleted.');
     this.rows.splice(at, 1);
     this.dropRelations(id);
+    this.dropTopicTags((p) => p.tagId === id);
   }
 
   private dropRelations(id: string): void {
     for (let i = this.relations.length - 1; i >= 0; i--) {
       if (this.relations[i].includes(id)) this.relations.splice(i, 1);
+    }
+  }
+
+  async topicTagIds(topicId: string): Promise<string[]> {
+    return this.topicTags.filter((p) => p.topicId === topicId).map((p) => p.tagId);
+  }
+
+  async attachTopicTag(topicId: string, tagId: string): Promise<void> {
+    // Like the table's foreign keys and primary key.
+    if (!this.rows.some((r) => isTopic(r) && r.id === topicId)) throw new CoreError('That topic was not found. It may have been deleted.');
+    if (!this.rows.some((r) => isTag(r) && r.id === tagId)) throw new CoreError('That tag was not found. It may have been deleted.');
+    if (this.topicTags.some((p) => p.topicId === topicId && p.tagId === tagId)) throw new CoreError('That topic already carries that tag.');
+    this.topicTags.push({ topicId, tagId });
+  }
+
+  async detachTopicTag(topicId: string, tagId: string): Promise<void> {
+    const at = this.topicTags.findIndex((p) => p.topicId === topicId && p.tagId === tagId);
+    if (at < 0) throw new CoreError('That tag was not on the topic.');
+    this.topicTags.splice(at, 1);
+  }
+
+  private dropTopicTags(match: (p: TopicTagPair) => boolean): void {
+    for (let i = this.topicTags.length - 1; i >= 0; i--) {
+      if (match(this.topicTags[i])) this.topicTags.splice(i, 1);
     }
   }
 }

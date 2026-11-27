@@ -1039,7 +1039,7 @@ only their own; signed-out visitors read nothing. Making a proposal scores
 trigger); changing and deleting one are not scored yet. `check:tasks-rls`
 proves each rule.
 
-## The Forum's topics and tags: `forum_topics`, `forum_tags` and `forum_tag_relations`
+## The Forum's topics and tags: `forum_topics`, `forum_tags`, `forum_tag_relations` and `forum_topic_tags`
 
 The Forum (`/forum`) is where members curate topics, tags and threads to
 discuss ideas, aiming at proposals (Dane, 2026-11-04). Its first section
@@ -1097,8 +1097,26 @@ description, details and parent are changed, and the topic deleted, only by
 the member who added it or an admin (Dane's choice "A" on WC-183); a tag's
 name, slug, description and details the same way (WC-186). Nothing else
 about either can be changed. A relation is added or removed only by a member
-who may change one of its two tags. Attaching tags to topics, threads, and
-scoring are later tickets. `check:tasks-rls` proves each rule.
+who may change one of its two tags. Threads are a later ticket.
+`check:tasks-rls` proves each rule.
+
+**`forum_topic_tags`**: a topic carrying a tag (WC-249, 2026-11-26).
+
+| Column | What it holds |
+|---|---|
+| `topic_id` | The topic. |
+| `tag_id` | The tag it carries. |
+| `created_by` | The member who attached it; set by the database to whoever is signed in. |
+| `created_at` | When it was attached; the database stamps it. |
+
+One row per topic-and-tag pair, never twice. Every signed-in member reads
+every pair. Tagging a topic is changing it, so only the topic's adder or an
+admin attaches or removes a tag (`attachTopicTag` and `detachTopicTag` in
+`core/forum.ts`), from the topic's edit page; a pair is never changed, only
+attached or removed. Only existing tags are attached. Deleting the topic or
+the tag deletes its pairs. The topic's page lists its tags as links, and each
+tag's page lists the topics that carry it. Scoring for attaching a tag is a
+later ticket.
 
 A topic's details page sets its parent two ways (WC-185): a "Parent topic"
 dropdown on the topic itself, and an "Adopt a sub-topic" dropdown that moves
