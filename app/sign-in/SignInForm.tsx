@@ -13,6 +13,8 @@ const ERRORS: Record<string, string> = {
   failed: "Logging in did not work just now. Try again in a minute; if it keeps failing, the log-in service needs a look.",
   expired: "That email link has expired or was already used. Log in below, or ask for a new link with \"Forgot your password?\".",
   link: "That email link did not work. Links only work in the browser you registered or asked for the reset in. If you were confirming your email, it is confirmed: log in below.",
+  "email-link": "Your email link was opened. Log in to see your email address on your profile.",
+  "email-expired": "That email-change link has expired or was already used, so it changed nothing. Log in to see your email address on your profile.",
   setup: "Logging in is not switched on for this copy of WaveCenter yet: its Supabase settings are missing.",
   ...GOOGLE_ERRORS,
 };

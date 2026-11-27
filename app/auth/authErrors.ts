@@ -59,13 +59,100 @@ export function newPasswordFailure(e: AuthFailure): "short" | "same" | "expired"
 }
 
 /**
+ * Where an email-change link sends the member: their profile page, which
+ * reads the account and says what is true (still waiting for the other link,
+ * or the new address in place). Supabase does not tell the server which of
+ * the two links this was, so the page never guesses.
+ */
+export const EMAIL_LINK_PAGE = "/profile?email=link";
+
+/** Whether a link is one of the two change-your-email links (`next=email`, or `type=email_change` from a customised template). */
+export function isEmailChangeLink(next: string | null, type: string | null): boolean {
+  return next === "email" || type === "email_change";
+}
+
+/**
+ * Where an email-change link goes when Supabase refused it (expired, or
+ * already used): the profile page with its own note, which names the address
+ * the account still has. Any other refused link goes to the log-in page.
+ */
+export const EMAIL_LINK_EXPIRED_PAGE = "/profile?email=expired";
+
+export function afterRefusedEmailLink(
+  next: string | null,
+  type: string | null,
+): "/sign-in?error=expired" | typeof EMAIL_LINK_EXPIRED_PAGE {
+  return isEmailChangeLink(next, type) ? EMAIL_LINK_EXPIRED_PAGE : "/sign-in?error=expired";
+}
+
+/**
+ * The log-in page's two email-change notes, for a member who opened the
+ * link signed out (on a phone, say): `email-link` when the link was opened,
+ * `email-expired` when Supabase refused it. The profile page cannot show
+ * either to a signed-out visitor, so it sends them here with the marker.
+ */
+export const EMAIL_LINK_SIGNED_OUT = { link: "/sign-in?error=email-link", expired: "/sign-in?error=email-expired" } as const;
+
+/** The profile page's `?email=` marker for a signed-out visitor: where they go instead. */
+export function signedOutProfilePage(emailMarker: string | undefined): string {
+  if (emailMarker === "link") return EMAIL_LINK_SIGNED_OUT.link;
+  if (emailMarker === "expired") return EMAIL_LINK_SIGNED_OUT.expired;
+  return "/sign-in";
+}
+
+/**
+ * The log-in page's email-change marker for a visitor who is in fact signed
+ * in (the link opened in the same browser after all): back to the profile
+ * page with the matching note. Anyone else signed in goes home, as before.
+ */
+export function signedInSignInPage(error: string | undefined): "/" | typeof EMAIL_LINK_PAGE | typeof EMAIL_LINK_EXPIRED_PAGE {
+  if (error === "email-link") return EMAIL_LINK_PAGE;
+  if (error === "email-expired") return EMAIL_LINK_EXPIRED_PAGE;
+  return "/";
+}
+
+/**
  * Where a link from a WaveCenter email goes once it has signed the member in.
  * Only a fixed list of codes is honoured, so a link cannot send anyone to
  * another site.
  */
-export function afterEmailLink(next: string | null, type: string | null): "/" | "/reset-password" {
-  return next === "reset" || type === "recovery" ? "/reset-password" : "/";
+export function afterEmailLink(
+  next: string | null,
+  type: string | null,
+): "/" | "/reset-password" | typeof EMAIL_LINK_PAGE {
+  if (next === "reset" || type === "recovery") return "/reset-password";
+  if (isEmailChangeLink(next, type)) return EMAIL_LINK_PAGE;
+  return "/";
 }
+
+/** A problem with a new email address before it is sent anywhere, or null. */
+export function emailChangeProblem(newEmail: string, currentEmail: string | null | undefined): "email" | "same" | null {
+  if (!looksLikeEmail(newEmail)) return "email";
+  if (currentEmail && newEmail.toLowerCase() === currentEmail.toLowerCase()) return "same";
+  return null;
+}
+
+/** Asking Supabase to change the member's email failed. */
+export function emailChangeFailure(e: AuthFailure): "taken" | "email" | "rate" | "signed-out" | "failed" {
+  if (e.code === "email_exists" || e.code === "user_already_exists") return "taken";
+  // Not `validation_failed`: Supabase uses it for other things too (a bad redirect address, say).
+  if (e.code === "email_address_invalid") return "email";
+  if (rateLimited(e)) return "rate";
+  if (e.code === "session_not_found" || e.code === "session_expired" || e.code === "reauthentication_needed" || e.status === 401) {
+    return "signed-out";
+  }
+  return "failed";
+}
+
+/** What the profile page says for each email-change failure. Fixed text, never Supabase's own words. */
+export const EMAIL_CHANGE_ERRORS: Record<NonNullable<ReturnType<typeof emailChangeProblem>> | ReturnType<typeof emailChangeFailure>, string> = {
+  email: "That does not look like an email address. Nothing was changed.",
+  same: "That is already your email address. Nothing was changed.",
+  taken: "That address is already in use by another account. Nothing was changed.",
+  rate: "Too many emails have been sent in a short time. Nothing was changed; wait a few minutes and try again.",
+  "signed-out": "You are signed out, so nothing was changed. Reload the page and log in again.",
+  failed: "WaveCenter could not start the change. Nothing was changed; try again in a minute.",
+};
 
 /**
  * Whether Google sign-in is switched on, read from what Supabase's public
