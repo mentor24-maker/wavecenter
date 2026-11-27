@@ -117,8 +117,11 @@ port = 54524
 # Uncomment to expose additional ports for testing user applications that send emails.
 # smtp_port = 54525
 # pop3_port = 54526
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# The local mail viewer shows the same sender as the live project: "WaveCenter
+# Admin" for every account email (Dane's "A", WC-257, 2026-11-27). The live
+# project's sender is set by hand: docs/EMAIL_SETUP.md, step 4.
+admin_email = "noreply@wavecenter.com"
+sender_name = "WaveCenter Admin"
 
 [storage]
 enabled = true
@@ -256,8 +259,17 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
-# The set-a-new-password email, in WaveCenter's look (Dane, 2026-11-02). The
-# live project holds a pasted copy: docs/EMAIL_SETUP.md, step 5.
+# WaveCenter's three account emails, all in one look: the water-drop
+# background, the logo and a 75%-white pod (WC-257). The live project holds
+# pasted copies: docs/EMAIL_SETUP.md, step 5.
+[auth.email.template.confirmation]
+subject = "Confirm your WaveCenter email"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new WaveCenter email address"
+content_path = "./supabase/templates/email_change.html"
+
 [auth.email.template.recovery]
 subject = "Reset your WaveCenter password"
 content_path = "./supabase/templates/recovery.html"

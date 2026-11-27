@@ -279,6 +279,9 @@ Supabase organisation, a few emails an hour. That is enough for Dane; it must
 change before anyone else is invited. The fix is custom SMTP through Resend,
 step 4 of [EMAIL_SETUP.md](EMAIL_SETUP.md), which also raises the hourly limit.
 Until Dane has done that step, sign-in links still use the built-in sender.
+Account emails (confirm your email, confirm a new address, reset your
+password) come from `WaveCenter Admin <noreply@wavecenter.com>` in one
+branded look, from the three files in `supabase/templates/` (WC-257).
 
 **Email to members.** An admin's message from the Members page is emailed
 through **Resend** (Dane's choice, 2026-10-30), by its plain HTTPS API, so it
