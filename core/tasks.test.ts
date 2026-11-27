@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { approveTask, createTask, deleteTask, updateTask } from './tasks.ts';
+import { approveTask, createTask, deleteTask, updateTask, type Task } from './tasks.ts';
+import { ROLES, memberPermissions, type RoleKey } from './members.ts';
 import { CoreError } from './tool.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
@@ -122,13 +123,13 @@ test('createTask saves details, a parent and a priority given together, and upda
 
 test('a task added by anyone but an admin starts as proposed; an admin\'s starts as todo', async () => {
   const store = new MemoryTaskStore();
-  for (const role of ['editor', 'contributor', 'reviewer', 'viewer'] as const) {
+  for (const role of ['editor', 'contributor'] as const) {
     assert.equal((await createTask(store, { title: `By a ${role}` }, 'wavecenter', role)).status, 'proposed');
   }
   assert.equal((await createTask(store, { title: 'No role given' }, 'wavecenter')).status, 'proposed');
   assert.equal((await createTask(store, { title: 'By an admin' }, 'wavecenter', 'admin')).status, 'todo');
   await assert.rejects(createTask(store, { title: 'Skip the queue', status: 'todo' }, 'wavecenter', 'contributor'), /Only an admin/);
-  assert.equal(store.rows.size, 6);
+  assert.equal(store.rows.size, 4);
 });
 
 test('a proposed task keeps its status and cannot go to AI agents until it is approved', async () => {
@@ -195,4 +196,100 @@ test('approving a proposed task records one engagement, credited to the admin wh
   ledger.failInsert = true;
   await assert.rejects(approveTask(store, other.id, 'admin', 'wavecenter'), /ledger is down/);
   assert.equal((await store.get(other.id))?.status, 'proposed');
+});
+
+// What each role may do on tasks (Dane, 2026-11-26, WC-248): an editor or
+// admin changes and deletes anyone's task, a reviewer or viewer cannot add
+// tasks, and a contributor keeps changing only their own.
+const MAY: Record<RoleKey, { add: boolean; editOwn: boolean; editOther: boolean; deleteOwn: boolean; deleteOther: boolean }> = {
+  admin: { add: true, editOwn: true, editOther: true, deleteOwn: true, deleteOther: true },
+  editor: { add: true, editOwn: true, editOther: true, deleteOwn: true, deleteOther: true },
+  contributor: { add: true, editOwn: true, editOther: false, deleteOwn: true, deleteOther: false },
+  reviewer: { add: false, editOwn: false, editOther: false, deleteOwn: false, deleteOther: false },
+  viewer: { add: false, editOwn: false, editOther: false, deleteOwn: false, deleteOther: false },
+};
+
+/** A store for `me`, holding one task of their own and one of another member's. */
+function twoOwners(me = 'me') {
+  const store = new MemoryTaskStore(me);
+  const at = new Date().toISOString();
+  const row = (id: string, ownerId: string): Task => ({
+    id, title: `Task ${id}`, notes: null, ownerId, status: 'todo', parentTaskId: null, points: 0, ownerPoints: null,
+    position: 0, priority: 'normal', agentSelected: false, agentTicketUrl: null, tool: 'seed', createdAt: at, updatedAt: at, completedAt: null,
+  });
+  store.rows.set('mine', row('mine', me));
+  store.rows.set('theirs', row('theirs', 'someone-else'));
+  return store;
+}
+
+for (const { key: role } of ROLES) {
+  const may = MAY[role];
+  const permissions = memberPermissions(role);
+  const a = role === 'admin' || role === 'editor' ? 'an' : 'a';
+
+  test(`${a} ${role} ${may.add ? 'adds' : 'may not add'} a task`, async () => {
+    const store = twoOwners();
+    const adding = createTask(store, { title: 'New' }, 'wavecenter', role, permissions);
+    if (may.add) assert.equal((await adding).title, 'New');
+    else {
+      await assert.rejects(adding, /Your role may not add tasks. Nothing was added./);
+      assert.equal(store.rows.size, 2, 'nothing was added');
+    }
+  });
+
+  for (const [which, id, allowed] of [['their own', 'mine', may.editOwn], ["another member's", 'theirs', may.editOther]] as const) {
+    test(`${a} ${role} ${allowed ? 'changes' : 'may not change'} ${which} task`, async () => {
+      const store = twoOwners();
+      const editing = updateTask(store, id, { title: 'Renamed' }, 'wavecenter', permissions);
+      if (allowed) assert.equal((await editing).title, 'Renamed');
+      else {
+        await assert.rejects(editing, CoreError);
+        await assert.rejects(updateTask(store, id, { title: 'Renamed' }, 'wavecenter', permissions), /Your role may (not change tasks|change only your own tasks)/);
+        assert.equal(store.rows.get(id)!.title, `Task ${id}`, 'nothing changed');
+      }
+    });
+  }
+
+  for (const [which, id, allowed] of [['their own', 'mine', may.deleteOwn], ["another member's", 'theirs', may.deleteOther]] as const) {
+    test(`${a} ${role} ${allowed ? 'deletes' : 'may not delete'} ${which} task`, async () => {
+      const store = twoOwners();
+      const deleting = deleteTask(store, id, 'wavecenter', permissions);
+      if (allowed) {
+        await deleting;
+        assert.equal(store.rows.has(id), false);
+      } else {
+        await assert.rejects(deleting, /Your role may (not delete tasks|delete only your own tasks)/);
+        assert.equal(store.rows.has(id), true, 'nothing was deleted');
+      }
+    });
+  }
+}
+
+test("the refusals say why in plain words: a contributor is told the task is another member's, a viewer that their role may not", async () => {
+  const store = twoOwners();
+  await assert.rejects(updateTask(store, 'theirs', { title: 'x' }, 'wavecenter', memberPermissions('contributor')),
+    /Your role may change only your own tasks, and this one is another member's. Nothing was changed./);
+  await assert.rejects(updateTask(store, 'mine', { title: 'x' }, 'wavecenter', memberPermissions('viewer')), /Your role may not change tasks. Nothing was changed./);
+  await assert.rejects(deleteTask(store, 'theirs', 'wavecenter', memberPermissions('contributor')), /Your role may delete only your own tasks/);
+  await assert.rejects(updateTask(store, 'nope', { title: 'x' }, 'wavecenter', memberPermissions('admin')), /No task nope was found that you may change/);
+  await assert.rejects(deleteTask(store, 'nope', 'wavecenter', memberPermissions('admin')), /No task nope was found that you may delete/);
+});
+
+test('a caller that names no permissions may do what a contributor may: change and delete their own task, not anyone else\'s', async () => {
+  const store = twoOwners();
+  assert.equal((await updateTask(store, 'mine', { title: 'Mine still' }, 'wavecenter')).title, 'Mine still');
+  await assert.rejects(updateTask(store, 'theirs', { title: 'x' }, 'wavecenter'), /only your own tasks/);
+  await assert.rejects(deleteTask(store, 'theirs', 'wavecenter'), /only your own tasks/);
+  await deleteTask(store, 'mine', 'wavecenter');
+  assert.equal(store.rows.has('mine'), false);
+});
+
+test("an editor moves another member's task only under one of that member's tasks", async () => {
+  const store = twoOwners();
+  const at = new Date().toISOString();
+  store.rows.set('their-parent', { ...store.rows.get('theirs')!, id: 'their-parent', title: 'Their parent', createdAt: at });
+  const editor = memberPermissions('editor');
+  await assert.rejects(updateTask(store, 'theirs', { parentTaskId: 'mine' }, 'wavecenter', editor), /No task mine was found that you may put this task under/);
+  assert.equal((await updateTask(store, 'theirs', { parentTaskId: 'their-parent' }, 'wavecenter', editor)).parentTaskId, 'their-parent');
+  await assert.rejects(updateTask(store, 'mine', { parentTaskId: 'their-parent' }, 'wavecenter', editor), /that you may put this task under/);
 });

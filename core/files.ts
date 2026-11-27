@@ -25,7 +25,7 @@
  */
 import { removeComment, type TaskCommentStore } from './comments.ts';
 import { CoreError, requireTool } from './tool.ts';
-import { deleteTask, type TaskStore } from './tasks.ts';
+import { deleteTask, taskYouMay, type TaskPermissions, type TaskStore } from './tasks.ts';
 
 /** The largest file a member may attach: 10 MB. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -235,10 +235,22 @@ export async function removeCommentWithFiles(comments: TaskCommentStore, files: 
  * leaves the task in place to delete again, never copies nobody can reach.
  * Sub-tasks are kept, as in `deleteTask`, and keep their own files.
  */
-export async function deleteTaskWithFiles(tasks: TaskStore, files: TaskFileStore, id: string, tool: string): Promise<void> {
+export async function deleteTaskWithFiles(
+  tasks: TaskStore,
+  files: TaskFileStore,
+  id: string,
+  tool: string,
+  permissions?: TaskPermissions,
+): Promise<void> {
   requireTool(tool);
-  await requireTask(tasks, id, 'delete');
+  const { own } = await taskYouMay(tasks, id, 'delete', permissions);
   const attached = await files.listForTask(id);
+  // Stored files sit in the folder of the member who attached them, and only
+  // they may delete them there, so another member's task with files cannot
+  // be deleted without leaving copies nobody can reach.
+  if (attached.length && !own) {
+    throw new CoreError("This task has files attached, and for now only the task's owner can delete a task with files. Nothing was deleted.");
+  }
   if (attached.length) await files.deleteObjects(attached.map((f) => f.path));
-  await deleteTask(tasks, id, tool);
+  await deleteTask(tasks, id, tool, permissions);
 }

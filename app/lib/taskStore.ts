@@ -3,7 +3,8 @@
  * from a page or server action. It acts through the signed-in member's own
  * session, so row-level security decides which rows it can see and change.
  * Every member may read every task, but `get` asks only for the member's own,
- * because core's `get` means "a task the caller may change".
+ * because core's `get` means "one of the caller's own tasks"; `find` reads
+ * anyone's, so core can tell another member's task from no task at all.
  *
  * It only translates between core's names and the table's columns, and turns
  * a failed database call into a thrown error. Every value it writes was
@@ -91,6 +92,11 @@ export function supabaseTaskStore(supabase: Client, memberId: string): TaskStore
     },
     async get(id) {
       const { data, error } = await supabase.from("tasks").select().eq("id", id).eq("owner_id", memberId).maybeSingle();
+      if (error) failed("read the task", error);
+      return data ? fromRow(data) : null;
+    },
+    async find(id) {
+      const { data, error } = await supabase.from("tasks").select().eq("id", id).maybeSingle();
       if (error) failed("read the task", error);
       return data ? fromRow(data) : null;
     },

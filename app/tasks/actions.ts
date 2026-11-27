@@ -7,6 +7,10 @@
  * removeCommentWithFiles) as
  * the tool `wavecenter`, acting as the signed-in member.
  *
+ * Adding, changing and deleting a task pass the member's permissions, read
+ * from the database, into core, which refuses in plain words what their role
+ * may not do (WC-248); the tasks row-level security asks the same grants.
+ *
  * Each returns `{ ok: true }` only after the database confirmed the write.
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it and keeps what was typed (engineering rule 6).
@@ -33,7 +37,7 @@ import { approveTask, createTask, updateTask, type TaskPriority } from "../../co
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
-import { myRole } from "../lib/memberRoleStore";
+import { myRole, myRoleAndPermissions } from "../lib/memberRoleStore";
 import { supabaseMemberSettingsStore } from "../lib/memberSettingsStore";
 import { supabaseCommentableTasks, supabaseTaskCommentStore } from "../lib/taskCommentStore";
 import { supabaseTaskFileStore, TASK_FILES_BUCKET } from "../lib/taskFileStore";
@@ -87,6 +91,11 @@ async function requireOneLevel(store: Store, supabase: Supabase, id: string | nu
   if (count) throw new CoreError("This task has sub-tasks of its own, so it cannot become a sub-task yet.");
 }
 
+/** What the signed-in member's role may do, for core's task rules. */
+async function permissionsOf(supabase: Supabase, memberId: string): Promise<string[]> {
+  return (await myRoleAndPermissions(supabase, memberId)).permissions;
+}
+
 /** Details that are only blank space are no details: saved as empty. */
 function cleanNotes(notes: string): string | null {
   return notes.trim() ? notes.trim() : null;
@@ -110,12 +119,14 @@ export async function addTask(fields: NewTaskFields): Promise<SaveResult & { id?
   let id = "";
   let proposed = false;
   const result = await save("add the task", async (store, supabase, memberId) => {
+    const { role, permissions } = await myRoleAndPermissions(supabase, memberId);
     if (fields.parentTaskId) await requireOneLevel(store, supabase, null, fields.parentTaskId);
     const task = await createTask(
       store,
       { title: fields.title, notes: cleanNotes(fields.notes), parentTaskId: fields.parentTaskId, priority: fields.priority },
       WAVECENTER_TOOL,
-      await myRole(supabase, memberId),
+      role,
+      permissions,
     );
     id = task.id;
     proposed = task.status === "proposed";
@@ -131,12 +142,13 @@ export async function approve(id: string): Promise<SaveResult> {
 
 /** Change a task's title and details together, from the row's edit form. */
 export async function editTask(id: string, title: string, notes: string): Promise<SaveResult> {
-  return save("save the task", (store) => updateTask(store, id, { title, notes: cleanNotes(notes) }, WAVECENTER_TOOL));
+  return save("save the task", async (store, supabase, memberId) =>
+    updateTask(store, id, { title, notes: cleanNotes(notes) }, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
 }
 
 export async function markDone(id: string, done: boolean): Promise<SaveResult> {
-  return save(done ? "mark the task done" : "reopen the task", (store) =>
-    updateTask(store, id, { status: done ? "done" : "todo" }, WAVECENTER_TOOL));
+  return save(done ? "mark the task done" : "reopen the task", async (store, supabase, memberId) =>
+    updateTask(store, id, { status: done ? "done" : "todo" }, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
 }
 
 /**
@@ -148,22 +160,23 @@ export async function changePoints(id: string, points: number): Promise<SaveResu
 }
 
 export async function moveUnder(id: string, parentTaskId: string | null): Promise<SaveResult> {
-  return save("move the task", async (store, supabase) => {
+  return save("move the task", async (store, supabase, memberId) => {
+    const permissions = await permissionsOf(supabase, memberId);
     if (parentTaskId) await requireOneLevel(store, supabase, id, parentTaskId);
-    await updateTask(store, id, { parentTaskId }, WAVECENTER_TOOL);
+    await updateTask(store, id, { parentTaskId }, WAVECENTER_TOOL, permissions);
   });
 }
 
 /** Deleting a task deletes its attached files from storage too, not just the rows. */
 export async function removeTask(id: string): Promise<SaveResult> {
-  return save("delete the task", (store, supabase, memberId) =>
-    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase, memberId), id, WAVECENTER_TOOL));
+  return save("delete the task", async (store, supabase, memberId) =>
+    deleteTaskWithFiles(store, supabaseTaskFileStore(supabase, memberId), id, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
 }
 
 export async function changePriority(id: string, priority: TaskPriority): Promise<SaveResult> {
   return save("change the priority", async (store, supabase, memberId) => {
     requireNotVotedOn(await supabaseVoteStore(supabase, memberId).forTask(id), "priority");
-    await updateTask(store, id, { priority }, WAVECENTER_TOOL);
+    await updateTask(store, id, { priority }, WAVECENTER_TOOL, await permissionsOf(supabase, memberId));
   });
 }
 
@@ -187,7 +200,8 @@ export async function chooseForAgents(ids: string[], selected: boolean): Promise
   let failed = 0;
   let firstError = "";
   for (const id of ids) {
-    const result = await save(what, (store) => updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL));
+    const result = await save(what, async (store, supabase, memberId) =>
+      updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
     if (!result.ok) {
       failed += 1;
       firstError ||= result.error;
