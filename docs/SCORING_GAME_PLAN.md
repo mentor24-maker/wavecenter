@@ -84,15 +84,18 @@ Read from the code on 2026-11-01.
 - **An admin sets what each action is worth.** On the Game management screen
   (`/game/manage`, `app/game/manage/`), through `changeScoringRule` and
   `addScoringRule` (`supabase/migrations/20261031140000_game_scoring_admin.sql`).
-  There is no member vote and no AI score on actions yet.
+  Members vote on what each action is worth (`scoring_rule_votes`, since
+  2026-11-27, WC-250); the Game page shows their average beside the admin's
+  value, but the votes do not count yet. There is no AI score on actions yet.
 - **The two kinds of points are separate.** What a task is worth and what a
   member has earned in the ledger are not added together anywhere.
 
 ### The Game pages
 
 `/game` (My Points) shows the member's ledger total, finished tasks and the
-scoring rules. `/game/leaderboard` is a placeholder saying it is not built
-yet. `/game/manage` is the admin's rule editor. Nothing shows a guess, a
+scoring rules. `/game/leaderboard` ranks members by points (#208), each
+Public name linking to that member's profile at `/members/<id>` (#209).
+`/game/manage` is the admin's rule editor. Nothing shows a guess, a
 deviance score or a DQ.
 
 ## The scores, as Dane described them
@@ -248,6 +251,11 @@ row-level security in the same migration that creates it (engineering rule 2).
    Goal: votes on the scoring rules (a new table with row-level security),
    giving each kind of action an owner's (admin), human, AI and final score,
    by the same formula as tasks.
+   **First part built (WC-250, 2026-11-27):** the `scoring_rule_votes` table,
+   and on the Game page each rule's members' average and the member's own
+   vote, beside the admin's value. The votes are collected and shown, not yet
+   counted: making them count in what an action earns waits for Dane's
+   decision.
 7. **"Members can guess what a task or game action is worth"**
    Goal: a `score_guesses` table (row-level security on from creation; a
    member sees only their own guesses until they settle) and a Guess screen
