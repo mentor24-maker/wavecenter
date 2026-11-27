@@ -16,6 +16,9 @@
  *   chat and an empty or over-long message, and, given an engagement store,
  *   scores the message for its sender as `chat_messages_score` does. If the
  *   engagement cannot be written, the message is not saved either.
+ * - `addMember` is `add_chat_member` (20261128150000_add_chat_member.sql):
+ *   it refuses what core's addChatMemberProblem refuses and an unknown
+ *   member, and otherwise puts the new member in the chat, never read yet.
  * - `chats` and `messages` read as row-level security lets the signed-in
  *   member read: only chats they are in.
  * - `markRead` is `mark_chat_read`: it sets when the signed-in member last
@@ -23,7 +26,7 @@
  *   `my_chat_unread`: their chats with unread messages, by core's rule.
  */
 import { recordEngagement, type EngagementStore } from './game.ts';
-import { chatMessageProblem, countUnread, isInChat, startChatProblem, type Chat, type ChatMessage, type ChatReadStore, type ChatStore } from './chat.ts';
+import { addChatMemberProblem, chatMessageProblem, countUnread, isInChat, startChatProblem, type Chat, type ChatMessage, type ChatReadStore, type ChatStore } from './chat.ts';
 import { CoreError } from './tool.ts';
 
 export class MemoryChatStore implements ChatStore, ChatReadStore {
@@ -90,6 +93,23 @@ export class MemoryChatStore implements ChatStore, ChatReadStore {
     const message: ChatMessage = { id: `chat-message-${this.messageRows.length + 1}`, chatId, senderId: this.signedIn, body: body.trim(), tool, sentAt: this.now() };
     this.messageRows.push(message);
     return { id: message.id };
+  }
+
+  /** Set to make the next add fail the way a refused write does. */
+  failNextAdd = false;
+
+  async addMember(chatId: string, newMemberId: string) {
+    if (this.failNextAdd) {
+      this.failNextAdd = false;
+      throw new Error('The database refused to add the member.');
+    }
+    const chat = this.chatRows.find((c) => c.id === chatId);
+    if (!chat) throw new CoreError('You are not in that chat, so nobody was added.');
+    const problem = addChatMemberProblem(chat, this.signedIn, newMemberId);
+    if (problem) throw new CoreError(problem);
+    if (!this.members.has(newMemberId)) throw new CoreError('There is no such member, so nobody was added.');
+    chat.memberIds.push(newMemberId);
+    return { id: chat.id };
   }
 
   async chats(memberId: string) {

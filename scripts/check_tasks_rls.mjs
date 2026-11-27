@@ -18,7 +18,8 @@
  * `message_recipient_email`); that a member stars and trashes only messages
  * they sent or received, only through set_message_mark, and reads only their
  * own marks (`public.message_marks`); that any two members, or a group of up
- * to 10, chat only through start_chat and send_chat_message, and a member reads a chat, its members
+ * to 10, chat only through start_chat and send_chat_message, a member already
+ * in a chat brings one more in only through add_chat_member, and a member reads a chat, its members
  * and its messages only when they are in it (`public.chats`,
  * `public.chat_members`, `public.chat_messages`), and only they mark a chat
  * read for themselves, which clears its unread count for them alone
@@ -1107,6 +1108,78 @@ try {
     check('each new chat scores "Started a chat" once, for whoever started it; finding one already there and a refused start score nothing',
       s1 === 2 + (racedMaker === g1.id ? 1 : 0) && s2 === (racedMaker === g2.id ? 1 : 0) && s3 === (racedMaker === g3.id ? 1 : 0),
       `group-1 ${s1}, group-2 ${s2}, group-3 ${s3}, raced chat made by ${racedMaker}`);
+  }
+
+  // Adding someone to a chat (20261128150000_add_chat_member.sql, WC-256):
+  // only a member already in the chat may add; the person added reads every
+  // earlier message and has them unread; someone already in it, an unknown
+  // member, a signed-out visitor, an outsider and a full chat are refused in
+  // plain words with nothing changed; two adds at once never pass the limit;
+  // adding scores nothing. Fresh members, so the totals checked elsewhere are
+  // untouched.
+  {
+    const [h1, h2, h3, hOut] = [await makeUser('add-1'), await makeUser('add-2'), await makeUser('add-3'), await makeUser('add-out')];
+    const addRpc = (who, body) => call('/rest/v1/rpc/add_chat_member', { method: 'POST', token: who?.token, body });
+    const membersOf = async (chat) => ((await admin(`/rest/v1/chat_members?chat_id=eq.${chat}&select=member_id`)).json ?? []).map((m) => m.member_id).sort().join();
+    const pair = await call('/rest/v1/rpc/start_chat', { method: 'POST', token: h1.token, body: { other_member: h2.id } });
+    const said1 = await call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: h1.token, body: { chat: pair.json, body: 'before 3 joined', tool: TOOL } });
+    const scoredBefore = (await admin(`/rest/v1/engagements?member_id=eq.${h1.id}&select=id`)).json?.length;
+    const outBefore = await call(`/rest/v1/chat_messages?chat_id=eq.${pair.json}&select=body`, { token: h3.token });
+    const added = await addRpc(h1, { chat: pair.json, new_member: h3.id });
+    const scoredAfter = (await admin(`/rest/v1/engagements?member_id=eq.${h1.id}&select=id`)).json?.length;
+    check('a member of a two-person chat adds a third: the chat now has all three, and adding scores nothing',
+      pair.status === 200 && said1.status === 200 && added.status === 200 && added.json === pair.json
+        && (await membersOf(pair.json)) === [h1.id, h2.id, h3.id].sort().join() && scoredBefore === scoredAfter,
+      `start HTTP ${pair.status}, add HTTP ${added.status} ${JSON.stringify(added.json)}, engagements ${scoredBefore} then ${scoredAfter}`);
+    const h3Read = await call(`/rest/v1/chat_messages?chat_id=eq.${pair.json}&select=body`, { token: h3.token });
+    const h3Chats = await call(`/rest/v1/chat_members?member_id=eq.${h3.id}&select=chat_id`, { token: h3.token });
+    const unreadOf = async (who) => {
+      const r = await call('/rest/v1/rpc/my_chat_unread', { method: 'POST', token: who.token, body: {} });
+      return (Array.isArray(r.json) ? r.json : []).find((row) => row.chat_id === pair.json)?.unread ?? 0;
+    };
+    const h3Unread = await unreadOf(h3);
+    check('the person added reads the earlier messages (which they could not before), has the chat in their list, and has it unread',
+      outBefore.json?.length === 0 && JSON.stringify((h3Read.json ?? []).map((m) => m.body)) === '["before 3 joined"]'
+        && (h3Chats.json ?? []).some((c) => c.chat_id === pair.json) && h3Unread === 1,
+      `before ${JSON.stringify(outBefore.json)}, after ${JSON.stringify(h3Read.json)}, chats ${JSON.stringify(h3Chats.json)}, unread ${h3Unread}`);
+    await call('/rest/v1/rpc/mark_chat_read', { method: 'POST', token: h1.token, body: { chat: pair.json } });
+    const said3 = await call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: h3.token, body: { chat: pair.json, body: 'hi', tool: TOOL } });
+    const h1Unread = await unreadOf(h1);
+    const h1Read = await call(`/rest/v1/chat_messages?chat_id=eq.${pair.json}&select=sender_id,body&order=created_at`, { token: h1.token });
+    check('the person added can send; the message is theirs and counts as unread for the others',
+      said3.status === 200 && h1Unread === 1 && (h1Read.json ?? []).at(-1)?.sender_id === h3.id,
+      `send HTTP ${said3.status}, unread for 1 ${h1Unread}, last ${JSON.stringify((h1Read.json ?? []).at(-1))}`);
+    const membersNow = await membersOf(pair.json);
+    const refusals = {
+      already: await addRpc(h2, { chat: pair.json, new_member: h3.id }),
+      self: await addRpc(h2, { chat: pair.json, new_member: h2.id }),
+      unknown: await addRpc(h1, { chat: pair.json, new_member: randomUUID() }),
+      outsiderSelf: await addRpc(hOut, { chat: pair.json, new_member: hOut.id }),
+      noChat: await addRpc(h1, { chat: randomUUID(), new_member: hOut.id }),
+      signedOut: await addRpc(null, { chat: pair.json, new_member: hOut.id }),
+    };
+    const said = (r, words) => r.status >= 400 && words.test(r.json?.message ?? '');
+    check('the database refuses someone already in, yourself, an unknown member, an outsider adding themself, a chat that is not there, and a signed-out visitor, in plain words, and adds nobody',
+      said(refusals.already, /already in this chat/) && said(refusals.self, /already in this chat/) && said(refusals.unknown, /no such member/)
+        && said(refusals.outsiderSelf, /not in that chat/) && said(refusals.noChat, /not in that chat/) && refusals.signedOut.status >= 400
+        && (await membersOf(pair.json)) === membersNow,
+      `${Object.entries(refusals).map(([k, r]) => `${k} HTTP ${r.status} ${r.json?.message ?? ''}`).join('; ')}`);
+    const outRead = await call(`/rest/v1/chat_messages?chat_id=eq.${pair.json}&select=body`, { token: hOut.token });
+    const directAdd = await call('/rest/v1/chat_members', { method: 'POST', token: hOut.token, body: { chat_id: pair.json, member_id: hOut.id } });
+    check('an outsider still reads nothing of the chat and cannot write themself in directly',
+      outRead.json?.length === 0 && directAdd.status >= 400 && !(await membersOf(pair.json)).includes(hOut.id),
+      `read ${JSON.stringify(outRead.json)}, direct insert HTTP ${directAdd.status}`);
+    // A group one short of the limit: two adds at once make it full, never past it.
+    const crowd = [];
+    for (let i = 0; i < 10; i += 1) crowd.push(await makeUser(`add-crowd-${i}`));
+    const nine = await call('/rest/v1/rpc/start_chat', { method: 'POST', token: h1.token, body: { other_members: crowd.slice(0, 8).map((u) => u.id) } });
+    const raced = await Promise.all([addRpc(h1, { chat: nine.json, new_member: crowd[8].id }), addRpc(crowd[0], { chat: nine.json, new_member: crowd[9].id })]);
+    const full = await addRpc(h1, { chat: nine.json, new_member: h2.id });
+    const fullCount = (await membersOf(nine.json)).split(',').length;
+    check('two adds at once to a chat one short of 10 members: one gets in, the other and any later add are refused, and it stays at 10',
+      nine.status === 200 && raced.filter((r) => r.status === 200).length === 1 && raced.some((r) => said(r, /at most 10 members/))
+        && said(full, /at most 10 members/) && fullCount === 10,
+      `start HTTP ${nine.status}, raced ${JSON.stringify(raced.map((r) => [r.status, r.json?.message ?? r.json]))}, later HTTP ${full.status} ${full.json?.message ?? ''}, members ${fullCount}`);
   }
 
   // Unread chat messages (20261113150000_chat_unread.sql): a message is
