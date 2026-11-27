@@ -30,7 +30,8 @@
  * shows to what happened on those Mountain-time days, and a toggle chooses
  * what they narrow (Dane: "C) Provide a toggle"): the open chat's messages,
  * the chat list by each chat's latest activity, or both. Nothing is read
- * again: they hide what the page already has.
+ * again: they hide what the page already has. Comm's layout holds them, so
+ * they stay put while the member opens one chat after another.
  *
  * Messages are plain text, shown as text, never as HTML.
  */
@@ -40,6 +41,7 @@ import { Fragment, useEffect, useRef, useState, useTransition, type FormEvent, t
 import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
 import { markChatReadNow, sendChat, startChatWith } from "./actions";
+import { useCommDates } from "./CommDates";
 import {
   A_TASK,
   CHAT_UNREAD_EVENT,
@@ -123,9 +125,9 @@ export default function ChatWindow({
   partnersError: string | null;
 }) {
   const liveState = useChatLive(me, live);
-  // WC-253: the From and To days ("YYYY-MM-DD", or "" for no limit) and what they narrow.
-  const [range, setRange] = useState<DateRange>(ANY_DATE);
-  const [applyTo, setApplyTo] = useState<DatesApplyTo>("messages");
+  // WC-253: the From and To days ("YYYY-MM-DD", or "" for no limit) and what
+  // they narrow, held by Comm's layout so opening a chat keeps them (CommDates.tsx).
+  const { range, setRange, applyTo, setApplyTo } = useCommDates();
   const dating = isDateFiltering(range);
   const backwards = dating && isRangeBackwards(range);
   const listDating = dating && datesNarrowChats(applyTo);

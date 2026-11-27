@@ -14,5 +14,10 @@ showing, a plain note when no chat falls between the dates, and a note when
 the From day is after the To day. A "Clear dates" link brings everything
 back. The task page's own chat panel looks exactly as before.
 
+The dates and the Dates filter choice stay put while you open one chat after
+another, so a chat list narrowed by dates no longer springs back to showing
+every chat the moment you click one (the first review caught that). They
+last for your visit to Comm and are forgotten on a reload.
+
 Nothing is saved and nothing new is read from the database: the filter just
 hides what is already on the screen.
