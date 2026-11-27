@@ -1216,6 +1216,8 @@ dialog.meeting-dialog .task-facts { margin-bottom: 0.25rem; }
 .builder-main { min-width: 0; }
 .module-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem; background: var(--level-1); }
 .module-panel .module-fields { grid-template-columns: 1fr; }
+/* The picture module's Upload button, its note and any failure, one row that wraps (WC-251). */
+.picture-upload { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.5rem; }
 .module-card { display: grid; gap: 0.3rem; padding: 0.4rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--level-1); text-align: inherit; }
 .module-card.chosen { outline: 2px solid var(--accent); }
 .module-card.has-problem { border-color: #b3261e; }

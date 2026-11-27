@@ -11,10 +11,11 @@
  * Anything else comes back as `{ ok: false, error }` in plain words, and the
  * screen shows it and keeps what was typed (engineering rule 6).
  */
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
 import {
-  addSitePage, changeSavedSection, changeSitePage, deleteSavedSection, deleteSitePage, renameSavedSection, saveReusableSection, saveSitePageSections,
+  SITE_IMAGES_BUCKET, addSitePage, changeSavedSection, planSiteImageUpload, changeSitePage, deleteSavedSection, deleteSitePage, renameSavedSection, saveReusableSection, saveSitePageSections,
   type SitePage, type SitePageDeps, type SiteSavedSection, type SiteSavedSectionStore,
 } from "../../../core/website.ts";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../../lib/memberRoleStore";
@@ -24,7 +25,8 @@ import { currentUser, supabaseForRequest } from "../../lib/supabase";
 export type SitePageSaveResult = { ok: true; slug: string } | { ok: false; error: string };
 export type SitePageChangeResult = { ok: true; page: SitePage } | { ok: false; error: string };
 
-type Acting = { ok: true; deps: SitePageDeps & { savedSections: SiteSavedSectionStore }; actorId: string } | { ok: false; error: string };
+type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
+type Acting = { ok: true; deps: SitePageDeps & { savedSections: SiteSavedSectionStore }; actorId: string; supabase: Client } | { ok: false; error: string };
 
 /** The signed-in member and the stores core needs, or why the write cannot go ahead. */
 async function acting(nothing: string): Promise<Acting> {
@@ -40,7 +42,7 @@ async function acting(nothing: string): Promise<Acting> {
     };
   }
   const { grants } = await readRolesAndPermissions(supabase);
-  return { ok: true, actorId: user.id, deps: {
+  return { ok: true, actorId: user.id, supabase, deps: {
     pages: supabaseSitePageStore(supabase), savedSections: supabaseSavedSectionStore(supabase), roles: supabaseMemberRoleStore(supabase), grants,
   } };
 }
@@ -177,5 +179,41 @@ export async function deleteReusable(id: string): Promise<SavedSectionDeleteResu
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error("website: could not delete the saved section:", err);
     return { ok: false, error: "Could not delete the saved section. It is still there; try again." };
+  }
+}
+
+export type SiteImageUploadTicket = { ok: true; uploadUrl: string; publicUrl: string } | { ok: false; error: string };
+
+/**
+ * Uploading a picture for a picture module (WC-251) takes two steps, the same
+ * shape as a task's file (app/tasks/actions.ts, startUpload), so the picture
+ * never passes through the web server:
+ *
+ * 1. `startSiteImageUpload` checks, through core, that the member may manage
+ *    the website and the file is a png, jpeg, gif or webp of at most 5 MB,
+ *    then asks storage, as the member, for a one-time link to put it in the
+ *    public `site-images` bucket. No key goes to the browser, only that link
+ *    and the picture's public address.
+ * 2. The browser sends the file straight to storage with the link, and only
+ *    once storage says it is stored puts the address in the picture's field.
+ *
+ * Nothing is saved on the page until the manager presses the page's Save.
+ */
+export async function startSiteImageUpload(name: string, type: string, sizeBytes: number): Promise<SiteImageUploadTicket> {
+  try {
+    const who = await acting("the picture was not uploaded");
+    if (!who.ok) return who;
+    const { path } = await planSiteImageUpload(who.deps, { actorId: who.actorId, name, type, sizeBytes, randomId: randomUUID() });
+    const bucket = who.supabase.storage.from(SITE_IMAGES_BUCKET);
+    const { data, error } = await bucket.createSignedUploadUrl(path);
+    if (error || !data?.signedUrl) {
+      console.error("website: storage refused a picture upload link:", error?.message);
+      return { ok: false, error: "File storage refused the upload, so nothing was uploaded. The picture is as it was; try again." };
+    }
+    return { ok: true, uploadUrl: data.signedUrl, publicUrl: bucket.getPublicUrl(path).data.publicUrl };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not start a picture upload:", err);
+    return { ok: false, error: "Could not upload the picture. The picture is as it was; try again." };
   }
 }
