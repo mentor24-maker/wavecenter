@@ -12,7 +12,7 @@ import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings
 import { shownName } from "../members/memberView";
 import SiteHeader from "../SiteHeader";
 import ChatWindow, { type OpenChat } from "./ChatWindow";
-import { CHAT_ID, SOMEONE, chatList, chatPartner, chatPartnerOptions, chatTopic } from "./chatView";
+import { CHAT_ID, SOMEONE, chatList, chatPartnerOptions, chatPeople, chatTopic } from "./chatView";
 import { COMM_MODES, commHref, type CommMode } from "./commMode";
 import { loadMessaging } from "./messageList";
 import Messaging from "./Messaging";
@@ -124,12 +124,14 @@ export default async function CommScreen({ mode, openId }: { mode: CommMode; ope
       openProblem = "This chat was not found. It may not exist, or you may not be in it.";
     } else {
       const messages = await read(() => listChatMessages(store, user.id, chat));
-      const other = who(chatPartner(chat, user.id));
+      const people = chatPeople(chat, user.id, who);
       open = {
         id: chat.id,
         topic: chatTopic(chat, titles),
-        otherName: other.name,
-        otherSymbol: other.symbol,
+        otherName: people.otherName,
+        otherSymbol: people.otherSymbol,
+        group: people.group,
+        senderNames: people.names,
         messages: messages.value ?? [],
         error: messages.error,
       };

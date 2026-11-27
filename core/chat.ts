@@ -4,12 +4,14 @@
  * for now"; "Chat's next to and about tasks would be ideal").
  *
  * A chat is a conversation between members, optionally about one task. Its
- * members are a list, not a pair, so group chats can come later without a
- * rebuild; today every chat has exactly two. Separate from messages
- * (core/messages.ts), which are one-way, emailed and carry a subject.
+ * members are a list, not a pair: two, or a group of up to CHAT_MEMBERS_MAX
+ * (WC-252, "Let a Comm chat include more than two members"). Separate from
+ * messages (core/messages.ts), which are one-way, emailed and carry a
+ * subject.
  *
  * The database repeats every rule here (`start_chat` and `send_chat_message`,
- * supabase/migrations/20261112120000_chats.sql), so a client that skips core
+ * supabase/migrations/20261112120000_chats.sql; the group form of
+ * `start_chat`, 20261128130000_group_chats.sql), so a client that skips core
  * is refused too. Its row-level security lets a member read a chat, its
  * members and its messages only when they are in it; `listChats` and
  * `listChatMessages` drop anything else a store hands back, so a store that
@@ -26,6 +28,9 @@ import { CoreError, requireTool } from './tool.ts';
 /** The longest chat message the database takes, in characters, after trimming. */
 export const CHAT_BODY_MAX = 4000;
 
+/** The most members one chat may have, the member starting it included (WC-252). */
+export const CHAT_MEMBERS_MAX = 10;
+
 /** One conversation. */
 export interface Chat {
   id: string;
@@ -37,7 +42,7 @@ export interface Chat {
    * plain chat (supabase/migrations/20261113120000_chats_about_a_task.sql).
    */
   aboutATask: boolean;
-  /** Everyone in it. Two today. */
+  /** Everyone in it: two, or a group of up to CHAT_MEMBERS_MAX. */
   memberIds: string[];
   /** Who started it; null once their account is gone. */
   createdBy: string | null;
@@ -64,12 +69,12 @@ export interface ChatMessage {
  */
 export interface ChatStore {
   /**
-   * The chat between the signed-in member and `otherMemberId` about `taskId`
-   * (null: a plain chat): the one already there, or a new one, made on
-   * behalf of `tool`. Throws for an unknown member or a task the member may
-   * not read.
+   * The chat whose members are exactly the signed-in member and
+   * `otherMemberIds`, about `taskId` (null: a plain chat): the one already
+   * there, or a new one, made on behalf of `tool`. Throws for an unknown
+   * member or a task the member may not read.
    */
-  start(otherMemberId: string, taskId: string | null, tool: string): Promise<{ id: string }>;
+  start(otherMemberIds: string[], taskId: string | null, tool: string): Promise<{ id: string }>;
   /** Save a message from the signed-in member. Throws if they are not in the chat. */
   send(chatId: string, body: string, tool: string): Promise<{ id: string }>;
   /** The chats `memberId` is in, in any order. */
@@ -78,12 +83,35 @@ export interface ChatStore {
   messages(chatId: string): Promise<ChatMessage[]>;
 }
 
-/** Why `memberId` cannot start a chat with `otherMemberId`, in plain words, or null if they can. */
-export function startChatProblem(memberId: string, otherMemberId: string): string | null {
+/** The other members of a chat to start: one id, or a list of them. */
+export type ChatOthers = string | readonly string[];
+
+/** `others` as a list. */
+export function chatOthers(others: ChatOthers): string[] {
+  return typeof others === 'string' ? [others] : [...others];
+}
+
+/**
+ * Why `memberId` cannot start a chat with `others`, in plain words, or null
+ * if they can: there must be at least one other member, no more than
+ * CHAT_MEMBERS_MAX in all (you included), not yourself, and nobody twice.
+ * The database checks the rules in this same order, and also that every
+ * member exists.
+ */
+export function startChatProblem(memberId: string, others: ChatOthers): string | null {
   if (!memberId) return 'You are signed out, so no chat was started.';
-  if (!otherMemberId) return 'There is no such member.';
-  if (otherMemberId === memberId) return 'You cannot start a chat with yourself.';
+  const ids = chatOthers(others);
+  if (ids.length === 0) return 'Pick at least one other member to chat with.';
+  if (ids.length + 1 > CHAT_MEMBERS_MAX) return `A chat can have at most ${CHAT_MEMBERS_MAX} members, you included, so no chat was started.`;
+  if (ids.some((id) => !id)) return 'There is no such member.';
+  if (ids.includes(memberId)) return 'You cannot start a chat with yourself.';
+  if (new Set(ids).size !== ids.length) return 'The same member was picked twice, so no chat was started.';
   return null;
+}
+
+/** Whether `chat` is a group chat: more than two members. */
+export function isGroupChat(chat: Pick<Chat, 'memberIds'>): boolean {
+  return chat.memberIds.length > 2;
 }
 
 /** Why a chat message cannot be sent, in plain words, or null if it can. Nothing is saved for a refused message. */
@@ -100,23 +128,24 @@ export function isInChat(chat: Pick<Chat, 'memberIds'>, memberId: string): boole
 }
 
 /**
- * `memberId` starts (or finds) their chat with `otherMemberId`, about
- * `taskId` if given, on behalf of `tool`. Starting it twice, from either
- * side, finds the same chat. A new chat is scored for `memberId`
- * (`started_a_chat`), naming `tool`; finding one already there is not. Throws
- * a CoreError, with nothing saved, for a chat with yourself or a missing
+ * `memberId` starts (or finds) their chat with `otherMemberIds` (one member,
+ * or several for a group), about `taskId` if given, on behalf of `tool`.
+ * Starting it again with the same set of members, from any of them, finds
+ * the same chat. A new chat is scored for `memberId` (`started_a_chat`),
+ * naming `tool`; finding one already there is not. Throws a CoreError, with
+ * nothing saved, for a chat breaking startChatProblem's rules or a missing
  * tool; a store refusal (an unknown member, a task you may not read) throws
  * too.
  */
 export async function startChat(
   store: ChatStore,
-  input: { memberId: string; otherMemberId: string; taskId?: string | null },
+  input: { memberId: string; otherMemberIds: ChatOthers; taskId?: string | null },
   tool: string,
 ): Promise<{ id: string }> {
   const named = requireTool(tool);
-  const problem = startChatProblem(input.memberId, input.otherMemberId);
+  const problem = startChatProblem(input.memberId, input.otherMemberIds);
   if (problem) throw new CoreError(problem);
-  const started = await store.start(input.otherMemberId, input.taskId ?? null, named);
+  const started = await store.start(chatOthers(input.otherMemberIds), input.taskId ?? null, named);
   if (!started?.id) throw new CoreError('The chat did not start. Nothing was saved; try again.');
   return { id: started.id };
 }

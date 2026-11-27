@@ -14,7 +14,7 @@ import { listMembers } from "../../lib/memberRoleStore";
 import type { supabaseForRequest } from "../../lib/supabase";
 import { shownName } from "../../members/memberView";
 import type { OpenChat } from "../../comm/ChatWindow";
-import { CHAT_ID, SOMEONE, chatList, chatPartner, type ChatListItem } from "../../comm/chatView";
+import { CHAT_ID, SOMEONE, chatList, chatPeople, type ChatListItem } from "../../comm/chatView";
 import type { ChatPartnerOption } from "./TaskChats";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
@@ -75,7 +75,7 @@ export async function taskChatPanel(supabase: Client, me: string, task: Pick<Tas
     if (!chat) {
       openProblem = "That chat was not found among your chats about this task. It may not exist, or you may not be in it.";
     } else {
-      const other = who(chatPartner(chat, me));
+      const other = chatPeople(chat, me, who);
       let messages: ChatMessage[] = [];
       let error: string | null = null;
       try {
@@ -83,7 +83,7 @@ export async function taskChatPanel(supabase: Client, me: string, task: Pick<Tas
       } catch (err) {
         error = reason(err);
       }
-      open = { id: chat.id, topic: { kind: "task", taskId: task.id, title: task.title }, otherName: other.name, otherSymbol: other.symbol, messages, error };
+      open = { id: chat.id, topic: { kind: "task", taskId: task.id, title: task.title }, otherName: other.otherName, otherSymbol: other.otherSymbol, group: other.group, senderNames: other.names, messages, error };
     }
   }
 

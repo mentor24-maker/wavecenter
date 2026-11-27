@@ -20,8 +20,8 @@
  * member's session is ever handed an email address (`public.messages`,
  * `message_recipient_email`); that a member stars and trashes only messages
  * they sent or received, only through set_message_mark, and reads only their
- * own marks (`public.message_marks`); that any two members chat only through
- * start_chat and send_chat_message, and a member reads a chat, its members
+ * own marks (`public.message_marks`); that any two members, or a group of up
+ * to 10, chat only through start_chat and send_chat_message, and a member reads a chat, its members
  * and its messages only when they are in it (`public.chats`,
  * `public.chat_members`, `public.chat_messages`), and only they mark a chat
  * read for themselves, which clears its unread count for them alone
@@ -1041,6 +1041,75 @@ try {
       `HTTP ${svcChat.status} ${JSON.stringify(svcChat.json)}, A had ${sa.length} now ${saAfter.length}`);
     if (svcChat.json?.[0]?.id) await admin(`/rest/v1/chats?id=eq.${svcChat.json[0].id}`, { method: 'DELETE' });
     startedChatPointsA = sa.reduce((sum, e) => sum + e.points, 0);
+  }
+
+  // Group chats (20261128130000_group_chats.sql, WC-252): start_chat takes a
+  // list of members; the same set, from any of them and in any order, finds
+  // the one chat; the two-person call still works and is found by its set;
+  // the rules are refused in plain words with nothing made; three members
+  // each see the others' messages unread, never their own; a new group chat
+  // scores once, for whoever started it. Fresh members, so the totals
+  // checked for A and B elsewhere are untouched.
+  {
+    const [g1, g2, g3, gOut] = [await makeUser('group-1'), await makeUser('group-2'), await makeUser('group-3'), await makeUser('group-out')];
+    const groupRpc = (who, body, tool) => call('/rest/v1/rpc/start_chat', { method: 'POST', token: who.token, body, tool });
+    const chatsMade = async () => (await admin('/rest/v1/chats?select=id')).json?.length;
+    const g = await groupRpc(g1, { other_members: [g2.id, g3.id] });
+    const gAgain = await groupRpc(g2, { other_members: [g3.id, g1.id] });
+    const gThird = await groupRpc(g3, { other_members: [g1.id, g2.id], about_task: null });
+    const gMembers = (await call(`/rest/v1/chat_members?chat_id=eq.${g.json}&select=member_id`, { token: g3.token })).json ?? [];
+    check('a group chat starts with everyone in it, and the same set again, from any member in any order, finds it',
+      g.status === 200 && typeof g.json === 'string' && gAgain.json === g.json && gThird.json === g.json
+        && gMembers.map((m) => m.member_id).sort().join() === [g1.id, g2.id, g3.id].sort().join(),
+      `HTTP ${g.status} ${JSON.stringify(g.json)}, again ${JSON.stringify(gAgain.json)}, third ${JSON.stringify(gThird.json)}, members ${JSON.stringify(gMembers)}`);
+    const gPair = await groupRpc(g1, { other_members: [g2.id] });
+    const gPairOld = await groupRpc(g2, { other_member: g1.id });
+    check('two of the group is its own chat, and the two-person call finds that same chat',
+      gPair.status === 200 && gPair.json !== g.json && gPairOld.status === 200 && gPairOld.json === gPair.json,
+      `list form ${JSON.stringify(gPair.json)}, two-person form HTTP ${gPairOld.status} ${JSON.stringify(gPairOld.json)}`);
+    const gRaced = await Promise.all([groupRpc(g1, { other_members: [g2.id, g3.id], about_task: insA.id }), groupRpc(g2, { other_members: [g1.id, g3.id], about_task: insA.id }), groupRpc(g3, { other_members: [g2.id, g1.id], about_task: insA.id })]);
+    check('the three members starting the same group about a task at once make one chat, apart from the plain group',
+      gRaced.every((r) => r.status === 200 && r.json === gRaced[0].json) && gRaced[0].json !== g.json, JSON.stringify(gRaced.map((r) => [r.status, r.json])));
+    const before = await chatsMade();
+    const refusals = {
+      empty: await groupRpc(g1, { other_members: [] }),
+      self: await groupRpc(g1, { other_members: [g2.id, g1.id] }),
+      twice: await groupRpc(g1, { other_members: [g2.id, g3.id, g2.id] }),
+      tooMany: await groupRpc(g1, { other_members: Array.from({ length: 10 }, () => randomUUID()) }),
+      unknown: await groupRpc(g1, { other_members: [g2.id, randomUUID()] }),
+      signedOut: await call('/rest/v1/rpc/start_chat', { method: 'POST', body: { other_members: [g1.id, g2.id] } }),
+    };
+    const after = await chatsMade();
+    const said = (r, words) => r.status >= 400 && words.test(r.json?.message ?? '');
+    check('the database refuses a group with nobody else, yourself, someone twice, more than 10 members, an unknown member, and a signed-out visitor, in plain words, and makes no chat',
+      said(refusals.empty, /at least one other member/) && said(refusals.self, /yourself/) && said(refusals.twice, /picked twice/)
+        && said(refusals.tooMany, /at most 10 members, you included/) && said(refusals.unknown, /no such member/) && refusals.signedOut.status >= 400 && before === after,
+      `${Object.entries(refusals).map(([k, r]) => `${k} HTTP ${r.status} ${r.json?.message ?? ''}`).join('; ')}; chats ${before} then ${after}`);
+    const gSend = (who, body) => call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: who.token, body: { chat: g.json, body, tool: TOOL } });
+    const sent = [await gSend(g1, 'hello all'), await gSend(g2, 'hi from 2'), await gSend(g3, 'hi from 3')];
+    const gUnread = async (who) => {
+      const r = await call('/rest/v1/rpc/my_chat_unread', { method: 'POST', token: who.token, body: {} });
+      return (Array.isArray(r.json) ? r.json : []).find((row) => row.chat_id === g.json)?.unread ?? 0;
+    };
+    const counts = [await gUnread(g1), await gUnread(g2), await gUnread(g3)];
+    const gRead = await call(`/rest/v1/chat_messages?chat_id=eq.${g.json}&select=sender_id,body&order=created_at`, { token: g2.token });
+    check('three members each send in the group; each reads all three, and has the other two unread, never their own',
+      sent.every((r) => r.status === 200 && typeof r.json === 'string') && JSON.stringify(counts) === '[2,2,2]'
+        && JSON.stringify((gRead.json ?? []).map((m) => m.sender_id)) === JSON.stringify([g1.id, g2.id, g3.id]),
+      `sends ${sent.map((r) => r.status).join(',')}, unread ${JSON.stringify(counts)}, read ${JSON.stringify(gRead.json)}`);
+    await call('/rest/v1/rpc/mark_chat_read', { method: 'POST', token: g1.token, body: { chat: g.json } });
+    await gSend(g2, 'one more');
+    const counts2 = [await gUnread(g1), await gUnread(g2), await gUnread(g3)];
+    check('a new group message counts once more for each other member, and not for its sender', JSON.stringify(counts2) === '[1,2,3]', JSON.stringify(counts2));
+    const outRead = await call(`/rest/v1/chat_messages?chat_id=eq.${g.json}&select=body`, { token: gOut.token });
+    const outSay = await call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: gOut.token, body: { chat: g.json, body: 'Let me in', tool: TOOL } });
+    check('a member outside the group reads nothing of it and cannot write in it', outRead.json?.length === 0 && outSay.status >= 400, `read ${JSON.stringify(outRead.json)}, send HTTP ${outSay.status}`);
+    const startedBy = async (who) => (await admin(`/rest/v1/engagements?member_id=eq.${who.id}&kind=eq.started_a_chat&select=id`)).json?.length ?? 0;
+    const [s1, s2, s3] = [await startedBy(g1), await startedBy(g2), await startedBy(g3)];
+    const racedMaker = (await admin(`/rest/v1/chats?id=eq.${gRaced[0].json}&select=created_by`)).json?.[0]?.created_by;
+    check('each new chat scores "Started a chat" once, for whoever started it; finding one already there and a refused start score nothing',
+      s1 === 2 + (racedMaker === g1.id ? 1 : 0) && s2 === (racedMaker === g2.id ? 1 : 0) && s3 === (racedMaker === g3.id ? 1 : 0),
+      `group-1 ${s1}, group-2 ${s2}, group-3 ${s3}, raced chat made by ${racedMaker}`);
   }
 
   // Unread chat messages (20261113150000_chat_unread.sql): a message is

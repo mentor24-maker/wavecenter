@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CHAT_BODY_MAX, chatMessageProblem, chatSubject, chatsAboutTask, countUnread, isInChat, isUnreadChatMessage, listChatMessages, listChats, markChatRead, sendChatMessage, startChat, startChatProblem, unreadBadge, unreadChats } from './chat.ts';
+import { CHAT_BODY_MAX, CHAT_MEMBERS_MAX, chatMessageProblem, chatOthers, isGroupChat, chatSubject, chatsAboutTask, countUnread, isInChat, isUnreadChatMessage, listChatMessages, listChats, markChatRead, sendChatMessage, startChat, startChatProblem, unreadBadge, unreadChats } from './chat.ts';
 import { MemoryChatStore } from './memoryChatStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 const TOOL = 'wavecenter';
 const MIGRATION = readFileSync(new URL('../supabase/migrations/20261112120000_chats.sql', import.meta.url), 'utf8');
+const GROUP_MIGRATION = readFileSync(new URL('../supabase/migrations/20261128130000_group_chats.sql', import.meta.url), 'utf8');
 const UNREAD_MIGRATION = readFileSync(new URL('../supabase/migrations/20261113150000_chat_unread.sql', import.meta.url), 'utf8');
 
 function scoredSetup() {
@@ -18,7 +19,7 @@ function scoredSetup() {
 /** Sign in as `who` and start their chat with `other`. */
 async function chatAs(store: MemoryChatStore, who: string, other: string, taskId: string | null = null) {
   store.signedIn = who;
-  return (await startChat(store, { memberId: who, otherMemberId: other, taskId }, TOOL)).id;
+  return (await startChat(store, { memberId: who, otherMemberIds: other, taskId }, TOOL)).id;
 }
 
 test('starting a chat twice, from either side, finds the same chat; a task makes it a different one', async () => {
@@ -36,13 +37,85 @@ test('starting a chat twice, from either side, finds the same chat; a task makes
 
 test('a chat with yourself, an unknown member or a task you may not read is refused, and nothing is saved', async () => {
   const store = new MemoryChatStore();
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'dane' }, TOOL), /cannot start a chat with yourself/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'nobody' }, TOOL), /no such member/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: '' }, TOOL), /no such member/);
-  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberId: 'kim', taskId: 'task-gone' }, TOOL), /no task of that id you may read/);
-  await assert.rejects(startChat(store, { memberId: '', otherMemberId: 'kim' }, TOOL), /signed out/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: 'dane' }, TOOL), /cannot start a chat with yourself/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: 'nobody' }, TOOL), /no such member/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: '' }, TOOL), /no such member/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: 'kim', taskId: 'task-gone' }, TOOL), /no task of that id you may read/);
+  await assert.rejects(startChat(store, { memberId: '', otherMemberIds: 'kim' }, TOOL), /signed out/);
   assert.equal(store.chatRows.length, 0);
   assert.equal(startChatProblem('dane', 'kim'), null);
+});
+
+test('a group chat: several members start one chat, and the same set again, from any of them, finds it (WC-252)', async () => {
+  const { ledger, chats: store } = scoredSetup();
+  store.signedIn = 'dane';
+  const group = (await startChat(store, { memberId: 'dane', otherMemberIds: ['kim', 'lee'] }, TOOL)).id;
+  assert.deepEqual(store.chatRows[0].memberIds, ['dane', 'kim', 'lee']);
+  assert.equal(isGroupChat(store.chatRows[0]), true);
+  store.signedIn = 'lee';
+  assert.equal((await startChat(store, { memberId: 'lee', otherMemberIds: ['dane', 'kim'] }, TOOL)).id, group, 'another member, the set in another order');
+  store.signedIn = 'kim';
+  assert.equal((await startChat(store, { memberId: 'kim', otherMemberIds: ['lee', 'dane'] }, TOOL)).id, group);
+  const pair = await chatAs(store, 'kim', 'dane');
+  assert.notEqual(pair, group, 'two of the group is a different chat');
+  assert.equal(isGroupChat(store.chatRows[1]), false);
+  const aboutTask = (await startChat(store, { memberId: 'kim', otherMemberIds: ['lee', 'dane'], taskId: 'task-1' }, TOOL)).id;
+  assert.notEqual(aboutTask, group, 'the same group about a task is its own chat');
+  assert.equal(store.chatRows.length, 3);
+  const started = ledger.rows.filter((r) => r.kind === 'started_a_chat');
+  assert.deepEqual(started.map((r) => r.memberId), ['dane', 'kim', 'kim'], 'only a new chat scores, for whoever started it');
+  // Everyone in the group reads it and writes in it; each one's unread counts the others' messages.
+  for (const who of ['dane', 'kim', 'lee']) {
+    store.signedIn = who;
+    await sendChatMessage(store, { senderId: who, chatId: group, body: `hello from ${who}` }, TOOL);
+  }
+  for (const who of ['dane', 'kim', 'lee']) {
+    store.signedIn = who;
+    assert.deepEqual(await store.unread(), [{ chatId: group, unread: 2 }], `${who} has the other two's messages unread, never their own`);
+  }
+});
+
+test('a group is refused, with nothing saved, with nobody else, yourself, someone twice, or more than the limit', async () => {
+  const store = new MemoryChatStore();
+  for (let i = 0; i < 20; i += 1) store.members.add(`m${i}`);
+  const others = (n: number) => Array.from({ length: n }, (_, i) => `m${i}`);
+  assert.equal(CHAT_MEMBERS_MAX, 10);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: [] }, TOOL), /at least one other member/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: ['kim', 'dane'] }, TOOL), /cannot start a chat with yourself/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: ['kim', 'lee', 'kim'] }, TOOL), /picked twice/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: others(CHAT_MEMBERS_MAX) }, TOOL), /at most 10 members, you included/);
+  await assert.rejects(startChat(store, { memberId: 'dane', otherMemberIds: ['kim', 'nobody'] }, TOOL), /no such member/);
+  assert.equal(store.chatRows.length, 0);
+  const full = await startChat(store, { memberId: 'dane', otherMemberIds: others(CHAT_MEMBERS_MAX - 1) }, TOOL);
+  assert.equal(store.chatRows.find((c) => c.id === full.id)?.memberIds.length, CHAT_MEMBERS_MAX, 'exactly the limit is allowed');
+});
+
+test('startChatProblem names each refusal in plain words, in the database\'s order', () => {
+  assert.equal(startChatProblem('dane', ['kim', 'lee']), null);
+  assert.equal(startChatProblem('dane', 'kim'), null, 'a single member still works');
+  assert.match(startChatProblem('', ['kim']) ?? '', /signed out/);
+  assert.match(startChatProblem('dane', []) ?? '', /at least one other member/);
+  assert.match(startChatProblem('dane', ['', 'kim']) ?? '', /no such member/);
+  assert.match(startChatProblem('dane', ['dane']) ?? '', /yourself/);
+  assert.match(startChatProblem('dane', ['kim', 'kim']) ?? '', /twice/);
+  assert.match(startChatProblem('dane', Array.from({ length: 10 }, (_, i) => `x${i}`)) ?? '', /at most 10/);
+  assert.deepEqual(chatOthers('kim'), ['kim']);
+  assert.deepEqual(chatOthers(['kim', 'lee']), ['kim', 'lee']);
+  assert.equal(isGroupChat({ memberIds: ['a', 'b'] }), false);
+});
+
+test('the database repeats the group rules in the same words, finds a chat by its whole set, and keeps the two-person call', () => {
+  const code = GROUP_MIGRATION.replace(/--.*$/gm, '');
+  assert.match(code, /function public\.start_chat\(other_members uuid\[\], about_task uuid default null\)/);
+  assert.match(code, /function public\.start_chat\(other_member uuid, about_task uuid default null\)[\s\S]*return public\.start_chat\(array\[other_member\], about_task\)/);
+  for (const words of ['Pick at least one other member to chat with.', 'A chat can have at most 10 members, you included, so no chat was started.', 'There is no such member.', 'You cannot start a chat with yourself.', 'The same member was picked twice, so no chat was started.']) {
+    assert.ok(code.includes(words), `the database says "${words}"`);
+  }
+  assert.match(code, /cardinality\(others\) \+ 1 > 10/, 'the limit is CHAT_MEMBERS_MAX');
+  assert.match(code, /pg_advisory_xact_lock/, 'a lock on the whole set');
+  assert.match(code, /grant execute on function public\.start_chat\(uuid\[\], uuid\) to authenticated;/);
+  assert.match(code, /revoke execute on function public\.start_chat\(uuid\[\], uuid\) from public, anon;/);
+  assert.doesNotMatch(code, /create table|grant (insert|update|delete)/i, 'no new table and no direct writes');
 });
 
 test('a member in the chat sends a message: it is saved trimmed, with its tool', async () => {
@@ -88,11 +161,11 @@ test('starting a new chat records one engagement for the member who started it; 
   assert.equal(await chatAs(store, 'dane', 'kim'), first, 'the same member opens it again');
   assert.equal(await chatAs(store, 'kim', 'dane'), first, 'the other member opens it');
   store.signedIn = 'kim';
-  await startChat(store, { memberId: 'kim', otherMemberId: 'dane', taskId: 'task-1' }, 'another-tool');
+  await startChat(store, { memberId: 'kim', otherMemberIds: 'dane', taskId: 'task-1' }, 'another-tool');
   // Refused: nothing is made, so nothing is recorded.
   await assert.rejects(chatAs(store, 'lee', 'lee'), /yourself/);
   await assert.rejects(chatAs(store, 'lee', 'nobody'), /no such member/);
-  await assert.rejects(startChat(store, { memberId: 'lee', otherMemberId: 'kim' }, '  '), /must name the tool/);
+  await assert.rejects(startChat(store, { memberId: 'lee', otherMemberIds: 'kim' }, '  '), /must name the tool/);
   const points = (await ledger.rules()).find((r) => r.kind === 'started_a_chat')!.points;
   assert.equal(points, 1);
   assert.deepEqual(ledger.rows.map(({ memberId, kind, points, tool, taskId }) => ({ memberId, kind, points, tool, taskId })), [
@@ -134,7 +207,7 @@ test('a failed save says so; it is never reported as sent', async () => {
   await assert.rejects(sendChatMessage(store, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /refused to save/);
   const blank = { ...store, start: store.start.bind(store), send: async () => ({ id: '' }), chats: store.chats.bind(store), messages: store.messages.bind(store) };
   await assert.rejects(sendChatMessage(blank, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /did not save/);
-  await assert.rejects(startChat({ ...blank, start: async () => ({ id: '' }) }, { memberId: 'dane', otherMemberId: 'kim' }, TOOL), /did not start/);
+  await assert.rejects(startChat({ ...blank, start: async () => ({ id: '' }) }, { memberId: 'dane', otherMemberIds: 'kim' }, TOOL), /did not start/);
 });
 
 test('a member outside a chat reads nothing from it, even from a store that reads too much', async () => {

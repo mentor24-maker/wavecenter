@@ -38,16 +38,20 @@ async function signedIn(what: string): Promise<Signed> {
 }
 
 /**
- * Find or start the signed-in member's chat with `otherMemberId`, about task
- * `taskId` if given (the task page's "Chat about this task" panel). Doing it
- * again finds the same chat; a chat about a task and a plain chat between the
- * same two are separate. The database refuses a task the member may not read.
+ * Find or start the signed-in member's chat with `otherMemberIds`: one member
+ * (the Members page, the task page's "Chat about this task" panel) or several
+ * for a group chat (the Comm picker, WC-252), about task `taskId` if given.
+ * Doing it again with the same set of members finds the same chat; a chat
+ * about a task and a plain chat between the same members are separate. The
+ * database refuses a task the member may not read.
  */
-export async function startChatWith(otherMemberId: string, taskId: string | null = null): Promise<ChatStartResult> {
+export async function startChatWith(otherMemberIds: string | string[], taskId: string | null = null): Promise<ChatStartResult> {
   try {
     const me = await signedIn("no chat was started");
     if (!me.ok) return me;
-    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberId, taskId }, WAVECENTER_TOOL);
+    // A server action takes whatever the browser sends: keep only strings.
+    const others = Array.isArray(otherMemberIds) ? otherMemberIds.map((id) => (typeof id === "string" ? id : "")) : typeof otherMemberIds === "string" ? otherMemberIds : "";
+    const { id } = await startChat(me.store, { memberId: me.memberId, otherMemberIds: others, taskId }, WAVECENTER_TOOL);
     revalidatePath("/comm");
     if (taskId) revalidatePath(`/tasks/${taskId}`);
     return { ok: true, id };

@@ -3,9 +3,10 @@
  * (supabase/migrations/20261112120000_chats.sql and
  * 20261113120000_chats_about_a_task.sql):
  *
- * - `start` is `start_chat`: it refuses an unknown member, yourself and a
- *   task that does not exist, and finds the chat already there for the pair
- *   and task, whichever of the two starts it. A plain chat is never found
+ * - `start` is `start_chat` (20261128130000_group_chats.sql): it refuses
+ *   what core's startChatProblem refuses, an unknown member and a task that
+ *   does not exist, and finds the chat already there for the whole set of
+ *   members and the task, whichever of them starts it. A plain chat is never found
  *   among chats whose task was deleted. `deleteTask` deletes a task the way
  *   the database's on-delete-set-null does. Given an engagement store, a new
  *   chat (never one found) is scored for the member who started it, as
@@ -52,18 +53,18 @@ export class MemoryChatStore implements ChatStore, ChatReadStore {
     return new Date(Date.UTC(2026, 10, 12, 0, 0, this.clock)).toISOString();
   }
 
-  async start(otherMemberId: string, taskId: string | null, tool: string) {
-    if (!this.members.has(otherMemberId)) throw new CoreError('There is no such member.');
-    const problem = startChatProblem(this.signedIn, otherMemberId);
+  async start(otherMemberIds: string[], taskId: string | null, tool: string) {
+    const problem = startChatProblem(this.signedIn, otherMemberIds);
     if (problem) throw new CoreError(problem);
+    if (otherMemberIds.some((id) => !this.members.has(id))) throw new CoreError('There is no such member.');
     if (taskId !== null && !this.tasks.has(taskId)) throw new CoreError('There is no task of that id you may read, so no chat was started.');
-    const pair = [this.signedIn, otherMemberId].sort().join(' ');
-    const found = this.chatRows.find((c) => c.taskId === taskId && c.aboutATask === (taskId !== null) && [...c.memberIds].sort().join(' ') === pair);
+    const everyone = [this.signedIn, ...otherMemberIds].sort().join(' ');
+    const found = this.chatRows.find((c) => c.taskId === taskId && c.aboutATask === (taskId !== null) && [...c.memberIds].sort().join(' ') === everyone);
     if (found) return { id: found.id };
     if (this.engagements) {
       await recordEngagement(this.engagements, { memberId: this.signedIn, kind: 'started_a_chat', tool });
     }
-    const chat: Chat = { id: `chat-${this.chatRows.length + 1}`, taskId, aboutATask: taskId !== null, memberIds: [this.signedIn, otherMemberId], createdBy: this.signedIn, createdAt: this.now() };
+    const chat: Chat = { id: `chat-${this.chatRows.length + 1}`, taskId, aboutATask: taskId !== null, memberIds: [this.signedIn, ...otherMemberIds], createdBy: this.signedIn, createdAt: this.now() };
     this.chatRows.push(chat);
     return { id: chat.id };
   }
