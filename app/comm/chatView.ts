@@ -186,14 +186,93 @@ export function isSearching(query: string): boolean {
   return searchWords(query).length > 0;
 }
 
-/** The plain line when a search finds nothing (rule 7). */
-export function noMatchLine(query: string): string {
-  return `No messages match "${query.trim()}".`;
+/**
+ * The days a member picked to see the chat between (WC-245): each a
+ * Mountain-time day as `<input type="date">` gives it ("YYYY-MM-DD"), or ""
+ * for no limit on that side. Both ends are whole days and inclusive.
+ */
+export interface DateRange {
+  from: string;
+  to: string;
 }
 
-/** The line over a search's results: how many of the chat's messages match. */
-export function matchCountLine(shown: number, total: number, query: string): string {
-  return `${shown} of ${total} ${total === 1 ? "message matches" : "messages match"} "${query.trim()}".`;
+/** No date limit at all. */
+export const ANY_DATE: DateRange = { from: "", to: "" };
+
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A picked day, or "" when the box is blank or holds anything but a day. */
+function pickedDay(value: string): string {
+  const v = value.trim();
+  return DAY_KEY.test(v) ? v : "";
+}
+
+/** Whether `range` limits the dates at all. */
+export function isDateFiltering(range: DateRange): boolean {
+  return pickedDay(range.from) !== "" || pickedDay(range.to) !== "";
+}
+
+/** Whether the From day is after the To day, so nothing can fall between them. */
+export function isRangeBackwards(range: DateRange): boolean {
+  const from = pickedDay(range.from);
+  const to = pickedDay(range.to);
+  return from !== "" && to !== "" && from > to;
+}
+
+/**
+ * The messages sent within `range`, judged by their Mountain-time day (the
+ * same day the date breaks show), in their order. A blank From starts at the
+ * first message, a blank To runs up to now; both ends inclusive. A message
+ * whose time cannot be read is kept only while no date is picked.
+ */
+export function messagesInRange<T extends Pick<ChatMessage, "sentAt">>(messages: readonly T[], range: DateRange): T[] {
+  const from = pickedDay(range.from);
+  const to = pickedDay(range.to);
+  if (from === "" && to === "") return [...messages];
+  return messages.filter((m) => {
+    const at = new Date(m.sentAt);
+    if (Number.isNaN(at.getTime())) return false;
+    const key = DATE_KEY.format(at);
+    return (from === "" || key >= from) && (to === "" || key <= to);
+  });
+}
+
+/** A picked day as the lines say it: "Nov 1", with the year when it is not this year. */
+function dayWords(key: string, now: Date): string {
+  const [y, m, d] = key.split("-").map(Number);
+  // Noon UTC is the same calendar day in Mountain time.
+  const at = new Date(Date.UTC(y, m - 1, d, 12));
+  return (key.slice(0, 4) === DATE_KEY.format(now).slice(0, 4) ? DAY : DAY_YEAR).format(at);
+}
+
+/** The range in words: "from Nov 1 to Nov 20", "on Nov 1" for one day, "from Nov 1", "up to Nov 20", or "" for none. */
+export function rangeWords(range: DateRange, now: Date = new Date()): string {
+  const from = pickedDay(range.from);
+  const to = pickedDay(range.to);
+  if (from && from === to) return `on ${dayWords(from, now)}`;
+  if (from && to) return `from ${dayWords(from, now)} to ${dayWords(to, now)}`;
+  if (from) return `from ${dayWords(from, now)}`;
+  if (to) return `up to ${dayWords(to, now)}`;
+  return "";
+}
+
+/** The plain note when the From day is after the To day (rule 7: never a bare empty box). */
+export function backwardsRangeLine(range: DateRange, now: Date = new Date()): string {
+  return `The From date (${dayWords(pickedDay(range.from), now)}) is after the To date (${dayWords(pickedDay(range.to), now)}), so no message can fall between them. Change one of the dates.`;
+}
+
+/** The plain line when a search finds nothing (rule 7), naming the dates when some are picked. */
+export function noMatchLine(query: string, range: DateRange = ANY_DATE, now: Date = new Date()): string {
+  const dates = rangeWords(range, now);
+  if (!isSearching(query)) return `No messages ${dates || "match"}.`;
+  return `No messages match "${query.trim()}"${dates ? ` ${dates}` : ""}.`;
+}
+
+/** The line over a search's results: how many of the chat's messages match, and between which dates. */
+export function matchCountLine(shown: number, total: number, query: string, range: DateRange = ANY_DATE, now: Date = new Date()): string {
+  const dates = rangeWords(range, now);
+  if (!isSearching(query)) return `${shown} of ${total} ${total === 1 ? "message was" : "messages were"} sent ${dates}.`;
+  return `${shown} of ${total} ${total === 1 ? "message matches" : "messages match"} "${query.trim()}"${dates ? ` ${dates}` : ""}.`;
 }
 
 const WEEKDAY_DAY = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, weekday: "long", month: "short", day: "numeric" });
