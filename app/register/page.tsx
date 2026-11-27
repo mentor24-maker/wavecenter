@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { register } from "../auth/actions";
 import { MIN_PASSWORD_LENGTH } from "../auth/authErrors";
+import GoogleButton, { GOOGLE_ERRORS } from "../auth/GoogleButton";
 import SiteHeader from "../SiteHeader";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest, supabaseSettings } from "../lib/supabase";
 
@@ -15,6 +16,7 @@ const ERRORS: Record<string, string> = {
   rate: "Too many emails were sent in a short time. Wait a few minutes, then try again.",
   send: "Your account could not be created, or the confirmation email could not be sent. Try again in a minute; if it keeps failing, the email service needs a look.",
   setup: "Registering is not switched on for this copy of WaveCenter yet: its Supabase settings are missing.",
+  ...GOOGLE_ERRORS,
 };
 
 /**
@@ -40,7 +42,7 @@ export default async function Register({ searchParams }: { searchParams: Promise
             Check your email to confirm your address. Open the link in this browser; it signs you in to WaveCenter.
           </p>
         ) : (
-          <p className="lede">Create your WaveCenter account with your email and a password.</p>
+          <p className="lede">Create your WaveCenter account with Google, or with your email and a password.</p>
         )}
         {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
         {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
@@ -50,15 +52,18 @@ export default async function Register({ searchParams }: { searchParams: Promise
           </p>
         ) : (
           !sent && (
-            <form action={register} className="stack panel">
-              <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" autoComplete="email" required />
-              <label htmlFor="password">Password (at least {MIN_PASSWORD_LENGTH} characters)</label>
-              <input id="password" name="password" type="password" autoComplete="new-password" required />
-              <label htmlFor="confirm">Confirm password</label>
-              <input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-              <button type="submit">Register</button>
-            </form>
+            <>
+              <GoogleButton from="/register" />
+              <form action={register} className="stack panel">
+                <label htmlFor="email">Email</label>
+                <input id="email" name="email" type="email" autoComplete="email" required />
+                <label htmlFor="password">Password (at least {MIN_PASSWORD_LENGTH} characters)</label>
+                <input id="password" name="password" type="password" autoComplete="new-password" required />
+                <label htmlFor="confirm">Confirm password</label>
+                <input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+                <button type="submit">Register</button>
+              </form>
+            </>
           )
         )}
         <p className="note">
