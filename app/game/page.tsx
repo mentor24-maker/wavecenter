@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { isWired, mayManageScoring, type Engagement, type ScoringPhase, type ScoringRule } from "../../core/game.ts";
+import { isWired, mayManageScoring, summarizeScoringRuleVotes, type Engagement, type ScoringPhase, type ScoringRule, type ScoringRuleVoteSummary } from "../../core/game.ts";
 import { scoreFinishedTasks } from "../../core/score.ts";
 import type { Task } from "../../core/tasks.ts";
 import { headerCatchUp, supabaseEngagementLedger, supabaseScoringPhaseStore } from "../lib/engagementStore";
@@ -9,10 +9,12 @@ import { finalWhen } from "../lib/scoringPhaseText";
 import { readFinishedTasks } from "../lib/taskStore";
 import { headerName } from "../lib/memberProfileStore";
 import { headerIsAdmin, myRole, readRolesAndPermissions } from "../lib/memberRoleStore";
+import { supabaseScoringRuleVoteStore } from "../lib/scoringRuleVoteStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import ExploreDialog from "./ExploreDialog";
 import GameMenu from "./GameMenu";
+import RuleVoteCells from "./RuleVoteCells";
 
 /** How many of the member's engagements the page lists. */
 const LATEST = 50;
@@ -84,7 +86,7 @@ export default async function Game() {
   }
 
   const ledger = supabaseEngagementLedger(supabase, user.id);
-  const [name, isAdmin, rules, total, latest, finished, role, lists, catchUp, phase] = await Promise.all([
+  const [name, isAdmin, rules, total, latest, finished, role, lists, catchUp, phase, ruleVotes] = await Promise.all([
     headerName(supabase, user),
     headerIsAdmin(supabase, user.id),
     read(() => ledger.rules()),
@@ -95,6 +97,7 @@ export default async function Game() {
     read(() => readRolesAndPermissions(supabase)),
     headerCatchUp(supabase, user.id),
     read(() => supabaseScoringPhaseStore(supabase).phase()),
+    read(async () => summarizeScoringRuleVotes(await supabaseScoringRuleVoteStore(supabase, user.id).all(), user.id)),
   ]);
   // The menu's Manage item shows only when the role and grants were read and allow it.
   const mayManage = role.error === null && lists.error === null && mayManageScoring({ role: role.value, grants: lists.value.grants });
@@ -124,7 +127,7 @@ export default async function Game() {
           </section>
 
           <FinishedTasks finished={finished} />
-          <RulesTable rules={rules} />
+          <RulesTable rules={rules} votes={ruleVotes} />
           <History latest={latest} rules={rules.value ?? []} />
         </div>
       </main>
@@ -231,7 +234,18 @@ function FinishedTasks({ finished }: { finished: Read<Task[]> }) {
   );
 }
 
-function RulesTable({ rules }: { rules: Read<ScoringRule[]> }) {
+/** What a rule's row shows when nobody has voted on it. */
+const NO_VOTES: ScoringRuleVoteSummary = { average: null, voters: 0, mine: null };
+
+/**
+ * The scoring rules: what each action earns (the admin's value, the rule's
+ * points) and, beside it, what members say it is worth: their average and
+ * the signed-in member's own vote, which they cast, change or withdraw here.
+ * The votes are collected and shown, not yet counted: an action still earns
+ * the admin's value. If the votes could not be read, the table says so and
+ * has no vote boxes.
+ */
+function RulesTable({ rules, votes }: { rules: Read<ScoringRule[]>; votes: Read<Map<string, ScoringRuleVoteSummary>> }) {
   const title = "How points are earned";
   if (rules.error !== null) {
     return (
@@ -248,29 +262,46 @@ function RulesTable({ rules }: { rules: Read<ScoringRule[]> }) {
     );
   }
   const active = rules.value.filter((r) => isWired(r.kind)).length;
+  const voted = votes.error === null ? rules.value.filter((r) => votes.value.has(r.kind)).length : 0;
   const table = (
-    <table className="game compact">
-      <thead>
-        <tr>
-          <th scope="col">What you do</th>
-          <th scope="col">What counts</th>
-          <th scope="col" className="num">Points</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rules.value.map((r) => (
-          <tr key={r.kind}>
-            <td>
-              <b>{r.name}</b>
-              {r.description && <span className="note block">{r.description}</span>}
-              {!isWired(r.kind) && <span className="badge block">Not active yet: nothing records this action, so it earns nothing.</span>}
-            </td>
-            <td className="note">{r.criteria}</td>
-            <td className="num">{r.points}</td>
+    <>
+      <p className="note">
+        The admin&apos;s value is what an action earns today. Members&apos; votes on what each action is worth are collected and
+        shown beside it, but do not change any points yet.
+      </p>
+      {votes.error !== null && (
+        <p className="error" role="alert">The members&apos; votes could not be loaded, so you cannot vote right now: {votes.error}. Try reloading the page.</p>
+      )}
+      <table className="game compact">
+        <thead>
+          <tr>
+            <th scope="col">What you do</th>
+            <th scope="col">What counts</th>
+            <th scope="col" className="num vote-gap">Admin&apos;s value</th>
+            {votes.error === null && (
+              <>
+                <th scope="col" className="num vote-gap">Members&apos; average</th>
+                <th scope="col" className="vote-gap">Your vote</th>
+              </>
+            )}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rules.value.map((r) => (
+            <tr key={r.kind}>
+              <td>
+                <b>{r.name}</b>
+                {r.description && <span className="note block">{r.description}</span>}
+                {!isWired(r.kind) && <span className="badge block">Not active yet: nothing records this action, so it earns nothing.</span>}
+              </td>
+              <td className="note">{r.criteria}</td>
+              <td className="num vote-gap">{r.points}</td>
+              {votes.error === null && <RuleVoteCells kind={r.kind} name={r.name} summary={votes.value.get(r.kind) ?? NO_VOTES} />}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
   return (
     <Pod id="rules" title={title} explore={table}>
@@ -279,9 +310,10 @@ function RulesTable({ rules }: { rules: Read<ScoringRule[]> }) {
           ["Rules", rules.value.length.toLocaleString("en-US")],
           ["Active", active.toLocaleString("en-US")],
           ["Not active yet", (rules.value.length - active).toLocaleString("en-US")],
+          ["Voted on", votes.error === null ? voted.toLocaleString("en-US") : "Not loaded"],
         ]}
       />
-      <p className="note">Explore to see what each action is worth and what counts.</p>
+      <p className="note">Explore to see what each action is worth and what counts, and to vote on what you think it should be worth.</p>
     </Pod>
   );
 }

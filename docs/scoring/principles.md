@@ -101,8 +101,12 @@ What this means in practice:
 The canon says values are set "through a **continuously voted valuation
 repository** [...] so that the value attributed to each form of engagement
 gravitates toward it's natural level much as prices do in markets" (canon,
-"Engagement and Intelligence"). Today an admin sets them; members' votes on
-actions are planned (`docs/SCORING_GAME_PLAN.md`, sub-task 6).
+"Engagement and Intelligence"). Today an admin sets them. Since 2026-11-27
+members vote on what each action is worth, on the Game page
+(`scoring_rule_votes`; `docs/SCORING_GAME_PLAN.md`, sub-task 6): their
+average is shown beside the admin's value, but it does not count yet. What
+an action earns is still the admin's value until Dane decides how the votes
+count in it.
 
 ## In-person engagement is valued highest
 
