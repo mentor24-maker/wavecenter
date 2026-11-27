@@ -30,13 +30,14 @@
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
 import { markChatReadNow, sendChat, startChatWith } from "./actions";
 import {
   A_TASK,
   CHAT_UNREAD_EVENT,
+  clockLabel,
   DELETED_TASK,
   isSearching,
   listTimeLabel,
@@ -49,6 +50,7 @@ import {
   searchMessages,
   sendsOnKey,
   sentLabel,
+  withDayBreaks,
   type ChatListItem,
   type ChatPartnerOption,
   type ChatTopic,
@@ -389,15 +391,22 @@ export function Conversation({
           <p className="note" role="status">{noMatchLine(query)}</p>
         ) : (
           <ol>
-            {shownMessages.map((m) => {
+            {withDayBreaks(shownMessages).map(({ day, message: m }) => {
               const mine = m.senderId === me;
               return (
-                <li key={m.id} className={mine ? "chat-message mine" : "chat-message"}>
-                  <span className="chat-meta note">
-                    <b>{mine ? "You" : chat.otherName}</b> · <time dateTime={m.sentAt}>{sentLabel(m.sentAt)}</time>
-                  </span>
-                  <span className="chat-body">{m.body}</span>
-                </li>
+                <Fragment key={m.id}>
+                  {day && (
+                    <li className="chat-day-break" role="separator" aria-label={day.label}>
+                      <span className="chat-day-label">{day.label}</span>
+                    </li>
+                  )}
+                  <li className={mine ? "chat-message mine" : "chat-message"}>
+                    <span className="chat-meta note">
+                      <b>{mine ? "You" : chat.otherName}</b> · <time dateTime={m.sentAt} title={sentLabel(m.sentAt)}>{clockLabel(m.sentAt)}</time>
+                    </span>
+                    <span className="chat-body">{m.body}</span>
+                  </li>
+                </Fragment>
               );
             })}
           </ol>
