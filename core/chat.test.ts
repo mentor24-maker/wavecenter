@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CHAT_BODY_MAX, CHAT_MEMBERS_MAX, chatMessageProblem, chatOthers, isGroupChat, chatSubject, chatsAboutTask, countUnread, isInChat, isUnreadChatMessage, listChatMessages, listChats, markChatRead, sendChatMessage, startChat, startChatProblem, unreadBadge, unreadChats } from './chat.ts';
+import { CHAT_BODY_MAX, CHAT_MEMBERS_MAX, addChatMember, addChatMemberProblem, chatMessageProblem, chatOthers, isGroupChat, chatSubject, chatsAboutTask, countUnread, isInChat, isUnreadChatMessage, listChatMessages, listChats, markChatRead, sendChatMessage, startChat, startChatProblem, unreadBadge, unreadChats } from './chat.ts';
 import { MemoryChatStore } from './memoryChatStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 
 const TOOL = 'wavecenter';
 const MIGRATION = readFileSync(new URL('../supabase/migrations/20261112120000_chats.sql', import.meta.url), 'utf8');
 const GROUP_MIGRATION = readFileSync(new URL('../supabase/migrations/20261128130000_group_chats.sql', import.meta.url), 'utf8');
+const ADD_MIGRATION = readFileSync(new URL('../supabase/migrations/20261128150000_add_chat_member.sql', import.meta.url), 'utf8');
 const UNREAD_MIGRATION = readFileSync(new URL('../supabase/migrations/20261113150000_chat_unread.sql', import.meta.url), 'utf8');
 
 function scoredSetup() {
@@ -205,7 +206,7 @@ test('a failed save says so; it is never reported as sent', async () => {
   const chat = await chatAs(store, 'dane', 'kim');
   store.failNextSend = true;
   await assert.rejects(sendChatMessage(store, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /refused to save/);
-  const blank = { ...store, start: store.start.bind(store), send: async () => ({ id: '' }), chats: store.chats.bind(store), messages: store.messages.bind(store) };
+  const blank = { ...store, start: store.start.bind(store), send: async () => ({ id: '' }), chats: store.chats.bind(store), messages: store.messages.bind(store), addMember: store.addMember.bind(store) };
   await assert.rejects(sendChatMessage(blank, { senderId: 'dane', chatId: chat, body: 'Hi' }, TOOL), /did not save/);
   await assert.rejects(startChat({ ...blank, start: async () => ({ id: '' }) }, { memberId: 'dane', otherMemberIds: 'kim' }, TOOL), /did not start/);
 });
@@ -370,4 +371,101 @@ test('what a chat is about, and the chats about one task', () => {
   const chats = [{ id: 'a', taskId: 'task-1' }, { id: 'b', taskId: null }, { id: 'c', taskId: 'task-2' }, { id: 'd', taskId: 'task-1' }];
   assert.deepEqual(chatsAboutTask(chats, 'task-1').map((c) => c.id), ['a', 'd']);
   assert.deepEqual(chatsAboutTask(chats, ''), []);
+});
+
+// WC-256: a member of a chat brings one more person into it.
+test('a member of a two-person chat adds a third: it becomes a group, and they read every earlier message', async () => {
+  const store = new MemoryChatStore();
+  const id = await chatAs(store, 'dane', 'kim');
+  await sendChatMessage(store, { senderId: 'dane', chatId: id, body: 'before lee' }, TOOL);
+  const chat = (await listChats(store, 'dane')).find((c) => c.id === id)!;
+  assert.deepEqual(await addChatMember(store, { memberId: 'dane', chat, newMemberId: 'lee' }), { id });
+  store.signedIn = 'lee';
+  const lees = await listChats(store, 'lee');
+  assert.deepEqual(lees.map((c) => c.id), [id], 'the chat is in their list');
+  assert.equal(isGroupChat(lees[0]), true);
+  assert.deepEqual((await listChatMessages(store, 'lee', lees[0])).map((m) => m.body), ['before lee']);
+  assert.deepEqual(await store.unread(), [{ chatId: id, unread: 1 }], 'never read: the earlier message counts for them');
+  await sendChatMessage(store, { senderId: 'lee', chatId: id, body: 'hi' }, TOOL);
+  store.signedIn = 'dane';
+  assert.deepEqual(await store.unread(), [{ chatId: id, unread: 1 }], 'their message counts for the others');
+});
+
+test('a chat about a task may grow too, and adding someone scores nothing', async () => {
+  const { ledger, chats } = scoredSetup();
+  const id = await chatAs(chats, 'dane', 'kim', 'task-1');
+  const before = ledger.rows.length;
+  const chat = (await listChats(chats, 'dane')).find((c) => c.id === id)!;
+  await addChatMember(chats, { memberId: 'dane', chat, newMemberId: 'lee' });
+  assert.equal(ledger.rows.length, before, 'not a scored action');
+  assert.deepEqual(chats.chatRows.find((c) => c.id === id)!.memberIds.sort(), ['dane', 'kim', 'lee']);
+});
+
+test('adding someone already in, an unknown member, past the limit, or from outside the chat is refused, and nothing changes', async () => {
+  const store = new MemoryChatStore();
+  const id = await chatAs(store, 'dane', 'kim');
+  const chat = (await listChats(store, 'dane')).find((c) => c.id === id)!;
+  const members = () => JSON.stringify(store.chatRows.find((c) => c.id === id)!.memberIds);
+  const start = members();
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat, newMemberId: 'kim' }), /already in this chat/);
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat, newMemberId: 'dane' }), /already in this chat/);
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat, newMemberId: 'nobody' }), /no such member/);
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat, newMemberId: '' }), /no such member/);
+  // Lee is not in it: core refuses, and so does the store even when core is skipped.
+  await assert.rejects(addChatMember(store, { memberId: 'lee', chat, newMemberId: 'lee' }), /not in that chat/);
+  store.signedIn = 'lee';
+  await assert.rejects(store.addMember(id, 'lee'), /not in that chat/);
+  await assert.rejects(store.addMember('chat-none', 'lee'), /not in that chat/);
+  store.signedIn = 'dane';
+  const full = { ...chat, memberIds: Array.from({ length: CHAT_MEMBERS_MAX }, (_, i) => (i === 0 ? 'dane' : `m${i}`)) };
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat: full, newMemberId: 'lee' }), /at most 10 members/);
+  assert.equal(members(), start);
+});
+
+test('the store refuses a chat that is already full, even when core is skipped', async () => {
+  const store = new MemoryChatStore();
+  for (let i = 1; i < CHAT_MEMBERS_MAX; i += 1) store.members.add(`m${i}`);
+  store.members.add('one-too-many');
+  const id = await chatAs(store, 'dane', 'kim');
+  for (let i = 1; store.chatRows[0].memberIds.length < CHAT_MEMBERS_MAX; i += 1) await store.addMember(id, `m${i}`);
+  await assert.rejects(store.addMember(id, 'one-too-many'), /at most 10 members/);
+  assert.equal(store.chatRows[0].memberIds.length, CHAT_MEMBERS_MAX);
+});
+
+test('a failed add says so; it is never reported as done', async () => {
+  const store = new MemoryChatStore();
+  const id = await chatAs(store, 'dane', 'kim');
+  const chat = (await listChats(store, 'dane')).find((c) => c.id === id)!;
+  store.failNextAdd = true;
+  await assert.rejects(addChatMember(store, { memberId: 'dane', chat, newMemberId: 'lee' }), /refused/);
+  assert.equal(store.chatRows[0].memberIds.includes('lee'), false);
+  const unconfirmed = { start: store.start.bind(store), send: store.send.bind(store), chats: store.chats.bind(store), messages: store.messages.bind(store), addMember: async () => ({ id: '' }) };
+  await assert.rejects(addChatMember(unconfirmed, { memberId: 'dane', chat, newMemberId: 'lee' }), /did not confirm/);
+});
+
+test('addChatMemberProblem names each refusal in plain words, in the database\'s order', () => {
+  const chat = { memberIds: ['dane', 'kim'] };
+  assert.match(addChatMemberProblem(chat, '', 'lee') ?? '', /signed out/);
+  assert.match(addChatMemberProblem(chat, 'lee', 'lee') ?? '', /not in that chat/);
+  assert.match(addChatMemberProblem(chat, 'dane', '') ?? '', /no such member/);
+  assert.match(addChatMemberProblem(chat, 'dane', 'kim') ?? '', /already in this chat/);
+  assert.equal(addChatMemberProblem(chat, 'dane', 'lee'), null, 'two may grow into three');
+  const nine = { memberIds: ['dane', ...Array.from({ length: CHAT_MEMBERS_MAX - 2 }, (_, i) => `m${i}`)] };
+  assert.equal(addChatMemberProblem(nine, 'dane', 'lee'), null, 'the tenth fits');
+  assert.match(addChatMemberProblem({ memberIds: [...nine.memberIds, 'x'] }, 'dane', 'lee') ?? '', /at most 10 members/);
+});
+
+test('the database repeats the add rules in the same words and order, one add at a time, with no direct writes', () => {
+  const code = ADD_MIGRATION.replace(/--.*$/gm, '');
+  assert.match(code, /function public\.add_chat_member\(chat uuid, new_member uuid\)/);
+  assert.match(code, /security definer/);
+  const order = ['You are signed out, so nobody was added.', 'You are not in that chat, so nobody was added.', 'There is no such member, so nobody was added.', 'That member is already in this chat, so nobody was added.', 'A chat can have at most 10 members, so nobody was added.'];
+  const at = order.map((words) => code.indexOf(words));
+  assert.ok(at.every((i) => i > 0), 'every refusal is there');
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'in core\'s order');
+  assert.match(code, /members_now \+ 1 > 10/, 'the limit is CHAT_MEMBERS_MAX');
+  assert.match(code, /pg_advisory_xact_lock/);
+  assert.match(code, /revoke execute on function public\.add_chat_member\(uuid, uuid\) from public, anon;/);
+  assert.match(code, /grant execute on function public\.add_chat_member\(uuid, uuid\) to authenticated;/);
+  assert.doesNotMatch(code, /create table|grant (insert|update|delete)|record_engagement/i, 'no new table, no direct writes, not scored');
 });

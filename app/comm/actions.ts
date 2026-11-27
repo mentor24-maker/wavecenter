@@ -10,13 +10,14 @@
  * and keeps what was typed (engineering rule 6).
  */
 import { revalidatePath } from "next/cache";
-import { markChatRead, sendChatMessage, startChat, unreadChats } from "../../core/chat.ts";
+import { addChatMember, listChats, markChatRead, sendChatMessage, startChat, unreadChats } from "../../core/chat.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { supabaseChatStore } from "../lib/chatStore";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
 
 export type ChatStartResult = { ok: true; id: string } | { ok: false; error: string };
 export type ChatSendResult = { ok: true } | { ok: false; error: string };
+export type ChatAddResult = { ok: true } | { ok: false; error: string };
 export type ChatReadResult = { ok: true } | { ok: false; error: string };
 export type ChatUnreadResult = { ok: true; chats: number; memberId: string } | { ok: false; error: string };
 
@@ -76,6 +77,33 @@ export async function sendChat(chatId: string, body: string): Promise<ChatSendRe
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error("chat: could not send a message:", err);
     return { ok: false, error: "Could not send the message. Nothing was saved; try again." };
+  }
+  revalidatePath("/comm");
+  return { ok: true };
+}
+
+/**
+ * Bring member `newMemberId` into chat `chatId`, as the signed-in member
+ * (WC-256). Only a member already in the chat may; the database refuses
+ * anyone else too (`add_chat_member`). Not scored. A refusal comes back as
+ * `{ ok: false }` in plain words, and nobody is added (rule 6).
+ */
+export async function addToChat(chatId: string, newMemberId: string): Promise<ChatAddResult> {
+  try {
+    const me = await signedIn("nobody was added");
+    if (!me.ok) return me;
+    if (typeof chatId !== "string" || typeof newMemberId !== "string") return { ok: false, error: "There is no such member, so nobody was added." };
+    // The chat as the member may read it: row-level security hands back only
+    // chats they are in, so a chat they are not in is not found here.
+    const chat = (await listChats(me.store, me.memberId)).find((c) => c.id === chatId);
+    if (!chat) return { ok: false, error: "You are not in that chat, so nobody was added." };
+    await addChatMember(me.store, { memberId: me.memberId, chat, newMemberId });
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    const refused = err instanceof Error ? /^The database refused to add the member: (.+)$/.exec(err.message) : null;
+    if (refused) return { ok: false, error: refused[1] };
+    console.error("chat: could not add a member:", err);
+    return { ok: false, error: "Could not add them. Nobody was added; try again." };
   }
   revalidatePath("/comm");
   return { ok: true };

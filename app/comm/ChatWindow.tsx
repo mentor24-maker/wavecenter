@@ -43,10 +43,11 @@ import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { CHAT_BODY_MAX, CHAT_MEMBERS_MAX, chatMessageProblem, startChatProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
-import { markChatReadNow, sendChat, startChatWith } from "./actions";
+import { addToChat, markChatReadNow, sendChat, startChatWith } from "./actions";
 import { useCommDates } from "./CommDates";
 import {
   A_TASK,
+  addableMembers,
   CHAT_UNREAD_EVENT,
   clockLabel,
   DELETED_TASK,
@@ -69,6 +70,7 @@ import {
   newestFirst,
   newestFromOthers,
   noMatchLine,
+  notAdded,
   notStarted,
   preview,
   namesInWords,
@@ -94,6 +96,8 @@ export interface OpenChat {
   group?: boolean;
   /** Each other member's id to their name, for naming senders in a group. */
   senderNames?: Record<string, string>;
+  /** Everyone in it, the viewer included (WC-256: who "Add someone" leaves out). Absent: no adding here. */
+  memberIds?: string[];
   messages: ChatMessage[];
   /** Why its messages could not be read, or null. */
   error: string | null;
@@ -109,6 +113,9 @@ export const NO_MESSAGES_ABOVE = "No messages yet. Say hello above.";
 export const NO_PARTNERS = "There is nobody else to chat with yet: you are the only member.";
 const UNREACHABLE = "Could not reach WaveCenter, so the message was not sent. Check your connection and try again.";
 const START_UNREACHABLE = "Could not reach WaveCenter, so no chat was started. Check your connection and try again.";
+const ADD_UNREACHABLE = "Could not reach WaveCenter, so nobody was added. Check your connection and try again.";
+/** The "Add someone" picker when everyone else is already in the chat (rule 7). */
+export const EVERYONE_IN_CHAT = "Everyone else is already in this chat.";
 
 export default function ChatWindow({
   me,
@@ -211,7 +218,15 @@ export default function ChatWindow({
               {chats.length ? "Pick a chat from the list to read it, or pick a member above." : "Pick a member above to start a chat; it opens here."}
             </p>
           ) : (
-            <Conversation key={open.id} me={me} chat={open} newestOnTop searchable range={datesNarrowMessages(applyTo) ? range : ANY_DATE} />
+            <Conversation
+              key={open.id}
+              me={me}
+              chat={open}
+              newestOnTop
+              searchable
+              range={datesNarrowMessages(applyTo) ? range : ANY_DATE}
+              addFrom={{ partners, problem: partnersError }}
+            />
           )}
         </section>
       </div>
@@ -351,6 +366,8 @@ function ContactPicker({ me, partners, problem }: { me: string; partners: ChatPa
  * scrolling off the bottom. `searchable` adds a field that shows only the
  * messages holding the words typed; `range` (the From and To days the chat
  * window picks, WC-245/WC-253) shows only the messages sent between them.
+ * `addFrom` (the Sync mode's window, WC-256) adds an "Add someone" button
+ * under the heading, offering the members not yet in the chat.
  */
 export function Conversation({
   me,
@@ -359,6 +376,7 @@ export function Conversation({
   newestOnTop = false,
   searchable = false,
   range = ANY_DATE,
+  addFrom,
 }: {
   me: string;
   chat: OpenChat;
@@ -366,6 +384,8 @@ export function Conversation({
   newestOnTop?: boolean;
   searchable?: boolean;
   range?: DateRange;
+  /** The members "Add someone" may offer, and why they could not be listed (or null). Absent: no adding. */
+  addFrom?: { partners: ChatPartnerOption[]; problem: string | null };
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -488,6 +508,7 @@ export function Conversation({
         <span aria-hidden="true">{chat.otherSymbol}</span> {chat.otherName}
       </h2>
       {showTopic && chat.topic && <TopicLine topic={chat.topic} />}
+      {addFrom && chat.memberIds && <AddSomeone chatId={chat.id} memberIds={chat.memberIds} partners={addFrom.partners} problem={addFrom.problem} />}
       {newestOnTop && sendForm}
       {searchable && chat.error === null && chat.messages.length > 0 && (
         <div className="chat-search">
@@ -554,6 +575,88 @@ export function Conversation({
       {!newestOnTop && readLine}
       {!newestOnTop && sendForm}
     </>
+  );
+}
+
+/**
+ * "Add someone" (WC-256, "Let a chat member add one more person to a
+ * chat"): opens a picker of the members not yet in the chat; picking one and
+ * pressing Add brings them in, and the page reloads so the heading and the
+ * column heads name them. A refused or failed add says so and adds nobody
+ * (rule 6); a full chat, or one everyone is already in, says why there is
+ * nobody to pick (rule 7).
+ */
+function AddSomeone({ chatId, memberIds, partners, problem }: { chatId: string; memberIds: string[]; partners: ChatPartnerOption[]; problem: string | null }) {
+  const router = useRouter();
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState("");
+  const [failure, setFailure] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const candidates = addableMembers(partners, memberIds);
+  const full = memberIds.length >= CHAT_MEMBERS_MAX;
+
+  function close() {
+    setPicking(false);
+    setPicked("");
+    setFailure(null);
+  }
+
+  function add(e: FormEvent) {
+    e.preventDefault();
+    if (!picked) {
+      setFailure("Nobody was added. Pick a member first.");
+      return;
+    }
+    setFailure(null);
+    startTransition(async () => {
+      try {
+        const result = await addToChat(chatId, picked);
+        if (!result.ok) {
+          setFailure(notAdded(result.error));
+          return;
+        }
+        close();
+        router.refresh();
+      } catch {
+        setFailure(ADD_UNREACHABLE);
+      }
+    });
+  }
+
+  if (!picking) {
+    return (
+      <p className="chat-add">
+        <button type="button" className="link" onClick={() => setPicking(true)}>Add someone</button>
+      </p>
+    );
+  }
+  const why =
+    problem !== null
+      ? `The members could not be listed, so nobody can be added right now: ${problem}. Try reloading the page.`
+      : full
+        ? `This chat is full: a chat can have at most ${CHAT_MEMBERS_MAX} members.`
+        : candidates.length === 0
+          ? EVERYONE_IN_CHAT
+          : null;
+  return (
+    <form className="chat-add" onSubmit={add}>
+      {why !== null ? (
+        <p className={problem !== null ? "error" : "note"} role={problem !== null ? "alert" : "status"}>{why}</p>
+      ) : (
+        <>
+          <label htmlFor={`chat-add-${chatId}`}>Add to this chat</label>
+          <select id={`chat-add-${chatId}`} value={picked} onChange={(e) => { setPicked(e.target.value); setFailure(null); }}>
+            <option value="">Pick a member…</option>
+            {candidates.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <button type="submit" disabled={pending}>{pending ? "Adding…" : "Add"}</button>
+        </>
+      )}
+      <button type="button" className="link" onClick={close} disabled={pending}>{why !== null ? "Close" : "Cancel"}</button>
+      {failure && <p className="error" role="alert">{failure}</p>}
+    </form>
   );
 }
 

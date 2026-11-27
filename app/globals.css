@@ -1084,6 +1084,8 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 .task-chat-open { margin-top: 0.75rem; }
 .chat-topic { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-topic-line { margin-top: -0.5rem; }
+.chat-add { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 var(--space); }
+.chat-add > .error, .chat-add > .note { flex-basis: 100%; margin: 0; }
 @media (max-width: 48rem) {
   .task-top { grid-template-columns: 1fr; }
   .task-chat-start { grid-template-columns: 1fr; }

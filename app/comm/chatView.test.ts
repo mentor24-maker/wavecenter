@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, GROUP_SYMBOL, SOMEONE, chatPeople, namesInWords, senderName, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, chatsInRange, chatCountLine, noChatsLine, DATES_APPLY_TO, datesNarrowMessages, datesNarrowChats, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, GROUP_SYMBOL, SOMEONE, chatPeople, namesInWords, senderName, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, chatsInRange, chatCountLine, noChatsLine, DATES_APPLY_TO, datesNarrowMessages, datesNarrowChats, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, notAdded, addableMembers, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -330,4 +330,16 @@ test("the chat list's lines name the dates and say why it is empty", () => {
 test("the toggle offers Messages, Chat list and Both, and each narrows what it names", () => {
   assert.deepEqual(DATES_APPLY_TO.map((o) => o.label), ["Messages", "Chat list", "Both"]);
   assert.deepEqual(DATES_APPLY_TO.map((o) => [datesNarrowMessages(o.value), datesNarrowChats(o.value)]), [[true, false], [false, true], [true, true]]);
+});
+
+test("Add someone offers only the members not yet in the chat, in the selector's order (WC-256)", () => {
+  const partners = [{ id: "a", name: "Ana" }, { id: "b", name: "Ben" }, { id: "c", name: "Cal" }];
+  assert.deepEqual(addableMembers(partners, ["me", "b"]).map((p) => p.id), ["a", "c"]);
+  assert.deepEqual(addableMembers(partners, ["me", "a", "b", "c"]), [], "nobody left: the picker says so");
+  assert.deepEqual(addableMembers([], ["me", "b"]), []);
+});
+
+test("a refused add says nobody was added, once", () => {
+  assert.equal(notAdded("That member is already in this chat, so nobody was added."), "That member is already in this chat, so nobody was added.");
+  assert.equal(notAdded("Try again."), "Nobody was added. Try again.");
 });

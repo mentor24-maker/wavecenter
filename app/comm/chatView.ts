@@ -206,6 +206,21 @@ export function chatPartnerOptions(members: { memberId: string; name: string }[]
     .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/**
+ * The members an open chat's "Add someone" picker offers (WC-256): the
+ * contact selector's members (everyone but the viewer, A–Z) less anyone
+ * already in the chat.
+ */
+export function addableMembers(partners: readonly ChatPartnerOption[], memberIds: readonly string[]): ChatPartnerOption[] {
+  const inChat = new Set(memberIds);
+  return partners.filter((p) => !inChat.has(p.id));
+}
+
+/** A refused add, said once: "Nobody was added." goes in front only when the reason does not already say so. */
+export function notAdded(reason: string): string {
+  return /nobody was added/i.test(reason) ? reason : `Nobody was added. ${reason}`;
+}
+
 /** The open chat's messages, newest first (WC-235: "Keep the most recent entries on top"). A copy; the input is untouched. */
 export function newestFirst<T extends Pick<ChatMessage, "sentAt">>(messages: readonly T[]): T[] {
   return [...messages].sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0));
