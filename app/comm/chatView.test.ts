@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, chatsInRange, chatCountLine, noChatsLine, DATES_APPLY_TO, datesNarrowMessages, datesNarrowChats, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, GROUP_SYMBOL, SOMEONE, chatPeople, namesInWords, senderName, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, chatsInRange, chatCountLine, noChatsLine, DATES_APPLY_TO, datesNarrowMessages, datesNarrowChats, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -14,6 +14,29 @@ test("the other member in a chat is whoever is not you; a chat you are alone in 
   assert.equal(chatPartner({ memberIds: ["me", "lee"] }, "me"), "lee");
   assert.equal(chatPartner({ memberIds: ["lee", "me"] }, "me"), "lee");
   assert.equal(chatPartner({ memberIds: ["me"] }, "me"), null);
+});
+
+test("a group chat is named by every other member, A to Z, under the group avatar; a two-person chat as before (WC-252)", () => {
+  assert.equal(namesInWords([]), "");
+  assert.equal(namesInWords(["Ana"]), "Ana");
+  assert.equal(namesInWords(["Ana", "Ben"]), "Ana and Ben");
+  assert.equal(namesInWords(["Ana", "Ben", "Cal"]), "Ana, Ben and Cal");
+  const group = chatPeople({ memberIds: ["sam", "me", "lee", "kim"] }, "me", who);
+  assert.deepEqual(group, { otherId: "kim", otherName: "Kim, Lee and Sam", otherSymbol: GROUP_SYMBOL, group: true, names: { sam: "Sam", lee: "Lee", kim: "Kim" } });
+  const pair = chatPeople({ memberIds: ["me", "lee"] }, "me", who);
+  assert.deepEqual(pair, { otherId: "lee", otherName: "Lee", otherSymbol: "🌊", group: false, names: { lee: "Lee" } });
+  const [item] = chatList([chat("g", ["me", "sam", "lee"], "2026-11-10T10:00:00Z")], new Map(), "me", who);
+  assert.equal(item.otherName, "Lee and Sam");
+  assert.equal(item.otherSymbol, GROUP_SYMBOL);
+  assert.equal(item.group, true);
+});
+
+test("each message in a group names its sender: you, their name, or a plain name for someone the page could not name", () => {
+  const names = { lee: "Lee" };
+  assert.equal(senderName("me", "me", names), "You");
+  assert.equal(senderName("lee", "me", names), "Lee");
+  assert.equal(senderName("gone", "me", names), SOMEONE);
+  assert.equal(senderName("toString", "me", names), SOMEONE, "never a name off the object's prototype");
 });
 
 test("the list puts the chat with the newest activity first, a quiet chat by when it was started", () => {
@@ -29,7 +52,7 @@ test("the list puts the chat with the newest activity first, a quiet chat by whe
   const list = chatList(chats, latest, "me", who);
   assert.deepEqual(list.map((c) => c.id), ["a", "c", "b"]);
   assert.deepEqual(list[0], {
-    id: "a", topic: null, otherId: "lee", otherName: "Lee", otherSymbol: "🌊",
+    id: "a", topic: null, otherId: "lee", otherName: "Lee", otherSymbol: "🌊", group: false,
     last: { body: "newest of all", sentAt: "2026-11-13T09:00:00Z", mine: false },
     activeAt: "2026-11-13T09:00:00Z",
     unread: 0,

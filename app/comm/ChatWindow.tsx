@@ -21,7 +21,10 @@
  * Talk to anyone from here (WC-235): a contact selector on top of the chat
  * area picks a member and opens your chat with them, or starts one, through
  * the same startChatWith action as the Members page's Chat button, so
- * picking someone you already chat with never makes a second chat. The open
+ * picking someone you already chat with never makes a second chat. Ticking
+ * several members starts a group chat (WC-252); ticking the same set again
+ * opens the group already there. A group chat is named by all its other
+ * members, and each of its messages names who sent it. The open
  * chat shows its newest message on top, under the send box, with older ones
  * scrolling off the bottom, and a search field finds messages by the words
  * in them.
@@ -38,7 +41,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
-import { CHAT_BODY_MAX, chatMessageProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
+import { CHAT_BODY_MAX, CHAT_MEMBERS_MAX, chatMessageProblem, startChatProblem, unreadBadge, type ChatMessage } from "../../core/chat.ts";
 import { listenToTable, type LiveSettings, type LiveState } from "../lib/realtimeClient";
 import { markChatReadNow, sendChat, startChatWith } from "./actions";
 import { useCommDates } from "./CommDates";
@@ -68,7 +71,9 @@ import {
   noMatchLine,
   notStarted,
   preview,
+  namesInWords,
   searchMessages,
+  senderName,
   sendsOnKey,
   sentLabel,
   withDayBreaks,
@@ -82,8 +87,13 @@ export interface OpenChat {
   id: string;
   /** The task it is about, if any. */
   topic: ChatTopic;
+  /** The other member's name, or in a group every other member's. */
   otherName: string;
   otherSymbol: string;
+  /** A group chat (WC-252): each message then names its sender. Absent: two members. */
+  group?: boolean;
+  /** Each other member's id to their name, for naming senders in a group. */
+  senderNames?: Record<string, string>;
   messages: ChatMessage[];
   /** Why its messages could not be read, or null. */
   error: string | null;
@@ -192,7 +202,7 @@ export default function ChatWindow({
           {/* WC-253: one row: From, To, what they narrow, then "Chat with". */}
           <div className="chat-top-row">
             <DateFilter range={range} onRange={setRange} applyTo={applyTo} onApplyTo={setApplyTo} />
-            <ContactPicker partners={partners} problem={partnersError} />
+            <ContactPicker me={me} partners={partners} problem={partnersError} />
           </div>
           {openProblem ? (
             <p className="error" role="alert">{openProblem}</p>
@@ -251,38 +261,53 @@ function DateFilter({
 }
 
 /**
- * The contact selector on top of the Sync mode's chat area (WC-235): pick a
- * member and open your chat with them, or start one, at `/comm/<id>`. One
- * member per chat for now (Dane: "we can address multiple members later").
- * It says why when the members cannot be listed or there is nobody else
- * (rule 7), and a failed start says so and opens nothing (rule 6).
+ * The contact selector on top of the Sync mode's chat area (WC-235): tick
+ * one member, or several for a group chat (WC-252), and open your chat with
+ * them, or start one, at `/comm/<id>`. At most CHAT_MEMBERS_MAX members, you
+ * included: once that many are ticked, the rest cannot be. It says why when
+ * the members cannot be listed or there is nobody else (rule 7), and a
+ * failed start says so and opens nothing (rule 6).
  */
-function ContactPicker({ partners, problem }: { partners: ChatPartnerOption[]; problem: string | null }) {
+function ContactPicker({ me, partners, problem }: { me: string; partners: ChatPartnerOption[]; problem: string | null }) {
   const router = useRouter();
-  const [partner, setPartner] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const menu = useRef<HTMLDetailsElement>(null);
 
   if (problem !== null) {
     return <p className="error chat-picker" role="alert">The members could not be listed, so no new chat can be started here right now: {problem}. Try reloading the page.</p>;
   }
   if (partners.length === 0) return <p className="note chat-picker" role="status">{NO_PARTNERS}</p>;
 
+  const full = picked.length + 1 >= CHAT_MEMBERS_MAX;
+  const pickedNames = partners.filter((p) => picked.includes(p.id)).map((p) => p.name);
+  const toggle = (id: string, on: boolean) => {
+    setFailure(null);
+    setPicked((now) => (on ? (now.includes(id) ? now : [...now, id]) : now.filter((x) => x !== id)));
+  };
+
   function start(e: FormEvent) {
     e.preventDefault();
-    if (!partner) {
+    if (picked.length === 0) {
       setFailure("No chat was started. Pick a member first.");
+      return;
+    }
+    const problem = startChatProblem(me, picked);
+    if (problem) {
+      setFailure(notStarted(problem));
       return;
     }
     setFailure(null);
     startTransition(async () => {
       try {
-        const result = await startChatWith(partner);
+        const result = await startChatWith(picked);
         if (!result.ok) {
           setFailure(notStarted(result.error));
           return;
         }
-        setPartner("");
+        setPicked([]);
+        if (menu.current) menu.current.open = false;
         router.push(`/comm/${result.id}`);
       } catch {
         setFailure(START_UNREACHABLE);
@@ -292,14 +317,23 @@ function ContactPicker({ partners, problem }: { partners: ChatPartnerOption[]; p
 
   return (
     <form className="chat-picker task-chat-start" onSubmit={start}>
-      <label htmlFor="chat-partner">Chat with</label>
-      <select id="chat-partner" value={partner} onChange={(e) => setPartner(e.target.value)}>
-        <option value="">Pick a member…</option>
-        {partners.map((p) => (
-          <option key={p.id} value={p.id}>{p.name}</option>
-        ))}
-      </select>
-      <button type="submit" disabled={pending}>{pending ? "Opening…" : "Open chat"}</button>
+      <span id="chat-with-label">Chat with</span>
+      <details ref={menu} className="chat-pick">
+        <summary aria-describedby="chat-with-label">{pickedNames.length ? namesInWords(pickedNames) : "Pick members…"}</summary>
+        <fieldset className="chat-pick-list" aria-labelledby="chat-with-label">
+          {partners.map((p) => {
+            const on = picked.includes(p.id);
+            return (
+              <label key={p.id}>
+                <input type="checkbox" name="chat-partner" value={p.id} checked={on} disabled={!on && full} onChange={(e) => toggle(p.id, e.target.checked)} />
+                {p.name}
+              </label>
+            );
+          })}
+          {full && <p className="note" role="status">A chat can have at most {CHAT_MEMBERS_MAX} members, you included.</p>}
+        </fieldset>
+      </details>
+      <button type="submit" disabled={pending}>{pending ? "Opening…" : picked.length > 1 ? "Start group chat" : "Open chat"}</button>
       {failure && <p className="error" role="alert">{failure}</p>}
     </form>
   );
@@ -500,7 +534,12 @@ export function Conversation({
                       </li>
                     )}
                     <li className={mine ? "chat-message mine" : "chat-message"}>
-                      <span className="sr-only">{mine ? "You" : chat.otherName}: </span>
+                      {/* WC-252: in a group, every message names its sender, on screen and to screen readers. */}
+                      {chat.group ? (
+                        <b className="chat-sender">{senderName(m.senderId, me, chat.senderNames ?? {})}<span className="sr-only">: </span></b>
+                      ) : (
+                        <span className="sr-only">{mine ? "You" : chat.otherName}: </span>
+                      )}
                       {/* WC-242: the day break above names the day, so the clock time alone; hover for the full date. */}
                       <time className="chat-meta note" dateTime={m.sentAt} title={sentLabel(m.sentAt)}>{clockLabel(m.sentAt)}</time>
                       <span className="chat-body">{m.body}</span>

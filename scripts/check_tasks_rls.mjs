@@ -17,8 +17,8 @@
  * member's session is ever handed an email address (`public.messages`,
  * `message_recipient_email`); that a member stars and trashes only messages
  * they sent or received, only through set_message_mark, and reads only their
- * own marks (`public.message_marks`); that any two members chat only through
- * start_chat and send_chat_message, and a member reads a chat, its members
+ * own marks (`public.message_marks`); that any two members, or a group of up
+ * to 10, chat only through start_chat and send_chat_message, and a member reads a chat, its members
  * and its messages only when they are in it (`public.chats`,
  * `public.chat_members`, `public.chat_messages`), and only they mark a chat
  * read for themselves, which clears its unread count for them alone
@@ -1038,6 +1038,75 @@ try {
       `HTTP ${svcChat.status} ${JSON.stringify(svcChat.json)}, A had ${sa.length} now ${saAfter.length}`);
     if (svcChat.json?.[0]?.id) await admin(`/rest/v1/chats?id=eq.${svcChat.json[0].id}`, { method: 'DELETE' });
     startedChatPointsA = sa.reduce((sum, e) => sum + e.points, 0);
+  }
+
+  // Group chats (20261128130000_group_chats.sql, WC-252): start_chat takes a
+  // list of members; the same set, from any of them and in any order, finds
+  // the one chat; the two-person call still works and is found by its set;
+  // the rules are refused in plain words with nothing made; three members
+  // each see the others' messages unread, never their own; a new group chat
+  // scores once, for whoever started it. Fresh members, so the totals
+  // checked for A and B elsewhere are untouched.
+  {
+    const [g1, g2, g3, gOut] = [await makeUser('group-1'), await makeUser('group-2'), await makeUser('group-3'), await makeUser('group-out')];
+    const groupRpc = (who, body, tool) => call('/rest/v1/rpc/start_chat', { method: 'POST', token: who.token, body, tool });
+    const chatsMade = async () => (await admin('/rest/v1/chats?select=id')).json?.length;
+    const g = await groupRpc(g1, { other_members: [g2.id, g3.id] });
+    const gAgain = await groupRpc(g2, { other_members: [g3.id, g1.id] });
+    const gThird = await groupRpc(g3, { other_members: [g1.id, g2.id], about_task: null });
+    const gMembers = (await call(`/rest/v1/chat_members?chat_id=eq.${g.json}&select=member_id`, { token: g3.token })).json ?? [];
+    check('a group chat starts with everyone in it, and the same set again, from any member in any order, finds it',
+      g.status === 200 && typeof g.json === 'string' && gAgain.json === g.json && gThird.json === g.json
+        && gMembers.map((m) => m.member_id).sort().join() === [g1.id, g2.id, g3.id].sort().join(),
+      `HTTP ${g.status} ${JSON.stringify(g.json)}, again ${JSON.stringify(gAgain.json)}, third ${JSON.stringify(gThird.json)}, members ${JSON.stringify(gMembers)}`);
+    const gPair = await groupRpc(g1, { other_members: [g2.id] });
+    const gPairOld = await groupRpc(g2, { other_member: g1.id });
+    check('two of the group is its own chat, and the two-person call finds that same chat',
+      gPair.status === 200 && gPair.json !== g.json && gPairOld.status === 200 && gPairOld.json === gPair.json,
+      `list form ${JSON.stringify(gPair.json)}, two-person form HTTP ${gPairOld.status} ${JSON.stringify(gPairOld.json)}`);
+    const gRaced = await Promise.all([groupRpc(g1, { other_members: [g2.id, g3.id], about_task: insA.id }), groupRpc(g2, { other_members: [g1.id, g3.id], about_task: insA.id }), groupRpc(g3, { other_members: [g2.id, g1.id], about_task: insA.id })]);
+    check('the three members starting the same group about a task at once make one chat, apart from the plain group',
+      gRaced.every((r) => r.status === 200 && r.json === gRaced[0].json) && gRaced[0].json !== g.json, JSON.stringify(gRaced.map((r) => [r.status, r.json])));
+    const before = await chatsMade();
+    const refusals = {
+      empty: await groupRpc(g1, { other_members: [] }),
+      self: await groupRpc(g1, { other_members: [g2.id, g1.id] }),
+      twice: await groupRpc(g1, { other_members: [g2.id, g3.id, g2.id] }),
+      tooMany: await groupRpc(g1, { other_members: Array.from({ length: 10 }, () => randomUUID()) }),
+      unknown: await groupRpc(g1, { other_members: [g2.id, randomUUID()] }),
+      signedOut: await call('/rest/v1/rpc/start_chat', { method: 'POST', body: { other_members: [g1.id, g2.id] } }),
+    };
+    const after = await chatsMade();
+    const said = (r, words) => r.status >= 400 && words.test(r.json?.message ?? '');
+    check('the database refuses a group with nobody else, yourself, someone twice, more than 10 members, an unknown member, and a signed-out visitor, in plain words, and makes no chat',
+      said(refusals.empty, /at least one other member/) && said(refusals.self, /yourself/) && said(refusals.twice, /picked twice/)
+        && said(refusals.tooMany, /at most 10 members, you included/) && said(refusals.unknown, /no such member/) && refusals.signedOut.status >= 400 && before === after,
+      `${Object.entries(refusals).map(([k, r]) => `${k} HTTP ${r.status} ${r.json?.message ?? ''}`).join('; ')}; chats ${before} then ${after}`);
+    const gSend = (who, body) => call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: who.token, body: { chat: g.json, body, tool: TOOL } });
+    const sent = [await gSend(g1, 'hello all'), await gSend(g2, 'hi from 2'), await gSend(g3, 'hi from 3')];
+    const gUnread = async (who) => {
+      const r = await call('/rest/v1/rpc/my_chat_unread', { method: 'POST', token: who.token, body: {} });
+      return (Array.isArray(r.json) ? r.json : []).find((row) => row.chat_id === g.json)?.unread ?? 0;
+    };
+    const counts = [await gUnread(g1), await gUnread(g2), await gUnread(g3)];
+    const gRead = await call(`/rest/v1/chat_messages?chat_id=eq.${g.json}&select=sender_id,body&order=created_at`, { token: g2.token });
+    check('three members each send in the group; each reads all three, and has the other two unread, never their own',
+      sent.every((r) => r.status === 200 && typeof r.json === 'string') && JSON.stringify(counts) === '[2,2,2]'
+        && JSON.stringify((gRead.json ?? []).map((m) => m.sender_id)) === JSON.stringify([g1.id, g2.id, g3.id]),
+      `sends ${sent.map((r) => r.status).join(',')}, unread ${JSON.stringify(counts)}, read ${JSON.stringify(gRead.json)}`);
+    await call('/rest/v1/rpc/mark_chat_read', { method: 'POST', token: g1.token, body: { chat: g.json } });
+    await gSend(g2, 'one more');
+    const counts2 = [await gUnread(g1), await gUnread(g2), await gUnread(g3)];
+    check('a new group message counts once more for each other member, and not for its sender', JSON.stringify(counts2) === '[1,2,3]', JSON.stringify(counts2));
+    const outRead = await call(`/rest/v1/chat_messages?chat_id=eq.${g.json}&select=body`, { token: gOut.token });
+    const outSay = await call('/rest/v1/rpc/send_chat_message', { method: 'POST', token: gOut.token, body: { chat: g.json, body: 'Let me in', tool: TOOL } });
+    check('a member outside the group reads nothing of it and cannot write in it', outRead.json?.length === 0 && outSay.status >= 400, `read ${JSON.stringify(outRead.json)}, send HTTP ${outSay.status}`);
+    const startedBy = async (who) => (await admin(`/rest/v1/engagements?member_id=eq.${who.id}&kind=eq.started_a_chat&select=id`)).json?.length ?? 0;
+    const [s1, s2, s3] = [await startedBy(g1), await startedBy(g2), await startedBy(g3)];
+    const racedMaker = (await admin(`/rest/v1/chats?id=eq.${gRaced[0].json}&select=created_by`)).json?.[0]?.created_by;
+    check('each new chat scores "Started a chat" once, for whoever started it; finding one already there and a refused start score nothing',
+      s1 === 2 + (racedMaker === g1.id ? 1 : 0) && s2 === (racedMaker === g2.id ? 1 : 0) && s3 === (racedMaker === g3.id ? 1 : 0),
+      `group-1 ${s1}, group-2 ${s2}, group-3 ${s3}, raced chat made by ${racedMaker}`);
   }
 
   // Unread chat messages (20261113150000_chat_unread.sql): a message is
@@ -2505,6 +2574,75 @@ try {
     } finally {
       if (pageIds.length) await admin(`/rest/v1/site_pages?id=in.(${pageIds.join(',')})`, { method: 'DELETE' });
       if (sectionIds.length) await admin(`/rest/v1/site_sections?id=in.(${sectionIds.join(',')})`, { method: 'DELETE' });
+    }
+  }
+
+  // The site-images bucket (20261128140000_site_images.sql, WC-251): only a
+  // role with site.edit (A) adds a picture, through a one-time link or
+  // directly; B (a viewer) cannot do either. Anyone, signed in or not, reads
+  // a picture by its public address. The bucket refuses a file that is not a
+  // picture, and no member may delete or overwrite one.
+  {
+    const IMAGES = 'site-images';
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const kept = [];
+    const sign = (who, path) => call(`/storage/v1/object/upload/sign/${IMAGES}/${path}`, { method: 'POST', token: who?.token, body: {} });
+    const put = async (signed, type, body) => {
+      const res = await fetch(`${URL_}/storage/v1${signed.json.url}`, { method: 'PUT', headers: { 'Content-Type': type }, body });
+      return { status: res.status, json: await res.json().catch(() => null) };
+    };
+    const direct = async (who, path, type, body) => {
+      const res = await fetch(`${URL_}/storage/v1/object/${IMAGES}/${path}`, {
+        method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${who?.token ?? ANON}`, 'Content-Type': type }, body,
+      });
+      return { status: res.status, json: await res.json().catch(() => null) };
+    };
+    try {
+      const pathA = `${randomUUID()}/rls-a.png`;
+      kept.push(pathA);
+      const signedA = await sign(a, pathA);
+      const upA = signedA.status === 200 ? await put(signedA, 'image/png', PNG) : signedA;
+      check('a website manager uploads a picture to site-images with a one-time link', upA.status === 200, `HTTP ${upA.status} ${JSON.stringify(upA.json)}`);
+
+      const readAnon = await fetch(`${URL_}/storage/v1/object/public/${IMAGES}/${pathA}`);
+      const readBytes = Buffer.from(await readAnon.arrayBuffer());
+      check('a signed-out visitor reads the picture by its public address', readAnon.status === 200 && readBytes.equals(PNG), `HTTP ${readAnon.status}, ${readBytes.length} bytes`);
+
+      const pathB = `${randomUUID()}/rls-b.png`;
+      kept.push(pathB);
+      const signedB = await sign(b, pathB);
+      const upB = signedB.status === 200 ? await put(signedB, 'image/png', PNG) : signedB;
+      check('a member without Manage website cannot upload a picture with a one-time link', upB.status >= 400, `HTTP ${upB.status} ${JSON.stringify(upB.json)}`);
+      const directB = await direct(b, pathB, 'image/png', PNG);
+      check('a member without Manage website cannot upload a picture directly either', directB.status >= 400, `HTTP ${directB.status} ${JSON.stringify(directB.json)}`);
+      const directAnon = await direct(null, pathB, 'image/png', PNG);
+      check('a signed-out visitor cannot upload a picture', directAnon.status >= 400, `HTTP ${directAnon.status} ${JSON.stringify(directAnon.json)}`);
+
+      const pathPdf = `${randomUUID()}/rls-a.pdf`;
+      kept.push(pathPdf);
+      const pdf = await direct(a, pathPdf, 'application/pdf', Buffer.from('%PDF-1.4'));
+      check('the bucket refuses a file that is not a picture, even from a website manager', pdf.status >= 400, `HTTP ${pdf.status} ${JSON.stringify(pdf.json)}`);
+
+      const pathBig = `${randomUUID()}/rls-big.png`;
+      kept.push(pathBig);
+      const big = await direct(a, pathBig, 'image/png', Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024)]));
+      check('the bucket refuses a picture over 5 MB', big.status >= 400, `HTTP ${big.status} ${JSON.stringify(big.json)}`);
+
+      const delB = await call(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', token: b.token, body: { prefixes: [pathA] } });
+      const delA = await call(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', token: a.token, body: { prefixes: [pathA] } });
+      check('no member may delete an uploaded picture (clearing them out is a later ticket)',
+        Array.isArray(delB.json) && delB.json.length === 0 && Array.isArray(delA.json) && delA.json.length === 0,
+        `B: HTTP ${delB.status} ${JSON.stringify(delB.json)}; A: HTTP ${delA.status} ${JSON.stringify(delA.json)}`);
+      const over = await fetch(`${URL_}/storage/v1/object/${IMAGES}/${pathA}`, {
+        method: 'PUT', headers: { apikey: ANON, Authorization: `Bearer ${a.token}`, 'Content-Type': 'image/png' }, body: Buffer.from(PNG).reverse(),
+      });
+      check('no member may overwrite an uploaded picture', over.status >= 400, `HTTP ${over.status}`);
+    } finally {
+      const cleared = await admin(`/storage/v1/object/${IMAGES}`, { method: 'DELETE', body: { prefixes: kept } });
+      if (cleared.status >= 300) {
+        failures += 1;
+        console.error(`could not delete the test pictures ${kept.join(', ')}: HTTP ${cleared.status} — delete them by hand in the Supabase dashboard`);
+      }
     }
   }
 

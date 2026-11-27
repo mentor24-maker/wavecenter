@@ -43,7 +43,7 @@ import {
   SITE_MODULE_TYPES, SITE_SECTION_ALIGNMENTS, SITE_SECTION_LAYOUTS, SITE_SECTION_SPACING_MAX, SITE_SECTION_TITLE_MAX, SITE_SECTIONS_MAX,
   SITE_SAVED_SECTION_NAME_MAX, SITE_DEVICES,
   copyFollowersOf, insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
-  siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection,
+  siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection, withSiteImageUrl,
   type SiteDevice, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { changeReusable, deleteReusable, renameReusable, saveReusable, saveSections, type SavedSectionDeleteResult, type SavedSectionResult } from "../../actions";
@@ -596,7 +596,9 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
 
       {open && (
         <ModulePanel key={open.m.id} module={open.m} where={`Section ${open.i + 1}`} cells={siteSectionCells(sections[open.i].layout)}
-          cellName={cellName} disabled={pending} onChange={(next) => updateModule(open.i, next)} onClose={() => setChosen(null)} />
+          cellName={cellName} disabled={pending} onChange={(next) => updateModule(open.i, next)}
+          onPictureUploaded={(url) => { const mid = open.m.id; setSections((now) => withSiteImageUrl(now, mid, url)); setNotice(null); }}
+          onClose={() => setChosen(null)} />
       )}
     </section>
   );
