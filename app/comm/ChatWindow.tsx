@@ -39,7 +39,13 @@ import {
   CHAT_UNREAD_EVENT,
   clockLabel,
   DELETED_TASK,
+  ANY_DATE,
+  backwardsRangeLine,
+  isDateFiltering,
+  isRangeBackwards,
   isSearching,
+  messagesInRange,
+  type DateRange,
   listTimeLabel,
   matchCountLine,
   newestFirst,
@@ -235,7 +241,8 @@ function ContactPicker({ partners, problem }: { partners: ChatPartnerOption[]; p
  * (the task page). `newestOnTop` (the Sync mode's window, WC-235) puts the
  * send box on top and the newest message right under it, older ones
  * scrolling off the bottom. `searchable` adds a field that shows only the
- * messages holding the words typed.
+ * messages holding the words typed, and From/To days (WC-245) that show only
+ * the messages sent between them.
  */
 export function Conversation({
   me,
@@ -258,9 +265,16 @@ export function Conversation({
   const box = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState("");
+  // WC-245: the From and To days ("YYYY-MM-DD", or "" for no limit).
+  const [range, setRange] = useState<DateRange>(ANY_DATE);
   const searching = searchable && isSearching(query);
+  const dating = searchable && isDateFiltering(range);
+  const backwards = dating && isRangeBackwards(range);
   const ordered = newestOnTop ? newestFirst(chat.messages) : chat.messages;
-  const shownMessages = searching ? searchMessages(ordered, query) : ordered;
+  const byWords = searching ? searchMessages(ordered, query) : ordered;
+  const shownMessages = backwards ? [] : dating ? messagesInRange(byWords, range) : byWords;
+  const filtering = searching || dating;
+  const usedRange = dating ? range : ANY_DATE;
 
   // Keep the newest message in view as messages arrive, by scrolling the
   // messages box itself: to the top when the newest is on top, else to the
@@ -369,16 +383,27 @@ export function Conversation({
       {newestOnTop && sendForm}
       {searchable && chat.error === null && chat.messages.length > 0 && (
         <div className="chat-search">
-          <label htmlFor={`chat-search-${chat.id}`}>Search this chat</label>
-          <input
-            id={`chat-search-${chat.id}`}
-            type="search"
-            value={query}
-            placeholder="Words in a message"
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <span className="chat-search-words">
+            <label htmlFor={`chat-search-${chat.id}`}>Search this chat</label>
+            <input
+              id={`chat-search-${chat.id}`}
+              type="search"
+              value={query}
+              placeholder="Words in a message"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </span>
+          {/* WC-245: From and To days, Mountain time, both ends inclusive. */}
+          <span className="chat-search-date">
+            <label htmlFor={`chat-from-${chat.id}`}>From:</label>
+            <input id={`chat-from-${chat.id}`} type="date" value={range.from} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
+          </span>
+          <span className="chat-search-date">
+            <label htmlFor={`chat-to-${chat.id}`}>To:</label>
+            <input id={`chat-to-${chat.id}`} type="date" value={range.to} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
+          </span>
           {/* No match says so once, in the messages box below. */}
-          {searching && shownMessages.length > 0 && <p className="note" role="status">{matchCountLine(shownMessages.length, chat.messages.length, query)}</p>}
+          {filtering && shownMessages.length > 0 && <p className="note" role="status">{matchCountLine(shownMessages.length, chat.messages.length, searching ? query : "", usedRange)}</p>}
         </div>
       )}
       {newestOnTop && readLine}
@@ -387,8 +412,10 @@ export function Conversation({
           <p className="error" role="alert">The messages could not be loaded: {chat.error}. Nothing has been lost; try reloading the page.</p>
         ) : chat.messages.length === 0 ? (
           <p className="note" role="status">{newestOnTop ? NO_MESSAGES_ABOVE : NO_MESSAGES}</p>
+        ) : backwards ? (
+          <p className="note" role="status">{backwardsRangeLine(range)}</p>
         ) : shownMessages.length === 0 ? (
-          <p className="note" role="status">{noMatchLine(query)}</p>
+          <p className="note" role="status">{noMatchLine(searching ? query : "", usedRange)}</p>
         ) : (
           <>
             {/* WC-241: the two sides named once, over their columns, instead of on every message.
