@@ -253,10 +253,12 @@ to. It lives in `member_profiles`, one row per member:
 | `tool` | Which tool last changed the row, as on `tasks`. |
 | `updated_at` | When it last changed. Kept current automatically. |
 
-There is no page yet that shows one member's profile to another, so today
-nobody but the member can read their row, whatever they chose; the choice is
-recorded now so that page can honour it when it comes. Masks, Filters and
-vendor access from the privacy article are later work.
+Only the member can read their own row. Other signed-in members see a
+member's profile on `/members/<id>` (WC-238, #209), which honours their
+visibility choice: see [A member's profile page:
+`member_profile(member)`](#a-members-profile-page-member_profilemember)
+below. Masks, Filters and vendor access from the privacy article are later
+work.
 
 The profile only changes through `saveProfile` in `core/profiles.ts`, which
 checks every field; the database checks the same limits. Row-level security
@@ -348,7 +350,9 @@ The email result is recorded only through `record_message_email`, by the
 sender, once. Every message saved for another member is also an engagement
 for its sender (`send_a_message_to_another_member`, worth what Game > Manage
 says), recorded by the `messages_score` trigger in the same save; a note to
-oneself earns nothing. There is no screen for reading messages yet (a later ticket).
+oneself earns nothing. Members read their messages in Comm, under Async
+(`/comm?mode=async`, WC-234); they were first shown on Profile > Messages
+(#172), and Profile now points to Comm.
 
 ### Chats: `chats`, `chat_members` and `chat_messages`
 
@@ -734,8 +738,10 @@ it as "Rescored Made a task".
 Row-level security was on from the moment both new tables were made.
 
 This does not yet change a task's own `points`: what a task is worth and what
-a member has earned are kept separate for now. Levels, rewards and a
-leaderboard are later tickets (Dane, 2026-10-30: "Hold off on levels and
+a member has earned are kept separate for now. The leaderboard exists
+(`/game/leaderboard`, #208, and the Leaderboard module, #210): see [The
+leaderboard: `leaderboard()`](#the-leaderboard-leaderboard) below. Levels
+and rewards are later tickets (Dane, 2026-10-30: "Hold off on levels and
 rewards").
 
 ### Granular and globular scores
