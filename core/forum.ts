@@ -11,7 +11,7 @@
  * without regard to capitals or surrounding spaces. A topic can be opened,
  * changed and deleted, and can have a parent topic (WC-183, below); a tag
  * can too, and has related tags in place of a parent (WC-186, below).
- * Attaching a tag to a topic and threads come later. Core does not know about Supabase: it talks to a
+ * A topic can carry tags (WC-249, at the end). Threads come later. Core does not know about Supabase: it talks to a
  * `ForumStore`, a thin adapter a client supplies. The plain-words description
  * of the tables is docs/DATA_MODEL.md.
  */
@@ -444,4 +444,78 @@ export async function deleteTag(store: TagStore, id: string, actor: ForumActor, 
   const tag = findTag(await store.listTags(), id);
   requireMayTag(tag, actor, 'delete');
   await store.deleteTag(tag.id);
+}
+
+// ---------------------------------------------------------------------------
+// Tags on a topic (WC-249, 2026-11-26).
+//
+// A topic can carry tags: one pair per topic and tag, never twice. Tagging a
+// topic is changing it, so only the topic's adder or an admin attaches or
+// removes a tag (mayChangeTopic). Only an existing tag can be attached; a
+// new one is made on the Forum's Tags list first. Deleting the topic or the
+// tag removes its pairs.
+// ---------------------------------------------------------------------------
+
+/** One topic carrying one tag. */
+export interface TopicTagPair {
+  topicId: string;
+  tagId: string;
+}
+
+/** What core needs from storage to attach and remove a topic's tags. */
+export interface TopicTagStore {
+  listTopics(): Promise<ForumTopic[]>;
+  listTags(): Promise<ForumTag[]>;
+  /** The ids of the tags this topic carries now. */
+  topicTagIds(topicId: string): Promise<string[]>;
+  /** Store the pair. Throws if it was not saved. */
+  attachTopicTag(topicId: string, tagId: string): Promise<void>;
+  /** Remove the pair. Throws if it could not be removed. */
+  detachTopicTag(topicId: string, tagId: string): Promise<void>;
+}
+
+/** The topic and tag asked for, both there, and the actor allowed to tag the topic; or a plain-words refusal. */
+async function requireTopicAndTag(store: TopicTagStore, topicId: unknown, tagId: unknown, actor: ForumActor): Promise<{ topic: ForumTopic; tag: ForumTag }> {
+  const topic = findTopic(await store.listTopics(), topicId);
+  if (!mayChangeTopic(topic, actor)) {
+    throw new CoreError(`Only the member who added "${topic.name}", or an admin, can change its tags.`);
+  }
+  const tag = findTag(await store.listTags(), tagId);
+  return { topic, tag };
+}
+
+/**
+ * Attach an existing tag to a topic on behalf of `tool`, and return the ids
+ * of the tags it carries afterwards. Attaching a tag it already carries
+ * changes nothing. Refuses, in plain words: someone who is neither the
+ * topic's adder nor an admin, and a topic or tag that is not there.
+ */
+export async function attachTopicTag(store: TopicTagStore, topicId: unknown, tagId: unknown, actor: ForumActor, tool: string): Promise<string[]> {
+  requireTool(tool);
+  const { topic, tag } = await requireTopicAndTag(store, topicId, tagId, actor);
+  const now = await store.topicTagIds(topic.id);
+  if (now.includes(tag.id)) return now;
+  await store.attachTopicTag(topic.id, tag.id);
+  return store.topicTagIds(topic.id);
+}
+
+/**
+ * Remove a tag from a topic on behalf of `tool`, and return the ids of the
+ * tags it carries afterwards. Removing a tag it does not carry changes
+ * nothing. Refuses the same as attachTopicTag.
+ */
+export async function detachTopicTag(store: TopicTagStore, topicId: unknown, tagId: unknown, actor: ForumActor, tool: string): Promise<string[]> {
+  requireTool(tool);
+  const { topic, tag } = await requireTopicAndTag(store, topicId, tagId, actor);
+  const now = await store.topicTagIds(topic.id);
+  if (!now.includes(tag.id)) return now;
+  await store.detachTopicTag(topic.id, tag.id);
+  return store.topicTagIds(topic.id);
+}
+
+/** The entries among `entries` whose ids are in `ids`, A to Z by name. */
+export function entriesByName<T extends Pick<ForumEntry, 'id' | 'name'>>(entries: readonly T[], ids: readonly string[]): T[] {
+  return entries
+    .filter((e) => ids.includes(e.id))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
 }

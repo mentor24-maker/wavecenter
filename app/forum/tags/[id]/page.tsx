@@ -7,7 +7,8 @@ import { loadTag, relatedOf, TagShell } from "../loadTag";
 /**
  * One Forum tag on its own page (WC-186): its name, slug, related tags,
  * description and details (rich text, drawn safely by RichText), who added it
- * and when, and when it last changed. Its adder or an admin sees an Edit
+ * and when, and when it last changed, and the topics that carry it (WC-249),
+ * each a link to the topic. Its adder or an admin sees an Edit
  * link. Anything missing says so rather than leaving a blank (rule 7).
  */
 export default async function TagPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +23,7 @@ export default async function TagPage({ params }: { params: Promise<{ id: string
     );
   }
 
-  const { tag, tags, mayChange, namer } = load;
+  const { tag, tags, topics, mayChange, namer } = load;
   const related = relatedOf(tag, tags);
   const changed = tag.updatedAt && tag.updatedAt !== tag.createdAt;
 
@@ -55,6 +56,18 @@ export default async function TagPage({ params }: { params: Promise<{ id: string
           )}
         </dd>
       </dl>
+      <h2>Topics with this tag</h2>
+      {!topics.ok ? (
+        <p className="error" role="alert">{topics.problem}</p>
+      ) : topics.topics.length ? (
+        <ul className="topic-subtopics">
+          {topics.topics.map((t) => (
+            <li key={t.id}><Link href={`/forum/topics/${t.id}`}>{t.name}</Link></li>
+          ))}
+        </ul>
+      ) : (
+        <p className="note">No topics carry this tag yet.</p>
+      )}
       <h2>Details</h2>
       {tag.details.trim() ? (
         <RichText body={tag.details} className="topic-details" />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { mayChangeTopic, possibleParents, possibleSubTopics, subTopicsOf } from "../../../../core/forum.ts";
 import RichText from "../../../tasks/RichText";
 import { DATE } from "../../forumClient";
@@ -8,7 +9,8 @@ import TopicFamily from "./TopicFamily";
 
 /**
  * One Forum topic on its own page (WC-183): its name, slug, parent,
- * description and details (rich text, drawn safely by RichText), who added it
+ * description, tags (WC-249, each a link to its tag's page), details (rich
+ * text, drawn safely by RichText), who added it
  * and when, and when it last changed. Its adder or an admin sees an Edit
  * link. Its sub-topics are listed, and a "Parent topic" and an "Adopt a
  * sub-topic" dropdown set where it sits among the others (WC-185). Below
@@ -28,7 +30,7 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const { topic, topics, mayChange, namer, actor } = load;
+  const { topic, topics, tags, mayChange, namer, actor } = load;
   const subTopics = subTopicsOf(topics, topic.id);
   const choice = (t: { id: string; name: string }) => ({ id: t.id, name: t.name });
   const parents = possibleParents(topics, topic.id).map(choice);
@@ -47,6 +49,21 @@ export default async function TopicPage({ params }: { params: Promise<{ id: stri
         <dd>{parent ? <Link href={`/forum/topics/${parent.id}`}>{parent.name}</Link> : <span className="note">None: this is a top-level topic.</span>}</dd>
         <dt>Description</dt>
         <dd>{topic.description || <span className="note">No description yet.</span>}</dd>
+        <dt>Tags</dt>
+        <dd className="topic-tags">
+          {!tags.ok ? (
+            <span className="error" role="alert">{tags.problem}</span>
+          ) : tags.carried.length ? (
+            tags.carried.map((t, i) => (
+              <Fragment key={t.id}>
+                {i > 0 && ", "}
+                <Link href={`/forum/tags/${t.id}`}>{t.name}</Link>
+              </Fragment>
+            ))
+          ) : (
+            <span className="note">No tags yet.{mayChange ? " Choose Edit topic to add some." : ""}</span>
+          )}
+        </dd>
         <dt>Added</dt>
         <dd>
           by {namer(topic.createdBy)} on <time dateTime={topic.createdAt}>{DATE.format(new Date(topic.createdAt))}</time>
