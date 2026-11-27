@@ -2,8 +2,9 @@
 
 /**
  * Making a page of the website (WC-206), and changing, publishing or
- * deleting one (WC-207), saving its sections (WC-208), and saving or
- * changing a section reused on many pages (WC-212), runs on the server through core
+ * deleting one (WC-207), saving its sections (WC-208), and saving,
+ * changing, renaming or deleting a section reused on many pages (WC-212,
+ * WC-246), runs on the server through core
  * (core/website.ts) as the tool `wavecenter`, acting as the signed-in member.
  *
  * Returns `{ ok: true }` only after the database confirmed the write.
@@ -13,7 +14,7 @@
 import { revalidatePath } from "next/cache";
 import { CoreError, WAVECENTER_TOOL } from "../../../core/tool.ts";
 import {
-  addSitePage, changeSavedSection, changeSitePage, deleteSitePage, saveReusableSection, saveSitePageSections,
+  addSitePage, changeSavedSection, changeSitePage, deleteSavedSection, deleteSitePage, renameSavedSection, saveReusableSection, saveSitePageSections,
   type SitePage, type SitePageDeps, type SiteSavedSection, type SiteSavedSectionStore,
 } from "../../../core/website.ts";
 import { readRolesAndPermissions, supabaseMemberRoleStore } from "../../lib/memberRoleStore";
@@ -141,5 +142,40 @@ export async function changeReusable(id: string, section: unknown): Promise<Save
     if (err instanceof CoreError) return { ok: false, error: err.message };
     console.error("website: could not change the saved section:", err);
     return { ok: false, error: "Could not save the change to the saved section. Every page still shows it as it was; try again." };
+  }
+}
+
+/** Give saved section `id` a new name (WC-246). */
+export async function renameReusable(id: string, name: string): Promise<SavedSectionResult> {
+  try {
+    const who = await acting("the saved section was not renamed");
+    if (!who.ok) return who;
+    const saved = await renameSavedSection(who.deps, { actorId: who.actorId, id, name }, WAVECENTER_TOOL);
+    revalidatePath("/admin/website", "layout");
+    return { ok: true, saved };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not rename the saved section:", err);
+    return { ok: false, error: "Could not rename the saved section. It keeps its old name; try again." };
+  }
+}
+
+export type SavedSectionDeleteResult = { ok: true; name: string; pagesCopied: number } | { ok: false; error: string };
+
+/**
+ * Delete saved section `id` (WC-246). Every page that follows it is first
+ * turned into a plain copy of its current content; only then is it deleted.
+ */
+export async function deleteReusable(id: string): Promise<SavedSectionDeleteResult> {
+  try {
+    const who = await acting("the saved section was not deleted");
+    if (!who.ok) return who;
+    const done = await deleteSavedSection(who.deps, { actorId: who.actorId, id }, WAVECENTER_TOOL);
+    revalidatePath("/admin/website", "layout");
+    return { ok: true, ...done };
+  } catch (err) {
+    if (err instanceof CoreError) return { ok: false, error: err.message };
+    console.error("website: could not delete the saved section:", err);
+    return { ok: false, error: "Could not delete the saved section. It is still there; try again." };
   }
 }

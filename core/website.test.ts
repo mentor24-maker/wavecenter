@@ -12,6 +12,7 @@ import {
   saveSitePageSections, sitePageSlug, siteSectionCells, siteSectionChanges, siteSectionGrid, siteSectionsBytes, sortSitePages,
   SITE_SAVED_SECTION_BYTES_MAX, SITE_SAVED_SECTION_NAME_MAX, changeSavedSection, insertSavedSection, isLinkedSiteSection,
   normalizeSavedSectionContent, pagesFollowing, resolveSiteSections, saveReusableSection, sortSavedSections, unlinkSiteSection,
+  copyFollowersOf, deleteSavedSection, renameSavedSection,
   SITE_ADDRESS_MAX, SITE_HEADING_MAX, SITE_IMAGE_WIDTH_MIN, SITE_TEXT_MAX, newSiteModule, normalizeSiteModules, siteButtonHref, siteImageUrl, siteImageWidth, siteModuleProblem, siteModulesInLayout, siteModulesProblem,
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
@@ -808,4 +809,116 @@ test('a page saved before the Leaderboard module reads exactly as it did', () =>
   const old = [{ id: 's1', layout: 'single', modules: [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }] }];
   const [section] = normalizeSiteSections(old);
   assert.deepEqual(section.modules, [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }]);
+});
+
+// ── Renaming and deleting a saved section (WC-246) ────────────────────────
+
+test('the rename-and-delete migration grants a name change and a delete to a website manager only', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261127120000_site_sections_rename_delete.sql', import.meta.url), 'utf8');
+  assert.match(sql, /grant update \(name\) on public\.site_sections to authenticated/);
+  assert.match(sql, /grant delete on public\.site_sections to authenticated/);
+  assert.match(sql, /for delete to authenticated using \(\(select private\.may\('site\.edit'\)\)\)/);
+  assert.doesNotMatch(sql, /\banon\b.*grant|grant [^;]* to anon/);
+});
+
+test('a website manager renames a saved section; the name is tidied, read back, and its own name in other capitals is allowed', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Test header', section: newSiteSection() }, TOOL);
+  const renamed = await renameSavedSection(deps, { actorId: 'dane', id: original.id, name: '  Site   header ' }, TOOL);
+  assert.equal(renamed.name, 'Site header');
+  assert.equal(renamed.id, original.id);
+  assert.equal((await deps.savedSections.list())[0].name, 'Site header');
+  const recased = await renameSavedSection(deps, { actorId: 'dane', id: original.id, name: 'SITE HEADER' }, TOOL);
+  assert.equal(recased.name, 'SITE HEADER');
+});
+
+test("renaming refuses the wrong role, a blank, long or taken name, a missing original or tool; a rename that did not stick says so; nothing changes", async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Header', section: newSiteSection() }, TOOL);
+  await saveReusableSection(deps, { actorId: 'dane', name: 'Footer', section: newSiteSection() }, TOOL);
+  const rename = (actorId: string, name: string, id = original.id, tool = TOOL) => refused(renameSavedSection(deps, { actorId, id, name }, tool));
+  assert.match(await rename('vee', 'New'), /Manage website/);
+  assert.match(await rename('eddie', 'New'), /Manage website/);
+  assert.match(await rename('dane', '   '), /needs a name/);
+  assert.match(await rename('dane', 'x'.repeat(SITE_SAVED_SECTION_NAME_MAX + 1)), /at most 80/);
+  assert.match(await rename('dane', 'footer'), /already a saved section called "Footer"/);
+  assert.match(await rename('dane', 'New', 'nope'), /not found/);
+  assert.match(await rename('dane', 'New', original.id, ''), /tool/i);
+  deps.savedSections.failNextSave = true;
+  assert.match(await rename('dane', 'New'), /did not save\. It is still called "Header"/);
+  assert.deepEqual((await deps.savedSections.list()).map((s) => s.name), ['Header', 'Footer']);
+});
+
+test('copyFollowersOf turns only the sections that follow this original into plain copies of its current content', async () => {
+  const deps = savedSetup();
+  const header = await saveReusableSection(deps, { actorId: 'dane', name: 'Header', section: { ...newSiteSection('two-column'), background: '#112233' } }, TOOL);
+  const footer = await saveReusableSection(deps, { actorId: 'dane', name: 'Footer', section: newSiteSection('single') }, TOOL);
+  // A linked section whose stored fallback is out of date: the copy takes the original's current content.
+  const stale = { ...insertSavedSection(header, true), layout: 'single' as const, background: '' };
+  const other = insertSavedSection(footer, true, [stale]);
+  const plain = newSiteSection('three-column', [stale, other]);
+  const out = copyFollowersOf([stale, other, plain], header);
+  assert.equal(out[0].linked, false);
+  assert.equal(out[0].savedSectionId, header.id, 'the copy still remembers where it came from');
+  assert.equal(out[0].id, stale.id);
+  assert.equal(out[0].layout, 'two-column');
+  assert.equal(out[0].background, '#112233');
+  assert.deepEqual(out[1], other);
+  assert.deepEqual(out[2], plain);
+});
+
+test('deleting a saved section turns every page that follows it into a plain copy first, with the same content, then deletes it', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Site header', section: { ...newSiteSection('two-column'), modules: [newSiteModule('heading', 'left')] } }, TOOL);
+  const home = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  const about = await addSitePage(deps, { actorId: 'dane', name: 'About' }, TOOL);
+  const untouched = await addSitePage(deps, { actorId: 'dane', name: 'Contact' }, TOOL);
+  const onHome = insertSavedSection(original, true);
+  const onAbout = insertSavedSection(original, true);
+  await saveSitePageSections(deps, { actorId: 'dane', id: home.id, sections: [onHome] }, TOOL);
+  await saveSitePageSections(deps, { actorId: 'dane', id: about.id, sections: [newSiteSection(), onAbout] }, TOOL);
+  await saveSitePageSections(deps, { actorId: 'dane', id: untouched.id, sections: [insertSavedSection(original, false)] }, TOOL);
+  const saved = await deps.savedSections.list();
+  const before = new Map((await deps.pages.list()).map((p) => [p.id, resolveSiteSections(p.sections, saved)]));
+  const contactBefore = (await deps.pages.list()).find((p) => p.id === untouched.id)!.updatedAt;
+
+  const done = await deleteSavedSection(deps, { actorId: 'dane', id: original.id }, TOOL);
+  assert.deepEqual(done, { name: 'Site header', pagesCopied: 2 });
+  assert.equal(deps.savedSections.rows.length, 0);
+  for (const page of await deps.pages.list()) {
+    const was = before.get(page.id)!;
+    assert.equal(page.sections.some(isLinkedSiteSection), false, `${page.name} follows nothing now`);
+    // What the page shows is what it showed, only no longer locked.
+    assert.deepEqual(resolveSiteSections(page.sections, []).map((s) => ({ ...s, linked: undefined })), was.map((s) => ({ ...s, linked: undefined })), page.name);
+  }
+  assert.equal((await deps.pages.list()).find((p) => p.id === untouched.id)!.updatedAt, contactBefore, 'a page that only held a plain copy is not rewritten');
+});
+
+test('if a page cannot be rewritten, the saved section is not deleted and the page is named (rule 6)', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Banner', section: newSiteSection() }, TOOL);
+  const home = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  await saveSitePageSections(deps, { actorId: 'dane', id: home.id, sections: [insertSavedSection(original, true)] }, TOOL);
+  deps.pages.failNextSave = true;
+  assert.match(await refused(deleteSavedSection(deps, { actorId: 'dane', id: original.id }, TOOL)), /The page "Home" could not be turned into a plain copy of "Banner", so it was not deleted/);
+  assert.equal(deps.savedSections.rows.length, 1);
+  assert.equal((await deps.pages.list())[0].sections[0].linked, true);
+  // A page store that throws is treated the same.
+  deps.pages.update = async () => { throw new Error('refused'); };
+  assert.match(await refused(deleteSavedSection(deps, { actorId: 'dane', id: original.id }, TOOL)), /"Home" could not/);
+  assert.equal(deps.savedSections.rows.length, 1);
+});
+
+test('deleting refuses the wrong role, a missing original or tool; a delete that did not stick says so', async () => {
+  const deps = savedSetup();
+  const original = await saveReusableSection(deps, { actorId: 'dane', name: 'Footer', section: newSiteSection() }, TOOL);
+  const del = (actorId: string, id = original.id, tool = TOOL) => refused(deleteSavedSection(deps, { actorId, id }, tool));
+  assert.match(await del('vee'), /Manage website/);
+  assert.match(await del('eddie'), /Manage website/);
+  assert.match(await del('dane', 'nope'), /not found/);
+  assert.match(await del('dane', original.id, ''), /tool/i);
+  deps.savedSections.failNextSave = true;
+  assert.match(await del('dane'), /"Footer" was not deleted; try again\.$/);
+  assert.equal(deps.savedSections.rows.length, 1);
+  assert.deepEqual(await deleteSavedSection(deps, { actorId: 'dane', id: original.id }, TOOL), { name: 'Footer', pagesCopied: 0 });
 });
