@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  WaveCenter's confirm-your-email email, sent by Supabase when someone signs
+  up (app/auth/actions.ts, signUp). The ConfirmationURL field is Supabase's
+  own link; it lands on /auth/confirm, which signs the new member in.
+  The look is the same in all three account emails (confirmation.html,
+  email_change.html, recovery.html; Dane, WC-257): the water-drop picture
+  fills the background, the logo and the WaveCenter name sit at the top, and
+  the words and button are inside a rounded pod of 75%-opaque white. Plain
+  HTML with inline styles and tables, because email programs ignore style
+  sheets and most modern layout. Fallbacks: an email program that blocks
+  pictures shows the plain dark blue #2c4a63 instead; one that cannot do
+  transparency reads the solid white written before the rgba value. Text
+  colours keep 4.5:1 contrast even over the picture's black pixels showing
+  through the 75% white (#0b2533, #2a4655, links #004d69). Pictures use full
+  addresses on app.wavecenter.com: an email cannot load a path relative to
+  the site. The picture is not mirrored as on Home: email programs cannot
+  flip a background. The live project holds a pasted copy of this file
+  (docs/EMAIL_SETUP.md, step 5): change both together.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Confirm your WaveCenter email</title>
+</head>
+<body style="margin:0; padding:0; background-color:#2c4a63; color:#0b2533; font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" background="https://app.wavecenter.com/brand/home-background.jpg" bgcolor="#2c4a63" style="background-color:#2c4a63; background-image:url('https://app.wavecenter.com/brand/home-background.jpg'); background-position:center center; background-size:cover; background-repeat:no-repeat;">
+  <tr>
+    <td align="center" style="padding:40px 16px 48px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr>
+          <td align="center" style="padding:0 0 24px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding-right:14px; vertical-align:middle;">
+                  <img src="https://app.wavecenter.com/brand/mark.png" width="56" height="56" alt="" style="display:block; width:56px; height:56px; border:0;">
+                </td>
+                <td style="vertical-align:middle; color:#ffffff; font-size:34px; line-height:1.1; font-weight:700; letter-spacing:-0.01em; text-shadow:0 0 2px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.85), 0 0 12px rgba(0,0,0,0.7);">
+                  WaveCenter
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff; background-color:rgba(255,255,255,0.75); border-radius:24px; padding:32px 32px 36px; font-size:16px; line-height:1.5; color:#0b2533;">
+            <p style="margin:0 0 16px; font-size:22px; font-weight:700;">Welcome to WaveCenter</p>
+            <p style="margin:0 0 16px;">Thanks for signing up. Click the button below to confirm this email address and finish making your account.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+              <tr>
+                <td bgcolor="#005f80" style="background-color:#005f80; border-radius:10px;">
+                  <a href="{{ .ConfirmationURL }}" style="display:inline-block; padding:12px 24px; color:#ffffff; font-weight:700; text-decoration:none; border-radius:10px;">Confirm your email</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px; color:#2a4655; font-size:14px;">If you did not sign up for WaveCenter, you can ignore this email. No account is made without this step.</p>
+            <p style="margin:0; color:#2a4655; font-size:14px;">If the button does not work, copy this link into your browser:<br>
+              <a href="{{ .ConfirmationURL }}" style="color:#004d69; word-break:break-all;">{{ .ConfirmationURL }}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
