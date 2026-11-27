@@ -388,19 +388,26 @@ export function Conversation({
         ) : shownMessages.length === 0 ? (
           <p className="note" role="status">{noMatchLine(query)}</p>
         ) : (
-          <ol>
-            {shownMessages.map((m) => {
-              const mine = m.senderId === me;
-              return (
-                <li key={m.id} className={mine ? "chat-message mine" : "chat-message"}>
-                  <span className="chat-meta note">
-                    <b>{mine ? "You" : chat.otherName}</b> · <time dateTime={m.sentAt}>{sentLabel(m.sentAt)}</time>
-                  </span>
-                  <span className="chat-body">{m.body}</span>
-                </li>
-              );
-            })}
-          </ol>
+          <>
+            {/* WC-241: the two sides named once, over their columns, instead of on every message.
+                Hidden from screen readers: each message says its own sender to them below. */}
+            <div className="chat-heads" aria-hidden="true">
+              <b>{chat.otherName}</b>
+              <b>You</b>
+            </div>
+            <ol>
+              {shownMessages.map((m) => {
+                const mine = m.senderId === me;
+                return (
+                  <li key={m.id} className={mine ? "chat-message mine" : "chat-message"}>
+                    <span className="sr-only">{mine ? "You" : chat.otherName}: </span>
+                    <time className="chat-meta note" dateTime={m.sentAt}>{sentLabel(m.sentAt)}</time>
+                    <span className="chat-body">{m.body}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          </>
         )}
       </div>
       {!newestOnTop && readLine}
