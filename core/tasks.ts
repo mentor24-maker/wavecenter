@@ -229,6 +229,19 @@ async function requireParent(
   return parentTaskId;
 }
 
+/**
+ * The to-do list keeps sub-tasks one level deep: a parent must itself be
+ * top-level. The parent is looked up with `find`, not `get`, so the rule
+ * holds when an editor moves another member's task under one of that
+ * member's tasks (WC-248), which `get` (the caller's own only) never returns.
+ */
+export async function requireTopLevelParent(store: TaskStore, parentTaskId: string): Promise<void> {
+  const parent = await store.find(parentTaskId);
+  if (parent?.parentTaskId) {
+    throw new CoreError(`"${parent.title}" is already a sub-task, and sub-tasks cannot have sub-tasks of their own yet.`);
+  }
+}
+
 const ACTS = {
   edit: { own: 'task.edit', any: 'task.edit.any', verb: 'change' },
   delete: { own: 'task.delete', any: 'task.delete.any', verb: 'delete' },

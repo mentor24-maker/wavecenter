@@ -33,7 +33,7 @@ import {
   removeFile,
 } from "../../core/files.ts";
 import { setPoints } from "../../core/points.ts";
-import { approveTask, createTask, updateTask, type TaskPriority } from "../../core/tasks.ts";
+import { approveTask, createTask, requireTopLevelParent, updateTask, type TaskPriority } from "../../core/tasks.ts";
 import { CoreError, WAVECENTER_TOOL } from "../../core/tool.ts";
 import { castVote, requireNotVotedOn, type VoteChoice } from "../../core/votes.ts";
 import { currentUser, supabaseForRequest } from "../lib/supabase";
@@ -83,8 +83,7 @@ async function save(
  * trees; this is the to-do list's own limit, so the screen stays simple.
  */
 async function requireOneLevel(store: Store, supabase: Supabase, id: string | null, parentTaskId: string) {
-  const parent = await store.get(parentTaskId);
-  if (parent?.parentTaskId) throw new CoreError(`"${parent.title}" is already a sub-task, and sub-tasks cannot have sub-tasks of their own yet.`);
+  await requireTopLevelParent(store, parentTaskId);
   if (!id) return; // A task being added has no sub-tasks yet.
   const { count, error } = await supabase.from("tasks").select("id", { count: "exact", head: true }).eq("parent_task_id", id);
   if (error) throw new Error(error.message);
@@ -156,7 +155,8 @@ export async function markDone(id: string, done: boolean): Promise<SaveResult> {
  * votes; the task's points are then the final score (core/taskScore.ts).
  */
 export async function changePoints(id: string, points: number): Promise<SaveResult> {
-  return save("change your score", (store) => setPoints(store, id, points, WAVECENTER_TOOL));
+  return save("change your score", async (store, supabase, memberId) =>
+    setPoints(store, id, points, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
 }
 
 export async function moveUnder(id: string, parentTaskId: string | null): Promise<SaveResult> {
@@ -199,9 +199,11 @@ export async function chooseForAgents(ids: string[], selected: boolean): Promise
   const what = selected ? "tick the task for AI agents" : "untick the task";
   let failed = 0;
   let firstError = "";
+  // The member's permissions are read once, not once per task.
+  let permissions: string[] | null = null;
   for (const id of ids) {
     const result = await save(what, async (store, supabase, memberId) =>
-      updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL, await permissionsOf(supabase, memberId)));
+      updateTask(store, id, { agentSelected: selected }, WAVECENTER_TOOL, (permissions ??= await permissionsOf(supabase, memberId))));
     if (!result.ok) {
       failed += 1;
       firstError ||= result.error;

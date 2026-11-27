@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { approveTask, createTask, deleteTask, updateTask, type Task } from './tasks.ts';
+import { approveTask, createTask, deleteTask, requireTopLevelParent, updateTask, type Task } from './tasks.ts';
 import { ROLES, memberPermissions, type RoleKey } from './members.ts';
 import { CoreError } from './tool.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
@@ -292,4 +292,14 @@ test("an editor moves another member's task only under one of that member's task
   await assert.rejects(updateTask(store, 'theirs', { parentTaskId: 'mine' }, 'wavecenter', editor), /No task mine was found that you may put this task under/);
   assert.equal((await updateTask(store, 'theirs', { parentTaskId: 'their-parent' }, 'wavecenter', editor)).parentTaskId, 'their-parent');
   await assert.rejects(updateTask(store, 'mine', { parentTaskId: 'their-parent' }, 'wavecenter', editor), /that you may put this task under/);
+});
+
+test("an editor may not put another member's task under one of that member's sub-tasks: sub-tasks stay one level deep", async () => {
+  // Contributor C has Q > P and a task X; editor E tries to move X under P.
+  const store = twoOwners('editor-e');
+  const c = store.rows.get('theirs')!;
+  store.rows.set('Q', { ...c, id: 'Q', title: 'Q' });
+  store.rows.set('P', { ...c, id: 'P', title: 'P', parentTaskId: 'Q' });
+  await assert.rejects(requireTopLevelParent(store, 'P'), /"P" is already a sub-task/);
+  await requireTopLevelParent(store, 'Q'); // a top-level parent of theirs is fine
 });

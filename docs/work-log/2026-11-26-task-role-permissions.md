@@ -23,3 +23,15 @@ storage. The app says so and deletes nothing.
 
 Next (WC-254): the tasks screen hides the controls a role may not use, so a
 viewer no longer sees the Add task box at all.
+
+Fixed after review:
+- An editor moving another member's task can no longer nest it two levels
+  deep. The "sub-tasks go one level deep" check looked only at the editor's
+  own tasks, so it missed the other member's parent. It now looks at any
+  task, and lives in the core rules with a test of its own.
+- A member who owns a task but whose role may not change tasks (a viewer, for
+  example) used to get a false "try again" message when changing its points.
+  They are now told plainly that their role may not change tasks, and an
+  editor is told that only the owner may change a task's points.
+- One database check that could pass without testing anything (it ran as a
+  viewer) now runs as a member who may change tasks.

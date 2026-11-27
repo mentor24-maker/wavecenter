@@ -3165,9 +3165,15 @@ try {
   shown = await taskOf(taskB);
   check('the owner’s own points vote is not an other member’s score (still 7), but High and Low make Normal', shown?.points === 7 && shown?.priority === 'normal', JSON.stringify(shown));
   check('the votes leave B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
-  const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
-  check('even its owner cannot write the owner’s score straight to the column', forgeOwnerScore.status === 200 && (await taskOf(taskB))?.owner_points === 5,
-    `HTTP ${forgeOwnerScore.status} ${JSON.stringify(await taskOf(taskB))}`);
+  // Run as A, an admin who owns insA, not B: B is a viewer by now, so the
+  // row-level rules would refuse B's write before the tasks_owner_points
+  // trigger was reached, and this check would pass even if the trigger broke.
+  // The write must reach the row (one row back) and still leave the score.
+  const scoreBefore = (await taskOf(insA.id))?.owner_points;
+  const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${insA.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
+  check('even its owner cannot write the owner’s score straight to the column',
+    forgeOwnerScore.status === 200 && forgeOwnerScore.json?.length === 1 && scoreBefore !== 99 && (await taskOf(insA.id))?.owner_points === scoreBefore,
+    `HTTP ${forgeOwnerScore.status} ${JSON.stringify(forgeOwnerScore.json)} before ${scoreBefore} after ${JSON.stringify(await taskOf(insA.id))}`);
 
   const votesSeen = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&select=member_id,points`, { token: a.token });
   check('A can read every vote on B’s task', votesSeen.status === 200 && votesSeen.json.length === 2, JSON.stringify(votesSeen.json));
