@@ -25,6 +25,7 @@ import { mayDo, type RoleKey } from './members.ts';
 import { requirePointsValue } from './points.ts';
 import { CoreError, requireTool } from './tool.ts';
 import type { Task } from './tasks.ts';
+import { averagePoints } from './votes.ts';
 
 /**
  * Every kind of engagement there is. Each one has a row in
@@ -1185,4 +1186,114 @@ export async function makeScoringFinal(store: ScoringPhaseStore, actor: GameActo
   const saved = await store.makeFinal(named);
   if (saved.provisional) throw new CoreError('The database did not make points final. Nothing was changed; try again.');
   return saved;
+}
+
+/**
+ * Members' votes on what each action is worth (docs/SCORING_GAME_PLAN.md,
+ * sub-task 6; docs/scoring/principles.md, "Members set the values, in the
+ * end"): the start of the canon's continuously voted valuation repository.
+ * Every signed-in member may give one number per scoring rule, change it or
+ * withdraw it, and every member sees the average beside the admin's value.
+ *
+ * Collected and shown, not yet counted. What an action earns is still the
+ * rule's `points`, the admin's value, until Dane decides how the votes count
+ * in it. A vote never touches the rules or the ledger, so points already
+ * earned keep what they were given, as with every rule change.
+ *
+ * The table is `scoring_rule_votes`
+ * (supabase/migrations/20261127130000_scoring_rule_votes.sql): one row per
+ * member per rule, every member reads them all, a member writes only their
+ * own. core/memoryScoringRuleVoteStore.ts keeps them in memory for the tests.
+ */
+
+/** One row of `scoring_rule_votes`: one member's vote on what one action is worth. */
+export interface ScoringRuleVote {
+  kind: string;
+  memberId: string;
+  points: number;
+  /** The tool that last saved it. */
+  tool: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What core needs from storage, acting as one signed-in member. */
+export interface ScoringRuleVoteStore {
+  /** The scoring rules, so a vote on an action that does not exist is refused. */
+  rules(): Promise<ScoringRule[]>;
+  /** Every member's vote on every action. */
+  all(): Promise<ScoringRuleVote[]>;
+  /** The member's own vote on an action, or null. */
+  mine(kind: string): Promise<ScoringRuleVote | null>;
+  /** Save the member's own vote on an action, replacing the one they already cast. */
+  save(kind: string, points: number, tool: string): Promise<ScoringRuleVote>;
+  /** Withdraw the member's own vote on an action. False if there was none. */
+  remove(kind: string): Promise<boolean>;
+}
+
+/**
+ * Cast, change or withdraw the signed-in member's vote on what an action is
+ * worth, on behalf of `tool`. `points` null withdraws it. A vote that is not a
+ * whole number from 0 up, or is on an action that does not exist, is refused
+ * with a message a person can read. Returns the vote as saved, or null once it
+ * is withdrawn. Throws if what comes back is not what was asked for, so a
+ * failed save is never reported as saved.
+ */
+export async function castScoringRuleVote(
+  store: ScoringRuleVoteStore,
+  kind: unknown,
+  points: unknown,
+  tool: string,
+): Promise<ScoringRuleVote | null> {
+  const named = requireTool(tool);
+  if (typeof kind !== 'string' || !kind) throw new CoreError('A vote must say which action it is on. Your vote was not saved.');
+  let value: number | null = null;
+  if (points !== null) {
+    try {
+      value = requirePointsValue(points);
+    } catch (err) {
+      throw new CoreError(`${(err as Error).message} Your vote was not saved.`);
+    }
+  }
+  const rule = (await store.rules()).find((r) => r.kind === kind);
+  if (!rule) throw new CoreError(`There is no action "${kind}" to vote on. Reload the page. Your vote was not saved.`);
+  if (value === null) {
+    if ((await store.mine(kind)) && !(await store.remove(kind))) {
+      throw new CoreError('Your vote was not withdrawn. Nothing changed; try again.');
+    }
+    return null;
+  }
+  const saved = await store.save(kind, value, named);
+  if (!saved || saved.kind !== kind || saved.points !== value) throw new CoreError('Your vote did not save. Nothing changed; try again.');
+  return saved;
+}
+
+/** What members' votes on one action add up to. */
+export interface ScoringRuleVoteSummary {
+  /** The average of the votes, a whole number with a half rounding up; null = no votes yet. */
+  average: number | null;
+  /** How many members have voted on it. */
+  voters: number;
+  /** The signed-in member's own vote, or null. */
+  mine: number | null;
+}
+
+/**
+ * Each action's members' average and the signed-in member's own vote, by
+ * kind. The average rounds the way a task's points votes do
+ * (`averagePoints`, core/votes.ts). An action nobody has voted on has no
+ * entry: "no votes yet".
+ */
+export function summarizeScoringRuleVotes(votes: readonly ScoringRuleVote[], memberId: string | null): Map<string, ScoringRuleVoteSummary> {
+  const byKind = new Map<string, ScoringRuleVote[]>();
+  for (const v of votes) byKind.set(v.kind, [...(byKind.get(v.kind) ?? []), v]);
+  const out = new Map<string, ScoringRuleVoteSummary>();
+  for (const [kind, list] of byKind) {
+    out.set(kind, {
+      average: averagePoints(list.map((v) => v.points)),
+      voters: list.length,
+      mine: list.find((v) => v.memberId === memberId)?.points ?? null,
+    });
+  }
+  return out;
 }
