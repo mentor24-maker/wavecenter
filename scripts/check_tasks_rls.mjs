@@ -2328,10 +2328,12 @@ try {
   // Saved sections reused on many pages (20261124160000_site_sections.sql,
   // WC-212): only a role with site.edit (A) saves one, stamped as theirs, or
   // changes its content, with the change time stamped; B (a viewer) and a
-  // signed-out visitor can do neither, and nobody deletes one or changes who
-  // saved it. A website manager reads every original; anyone else reads only
-  // one a published page follows (linked true), never one only a draft or a
-  // plain copy names. The test rows are removed at the end.
+  // signed-out visitor can do neither, and nobody changes who saved it. A
+  // website manager reads every original; anyone else reads only one a
+  // published page follows (linked true), never one only a draft or a plain
+  // copy names. Renaming and deleting one (20261127120000_site_sections_rename_delete.sql,
+  // WC-246): A renames and deletes; B and a visitor do neither; a blank or
+  // 81-character name is refused. The test rows are removed at the end.
   {
     const pageIds = [];
     const sectionIds = [];
@@ -2373,14 +2375,11 @@ try {
       const bPatch = await patch(b, original?.id, { section: content('single') });
       const anonPatch = await patch(null, original?.id, { section: content('single') });
       const forgedPatch = await patch(a, original?.id, { created_by: b.id });
-      const renamed = await patch(a, original?.id, { name: 'renamed' });
-      const bDel = await call(`/rest/v1/site_sections?id=eq.${original?.id}`, { method: 'DELETE', token: b.token, prefer: 'return=representation' });
-      const aDel = await call(`/rest/v1/site_sections?id=eq.${original?.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
       const kept = await row(original?.id);
-      check('a member without Manage website, or a signed-out visitor, cannot change a saved section; nobody changes who saved it, renames or deletes one',
-        refused(bPatch) && refused(anonPatch) && forgedPatch.status >= 400 && renamed.status >= 400 && refused(bDel) && refused(aDel)
+      check('a member without Manage website, or a signed-out visitor, cannot change a saved section; nobody changes who saved it',
+        refused(bPatch) && refused(anonPatch) && forgedPatch.status >= 400
           && kept?.section?.layout === 'three-column' && kept?.created_by === a.id && kept?.name === `RLS header ${tag}`,
-        `viewer HTTP ${bPatch.status}, signed out HTTP ${anonPatch.status}, created_by HTTP ${forgedPatch.status}, name HTTP ${renamed.status}, viewer delete HTTP ${bDel.status}, manager delete HTTP ${aDel.status}, row ${JSON.stringify(kept)}`);
+        `viewer HTTP ${bPatch.status}, signed out HTTP ${anonPatch.status}, created_by HTTP ${forgedPatch.status}, row ${JSON.stringify(kept)}`);
 
       check('an original no page follows is read by a website manager only', (await sees(a, original?.id)) && !(await sees(b, original?.id)) && !(await sees(null, original?.id)), '');
       const instance = (linked) => ({ id: `s-${linked}`, title: '', layout: 'single', alignment: 'left', marginTop: 0, marginBottom: 0, background: '', savedSectionId: original?.id, linked });
@@ -2392,6 +2391,30 @@ try {
       check('a draft page that follows it does not let a visitor read the original', !(await sees(b, original?.id)) && !(await sees(null, original?.id)), '');
       await admin(`/rest/v1/site_pages?id=eq.${page?.id}`, { method: 'PATCH', body: { is_published: true } });
       check('once a published page follows it, every member and a signed-out visitor read the original', (await sees(b, original?.id)) && (await sees(null, original?.id)), '');
+
+      // WC-246: renaming and deleting. B and a visitor can now read the original (a published page follows it), so a refusal here is the policy, not a hidden row.
+      const del = (who, id) => call(`/rest/v1/site_sections?id=eq.${id}`, { method: 'DELETE', token: who?.token, prefer: 'return=representation' });
+      const bRename = await patch(b, original?.id, { name: `RLS B rename ${tag}` });
+      const anonRename = await patch(null, original?.id, { name: `RLS anon rename ${tag}` });
+      const bDel = await del(b, original?.id);
+      const anonDel = await del(null, original?.id);
+      const stillThere = await row(original?.id);
+      check('a member without Manage website, or a signed-out visitor, cannot rename or delete a saved section',
+        refused(bRename) && refused(anonRename) && refused(bDel) && refused(anonDel) && stillThere?.name === `RLS header ${tag}`,
+        `viewer rename HTTP ${bRename.status}, signed out rename HTTP ${anonRename.status}, viewer delete HTTP ${bDel.status}, signed out delete HTTP ${anonDel.status}, row ${JSON.stringify(stillThere)}`);
+      const blankName = await patch(a, original?.id, { name: '   ' });
+      const longName = await patch(a, original?.id, { name: 'x'.repeat(81) });
+      check('the database refuses renaming a saved section to a blank name or one over 80 characters',
+        blankName.status >= 400 && longName.status >= 400 && (await row(original?.id))?.name === `RLS header ${tag}`,
+        `blank HTTP ${blankName.status}, long HTTP ${longName.status}`);
+      await new Promise((r) => setTimeout(r, 20));
+      const aRename = await patch(a, original?.id, { name: `RLS site header ${tag}` });
+      check('a website manager renames a saved section, and the change time is stamped',
+        aRename.status === 200 && aRename.json?.[0]?.name === `RLS site header ${tag}` && aRename.json?.[0]?.updated_at > stillThere?.updated_at && aRename.json?.[0]?.created_by === a.id,
+        `HTTP ${aRename.status} ${JSON.stringify(aRename.json)}`);
+      const aDel = await del(a, original?.id);
+      check('a website manager deletes a saved section', aDel.status === 200 && aDel.json?.length === 1 && (await row(original?.id)) === undefined,
+        `HTTP ${aDel.status} ${JSON.stringify(aDel.json)}`);
     } finally {
       if (pageIds.length) await admin(`/rest/v1/site_pages?id=in.(${pageIds.join(',')})`, { method: 'DELETE' });
       if (sectionIds.length) await admin(`/rest/v1/site_sections?id=in.(${sectionIds.join(',')})`, { method: 'DELETE' });

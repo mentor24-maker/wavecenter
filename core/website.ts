@@ -535,6 +535,10 @@ export interface SiteSavedSectionStore {
   insert(row: { name: string; section: SiteSection; tool: string }): Promise<SiteSavedSection | null>;
   /** Change an original's content. Returns what is now saved, or null if nothing changed. */
   update(id: string, patch: { section: SiteSection }, tool: string): Promise<SiteSavedSection | null>;
+  /** Give an original a new name (WC-246). Returns what is now saved, or null if nothing changed. */
+  rename(id: string, name: string, tool: string): Promise<SiteSavedSection | null>;
+  /** Delete an original (WC-246). True only when one was removed. */
+  remove(id: string): Promise<boolean>;
 }
 
 /** What working with saved sections needs: the saved sections, the actor's role, and the grants. */
@@ -542,6 +546,11 @@ export interface SiteSavedSectionDeps {
   savedSections: SiteSavedSectionStore;
   roles: MemberRoleStore;
   grants?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** What deleting a saved section needs besides: the pages, to turn every page that follows it into a plain copy first (WC-246). */
+export interface SiteSavedSectionDeleteDeps extends SiteSavedSectionDeps {
+  pages: SitePageStore;
 }
 
 /** A section's content as an original holds it: well formed, its id "section", no link of its own. Never throws. */
@@ -619,6 +628,7 @@ export function pagesFollowing(pages: readonly SitePage[], id: string): SitePage
   return pages.filter((p) => p.sections.some((s) => s.linked === true && s.savedSectionId === id));
 }
 
+/** A saved section's name, tidied: trimmed, every run of white space one space. Throws when blank, too long, or another of `saved` already has it (ignoring capitals). */
 function cleanSavedName(raw: string | undefined, saved: readonly SiteSavedSection[]): string {
   const name = (raw ?? '').trim().replace(/\s+/g, ' ');
   if (!name) throw new CoreError('A saved section needs a name, so it can be found again. Nothing was saved.');
@@ -691,6 +701,90 @@ export async function changeSavedSection(
     throw new CoreError(`The change to "${original.name}" did not save. Every page still shows it as it was; try again.`);
   }
   return saved;
+}
+
+/**
+ * `actorId` gives saved section `id` a new name (WC-246), on behalf of
+ * `tool`. The name is tidied and checked as a new one is: not blank, at most
+ * SITE_SAVED_SECTION_NAME_MAX characters, and not another saved section's
+ * name, ignoring capitals (its own, in other capitals, is allowed). Throws a
+ * CoreError in plain words when the role may not, the original is gone, the
+ * name is not allowed, or the save did not stick (rule 6). Returns the
+ * original as now saved, read back.
+ */
+export async function renameSavedSection(
+  deps: SiteSavedSectionDeps,
+  change: { actorId: string; id: string; name: string },
+  tool: string,
+): Promise<SiteSavedSection> {
+  const named = requireTool(tool);
+  await requireSavedManager(deps, change.actorId, 'rename saved sections');
+  const all = await deps.savedSections.list();
+  const original = all.find((s) => s.id === change.id);
+  if (!original) throw new CoreError('This saved section was not found. It may have been deleted. Nothing was saved.');
+  const name = cleanSavedName(change.name, all.filter((s) => s.id !== original.id));
+  const saved = await deps.savedSections.rename(original.id, name, named);
+  if (!saved || saved.id !== original.id || saved.name !== name) {
+    throw new CoreError(`The new name for "${original.name}" did not save. It is still called "${original.name}"; try again.`);
+  }
+  return saved;
+}
+
+/**
+ * `sections` with every section that follows `original` turned into a plain
+ * copy holding the original's current content (WC-246): what it showed, it
+ * still shows. Sections that follow other originals, and plain ones, are as
+ * they were.
+ */
+export function copyFollowersOf(sections: readonly SiteSection[], original: SiteSavedSection): SiteSection[] {
+  return sections.map((s) => (s.linked === true && s.savedSectionId === original.id ? unlinkSiteSection(following(s, original)) : s));
+}
+
+/**
+ * `actorId` deletes saved section `id` (WC-246), on behalf of `tool`.
+ * **First** every page that follows it is rewritten so that each section
+ * following it becomes a plain copy of its current content (`copyFollowersOf`),
+ * saved and read back page by page. Only when every page saved is the
+ * original deleted, so no page is ever left following an original that is
+ * gone. If any page did not save, nothing is deleted and the CoreError names
+ * the page(s); pages already rewritten are still right, because a plain copy
+ * of the current content looks the same as following it. Throws in plain
+ * words when the role may not, the original is gone, or the delete did not
+ * stick (rule 6). Returns the original's name and how many pages became
+ * copies.
+ */
+export async function deleteSavedSection(
+  deps: SiteSavedSectionDeleteDeps,
+  change: { actorId: string; id: string },
+  tool: string,
+): Promise<{ name: string; pagesCopied: number }> {
+  const named = requireTool(tool);
+  await requireSavedManager(deps, change.actorId, 'delete saved sections');
+  const original = (await deps.savedSections.list()).find((s) => s.id === change.id);
+  if (!original) throw new CoreError('This saved section was not found. It may already have been deleted.');
+  const followers = pagesFollowing(await deps.pages.list(), original.id);
+  const failed: string[] = [];
+  for (const page of followers) {
+    const sections = normalizeSiteSections(copyFollowersOf(page.sections, original));
+    let saved: SitePage | null = null;
+    try {
+      saved = await deps.pages.update(page.id, { sections }, named);
+    } catch {
+      saved = null;
+    }
+    if (!saved || saved.id !== page.id || JSON.stringify(saved.sections) !== JSON.stringify(sections)) failed.push(`"${page.name}"`);
+  }
+  if (failed.length) {
+    const which = failed.length === 1 ? `The page ${failed[0]} could not` : `The pages ${failed.join(', ')} could not`;
+    throw new CoreError(
+      `${which} be turned into a plain copy of "${original.name}", so it was not deleted. Every page still shows the same content; try again.`,
+    );
+  }
+  if (!(await deps.savedSections.remove(original.id))) {
+    const copied = followers.length ? ` The ${plural(followers.length, 'page')} that followed it now hold their own copy, with the same content.` : '';
+    throw new CoreError(`"${original.name}" was not deleted; try again.${copied}`);
+  }
+  return { name: original.name, pagesCopied: followers.length };
 }
 
 // ── Modules: headings, text, pictures, buttons and leaderboards (WC-209, WC-237) ─────────────────
