@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, mayOpenAdmin, memberActions,
+  DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, mayOpenAdmin, maySeeMemberEmails, memberActions, signInMethodLabel,
   memberPermissions, roleOf, setMemberRole,
 } from './members.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
@@ -94,6 +94,20 @@ test('only an admin may manage members', () => {
 test('only an admin may open the Admin area; an unread role may not', () => {
   assert.equal(mayOpenAdmin('admin'), true);
   for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) assert.equal(mayOpenAdmin(role), false, String(role));
+});
+
+test('only an admin may see members\u2019 email addresses; an unread role may not', () => {
+  assert.equal(maySeeMemberEmails('admin'), true);
+  for (const role of ['editor', 'contributor', 'reviewer', 'viewer', null, undefined] as const) assert.equal(maySeeMemberEmails(role), false, String(role));
+});
+
+test('the sign-in method reads Google, Email, or Google and email', () => {
+  assert.equal(signInMethodLabel(['google']), 'Google');
+  assert.equal(signInMethodLabel(['email']), 'Email');
+  assert.equal(signInMethodLabel(['email', 'google']), 'Google and email');
+  assert.equal(signInMethodLabel(['google', 'email', 'google']), 'Google and email');
+  assert.equal(signInMethodLabel(['github', 'email']), 'Email and github');
+  assert.equal(signInMethodLabel([]), 'Unknown');
 });
 
 test('a member with no role recorded is a contributor', async () => {

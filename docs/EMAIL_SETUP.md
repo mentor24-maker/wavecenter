@@ -8,8 +8,10 @@ A click-by-click guide for Dane. When it is done:
   sender, which only delivers to members of the Supabase organisation, a few
   an hour.
 
-Email comes from **`WaveCenter <noreply@wavecenter.com>`** (Dane's choice,
-2026-11-01). A member's message has no reply-to address: it names its
+Members-page messages come from **`WaveCenter <noreply@wavecenter.com>`**
+(Dane's choice, 2026-11-01). Account emails (confirm your email, confirm a
+new address, reset your password) come from **`WaveCenter Admin
+<noreply@wavecenter.com>`** (Dane's "A", WC-257, 2026-11-27). A member's message has no reply-to address: it names its
 sender and says to answer on Your profile in WaveCenter, so a reply reaches
 nobody's inbox and shows nobody's address (Dane's "A", 2026-11-01).
 
@@ -149,7 +151,7 @@ yet.
    | Field | Value |
    |---|---|
    | Sender email address | `noreply@wavecenter.com` |
-   | Sender name | `WaveCenter` |
+   | Sender name | `WaveCenter Admin` |
    | Host | `smtp.resend.com` |
    | Port number | `465` |
    | Username | `resend` |
@@ -166,44 +168,56 @@ yet.
 **Check it.** In a private browser window, open
 [app.wavecenter.com](https://app.wavecenter.com), ask for a sign-in link to
 your own address, and open it in that same window. The email should come from
-**WaveCenter &lt;noreply@wavecenter.com&gt;**, and the link should sign you in.
+**WaveCenter Admin &lt;noreply@wavecenter.com&gt;**, and the link should sign
+you in.
 
 **If sign-in emails stop arriving**, switch it back: open the SMTP Settings
 page again, turn **Enable custom SMTP** off, and click **Save changes**.
 Supabase's built-in sender takes over again at once. Then check the six
 fields above, most often the password or the port.
 
-Supabase has one sender name for every sign-in email it sends. It stays
-**`WaveCenter`** for all of them, the reset-password email included (Dane,
-2026-11-02: "Keep just WaveCenter for all of them, including password
-reset").
+Supabase has one sender name for every account email it sends. It is
+**`WaveCenter Admin`** for all of them, the reset-password email included
+(Dane's "A" on WC-257, 2026-11-27, replacing "WaveCenter" chosen on
+2026-11-02). If the SMTP page already says `WaveCenter`, change only that one
+field and click **Save changes**.
 
 ---
 
-## Step 5. Give the reset-password email WaveCenter's look
+## Step 5. Give the three account emails WaveCenter's look
 
-The reset email's design lives in
-[`supabase/templates/recovery.html`](../supabase/templates/recovery.html): the
-water-drop header with the rings and the WaveCenter name, in a box with a gold
-border and rounded corners. The local test stack reads it from there; the live
-project needs a pasted copy. This step does not need step 4, but until step 4
-is done the email still comes from Supabase's own address.
+All three emails Supabase sends for WaveCenter accounts share one look: the
+water-drop picture as the background, the logo and the WaveCenter name at
+the top, and the words and button inside a rounded pod of 75%-opaque white
+(WC-257). Each design lives in a file in
+[`supabase/templates/`](../supabase/templates/). The local test stack reads
+them from there; the live project needs a pasted copy of each. This step does
+not need step 4, but until step 4 is done the emails still come from
+Supabase's own address.
 
 1. Open [supabase.com/dashboard/project/dewzjgnydxwwblfuvyhb/auth/templates](https://supabase.com/dashboard/project/dewzjgnydxwwblfuvyhb/auth/templates)
-   (Authentication → Emails → **Templates**) and click **Reset password**.
-2. **Subject**: `Reset your WaveCenter password`
-3. **Message body**: select everything in the box and delete it, then paste
-   the whole of `recovery.html` (an agent session can put it on your
-   clipboard). The preview beside it should show the water-drop header and
-   the gold-edged box.
-4. Click **Save changes**.
+   (Authentication → Emails → **Templates**).
+2. For each row of this table, click the template name, then:
+   - **Subject**: type the subject exactly as shown.
+   - **Message body**: select everything in the box and delete it, then
+     paste the whole of the file (an agent session can put it on your
+     clipboard). The preview beside it should show the water-drop picture,
+     the logo and the white pod.
+   - Click **Save changes**.
+
+   | Template in Supabase | Subject | File to paste |
+   |---|---|---|
+   | **Confirm signup** | `Confirm your WaveCenter email` | [`confirmation.html`](../supabase/templates/confirmation.html) |
+   | **Change email address** | `Confirm your new WaveCenter email address` | [`email_change.html`](../supabase/templates/email_change.html) |
+   | **Reset password** | `Reset your WaveCenter password` | [`recovery.html`](../supabase/templates/recovery.html) |
 
 **Check it.** Open [app.wavecenter.com/forgot-password](https://app.wavecenter.com/forgot-password),
-type your own address and click the button. The email should show the new
-look, and its **Set a new password** button should open WaveCenter's
-set-a-new-password page.
+type your own address and click the button. The email should come from
+**WaveCenter Admin** (once step 4 is done), show the water-drop background
+with the logo and the white pod, and its **Set a new password** button
+should open WaveCenter's set-a-new-password page.
 
-When `recovery.html` changes, paste it again.
+When any of the three files changes, paste that one again.
 
 ---
 

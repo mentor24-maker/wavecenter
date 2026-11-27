@@ -73,3 +73,26 @@ test("no sort leaves the list as it came, and sorting never changes the list it 
   sortMembers(MEMBERS, { key: "name", ascending: true });
   assert.deepEqual(ids(MEMBERS), before);
 });
+
+// An admin's view: each member also carries an email and a sign-in method.
+const WITH_EMAILS: ViewMember[] = [
+  { ...MEMBERS[0], email: "dane@example.com", signIn: "Google" },
+  { ...MEMBERS[1], email: "Lee@Example.com", signIn: "Email" },
+  { ...MEMBERS[2], email: null, signIn: null },
+  { ...MEMBERS[3], email: "sasha@example.org", signIn: "Google and email" },
+];
+
+test("for an admin, the text filter also matches the email address, ignoring capitals", () => {
+  assert.deepEqual(ids(filterMembers(WITH_EMAILS, { ...NO_MEMBER_FILTER, text: "lee@EXAMPLE" })), ["lee"]);
+  assert.deepEqual(ids(filterMembers(WITH_EMAILS, { ...NO_MEMBER_FILTER, text: "example.org" })), ["sasha"]);
+  assert.deepEqual(ids(filterMembers(WITH_EMAILS, { ...NO_MEMBER_FILTER, text: "Dane" })), ["dane"]);
+});
+
+test("Email and Sign-in sort A–Z on the first click; a member with none comes last either way", () => {
+  assert.deepEqual(nextSort(null, "email"), { key: "email", ascending: true });
+  assert.deepEqual(nextSort(null, "signIn"), { key: "signIn", ascending: true });
+  assert.deepEqual(ids(sortMembers(WITH_EMAILS, { key: "email", ascending: true })), ["dane", "lee", "sasha", "anon"]);
+  assert.deepEqual(ids(sortMembers(WITH_EMAILS, { key: "email", ascending: false })), ["sasha", "lee", "dane", "anon"]);
+  assert.deepEqual(ids(sortMembers(WITH_EMAILS, { key: "signIn", ascending: true })), ["lee", "dane", "sasha", "anon"]);
+  assert.deepEqual(ids(sortMembers(WITH_EMAILS, { key: "signIn", ascending: false })), ["sasha", "dane", "lee", "anon"]);
+});
