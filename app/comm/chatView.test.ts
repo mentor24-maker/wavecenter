@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, ChatMessage } from "../../core/chat.ts";
-import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
+import { CHAT_ID, SOMEONE, UNKNOWN_DAY, chatList, clockLabel, dayLabel, withDayBreaks, chatPartnerOptions, chatTopic, chatPartner, isSearching, isDateFiltering, isRangeBackwards, messagesInRange, rangeWords, backwardsRangeLine, ANY_DATE, listTimeLabel, matchCountLine, newestFirst, newestFromOthers, noMatchLine, notStarted, preview, searchMessages, sendsOnKey, sentLabel } from "./chatView.ts";
 
 const chat = (id: string, memberIds: string[], createdAt: string): Chat => ({ id, taskId: null, aboutATask: false, memberIds, createdBy: memberIds[0], createdAt });
 const message = (chatId: string, senderId: string, body: string, sentAt: string): ChatMessage => ({
@@ -208,4 +208,69 @@ test("a chat all from one day gets one break, at the top; no messages, no breaks
 test("under a break a message shows its clock time alone, in Mountain time", () => {
   assert.equal(clockLabel("2026-11-26T06:00:00Z"), "11:00 PM");
   assert.equal(clockLabel("nope"), "");
+});
+
+// WC-245: From and To days on the Discussion panel, Mountain time, both ends inclusive.
+const dated = [
+  message("c", "lee", "Halloween hello", "2026-10-31T18:00:00Z"),
+  // 11:30pm Nov 1 in Mountain time (MST, -7, after daylight time ended that morning): still Nov 1 there, though Nov 2 in UTC.
+  message("c", "sam", "late on the first", "2026-11-02T06:30:00Z"),
+  // 12:30am Nov 2 in Mountain time.
+  message("c", "lee", "just after midnight hello", "2026-11-02T07:30:00Z"),
+  message("c", "sam", "mid month", "2026-11-15T17:00:00Z"),
+  message("c", "lee", "late month hello", "2026-11-20T17:00:00Z"),
+];
+const bodies = (ms: { body: string }[]) => ms.map((m) => m.body);
+const now = new Date("2026-11-26T19:00:00Z");
+
+test("a From day alone hides what was sent before that Mountain-time day", () => {
+  assert.deepEqual(bodies(messagesInRange(dated, { from: "2026-11-15", to: "" })), ["mid month", "late month hello"]);
+});
+
+test("a To day alone hides what was sent after that Mountain-time day", () => {
+  assert.deepEqual(bodies(messagesInRange(dated, { from: "", to: "2026-11-01" })), ["Halloween hello", "late on the first"]);
+});
+
+test("From and To together keep both ends, inclusive, split at Mountain-time midnight", () => {
+  assert.deepEqual(bodies(messagesInRange(dated, { from: "2026-11-01", to: "2026-11-01" })), ["late on the first"]);
+  assert.deepEqual(bodies(messagesInRange(dated, { from: "2026-11-02", to: "2026-11-15" })), ["just after midnight hello", "mid month"]);
+  assert.deepEqual(bodies(messagesInRange(dated, { from: "2026-10-31", to: "2026-11-20" })), bodies(dated));
+});
+
+test("no dates keeps every message, and junk in a date box counts as blank", () => {
+  assert.equal(messagesInRange(dated, ANY_DATE).length, 5);
+  assert.equal(messagesInRange(dated, { from: "soon", to: "" }).length, 5);
+  assert.equal(isDateFiltering(ANY_DATE), false);
+  assert.equal(isDateFiltering({ from: "", to: "2026-11-01" }), true);
+  assert.deepEqual(messagesInRange([message("c", "lee", "?", "not a time")], { from: "2026-11-01", to: "" }), []);
+});
+
+test("a From day after the To day is caught and said plainly", () => {
+  const range = { from: "2026-11-20", to: "2026-11-01" };
+  assert.equal(isRangeBackwards(range), true);
+  assert.equal(isRangeBackwards({ from: "2026-11-01", to: "2026-11-01" }), false);
+  assert.equal(isRangeBackwards({ from: "2026-11-20", to: "" }), false);
+  assert.equal(backwardsRangeLine(range, now), "The From date (Nov 20) is after the To date (Nov 1), so no message can fall between them. Change one of the dates.");
+});
+
+test("words and dates combine: only messages passing both show", () => {
+  const range = { from: "2026-11-02", to: "" };
+  assert.deepEqual(bodies(messagesInRange(searchMessages(dated, "hello"), range)), ["just after midnight hello", "late month hello"]);
+});
+
+test("the count and no-match lines name the dates when some are picked", () => {
+  const range = { from: "2026-11-01", to: "2026-11-20" };
+  assert.equal(rangeWords(range, now), "from Nov 1 to Nov 20");
+  assert.equal(rangeWords({ from: "2026-11-01", to: "2026-11-01" }, now), "on Nov 1");
+  assert.equal(rangeWords({ from: "2026-11-01", to: "" }, now), "from Nov 1");
+  assert.equal(rangeWords({ from: "", to: "2026-11-20" }, now), "up to Nov 20");
+  assert.equal(rangeWords({ from: "2025-12-31", to: "" }, now), "from Dec 31, 2025");
+  assert.equal(rangeWords(ANY_DATE, now), "");
+  assert.equal(noMatchLine("", range, now), "No messages from Nov 1 to Nov 20.");
+  assert.equal(noMatchLine(" x ", range, now), 'No messages match "x" from Nov 1 to Nov 20.');
+  assert.equal(noMatchLine("x"), 'No messages match "x".');
+  assert.equal(matchCountLine(2, 9, "", range, now), "2 of 9 messages were sent from Nov 1 to Nov 20.");
+  assert.equal(matchCountLine(1, 1, "", { from: "", to: "2026-11-20" }, now), "1 of 1 message was sent up to Nov 20.");
+  assert.equal(matchCountLine(2, 9, "hello", range, now), '2 of 9 messages match "hello" from Nov 1 to Nov 20.');
+  assert.equal(matchCountLine(2, 9, "hello"), '2 of 9 messages match "hello".');
 });
