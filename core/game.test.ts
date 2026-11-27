@@ -7,7 +7,7 @@ import { attachFile, deleteTaskWithFiles, filePath, removeFile } from './files.t
 import {
   ENGAGEMENT_KINDS, FACTOR_MAX, FACTOR_TESTS, RULE_NAME_MAX, RULE_TEXT_MAX, SCORING_TRIGGERS, STARTING_SCORING_RULES, addScoringRule,
   FINAL_CONFIRMATION, RESCORE_TOOL, applyGranularPoints, makeScoringFinal, applyRescore, previewRescore, rescoreCorrections, totalAfterRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, checkFactors, checkReasons, checkRuleFields, engagementKindForTask, granularPoints, granularWorking, FORMULA_EXAMPLES,
-  isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
+  castScoringRuleVote, summarizeScoringRuleVotes, isWired, kindFromName, mayManageScoring, proposeGranularPoints, recalculateGranularPoints, recordEngagement, scoreEngagement,
   totalPoints, type EngagementInput, type FactorReasons, type GameActor, type RescoreStore, type ScoringFactors,
 } from './game.ts';
 import { profileChanged, saveProfile, type MemberProfile, type MemberProfileStore } from './profiles.ts';
@@ -15,6 +15,8 @@ import { setPoints } from './points.ts';
 import { createTask, deleteTask, updateTask } from './tasks.ts';
 import { MemoryAccountStore } from './memoryAccountStore.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
+import { MemoryScoringRuleVoteStore } from './memoryScoringRuleVoteStore.ts';
+import { CoreError } from './tool.ts';
 import { MemoryTaskFileStore } from './memoryTaskFileStore.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
@@ -1267,4 +1269,72 @@ test('the final switch migration is one-way in the database itself', () => {
   assert.match(sql, /before update or delete on public\.game_settings/, 'the trigger guards updates and deletes');
   assert.match(sql, /create or replace function public\.make_scoring_final[\s\S]*private\.require_game_edit\(tool\)/, 'only game.edit may make points final');
   assert.match(sql, /revoke execute on function public\.make_scoring_final\(text\) from public, anon/);
+});
+
+test('a member votes on what an action is worth: once per action, changed by voting again, withdrawn with null', async () => {
+  const ledger = new MemoryEngagementStore();
+  const votes = new MemoryScoringRuleVoteStore(ledger);
+  const dane = votes.as('dane');
+  const saved = await castScoringRuleVote(dane, 'voted_on_task', 3, 'wavecenter');
+  assert.equal(saved?.points, 3);
+  assert.equal(saved?.memberId, 'dane');
+  assert.equal(saved?.tool, 'wavecenter');
+  await castScoringRuleVote(dane, 'voted_on_task', 5, 'wavecenter');
+  assert.equal(votes.rows.size, 1, 'voting again changes the vote, it does not add one');
+  assert.equal((await dane.mine('voted_on_task'))?.points, 5);
+  assert.equal(await castScoringRuleVote(dane, 'voted_on_task', null, 'wavecenter'), null);
+  assert.equal(votes.rows.size, 0);
+  // Withdrawing a vote that is not there changes nothing and is not an error.
+  assert.equal(await castScoringRuleVote(dane, 'voted_on_task', null, 'wavecenter'), null);
+});
+
+test('a vote that is not a whole number from 0 up, or is on an action that does not exist, is refused in plain words', async () => {
+  const votes = new MemoryScoringRuleVoteStore(new MemoryEngagementStore());
+  const dane = votes.as('dane');
+  for (const bad of [-1, 1.5, '3', undefined, Number.NaN]) {
+    await assert.rejects(castScoringRuleVote(dane, 'voted_on_task', bad, 'wavecenter'), (err: Error) => err instanceof CoreError && /not saved/.test(err.message), String(bad));
+  }
+  await assert.rejects(castScoringRuleVote(dane, 'no_such_action', 3, 'wavecenter'), /There is no action "no_such_action" to vote on.*not saved/);
+  await assert.rejects(castScoringRuleVote(dane, '', 3, 'wavecenter'), /which action/);
+  await assert.rejects(castScoringRuleVote(dane, 'voted_on_task', 3, ''), CoreError);
+  assert.equal(votes.rows.size, 0, 'nothing refused was saved');
+  assert.equal(await castScoringRuleVote(dane, 'voted_on_task', 0, 'wavecenter').then((v) => v?.points), 0, 'zero is a vote');
+});
+
+test('a vote that did not save is never reported as saved', async () => {
+  const votes = new MemoryScoringRuleVoteStore(new MemoryEngagementStore());
+  const store = { ...votes.as('dane'), save: async () => ({ kind: 'voted_on_task', memberId: 'dane', points: 1, tool: 'wavecenter', createdAt: '', updatedAt: '' }) };
+  await assert.rejects(castScoringRuleVote(store, 'voted_on_task', 4, 'wavecenter'), /did not save/);
+  await castScoringRuleVote(votes.as('dane'), 'voted_on_task', 4, 'wavecenter');
+  const stuck = { ...votes.as('dane'), remove: async () => false };
+  await assert.rejects(castScoringRuleVote(stuck, 'voted_on_task', null, 'wavecenter'), /not withdrawn/);
+});
+
+test('the members’ average of an action is a whole number with a half rounding up, or no votes yet', async () => {
+  const votes = new MemoryScoringRuleVoteStore(new MemoryEngagementStore());
+  await castScoringRuleVote(votes.as('dane'), 'voted_on_task', 4, 'wavecenter');
+  await castScoringRuleVote(votes.as('ana'), 'voted_on_task', 5, 'wavecenter');
+  await castScoringRuleVote(votes.as('ana'), 'made_task', 2, 'wavecenter');
+  const all = await votes.as('dane').all();
+  const mine = summarizeScoringRuleVotes(all, 'dane');
+  assert.deepEqual(mine.get('voted_on_task'), { average: 5, voters: 2, mine: 4 });
+  assert.deepEqual(mine.get('made_task'), { average: 2, voters: 1, mine: null });
+  assert.equal(mine.get('finished_task'), undefined, 'no votes yet');
+  assert.equal(summarizeScoringRuleVotes(all, null).get('voted_on_task')?.mine, null, 'nobody signed in has no vote of their own');
+});
+
+test('a vote on an action changes neither the rule’s points nor any point already in the ledger', async () => {
+  const { ledger, tasks } = setup('dane');
+  await createTask(tasks, { title: 'Earn something' }, 'wavecenter');
+  await recordEngagement(ledger, { memberId: 'ana', kind: 'voted_on_task', tool: 'wavecenter' });
+  const before = ledger.rows.map((e) => ({ ...e }));
+  const rulesBefore = await ledger.rules();
+  const votes = new MemoryScoringRuleVoteStore(ledger);
+  await castScoringRuleVote(votes.as('dane'), 'voted_on_task', 9, 'wavecenter');
+  await castScoringRuleVote(votes.as('ana'), 'made_task', 0, 'wavecenter');
+  assert.deepEqual(ledger.rows, before, 'every ledger entry keeps the points it was given, and none is added');
+  assert.deepEqual(await ledger.rules(), rulesBefore, 'what an action earns is still the admin’s value');
+  // The next engagement still earns the admin's value, not the members' average.
+  const next = await recordEngagement(ledger, { memberId: 'ana', kind: 'voted_on_task', tool: 'wavecenter' });
+  assert.equal(next.points, rulesBefore.find((r) => r.kind === 'voted_on_task')!.points);
 });

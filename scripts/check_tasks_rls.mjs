@@ -81,7 +81,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ACCOUNT_FALLBACK_TOOL, newAccountData } from '../core/accounts.ts';
 import { setAgentsOn } from '../core/agents.ts';
 import { addComment, editComment, removeComment } from '../core/comments.ts';
-import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, applyGranularPoints, applyRescore, makeScoringFinal, previewRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
+import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, castScoringRuleVote, summarizeScoringRuleVotes, applyGranularPoints, applyRescore, makeScoringFinal, previewRescore, changeFactorReasons, changeScoringFactors, changeScoringRule, recalculateGranularPoints } from '../core/game.ts';
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
@@ -3325,6 +3325,74 @@ try {
   check('every member reads the scoring phase; a signed-out visitor cannot',
     phaseB.status === 200 && typeof phaseB.json?.[0]?.provisional === 'boolean' && phaseAnon.status >= 400,
     `member HTTP ${phaseB.status} ${JSON.stringify(phaseB.json)}, signed out HTTP ${phaseAnon.status}`);
+
+  // scoring_rule_votes (20261127130000_scoring_rule_votes.sql): every member
+  // reads every vote on what an action is worth; a member casts, changes and
+  // withdraws only their own, through core. A vote changes no rule and no
+  // ledger entry.
+  {
+    const KIND = 'voted_on_task';
+    const ruleVotes = (member) => ({
+      rules: async () => ((await call('/rest/v1/game_scoring_rules?select=kind,name,description,criteria,points,position', { token: member.token })).json ?? []),
+      all: async () => ((await call('/rest/v1/scoring_rule_votes?select=*', { token: member.token })).json ?? []).map(fromVote),
+      mine: async (kind) => fromVote((await call(`/rest/v1/scoring_rule_votes?kind=eq.${kind}&member_id=eq.${member.id}`, { token: member.token })).json?.[0]) ?? null,
+      save: async (kind, points, tool) => {
+        const got = await call('/rest/v1/scoring_rule_votes?on_conflict=kind,member_id', {
+          method: 'POST', token: member.token, prefer: 'resolution=merge-duplicates,return=representation', body: { kind, member_id: member.id, points, tool },
+        });
+        if (got.status >= 300) throw new Error(`scoring_rule_votes save failed: HTTP ${got.status} ${JSON.stringify(got.json)}`);
+        return fromVote(got.json[0]);
+      },
+      remove: async (kind) => {
+        const got = await call(`/rest/v1/scoring_rule_votes?kind=eq.${kind}&member_id=eq.${member.id}`, { method: 'DELETE', token: member.token, prefer: 'return=representation' });
+        return Array.isArray(got.json) && got.json.length > 0;
+      },
+    });
+    function fromVote(r) {
+      return r && { kind: r.kind, memberId: r.member_id, points: r.points, tool: r.tool, createdAt: r.created_at, updatedAt: r.updated_at };
+    }
+    const ruleBefore = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${KIND}&select=points`)).json?.[0]?.points;
+    const ledgerBefore = (await admin('/rest/v1/engagements?select=id,points&order=id')).json ?? [];
+    const rowsOf = async (member) => (await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&member_id=eq.${member.id}&select=points`, { token: a.token })).json ?? [];
+
+    await castScoringRuleVote(ruleVotes(a), KIND, 3, TOOL);
+    await castScoringRuleVote(ruleVotes(b), KIND, 6, TOOL);
+    const seen = await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&select=member_id,points`, { token: a.token });
+    check('a member reads every member’s vote on what an action is worth', seen.status === 200 && seen.json.length === 2, JSON.stringify(seen.json));
+    const summary = summarizeScoringRuleVotes(await ruleVotes(a).all(), a.id).get(KIND);
+    check('the members’ average of 3 and 6 is 5 (a half rounds up), and A’s own vote is 3', summary?.average === 5 && summary?.mine === 3 && summary?.voters === 2, JSON.stringify(summary));
+
+    await castScoringRuleVote(ruleVotes(a), KIND, 4, TOOL);
+    const aRows = await rowsOf(a);
+    check('voting again changes A’s vote; it does not add a second one', aRows.length === 1 && aRows[0].points === 4, JSON.stringify(aRows));
+
+    const bump = await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&member_id=eq.${b.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 1000 } });
+    check('A cannot change B’s vote on an action', bump.status === 200 && bump.json.length === 0 && (await rowsOf(b))[0]?.points === 6, `HTTP ${bump.status} ${JSON.stringify(bump.json)}`);
+    const wipe = await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&member_id=eq.${b.id}`, { method: 'DELETE', token: a.token, prefer: 'return=representation' });
+    check('A cannot withdraw B’s vote on an action', wipe.status === 200 && wipe.json.length === 0 && (await rowsOf(b)).length === 1, `HTTP ${wipe.status} ${JSON.stringify(wipe.json)}`);
+    const forge = await call('/rest/v1/scoring_rule_votes', { method: 'POST', token: a.token, body: { kind: 'made_task', member_id: b.id, points: 1, tool: TOOL } });
+    check('A cannot vote on an action in B’s name', forge.status >= 400, `HTTP ${forge.status} ${forge.json?.message ?? ''}`);
+    const steal = await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&member_id=eq.${a.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { member_id: b.id } });
+    check('A cannot hand A’s vote over to B', steal.status >= 400 || (Array.isArray(steal.json) && steal.json.length === 0), `HTTP ${steal.status} ${JSON.stringify(steal.json)}`);
+    const neg = await call(`/rest/v1/scoring_rule_votes?kind=eq.${KIND}&member_id=eq.${a.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: -1 } });
+    check('the table refuses a negative vote on an action', neg.status >= 400, `HTTP ${neg.status} ${neg.json?.message ?? ''}`);
+    const ghost = await call('/rest/v1/scoring_rule_votes', { method: 'POST', token: a.token, body: { kind: 'no_such_action', member_id: a.id, points: 1, tool: TOOL } });
+    const ghostCore = await castScoringRuleVote(ruleVotes(a), 'no_such_action', 1, TOOL).then(() => '', (e) => e.message);
+    check('a vote on an action that does not exist is refused, by core and by the table', ghost.status >= 400 && /no action "no_such_action"/.test(ghostCore), `HTTP ${ghost.status} ${ghost.json?.message ?? ''}, core ${ghostCore}`);
+    const anonWrite = await call('/rest/v1/scoring_rule_votes', { method: 'POST', body: { kind: KIND, member_id: a.id, points: 1, tool: TOOL } });
+    const anonRead = await call('/rest/v1/scoring_rule_votes?select=points');
+    check('a signed-out visitor cannot vote on an action, and reads no votes',
+      anonWrite.status >= 400 && (anonRead.status >= 400 || (Array.isArray(anonRead.json) && anonRead.json.length === 0)), `write HTTP ${anonWrite.status}, read HTTP ${anonRead.status}`);
+
+    const ruleAfter = (await admin(`/rest/v1/game_scoring_rules?kind=eq.${KIND}&select=points`)).json?.[0]?.points;
+    const ledgerAfter = (await admin('/rest/v1/engagements?select=id,points&order=id')).json ?? [];
+    check('votes on an action change neither its admin’s value nor any point in the ledger, and add no ledger entry',
+      ruleAfter === ruleBefore && JSON.stringify(ledgerAfter) === JSON.stringify(ledgerBefore), `rule ${ruleBefore} → ${ruleAfter}, ledger ${ledgerBefore.length} → ${ledgerAfter.length} rows`);
+
+    await castScoringRuleVote(ruleVotes(a), KIND, null, TOOL);
+    await castScoringRuleVote(ruleVotes(b), KIND, null, TOOL);
+    check('each member can withdraw their own vote on an action', (await rowsOf(a)).length === 0 && (await rowsOf(b)).length === 0, '');
+  }
 
   // Making points final (20261103170000_scoring_final.sql) cannot be undone,
   // so every call to it runs only on the private test database, which
