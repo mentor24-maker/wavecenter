@@ -2,7 +2,7 @@
 
 /**
  * The member table: a filter row (name and role), headings that sort when
- * clicked (Member, Joined, Role), and an Actions column holding the buttons
+ * clicked (Member, Joined, Role, and for an admin Email and Sign-in), and an Actions column holding the buttons
  * the viewer's role may use. Which buttons those are is decided in core
  * (memberActions in core/members.ts) and handed in by the page; the database
  * still refuses an action the viewer may not take. Chat shows on every row
@@ -28,16 +28,19 @@ import ChatButton from "./ChatButton";
 import MessageButton from "./MessageButton";
 import RolePicker from "./RolePicker";
 
-export type MemberTableRow = MemberRow & { joinedLabel: string };
+/** `email` and `signIn` are filled in only for an admin (maySeeMemberEmails); nobody else's page is ever sent them. */
+export type MemberTableRow = MemberRow & { joinedLabel: string; email?: string | null; signIn?: string | null };
 
 const roleName = (key: string) => ROLES.find((r) => r.key === key)?.name ?? key;
 
-export default function MemberTable({ members, me, actions }: { members: MemberTableRow[]; me: string; actions: MemberActionKey[] }) {
+export default function MemberTable({
+  members, me, actions, showEmails = false,
+}: { members: MemberTableRow[]; me: string; actions: MemberActionKey[]; showEmails?: boolean }) {
   const [sort, setSort] = useState<MemberSort>(null);
   const [filter, setFilter] = useState<MemberFilter>(NO_MEMBER_FILTER);
   const filtering = isFiltering(filter);
   const shown = filterMembers(sortMembers(members, sort), filter);
-  const columns = 3 + (actions.length ? 1 : 0);
+  const columns = 3 + (showEmails ? 2 : 0) + (actions.length ? 1 : 0);
 
   /** A heading that sorts the table: shows the sort and its direction, and says so to screen readers. */
   const sortHeading = (key: MemberSortKey, label: string) => {
@@ -57,8 +60,8 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
       <form className="filters" aria-label="Filter members" onSubmit={(e) => e.preventDefault()}>
         <input
           type="search"
-          aria-label="Filter by member name"
-          placeholder="Filter by name"
+          aria-label={showEmails ? "Filter by member name or email" : "Filter by member name"}
+          placeholder={showEmails ? "Filter by name or email" : "Filter by name"}
           value={filter.text}
           onChange={(e) => setFilter({ ...filter, text: e.target.value })}
         />
@@ -84,6 +87,8 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
         <thead>
           <tr>
             {sortHeading("name", "Member")}
+            {showEmails && sortHeading("email", "Email")}
+            {showEmails && sortHeading("signIn", "Sign-in")}
             {sortHeading("joined", "Joined")}
             {sortHeading("role", "Role")}
             {actions.length > 0 && <th scope="col" className="actions">Actions</th>}
@@ -108,6 +113,8 @@ export default function MemberTable({ members, me, actions }: { members: MemberT
                     <span aria-hidden="true">{symbol}</span> {name}
                     {you && <span className="note"> (you)</span>}
                   </td>
+                  {showEmails && <td>{m.email || <span className="note">No email on file</span>}</td>}
+                  {showEmails && <td>{m.signIn || <span className="note">Unknown</span>}</td>}
                   <td className="note">{m.joinedLabel}</td>
                   <td>{roleName(m.role)}</td>
                   {actions.length > 0 && (

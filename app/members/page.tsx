@@ -1,11 +1,15 @@
 import { redirect } from "next/navigation";
-import { STARTING_ROLE_PERMISSIONS, mayDo, mayOpenAdmin, memberActions, ROLES } from "../../core/members.ts";
+import {
+  STARTING_ROLE_PERMISSIONS, mayDo, mayOpenAdmin, maySeeMemberEmails, memberActions, ROLES, signInMethodLabel,
+} from "../../core/members.ts";
 import { messageEnvelopeNote } from "../../core/messages.ts";
 import { resendMailer } from "../lib/mailer";
 import { serviceAddressBook } from "../lib/messageAddressBook";
 import { headerPoints } from "../lib/engagementStore";
 import { headerName } from "../lib/memberProfileStore";
-import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "../lib/memberRoleStore";
+import {
+  listMemberEmails, listMembers, myRole, readRolesAndPermissions, type MemberEmail, type MemberRow, type RolesAndPermissions,
+} from "../lib/memberRoleStore";
 import { currentUser, SIGN_IN_CHECK_FAILED, supabaseForRequest } from "../lib/supabase";
 import SiteHeader from "../SiteHeader";
 import MemberTable from "./MemberTable";
@@ -28,7 +32,10 @@ async function read<T>(load: () => Promise<T>): Promise<Read<T>> {
  * and below it which role may do what (core/members.ts). Any role with
  * "View members" sees the table; the buttons in its Actions column are the
  * ones the viewer's role may use (memberActions), which today means an admin
- * changing roles and every member messaging and chatting with members. Each member is shown only as their profile allows other
+ * changing roles and every member messaging and chatting with members. An
+ * admin alone also sees each member's email address and how they sign in
+ * (maySeeMemberEmails); nobody else's page is sent them, and the database
+ * refuses them to anyone else too. Each member is shown only as their profile allows other
  * members to see them: their avatar, and their name if their profile is
  * public. A role that may not view members gets a plain message instead of an
  * empty table. Signed-out visitors are sent to sign in.
@@ -83,7 +90,12 @@ export default async function Members() {
 
   // No buttons unless the grants were read: a button must never show to a role that may not use it.
   const actions = lists.value ? memberActions(role.value, lists.value.grants) : [];
-  const members = await read(() => listMembers(supabase));
+  // Emails are read only for an admin: another role's page never asks, so never holds one.
+  const showEmails = maySeeMemberEmails(role.value);
+  const [members, emails] = await Promise.all([
+    read(() => listMembers(supabase)),
+    showEmails ? read(() => listMemberEmails(supabase)) : Promise.resolve(null),
+  ]);
 
   return (
     <>
@@ -103,7 +115,7 @@ export default async function Members() {
 
         <div className="panel">
           <h2>Members</h2>
-          <MemberList members={members} me={user.id} actions={actions} />
+          <MemberList members={members} emails={emails} me={user.id} actions={actions} />
 
           <h2>Roles and permissions</h2>
           <PermissionTable lists={lists} />
@@ -113,7 +125,15 @@ export default async function Members() {
   );
 }
 
-function MemberList({ members, me, actions }: { members: Read<MemberRow[]>; me: string; actions: ReturnType<typeof memberActions> }) {
+function MemberList({
+  members, emails, me, actions,
+}: {
+  members: Read<MemberRow[]>;
+  /** Null when the viewer may not see emails; an error when an admin's could not be read. */
+  emails: Read<Map<string, MemberEmail>> | null;
+  me: string;
+  actions: ReturnType<typeof memberActions>;
+}) {
   if (members.error !== null) {
     return <p className="error" role="alert">The members could not be loaded: {members.error}. Try reloading the page.</p>;
   }
@@ -124,12 +144,25 @@ function MemberList({ members, me, actions }: { members: Read<MemberRow[]>; me: 
       </p>
     );
   }
+  const byId = emails?.value ?? null;
+  const rows = members.value.map((m) => {
+    const row = { ...m, joinedLabel: DAY.format(new Date(m.joinedAt)) };
+    if (!byId) return row;
+    const found = byId.get(m.memberId);
+    return { ...row, email: found?.email ?? null, signIn: found ? signInMethodLabel(found.providers) : null };
+  });
   return (
     <>
       <p className="note">
         Members show only what their profile lets others see: their avatar, and their name if their profile is public.
+        {emails !== null && " As an admin you also see each member’s email address and how they sign in; no other role is shown them."}
       </p>
-      <MemberTable members={members.value.map((m) => ({ ...m, joinedLabel: DAY.format(new Date(m.joinedAt)) }))} me={me} actions={actions} />
+      {emails?.error != null && (
+        <p className="error" role="alert">
+          The members’ email addresses could not be loaded: {emails.error}. The table below shows everything else; try reloading the page.
+        </p>
+      )}
+      <MemberTable members={rows} me={me} actions={actions} showEmails={byId !== null} />
     </>
   );
 }

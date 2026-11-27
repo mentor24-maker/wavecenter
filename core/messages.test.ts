@@ -99,7 +99,7 @@ test('the database hands no address to a member\'s session, and only the service
   assert.doesNotMatch(store, /recipient_email/);
 });
 
-test('across every migration, the only function still reading an email address is the service-only lookup', () => {
+test('across every migration, the only functions still reading an email address are the service-only lookup and the admin-only list', () => {
   const dir = new URL('../supabase/migrations/', import.meta.url);
   const latest = new Map<string, string>();
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
@@ -112,7 +112,11 @@ test('across every migration, the only function still reading an email address i
     }
   }
   const reading = [...latest].filter(([, body]) => /\.email\b(?!_)/.test(body)).map(([name]) => name);
-  assert.deepEqual(reading, ['public.message_recipient_email']);
+  assert.deepEqual(reading.sort(), ['public.list_member_emails', 'public.message_recipient_email']);
+  // The Members page's email column (WC-260) is for an admin only: the function refuses anyone else itself.
+  const forAdmins = latest.get('public.list_member_emails') ?? '';
+  assert.match(forAdmins, /private\.member_role\(auth\.uid\(\)\) is distinct from 'admin'/);
+  assert.match(forAdmins, /errcode = '42501'/);
 });
 
 test('the Members page promises an email only when email is set up', () => {

@@ -709,6 +709,31 @@ try {
   const stillViewer = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}&select=role`);
   check('B is still a viewer afterwards', stillViewer.json?.[0]?.role === 'viewer', JSON.stringify(stillViewer.json));
 
+  // Member emails (20261128160000_member_emails_for_admins.sql, WC-260):
+  // only an admin reads members' email addresses and sign-in methods, and
+  // the database itself refuses everyone else.
+  {
+    const emailsA = await call('/rest/v1/rpc/list_member_emails', { method: 'POST', token: a.token, body: {} });
+    const mineA = emailsA.json?.find?.((m) => m.member_id === a.id);
+    const theirB = emailsA.json?.find?.((m) => m.member_id === b.id);
+    check('member emails: admin only — an admin reads every member’s email and sign-in method',
+      emailsA.status === 200 && mineA?.email === a.email && theirB?.email === b.email && Array.isArray(theirB?.providers) && theirB.providers.includes('email'),
+      `HTTP ${emailsA.status} A ${JSON.stringify(mineA)?.replace(/[^@\s"]+@/g, '…@')}, B providers ${JSON.stringify(theirB?.providers)}`);
+    const emailsB = await call('/rest/v1/rpc/list_member_emails', { method: 'POST', token: b.token, body: {} });
+    check('member emails: admin only — a viewer is refused, with no address in the answer',
+      emailsB.status >= 400 && emailsB.json?.code === '42501' && !JSON.stringify(emailsB.json).includes('@'), `HTTP ${emailsB.status} ${emailsB.json?.code ?? ''} ${emailsB.json?.message ?? ''}`);
+    const emailsAnon = await call('/rest/v1/rpc/list_member_emails', { method: 'POST', body: {} });
+    check('member emails: admin only — a signed-out visitor is refused', emailsAnon.status >= 400, `HTTP ${emailsAnon.status}`);
+    for (const role of ['editor', 'contributor', 'reviewer']) {
+      const set = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}`, { method: 'PATCH', body: { role } });
+      if (set.status >= 300) throw new Error(`could not make B ${role}: HTTP ${set.status} ${JSON.stringify(set.json)}`);
+      const asRole = await call('/rest/v1/rpc/list_member_emails', { method: 'POST', token: b.token, body: {} });
+      check(`member emails: admin only — ${role === 'editor' ? 'an' : 'a'} ${role} is refused`, asRole.status >= 400 && !JSON.stringify(asRole.json).includes('@'), `HTTP ${asRole.status} ${asRole.json?.message ?? ''}`);
+    }
+    const back = await admin(`/rest/v1/member_roles?member_id=eq.${b.id}`, { method: 'PATCH', body: { role: 'viewer' } });
+    if (back.status >= 300) throw new Error(`could not make B a viewer again: HTTP ${back.status} ${JSON.stringify(back.json)}`);
+  }
+
   // Messages: a role with Message members (every role since 2026-11-01)
   // saves one, only through send_message; the sender and the recipient read it and nobody
   // else; nobody writes the table directly; only the sender records the
