@@ -242,6 +242,16 @@ open-source Supabase, not a Vercel feature, so it works on any host (rule
 publication (a migration adds it). `npm run check:browser-secrets` (part of `verify`) fails the build if a
 server-only secret's name appears in anything shipped to the browser.
 
+**Google sign-in (WC-244).** A **Continue with Google** button sits on the
+log-in form (`/sign-in` and the signed-out home page) and on `/register`. The
+server action asks Supabase's public settings whether the Google provider is
+on, says "not switched on yet" if not, and otherwise sends the browser to
+Google; Google comes back through Supabase to `/auth/callback`, which trades
+the code for a session cookie. The Google client secret lives only in the
+Supabase dashboard (and, for the local stack, in Doppler `dev`, read by
+`supabase/config.toml` through `env(...)`). **How to switch it on, click by
+click: [GOOGLE_SIGN_IN_SETUP.md](GOOGLE_SIGN_IN_SETUP.md).**
+
 **Supabase dashboard settings** (Authentication → URL Configuration). Supabase
 only sends a link back to an address on its list; anything else falls back to
 the Site URL. Out of the box the Site URL was `http://localhost:3000`, so a
