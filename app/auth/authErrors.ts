@@ -48,6 +48,11 @@ export function resetFailure(e: AuthFailure): "rate" | "send" {
   return rateLimited(e) ? "rate" : "send";
 }
 
+/** Sending the confirmation email again (from the register page's "Check your email" screen) failed. */
+export function resendFailure(e: AuthFailure): "rate" | "resend" {
+  return rateLimited(e) ? "rate" : "resend";
+}
+
 /** Saving a new password failed. */
 export function newPasswordFailure(e: AuthFailure): "short" | "same" | "expired" | "failed" {
   if (e.code === "weak_password") return "short";

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   afterEmailLink, afterRefusedEmailLink, EMAIL_CHANGE_ERRORS, EMAIL_LINK_EXPIRED_PAGE, EMAIL_LINK_PAGE, EMAIL_LINK_SIGNED_OUT, signedInSignInPage, signedOutProfilePage, emailChangeFailure, emailChangeProblem, googleButtonPage, isEmailChangeLink, googleReturnFailure, googleSwitchedOn, looksLikeEmail, MIN_PASSWORD_LENGTH, newPasswordFailure, passwordProblem, registerFailure,
-  resetFailure, signInFailure,
+  resendFailure, resetFailure, signInFailure,
 } from "./authErrors.ts";
 
 test("an email address needs a name, an @ and a domain", () => {
@@ -39,6 +39,14 @@ test("a wrong password and an unconfirmed email are told apart", () => {
 test("a reset email that could not be sent says why", () => {
   assert.equal(resetFailure({ status: 429 }), "rate");
   assert.equal(resetFailure({ status: 500 }), "send");
+});
+
+test("sending the confirmation email again fails as rate-limited or not sent", () => {
+  assert.equal(resendFailure({ status: 429 }), "rate");
+  assert.equal(resendFailure({ code: "over_email_send_rate_limit" }), "rate");
+  assert.equal(resendFailure({ code: "over_request_rate_limit", status: 400 }), "rate");
+  assert.equal(resendFailure({ status: 500 }), "resend");
+  assert.equal(resendFailure({ code: "unexpected_failure" }), "resend");
 });
 
 test("saving a new password names the problem", () => {
