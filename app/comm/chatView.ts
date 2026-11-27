@@ -226,15 +226,63 @@ export function isRangeBackwards(range: DateRange): boolean {
  * whose time cannot be read is kept only while no date is picked.
  */
 export function messagesInRange<T extends Pick<ChatMessage, "sentAt">>(messages: readonly T[], range: DateRange): T[] {
+  return withinRange(messages, range, (m) => m.sentAt);
+}
+
+/**
+ * The chats whose latest activity (`activeAt`: the newest message, or when
+ * the chat was started) falls within `range`, judged the same way as
+ * messages (WC-253), in their order.
+ */
+export function chatsInRange<T extends Pick<ChatListItem, "activeAt">>(chats: readonly T[], range: DateRange): T[] {
+  return withinRange(chats, range, (c) => c.activeAt);
+}
+
+/** The items whose time, by its Mountain-time day, falls within `range`, both ends inclusive. */
+function withinRange<T>(items: readonly T[], range: DateRange, time: (item: T) => string): T[] {
   const from = pickedDay(range.from);
   const to = pickedDay(range.to);
-  if (from === "" && to === "") return [...messages];
-  return messages.filter((m) => {
-    const at = new Date(m.sentAt);
+  if (from === "" && to === "") return [...items];
+  return items.filter((item) => {
+    const at = new Date(time(item));
     if (Number.isNaN(at.getTime())) return false;
     const key = DATE_KEY.format(at);
     return (from === "" || key >= from) && (to === "" || key <= to);
   });
+}
+
+/**
+ * What the From and To days on the Sync page narrow (WC-253, Dane: "C)
+ * Provide a toggle"): the open chat's messages, the chat list on the left, or
+ * both.
+ */
+export type DatesApplyTo = "messages" | "chats" | "both";
+
+/** The toggle's choices, in the order it offers them. Messages first: what the dates did before the toggle (WC-245). */
+export const DATES_APPLY_TO: readonly { value: DatesApplyTo; label: string }[] = [
+  { value: "messages", label: "Messages" },
+  { value: "chats", label: "Chat list" },
+  { value: "both", label: "Both" },
+];
+
+/** Whether the dates narrow the open chat's messages under this choice. */
+export function datesNarrowMessages(applyTo: DatesApplyTo): boolean {
+  return applyTo !== "chats";
+}
+
+/** Whether the dates narrow the chat list under this choice. */
+export function datesNarrowChats(applyTo: DatesApplyTo): boolean {
+  return applyTo !== "messages";
+}
+
+/** The chat list's plain line when the dates hide every chat (rule 7). */
+export function noChatsLine(range: DateRange, now: Date = new Date()): string {
+  return `No chats were active ${rangeWords(range, now)}. Change or clear the dates to see the rest.`;
+}
+
+/** The line over the chat list when the dates hide some chats. */
+export function chatCountLine(shown: number, total: number, range: DateRange, now: Date = new Date()): string {
+  return `${shown} of ${total} ${total === 1 ? "chat was" : "chats were"} active ${rangeWords(range, now)}.`;
 }
 
 /** A picked day as the lines say it: "Nov 1", with the year when it is not this year. */
@@ -257,8 +305,8 @@ export function rangeWords(range: DateRange, now: Date = new Date()): string {
 }
 
 /** The plain note when the From day is after the To day (rule 7: never a bare empty box). */
-export function backwardsRangeLine(range: DateRange, now: Date = new Date()): string {
-  return `The From date (${dayWords(pickedDay(range.from), now)}) is after the To date (${dayWords(pickedDay(range.to), now)}), so no message can fall between them. Change one of the dates.`;
+export function backwardsRangeLine(range: DateRange, now: Date = new Date(), what: "message" | "chat" = "message"): string {
+  return `The From date (${dayWords(pickedDay(range.from), now)}) is after the To date (${dayWords(pickedDay(range.to), now)}), so no ${what} can fall between them. Change one of the dates.`;
 }
 
 /** The plain line when a search finds nothing (rule 7), naming the dates when some are picked. */

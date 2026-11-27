@@ -1028,19 +1028,31 @@ table.rule-table .col-factors .factor-reason.empty { opacity: 0.55; font-style: 
 /* WC-235: the contact selector on top of the chat area, and the send box and search above the newest-first messages. */
 .chat-picker { margin: 0 0 var(--space); }
 .chat-messages.newest-on-top { margin-top: 0.5rem; }
-/* WC-245: a narrower word search with From and To days beside it, on one row that wraps on a narrow window. */
+/* WC-245: the word search above the messages, narrow, with its count line under it. */
 .chat-search { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: center; margin-top: 0.5rem; }
-.chat-search-words, .chat-search-date { display: inline-flex; align-items: center; gap: 0.4rem; }
-.chat-search-words { flex: 0 1 21rem; min-width: 14rem; }
+.chat-search-words { display: inline-flex; align-items: center; gap: 0.4rem; flex: 0 1 21rem; min-width: 14rem; }
 .chat-search-words input { flex: 1; min-width: 0; }
-.chat-search-date input { width: auto; }
 .chat-search .note { flex-basis: 100%; margin: 0; }
+/* WC-253: From, To and what they narrow, left of a narrower "Chat with", on one row that wraps on a narrow window.
+   Scoped to the Sync window's row, so the task page's "Chat about this task" picker is unchanged. */
+.chat-top-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0 0 var(--space); }
+.chat-top-row > .chat-picker { margin: 0; }
+.chat-top-row .chat-picker.task-chat-start { grid-template-columns: auto minmax(7rem, 10rem) auto; }
+.chat-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; }
+.chat-date { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.chat-date input[type="date"] { width: 8.75rem; }
+.chat-date select { width: auto; }
+.chat-dates-clear { font-size: 0.9rem; }
+.chat-list-count { margin: 0 0 0.5rem; font-size: 0.85rem; }
 .chat-start-error { display: block; margin-top: 0.25rem; font-size: 0.85rem; }
 @media (max-width: 48rem) {
   .chat-window { grid-template-columns: 1fr; }
   /* On a phone the list shows alone, with the contact selector over it (WC-235). */
   .chat-window.showing-list .chat-conversation { order: -1; }
-  .chat-window.showing-list .chat-conversation > :not(.chat-picker) { display: none; }
+  .chat-window.showing-list .chat-conversation > :not(.chat-top-row) { display: none; }
+  .chat-top-row, .chat-dates { flex-direction: column; align-items: stretch; }
+  .chat-date input[type="date"] { width: auto; }
+  .chat-top-row .chat-picker.task-chat-start { grid-template-columns: 1fr; }
   .chat-window.showing-conversation .chat-list { display: none; }
   .chat-back { display: block; }
   .chat-messages { height: 55vh; }
