@@ -134,17 +134,19 @@ whenever the protection settings are touched.
 | `wavecenter.com` | WaveCenter's **public website**, built on StarCaster | StarCaster, never this project |
 | `www.wavecenter.com` | the same public website | StarCaster, never this project |
 
-**Where the domain lives (checked 2026-10-12, 9:57 am MT; still true
-2026-11-02).**
+**Where the domain lives (checked 2026-11-27 with `dig`; the older rows
+were checked 2026-10-12 and 2026-11-02).**
 
 | | |
 |---|---|
 | Registrar (who the name is rented from) | GoDaddy; renews by 2027-02-05; Dane is moving it, and no transfer is in progress yet |
-| DNS (the address book that says which server answers each name) | Hostinger (name servers `ns1.dns-parking.com`, `ns2.dns-parking.com`) |
-| Email on the domain | Hostinger email is live: `MX 5 mx1.hostinger.com`, `MX 10 mx2.hostinger.com`, SPF `v=spf1 include:_spf.mail.hostinger.com ~all` |
+| DNS (the address book that says which server answers each name) | **GoDaddy since 2026-11-06** (name servers `ns43.domaincontrol.com`, `ns44.domaincontrol.com`). Until then: Hostinger (`ns1.dns-parking.com`, `ns2.dns-parking.com`) |
+| Email on the domain | **None since 2026-11-05**: Hostinger email went down with its plan. The old records were copied to GoDaddy and still point at it (`MX 5 mx1.hostinger.com`, `MX 10 mx2.hostinger.com`, SPF `v=spf1 include:_spf.mail.hostinger.com ~all`), so mail to `@wavecenter.com` goes nowhere. Sending as `noreply@wavecenter.com` through Resend does not need them ([EMAIL_SETUP.md](EMAIL_SETUP.md)) |
 
-**DNS stays at Hostinger (Dane chose option A, 2026-10-12).** The app needs
-just one record there, which leaves email untouched and costs nothing:
+**DNS stayed at Hostinger (Dane chose option A, 2026-10-12) until it moved
+to GoDaddy on 2026-11-06.** The records below were copied across and are at
+GoDaddy today; where a paragraph says "Hostinger" it is the history of where
+the record was first added. The app needs just one record there, which leaves email untouched and costs nothing:
 
 | Type | Name | Value |
 |---|---|---|
@@ -166,7 +168,8 @@ certificate for `app.wavecenter.com`.
 now hands each project its own CNAME target (shown under "View DNS
 configuration") and nudges older `cname.vercel-dns.com` records toward it. The
 old target keeps working and the yellow badge stays until the record is
-changed. Swapping it is optional: change the Hostinger `app` record's value to
+changed. Swapping it is optional: change the `app` record's value (at GoDaddy
+since 2026-11-06) to
 the target Vercel shows, then click Refresh.
 
 **The public website: `wavecenter.com` and `www.wavecenter.com` (live
@@ -178,7 +181,8 @@ make it work:
 1. **Vercel.** Both names are attached to the Vercel project `starcaster`
    (`vercel domains add wavecenter.com starcaster --scope dane-of-earth`, and
    the same for `www.`), never to `app-wavecenter`.
-2. **Hostinger DNS** (Dane, 2026-11-02):
+2. **DNS records**, added at Hostinger (Dane, 2026-11-02) and at GoDaddy
+   since 2026-11-06:
 
    | Type | Name | Value |
    |---|---|---|
@@ -202,11 +206,13 @@ certificates arrived about 35 minutes after the DNS change. While they were
 pending, Chrome showed `ERR_QUIC_PROTOCOL_ERROR`, which means "no certificate
 yet", not a DNS fault.
 
-**Never move the name servers while email depends on them.** Moving DNS to
+**Never move the name servers while email depends on them.** (Written
+2026-11-02. The name servers did move, to GoDaddy, on 2026-11-06, after
+Hostinger email had already ended on 2026-11-05. The rule still holds for
+any later move once Resend's records exist.) Moving DNS to
 Vercel (as `starcaster.pro` does) would mean copying both MX records and the
-SPF record across first; a missed record silently stops email. The GoDaddy
-transfer changes only the registrar and does not need the name servers to
-move. Supabase's sign-in links follow the app to its new name: Dane made
+SPF record across first, and now Resend's `send` and `resend._domainkey`
+records too; a missed record silently stops email. Supabase's sign-in links follow the app to its new name: Dane made
 `https://app.wavecenter.com` the Site URL and added it to the Redirect URLs on
 2026-10-12, 7:48 pm MT (see the table below).
 
@@ -291,7 +297,7 @@ send as a gmail.com address, so the email comes from
 `wavecenter.com`, verified in Resend, and replies go to Dane's Gmail. Without
 `RESEND_API_KEY` the message is still saved, and the form says plainly that
 it was not emailed. **How to switch it on, click by click:
-[EMAIL_SETUP.md](EMAIL_SETUP.md)** (verify the domain at Hostinger, make a
+[EMAIL_SETUP.md](EMAIL_SETUP.md)** (verify the domain in GoDaddy's DNS, make a
 sending-only key, put it in Doppler `dev` and `prd` and in Vercel, redeploy).
 `npm run email:test -- --to <address>` sends one test email and says plainly
 whether it went; `npm run doctor` shows whether the key is in Doppler.

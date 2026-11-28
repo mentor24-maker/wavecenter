@@ -8,6 +8,11 @@ A click-by-click guide for Dane. When it is done:
   sender, which only delivers to members of the Supabase organisation, a few
   an hour.
 
+**Why this matters now.** Until Step 4 is done, every new member who is not
+in the Supabase organisation signs up and is stuck unconfirmed: Supabase
+says "confirmation sent", but its built-in sender never delivers the email.
+On 2026-11-27, 2 of WaveCenter's 7 accounts were stuck that way.
+
 Members-page messages come from **`WaveCenter <noreply@wavecenter.com>`**
 (Dane's choice, 2026-11-01). Account emails (confirm your email, confirm a
 new address, reset your password) come from **`WaveCenter Admin
@@ -29,9 +34,27 @@ another. Supabase uses it to hand sign-in emails to Resend.
 
 ## Step 1. Verify `wavecenter.com` in Resend
 
-The domain's DNS is at **Hostinger** (name servers `ns1.dns-parking.com` and
-`ns2.dns-parking.com`, checked 2026-11-01). It is the same place the `app`
-record was added on 2026-10-12.
+The domain's DNS is at **GoDaddy** since 2026-11-06 (name servers
+`ns43.domaincontrol.com` and `ns44.domaincontrol.com`; `domaincontrol.com`
+is GoDaddy's). Until then it was at Hostinger, whose name servers were
+`ns1.dns-parking.com` and `ns2.dns-parking.com`.
+
+**Before you start** (an agent session can run this, or Dane can paste it
+into a terminal in the WaveCenter folder):
+
+```
+dig +short NS wavecenter.com
+```
+
+It should print these two lines, in either order:
+
+```
+ns43.domaincontrol.com.
+ns44.domaincontrol.com.
+```
+
+If it prints anything else, the DNS has moved again: stop and ask an agent
+session to update this guide before adding any record.
 
 **1a. In Resend.**
 
@@ -43,29 +66,58 @@ record was added on 2026-10-12.
    sometimes an optional `_dmarc` record. Leave this tab open.
 
 Resend puts its records on `send.wavecenter.com` and `resend._domainkey`, not
-on the bare domain. **Your Hostinger mailbox keeps working.** Do not change
-the existing `MX` records (`mx1.hostinger.com`, `mx2.hostinger.com`) or the
-existing SPF `TXT` record on `@`.
+on the bare domain, so they sit beside the records already at GoDaddy
+without changing any of them.
 
-**1b. In Hostinger, add each record Resend shows.**
+**Already at GoDaddy: do not touch these.**
 
-1. Open [hpanel.hostinger.com/domains](https://hpanel.hostinger.com/domains)
-   and sign in.
-2. Find `wavecenter.com` and click **Manage**. In the left menu click
-   **DNS / Nameservers**. You should see the record list, including the `app`
-   CNAME.
-3. For each record on the Resend page, in **Manage DNS records**:
-   - **Type**: the type Resend shows (`MX` or `TXT`).
-   - **Name**: only the part Resend shows **before** `.wavecenter.com`, such
-     as `send` or `resend._domainkey`. Hostinger adds the domain itself.
-     Typing `send.wavecenter.com` would create `send.wavecenter.com.wavecenter.com`.
-   - **Points to / TXT value**: use the copy button on the Resend page and
-     paste. A DKIM value is long; it must be whole.
+| Type | Name | What it does |
+|---|---|---|
+| `CNAME` | `app` | sends `app.wavecenter.com` to this app on Vercel |
+| `A` | `@` | sends `wavecenter.com` (the public website) to Vercel |
+| `CNAME` | `www` | sends `www.wavecenter.com` to Vercel |
+
+Changing or deleting any of them takes the app or the public website off the
+internet. (`@` is GoDaddy's name for the bare domain, `wavecenter.com`
+itself.)
+
+There are also two `MX` records on `@` (`mx1.hostinger.com`,
+`mx2.hostinger.com`) and an SPF `TXT` record on `@`
+(`v=spf1 include:_spf.mail.hostinger.com ~all`), copied over from Hostinger.
+They point at the Hostinger mailbox, which went down with its plan on
+2026-11-05, so no mail reaches `@wavecenter.com` addresses today. Resend does
+not need them and they do not get in its way: leave them for this guide.
+Whether to delete them is a separate decision.
+
+**1b. In GoDaddy, add each record Resend shows.**
+
+1. Open [dcc.godaddy.com/control/portfolio](https://dcc.godaddy.com/control/portfolio)
+   and sign in. This is GoDaddy's **Domain Portfolio**.
+2. Click `wavecenter.com`. That opens its **Domain Settings** page.
+3. Click **DNS**. You should see the record list, including the `app`
+   CNAME and the `www` CNAME from the table above.
+4. For each record on the Resend page:
+   - Click **Add New Record**.
+   - **Type**: choose the type Resend shows (`MX` or `TXT`).
+   - **Name**: GoDaddy wants the name "without the domain name". Type only
+     the part Resend shows **before** `.wavecenter.com`, such as `send` or
+     `resend._domainkey`. GoDaddy adds `.wavecenter.com` itself, so typing
+     `send.wavecenter.com` here would create
+     `send.wavecenter.com.wavecenter.com`, and Resend would never find it.
+   - **Value**: use the copy button on the Resend page and paste. A DKIM
+     value (the long `resend._domainkey` one, a signature that proves an
+     email really came from WaveCenter) must be pasted whole.
    - **Priority** (only for `MX`): the number Resend shows, usually `10`.
-   - **TTL**: leave the default.
-   - Click **Add Record**. It should appear in the list below.
-4. The `_dmarc` record is optional. Add it only if Hostinger has no `_dmarc`
-   record already. If one exists, leave it alone.
+     GoDaddy may warn that changing MX records can interrupt email. That
+     warning is about mail *to* the domain; this `MX` record is on `send`
+     only, for Resend, and touches nothing else.
+   - **TTL** (how long other computers may remember the record): leave
+     GoDaddy's default, 1 hour.
+   - Click **Save**. (If you used **Add More Records** to fill in several at
+     once, the button is **Save All Records**.) The record should appear in
+     the list.
+5. The `_dmarc` record is optional. Add it only if GoDaddy's list has no
+   `_dmarc` record already. If one exists, leave it alone.
 
 **1c. Back in Resend.**
 
@@ -74,8 +126,8 @@ existing SPF `TXT` record on `@`.
    sometimes a few hours. The domain then shows **Verified**.
 
 If a record stays **Failed** after an hour, the usual cause is the Name field:
-open that record in Hostinger and check it holds only `send` or
-`resend._domainkey`.
+open that record in GoDaddy's DNS list and check it holds only `send` or
+`resend._domainkey`, with no `.wavecenter.com` on the end.
 
 ---
 
