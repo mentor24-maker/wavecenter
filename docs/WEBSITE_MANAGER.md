@@ -154,6 +154,26 @@ order.
   where its cell can be changed too. An address that cannot be saved is
   marked in red as it is typed.
 
+## Built in WC-263: the Latest members module
+
+- A **Latest members** module shows the same box signed-in members see on
+  Home: the five newest members, newest first, each with their avatar, their
+  name only if their profile shows it, and the day they joined in Mountain
+  time, then "All members →" to `/members`. Its one setting is the heading
+  above the list (new modules start with "Latest members").
+- Home and the module share core's `LATEST_MEMBERS` and `newestMembers`
+  (`core/members.ts`), so they never disagree.
+- Core's `latestMembersAccess` (`core/website.ts`, tested) decides what a
+  visitor sees before anything is read: signed out, a note to sign in and no
+  names; a failed sign-in check, a role that could not be read, or a failed
+  read, a plain sentence saying so; a role without "View members", a
+  sentence naming the role, as on Home.
+- The members are read on the server with the visitor's own session
+  (`readLatestMembers` in `app/lib/memberRoleStore.ts`, through the
+  `list_members` database function), only when the page holds such a module.
+  The editor and its device preview read them the same way, with links drawn
+  as words so a click never leaves unsaved work. No new table or function.
+
 ## Built in WC-210: published pages at their own web address
 
 - A published page shows to anyone, signed in or not, at

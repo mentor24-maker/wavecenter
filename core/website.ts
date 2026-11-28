@@ -787,7 +787,7 @@ export async function deleteSavedSection(
   return { name: original.name, pagesCopied: followers.length };
 }
 
-// ── Modules: headings, text, pictures, buttons and leaderboards (WC-209, WC-237) ─────────────────
+// ── Modules: headings, text, pictures, buttons, leaderboards and latest members (WC-209, WC-237, WC-263) ──
 //
 // What fills a section's cells. Each module has an id (unique on its page), a
 // type, the cell it sits in, and that type's own settings. Ported from
@@ -808,6 +808,7 @@ export const SITE_MODULE_TYPES = [
   { key: 'image', label: 'Picture' },
   { key: 'button', label: 'Button' },
   { key: 'leaderboard', label: 'Leaderboard' },
+  { key: 'latestMembers', label: 'Latest members' },
 ] as const;
 
 export type SiteModuleType = (typeof SITE_MODULE_TYPES)[number]['key'];
@@ -844,6 +845,17 @@ export interface SiteLeaderboardSettings { /** Plain words; "" draws no heading.
 /** The heading a new Leaderboard module starts with. */
 export const SITE_LEADERBOARD_HEADING = 'Leaderboard';
 
+/**
+ * The Latest members module (WC-263): the newest members, newest first, the
+ * same box signed-in members see on Home (LATEST_MEMBERS, newestMembers in
+ * core/members.ts), with a link to all members. Its one setting is the
+ * heading above the list.
+ */
+export interface SiteLatestMembersSettings { /** Plain words; "" draws no heading. */ heading: string }
+
+/** The heading a new Latest members module starts with. */
+export const SITE_LATEST_MEMBERS_HEADING = 'Latest members';
+
 export interface SiteButtonSettings {
   label: string;
   /** An http: or https: address, a WaveCenter address starting "/", or "" for none yet. */
@@ -862,7 +874,8 @@ export type SiteModule =
   | (SiteModuleBase & { type: 'text'; settings: SiteTextSettings })
   | (SiteModuleBase & { type: 'image'; settings: SiteImageSettings })
   | (SiteModuleBase & { type: 'button'; settings: SiteButtonSettings })
-  | (SiteModuleBase & { type: 'leaderboard'; settings: SiteLeaderboardSettings });
+  | (SiteModuleBase & { type: 'leaderboard'; settings: SiteLeaderboardSettings })
+  | (SiteModuleBase & { type: 'latestMembers'; settings: SiteLatestMembersSettings });
 
 const BUTTON_COLOR = '#214c71';
 const BUTTON_TEXT_COLOR = '#ffffff';
@@ -1020,6 +1033,8 @@ function settingsOf(type: SiteModuleType, value: unknown): SiteModule['settings'
     case 'leaderboard':
       // A heading never saved (an older module) takes the plain default; one cleared on purpose stays "".
       return { heading: s.heading === undefined ? SITE_LEADERBOARD_HEADING : text(s.heading, SITE_HEADING_MAX) };
+    case 'latestMembers':
+      return { heading: s.heading === undefined ? SITE_LATEST_MEMBERS_HEADING : text(s.heading, SITE_HEADING_MAX) };
   }
 }
 
@@ -1075,7 +1090,7 @@ const shown = (value: string) => (value.length > 60 ? `${value.slice(0, 57)}…`
  */
 export function siteModuleProblem(module: unknown): string | null {
   if (!isEntry(module)) return 'A module was not readable.';
-  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture, button or leaderboard).`;
+  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture, button, leaderboard or latest members).`;
   const s = isEntry(module.settings) ? module.settings : {};
   if (module.type === 'image' && s.url !== undefined && siteImageUrl(s.url) === null) {
     return `The picture address "${shown(String(s.url))}" cannot be used. A picture's address must be a secure web address, starting with https://.`;
@@ -1123,7 +1138,71 @@ export function newSiteModule(type: SiteModuleType, cell: string, sections: read
       return { id, cell, type, settings: { label: 'Button', href: '', color: BUTTON_COLOR, textColor: BUTTON_TEXT_COLOR, newTab: false } };
     case 'leaderboard':
       return { id, cell, type, settings: { heading: SITE_LEADERBOARD_HEADING } };
+    case 'latestMembers':
+      return { id, cell, type, settings: { heading: SITE_LATEST_MEMBERS_HEADING } };
   }
+}
+
+// ── What the Latest members module shows a visitor (WC-263) ─────────────
+// Read on the server when the page is drawn, with the visitor's own session,
+// and decided here first, as the Leaderboard module's is (leaderboardTopAccess
+// in core/leaderboard.ts). It shows what Home's Latest members box shows.
+
+/** One member in the Latest members module: only what their profile lets other members see. */
+export interface SiteLatestMember {
+  memberId: string;
+  /** Null when their profile is private. */
+  avatar: string | null;
+  /** Set only when their profile is public and has a name. */
+  displayName: string | null;
+  joinedAt: string;
+}
+
+/**
+ * What a Latest members module has to draw:
+ * - `signed-out`: the visitor is not signed in, so only a note to sign in, no names;
+ * - `not-allowed`: their role may not see the members (no "View members"), named in words;
+ * - `rows`: the newest members, newest first, at most LATEST_MEMBERS, maybe none;
+ * - `failed`: something could not be read or checked, in plain words.
+ */
+export type SiteLatestMembers =
+  | { kind: 'signed-out' }
+  | { kind: 'not-allowed'; roleName: string }
+  | { kind: 'rows'; members: SiteLatestMember[] }
+  | { kind: 'failed'; problem: string };
+
+/** What is known about the visitor when the module is drawn. */
+export interface LatestMembersVisitor {
+  signedIn: boolean;
+  /** The sign-in check itself errored, so whether they are signed in is unknown. */
+  checkFailed: boolean;
+  /** Their role, or null when it was not read or could not be read. Only looked at once signed in. */
+  role: RoleKey | null;
+  /** The database's grants when they could be read; the starting ones otherwise, which the database repeats. */
+  grants?: Readonly<Record<string, readonly string[]>>;
+}
+
+/**
+ * Whether the Latest members module may read the members for this visitor,
+ * and if not, why, in this order:
+ * - `no-database`: this copy has no database settings;
+ * - `check-failed`: the sign-in check errored. They may well be signed in, so
+ *   the module says the check failed, never "Sign in";
+ * - `signed-out`: the check worked and they are not signed in: nothing is read;
+ * - `role-failed`: signed in, but their role could not be read;
+ * - `not-allowed`: their role does not have "View members" (member.read), as on Home;
+ * - `read`: read the members.
+ */
+export function latestMembersAccess(
+  visitor: LatestMembersVisitor,
+  hasDatabase: boolean,
+): 'no-database' | 'check-failed' | 'signed-out' | 'role-failed' | 'not-allowed' | 'read' {
+  if (!hasDatabase) return 'no-database';
+  if (visitor.checkFailed) return 'check-failed';
+  if (!visitor.signedIn) return 'signed-out';
+  if (visitor.role === null) return 'role-failed';
+  if (!mayDo(visitor.role, 'member.read', visitor.grants)) return 'not-allowed';
+  return 'read';
 }
 
 // ── The public page (WC-210) ────────────────────────────────────────────
@@ -1159,8 +1238,9 @@ export function siteSectionStyle(section: SiteSection): {
 /**
  * Whether a module draws anything on a live page. A heading or text with no
  * words, or a picture with no usable address, draws nothing there (the
- * editor names what is missing instead); a button and a leaderboard always
- * draw (a leaderboard says in words when it has nobody to show).
+ * editor names what is missing instead); a button, a leaderboard and a
+ * Latest members module always draw (each says in words when it has nobody
+ * to show).
  * SiteModuleView asks this, so the two never disagree.
  */
 export function siteModuleDrawsLive(module: SiteModule): boolean {
@@ -1173,6 +1253,7 @@ export function siteModuleDrawsLive(module: SiteModule): boolean {
       return Boolean(siteImageUrl(module.settings.url));
     case 'button':
     case 'leaderboard':
+    case 'latestMembers':
       return true;
   }
 }

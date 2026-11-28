@@ -44,7 +44,7 @@ import {
   SITE_SAVED_SECTION_NAME_MAX, SITE_DEVICES,
   copyFollowersOf, insertSavedSection, isLinkedSiteSection, newSiteModule, newSiteSection, pagesFollowing, resolveSiteSections, siteModuleLabel,
   siteModuleProblem, siteModulesInLayout, siteSectionCells, siteSectionChanges, siteSectionGrid, sortSavedSections, unlinkSiteSection, withSiteImageUrl,
-  type SiteDevice, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
+  type SiteDevice, type SiteLatestMembers, type SiteModule, type SiteModuleType, type SitePage, type SiteSavedSection, type SiteSection, type SiteSectionLayout,
 } from "../../../../../core/website.ts";
 import { changeReusable, deleteReusable, renameReusable, saveReusable, saveSections, type SavedSectionDeleteResult, type SavedSectionResult } from "../../actions";
 import type { LeaderboardTop } from "../../../../../core/leaderboard.ts";
@@ -62,7 +62,7 @@ function layoutLabel(layout: SiteSectionLayout): string {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem, leaderboard }: {
+export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem, leaderboard, latestMembers }: {
   page: SitePage;
   /** Every page the member sees, to say how many follow a saved section. */
   pages: SitePage[];
@@ -71,6 +71,8 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   savedProblem: string | null;
   /** The leaderboard's top ten, read on the server, for any Leaderboard module (WC-237). */
   leaderboard?: LeaderboardTop;
+  /** The newest members, read on the server, for any Latest members module (WC-263). */
+  latestMembers?: SiteLatestMembers;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(initial);
@@ -351,7 +353,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         ))}
         {device && <button type="button" onClick={() => setDevice(null)}>Close preview</button>}
       </div>
-      {device && <DevicePreview sections={sections} device={device} leaderboard={leaderboard} />}
+      {device && <DevicePreview sections={sections} device={device} leaderboard={leaderboard} latestMembers={latestMembers} />}
 
       {sections.length === 0 && (
         <p className="note" role="status">This page has no sections yet. Pick a layout below and click Add section.</p>
@@ -492,7 +494,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                                   <button type="button" disabled={locked} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
                                 </span>
                               </div>
-                              <SiteModuleView module={m} leaderboard={leaderboard} />
+                              <SiteModuleView module={m} leaderboard={leaderboard} latestMembers={latestMembers} />
                             </div>
                           );
                         })}

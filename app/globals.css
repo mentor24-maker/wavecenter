@@ -1250,6 +1250,10 @@ h4.site-heading { font-size: 1.1rem; }
 .site-leaderboard-name { overflow-wrap: anywhere; }
 .site-leaderboard-total { font-variant-numeric: tabular-nums; text-align: right; }
 .site-leaderboard-link { text-decoration: underline; }
+/* The Latest members module (WC-263): the newest members, as Home's Latest members box shows them. */
+.site-latest { text-align: left; }
+.site-latest-members { margin: 0.4rem 0; }
+.site-latest-members li { overflow-wrap: anywhere; }
 /* A published page at /site/<address> (WC-210): each section a grid of its cells; one column on a phone. */
 /* The page is a container, and phone and desktop are its own width (WC-211, core's SITE_PHONE_MAX_WIDTH and
    SITE_DESKTOP_MIN_WIDTH; core/website.test.ts holds these numbers to core's). So the editor's 390-pixel preview gets

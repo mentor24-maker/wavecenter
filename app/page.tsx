@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { HOME_BOXES, homeBoxWords, mayEditHomeBoxes, type HomeBox, type HomeBoxKey } from "../core/homeBoxes.ts";
-import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
+import { mayDo, mayOpenAdmin, newestMembers, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
 import HomeBoxWords from "./HomeBoxWords";
 import { headerPoints } from "./lib/engagementStore";
 import { loadEvolution } from "./lib/evolutionReads";
 import { listHomeBoxes } from "./lib/homeBoxStore";
 import { headerName } from "./lib/memberProfileStore";
-import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
+import { listMembers, myRole, readRolesAndPermissions, type RolesAndPermissions } from "./lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "./lib/supabase";
 import { shownName } from "./members/memberView";
 import Mission from "./Mission";
@@ -15,9 +15,6 @@ import SignInForm from "./sign-in/SignInForm";
 import SiteHeader from "./SiteHeader";
 import Evolution from "./tasks/Evolution";
 import { emptyScrollerNote } from "./tasks/evolutionView";
-
-/** How many of the newest members Home shows. */
-const LATEST_MEMBERS = 5;
 
 /** How many of the most recently completed tasks Home shows. */
 const RECENTLY_COMPLETED = 5;
@@ -258,7 +255,8 @@ async function LatestMembers({
       </p>
     );
   }
-  const newest = [...members.value].sort(newestFirst).slice(0, LATEST_MEMBERS);
+  // Shared with the website's Latest members module (WC-263), so the two never disagree.
+  const newest = newestMembers(members.value);
   return (
     <>
       <ul className="plain">
@@ -272,10 +270,6 @@ async function LatestMembers({
       <p><Link href="/members">All members &rarr;</Link></p>
     </>
   );
-}
-
-function newestFirst(a: MemberRow, b: MemberRow): number {
-  return a.joinedAt < b.joinedAt ? 1 : a.joinedAt > b.joinedAt ? -1 : 0;
 }
 
 /** The small line drawing in each Home box's heading. Decorative: the heading says it in words. */

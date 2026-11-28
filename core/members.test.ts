@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   DEFAULT_ROLE, MEMBER_ACTIONS, PERMISSIONS, ROLES, STARTING_ROLE_PERMISSIONS, mayDo, mayManageMembers, mayOpenAdmin, maySeeMemberEmails, memberActions, signInMethodLabel,
-  memberPermissions, roleOf, setMemberRole,
+  LATEST_MEMBERS, memberPermissions, newestMembers, roleOf, setMemberRole,
 } from './members.ts';
 import { MemoryEngagementStore } from './memoryEngagementStore.ts';
 import { MemoryMemberRoleStore } from './memoryMemberRoleStore.ts';
@@ -188,4 +188,27 @@ test('changing a member role records one engagement, credited to the admin who c
   ledger.failInsert = true;
   await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'reviewer' }, TOOL), /ledger is down/);
   assert.equal(store.rows.get('lee')?.role, 'editor');
+});
+
+// WC-263: Home's Latest members box and the website's Latest members module share this.
+test('the newest members: five, newest first, the list itself left alone', () => {
+  assert.equal(LATEST_MEMBERS, 5);
+  const members = Array.from({ length: 8 }, (_, i) => ({ memberId: `m${i}`, joinedAt: `2026-11-0${i + 1}T12:00:00.000Z` }));
+  const before = members.map((m) => m.memberId);
+  assert.deepEqual(newestMembers(members).map((m) => m.memberId), ['m7', 'm6', 'm5', 'm4', 'm3']);
+  assert.deepEqual(members.map((m) => m.memberId), before);
+});
+
+test('the newest members: fewer than five shows them all; none shows none; a bad count shows none', () => {
+  const two = [{ joinedAt: '2026-01-01T00:00:00Z' }, { joinedAt: '2026-02-01T00:00:00Z' }];
+  assert.deepEqual(newestMembers(two), [two[1], two[0]]);
+  assert.deepEqual(newestMembers([]), []);
+  assert.deepEqual(newestMembers(two, 0), []);
+  assert.deepEqual(newestMembers(two, -1), []);
+  assert.deepEqual(newestMembers(two, Number.NaN), []);
+});
+
+test('the newest members: two who joined at the same moment keep the order they came in', () => {
+  const same = [{ id: 'a', joinedAt: '2026-03-01T00:00:00Z' }, { id: 'b', joinedAt: '2026-03-01T00:00:00Z' }];
+  assert.deepEqual(newestMembers(same).map((m) => m.id), ['a', 'b']);
 });
