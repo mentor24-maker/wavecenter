@@ -5,6 +5,7 @@ import { headerName } from "../../lib/memberProfileStore";
 import { headerIsAdmin } from "../../lib/memberRoleStore";
 import { readPublishedSitePage, readSavedSectionsByIds } from "../../lib/sitePageStore";
 import { currentUser, supabaseForRequest } from "../../lib/supabase";
+import { readRecentlyCompletedModule } from "../../lib/taskReads";
 import SiteHeader from "../../SiteHeader";
 import SiteSections from "../SiteSections";
 
@@ -38,6 +39,8 @@ async function readPage(supabase: Client, slug: string): Promise<SitePage | null
  * A page with a Leaderboard module (WC-237) reads the leaderboard's top ten
  * here, on the server, with the visitor's own session. A visitor who is not
  * signed in is never read for: the module shows them only a note to sign in.
+ * A page with a Recently completed tasks module (WC-265) reads those tasks the
+ * same way, with the same rule.
  */
 export default async function PublicSitePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -62,7 +65,12 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
   ]);
   const page = "page" in read ? read.page : null;
   const hasLeaderboard = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "leaderboard")));
-  const leaderboard = hasLeaderboard ? await readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }) : undefined;
+  const hasCompleted = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "completed_tasks")));
+  const visitor = { signedIn: Boolean(user), checkFailed };
+  const [leaderboard, completed] = await Promise.all([
+    hasLeaderboard ? readLeaderboardTop(supabase, visitor) : undefined,
+    hasCompleted ? readRecentlyCompletedModule(supabase, visitor) : undefined,
+  ]);
 
   return (
     <>
@@ -85,7 +93,7 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
             <p className="note" role="status">This page has nothing on it yet.</p>
           </>
         ) : (
-          <SiteSections sections={read.page.sections} leaderboard={leaderboard} />
+          <SiteSections sections={read.page.sections} leaderboard={leaderboard} completed={completed} />
         )}
       </main>
     </>

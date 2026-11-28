@@ -15,19 +15,27 @@
  * app/lib/engagementStore.ts readLeaderboardTop): the top ten, name and
  * Total only. A visitor who is not signed in sees only a note to sign in, no
  * names and no scores. A failed read and an empty board each say so.
+ *
+ * A Recently completed tasks module (WC-265) draws the tasks the page read on
+ * the server (`completed`, app/lib/taskReads.ts readRecentlyCompletedModule):
+ * the same five as Home's box, each linking to its task with "done <date>".
+ * A visitor who is not signed in sees only a note to sign in, no titles.
  */
 import type { LeaderboardTop } from "../../../core/leaderboard.ts";
+import { completedDay, type RecentlyCompleted } from "../../../core/recentlyCompleted.ts";
 import { siteButtonHref, siteImageUrl, siteModuleDrawsLive, type SiteModule } from "../../../core/website.ts";
 import RichText from "../../tasks/RichText";
 
 /** Where the full leaderboard is. */
 const FULL_LEADERBOARD = "/game/leaderboard";
 
-export default function SiteModuleView({ module: m, live = false, leaderboard }: {
+export default function SiteModuleView({ module: m, live = false, leaderboard, completed }: {
   module: SiteModule;
   live?: boolean;
   /** The leaderboard read on the server, for a Leaderboard module; missing reads as not loaded. */
   leaderboard?: LeaderboardTop;
+  /** The recently completed tasks read on the server, for that module; missing reads as not loaded. */
+  completed?: RecentlyCompleted;
 }) {
   if (live && !siteModuleDrawsLive(m)) return null;
   const empty = (words: string) => (live ? null : <p className="note">{words}</p>);
@@ -67,7 +75,49 @@ export default function SiteModuleView({ module: m, live = false, leaderboard }:
     }
     case "leaderboard":
       return <LeaderboardModule heading={m.settings.heading} top={leaderboard} live={live} />;
+    case "completed_tasks":
+      return <CompletedTasksModule heading={m.settings.heading} completed={completed} live={live} />;
   }
+}
+
+/**
+ * The most recently completed tasks (WC-265), drawn as Home's box draws them:
+ * each title a link to its task, with "done <date>" beside it in Mountain
+ * time. In the editor (`live` false) the links are plain words, so a click
+ * never leaves unsaved work.
+ */
+function CompletedTasksModule({ heading, completed, live }: { heading: string; completed: RecentlyCompleted | undefined; live: boolean }) {
+  const link = (href: string, words: string) => (live ? <a href={href}>{words}</a> : <span className="site-leaderboard-link">{words}</span>);
+  let body;
+  if (!completed) {
+    body = <p className="error" role="alert">The recently completed tasks could not be loaded just now. Try reloading in a minute.</p>;
+  } else if (completed.kind === "signed-out") {
+    body = <p className="note">{link("/sign-in", "Sign in")} to see the recently completed tasks.</p>;
+  } else if (completed.kind === "failed") {
+    body = <p className="error" role="alert">{completed.problem}</p>;
+  } else if (completed.rows.length === 0) {
+    body = <p className="note" role="status">No task has been completed yet.</p>;
+  } else {
+    body = (
+      <ul className="plain site-completed-tasks-rows">
+        {completed.rows.map((t) => {
+          const day = completedDay(t.completedAt);
+          return (
+            <li key={t.id}>
+              {link(`/tasks/${t.id}`, t.title || "(untitled task)")}
+              {day && <span className="note"> done {day}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  return (
+    <div className="site-completed-tasks">
+      {heading && <h3 className="site-heading">{heading}</h3>}
+      {body}
+    </div>
+  );
 }
 
 /**

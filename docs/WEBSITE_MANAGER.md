@@ -218,3 +218,28 @@ order.
   section's modules are locked with the rest of it. Each inserted copy gets
   module ids of its own, and a saved section refuses a link or picture
   address a page would refuse, in the same plain words.
+
+## Built in WC-265: a Recently completed tasks module
+
+- A sixth module, **Recently completed tasks**, in the Add module picker
+  beside Heading, Text, Picture, Button and Leaderboard. It shows the same
+  list as the box of that name at the bottom of signed-in Home: the five most
+  recently completed tasks, newest first, each a link to its task with
+  "done <date>" beside it in Mountain time.
+- Its one setting is the heading above the list, starting as "Recently
+  completed tasks"; an empty heading draws none. No count, team or filter
+  settings yet.
+- One read, so the two can never disagree: `readRecentlyCompleted` in
+  `app/lib/taskReads.ts` (status `done`, newest `completed_at` first, limit
+  five, `RECENTLY_COMPLETED` in `core/recentlyCompleted.ts`). Home's box now
+  uses it too and looks exactly as before.
+- Who sees it follows the Leaderboard module's rule (WC-237): a visitor who
+  is not signed in sees no task titles, only "Sign in to see the recently
+  completed tasks"; a sign-in check that failed says WaveCenter could not
+  check, never "Sign in". The rule is core's `recentlyCompletedAccess`, with
+  tests. The public page reads the tasks on the server, only when the page
+  has one of these modules, with the visitor's own session (never the service
+  key), so row-level security decides which tasks come back.
+- No completed task says "No task has been completed yet."; a failed read
+  says the tasks could not be loaded and to try again in a minute.
+- Stored in `layout_sections` like every module: no new table, no migration.

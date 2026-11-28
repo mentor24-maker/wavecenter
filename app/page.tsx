@@ -2,10 +2,12 @@ import Link from "next/link";
 import { HOME_BOXES, homeBoxWords, mayEditHomeBoxes, type HomeBox, type HomeBoxKey } from "../core/homeBoxes.ts";
 import { mayDo, mayOpenAdmin, ROLES, type RoleKey } from "../core/members.ts";
 import { AVATARS } from "../core/profiles.ts";
+import { completedDay } from "../core/recentlyCompleted.ts";
 import HomeBoxWords from "./HomeBoxWords";
 import { headerPoints } from "./lib/engagementStore";
 import { loadEvolution } from "./lib/evolutionReads";
 import { listHomeBoxes } from "./lib/homeBoxStore";
+import { readRecentlyCompleted } from "./lib/taskReads";
 import { headerName } from "./lib/memberProfileStore";
 import { listMembers, myRole, readRolesAndPermissions, type MemberRow, type RolesAndPermissions } from "./lib/memberRoleStore";
 import { currentUser, supabaseForRequest } from "./lib/supabase";
@@ -18,9 +20,6 @@ import { emptyScrollerNote } from "./tasks/evolutionView";
 
 /** How many of the newest members Home shows. */
 const LATEST_MEMBERS = 5;
-
-/** How many of the most recently completed tasks Home shows. */
-const RECENTLY_COMPLETED = 5;
 
 /** Join dates are shown in Mountain time, Dane's own. */
 const DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
@@ -95,8 +94,8 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
   const [name, working, completed, role, lists, evolution, boxes, points] = await Promise.all([
     headerName(supabase, user),
     supabase.from("tasks").select("id, title").eq("status", "doing").order("position").order("created_at"),
-    supabase.from("tasks").select("id, title, completed_at").eq("status", "done")
-      .order("completed_at", { ascending: false, nullsFirst: false }).limit(RECENTLY_COMPLETED),
+    // The same read as the website manager's Recently completed tasks module (WC-265).
+    read(() => readRecentlyCompleted(supabase)),
     read(() => myRole(supabase, user.id)),
     read(() => readRolesAndPermissions(supabase)),
     read(() => loadEvolution(supabase)),
@@ -181,20 +180,20 @@ async function Dashboard({ supabase, user }: { supabase: Supabase; user: { id: s
 
           <section className="box level-1">
             <h2><BoxIcon name="completed" />Recently completed tasks</h2>
-            {completed.error ? (
+            {completed.error !== null ? (
               <p className="error" role="alert">
-                The recently completed tasks could not be loaded: {completed.error.message}. Try reloading the page.
+                The recently completed tasks could not be loaded: {completed.error}. Try reloading the page.
               </p>
-            ) : !completed.data?.length ? (
+            ) : !completed.value.length ? (
               <p className="note" role="status">
                 No task has been completed yet. Mark a task &ldquo;done&rdquo; on <Link href="/tasks">the task list</Link> and it shows here.
               </p>
             ) : (
               <ul className="plain">
-                {completed.data.map((t) => (
+                {completed.value.map((t) => (
                   <li key={t.id}>
                     <Link href={`/tasks/${t.id}`}>{t.title}</Link>
-                    {t.completed_at && <span className="note"> done {DAY.format(new Date(t.completed_at))}</span>}
+                    {completedDay(t.completedAt) && <span className="note"> done {completedDay(t.completedAt)}</span>}
                   </li>
                 ))}
               </ul>

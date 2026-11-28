@@ -116,6 +116,16 @@ export default function ModulePanel({
           </>
         )}
 
+        {m.type === "completed_tasks" && (
+          <>
+            <label htmlFor={`${id}-heading`}>Heading</label>
+            <input id={`${id}-heading`} type="text" maxLength={SITE_HEADING_MAX} value={m.settings.heading} disabled={disabled} autoFocus
+              placeholder="No heading" onChange={(e) => set({ heading: e.target.value })} />
+            <span />
+            <span className="note">Shows the five most recently completed tasks, newest first, each with the day it was done: the same list as Home&apos;s Recently completed tasks box. Visitors who are not signed in see only a note to sign in.</span>
+          </>
+        )}
+
         {m.type === "image" && (
           <>
             <label htmlFor={`${id}-url`}>Picture address</label>

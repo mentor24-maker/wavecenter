@@ -787,7 +787,7 @@ export async function deleteSavedSection(
   return { name: original.name, pagesCopied: followers.length };
 }
 
-// ── Modules: headings, text, pictures, buttons and leaderboards (WC-209, WC-237) ─────────────────
+// ── Modules: headings, text, pictures, buttons, leaderboards and completed tasks (WC-209, WC-237, WC-265) ──
 //
 // What fills a section's cells. Each module has an id (unique on its page), a
 // type, the cell it sits in, and that type's own settings. Ported from
@@ -808,6 +808,7 @@ export const SITE_MODULE_TYPES = [
   { key: 'image', label: 'Picture' },
   { key: 'button', label: 'Button' },
   { key: 'leaderboard', label: 'Leaderboard' },
+  { key: 'completed_tasks', label: 'Recently completed tasks' },
 ] as const;
 
 export type SiteModuleType = (typeof SITE_MODULE_TYPES)[number]['key'];
@@ -844,6 +845,16 @@ export interface SiteLeaderboardSettings { /** Plain words; "" draws no heading.
 /** The heading a new Leaderboard module starts with. */
 export const SITE_LEADERBOARD_HEADING = 'Leaderboard';
 
+/**
+ * The Recently completed tasks module (WC-265): the same five tasks, order
+ * and "done" dates as Home's box of that name (core/recentlyCompleted.ts).
+ * Its one setting is the heading above the list.
+ */
+export interface SiteCompletedTasksSettings { /** Plain words; "" draws no heading. */ heading: string }
+
+/** The heading a new Recently completed tasks module starts with. */
+export const SITE_COMPLETED_TASKS_HEADING = 'Recently completed tasks';
+
 export interface SiteButtonSettings {
   label: string;
   /** An http: or https: address, a WaveCenter address starting "/", or "" for none yet. */
@@ -862,7 +873,8 @@ export type SiteModule =
   | (SiteModuleBase & { type: 'text'; settings: SiteTextSettings })
   | (SiteModuleBase & { type: 'image'; settings: SiteImageSettings })
   | (SiteModuleBase & { type: 'button'; settings: SiteButtonSettings })
-  | (SiteModuleBase & { type: 'leaderboard'; settings: SiteLeaderboardSettings });
+  | (SiteModuleBase & { type: 'leaderboard'; settings: SiteLeaderboardSettings })
+  | (SiteModuleBase & { type: 'completed_tasks'; settings: SiteCompletedTasksSettings });
 
 const BUTTON_COLOR = '#214c71';
 const BUTTON_TEXT_COLOR = '#ffffff';
@@ -1020,6 +1032,8 @@ function settingsOf(type: SiteModuleType, value: unknown): SiteModule['settings'
     case 'leaderboard':
       // A heading never saved (an older module) takes the plain default; one cleared on purpose stays "".
       return { heading: s.heading === undefined ? SITE_LEADERBOARD_HEADING : text(s.heading, SITE_HEADING_MAX) };
+    case 'completed_tasks':
+      return { heading: s.heading === undefined ? SITE_COMPLETED_TASKS_HEADING : text(s.heading, SITE_HEADING_MAX) };
   }
 }
 
@@ -1075,7 +1089,7 @@ const shown = (value: string) => (value.length > 60 ? `${value.slice(0, 57)}…`
  */
 export function siteModuleProblem(module: unknown): string | null {
   if (!isEntry(module)) return 'A module was not readable.';
-  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture, button or leaderboard).`;
+  if (!isModuleType(module.type)) return `"${shown(String(module.type))}" is not a kind of module WaveCenter has (heading, text, picture, button, leaderboard or recently completed tasks).`;
   const s = isEntry(module.settings) ? module.settings : {};
   if (module.type === 'image' && s.url !== undefined && siteImageUrl(s.url) === null) {
     return `The picture address "${shown(String(s.url))}" cannot be used. A picture's address must be a secure web address, starting with https://.`;
@@ -1123,6 +1137,8 @@ export function newSiteModule(type: SiteModuleType, cell: string, sections: read
       return { id, cell, type, settings: { label: 'Button', href: '', color: BUTTON_COLOR, textColor: BUTTON_TEXT_COLOR, newTab: false } };
     case 'leaderboard':
       return { id, cell, type, settings: { heading: SITE_LEADERBOARD_HEADING } };
+    case 'completed_tasks':
+      return { id, cell, type, settings: { heading: SITE_COMPLETED_TASKS_HEADING } };
   }
 }
 
@@ -1159,8 +1175,9 @@ export function siteSectionStyle(section: SiteSection): {
 /**
  * Whether a module draws anything on a live page. A heading or text with no
  * words, or a picture with no usable address, draws nothing there (the
- * editor names what is missing instead); a button and a leaderboard always
- * draw (a leaderboard says in words when it has nobody to show).
+ * editor names what is missing instead); a button, a leaderboard and a
+ * Recently completed tasks module always draw (each says in words when it
+ * has nothing to show).
  * SiteModuleView asks this, so the two never disagree.
  */
 export function siteModuleDrawsLive(module: SiteModule): boolean {
@@ -1173,6 +1190,7 @@ export function siteModuleDrawsLive(module: SiteModule): boolean {
       return Boolean(siteImageUrl(module.settings.url));
     case 'button':
     case 'leaderboard':
+    case 'completed_tasks':
       return true;
   }
 }
