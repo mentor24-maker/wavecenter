@@ -17,7 +17,7 @@ import {
   publicSitePage, sitePageHasContent, sitePagePath, siteModuleDrawsLive, siteSectionStyle,
   SITE_DESKTOP_MIN_WIDTH, SITE_DEVICES, SITE_PHONE_MAX_WIDTH, sitePageHasContentOn, siteSectionClasses, siteSectionShowsOn,
   SITE_IMAGES_BUCKET, SITE_IMAGE_UPLOAD_MAX_BYTES, SITE_IMAGE_UPLOAD_TYPES, planSiteImageUpload, siteImagePath, siteImageUploadProblem, withSiteImageUrl,
-  SITE_LEADERBOARD_HEADING, SITE_MODULE_TYPES, type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
+  SITE_COMPLETED_TASKS_HEADING, SITE_LEADERBOARD_HEADING, SITE_MODULE_TYPES, type SiteModule, type SitePage, type SitePageDeps, type SiteSection,
 } from './website.ts';
 
 const TOOL = 'wavecenter';
@@ -477,7 +477,7 @@ test('each of the four modules is added, saved and read back', async () => {
   const reread = (await deps.pages.list()).find((p) => p.id === page.id);
   assert.deepEqual(normalizeSiteSections(reread?.sections), [section]);
   // Each new module starts plain and is already tidy.
-  for (const type of ['heading', 'text', 'image', 'button', 'leaderboard'] as const) {
+  for (const type of ['heading', 'text', 'image', 'button', 'leaderboard', 'completed_tasks'] as const) {
     const m = newSiteModule(type, 'main');
     assert.deepEqual(normalizeSiteModules([m], 'single'), [m], type);
   }
@@ -779,7 +779,7 @@ test("the page's CSS draws phone and desktop at core's own widths (WC-211)", () 
 
 // WC-237: the Leaderboard module.
 test('a Leaderboard module can be added beside the other four, and starts with its plain heading', () => {
-  assert.deepEqual(SITE_MODULE_TYPES.map((t) => t.label), ['Heading', 'Text', 'Picture', 'Button', 'Leaderboard']);
+  assert.deepEqual(SITE_MODULE_TYPES.map((t) => t.label).slice(0, 5), ['Heading', 'Text', 'Picture', 'Button', 'Leaderboard']);
   const m = newSiteModule('leaderboard', 'main');
   assert.equal(m.type, 'leaderboard');
   assert.deepEqual(m.settings, { heading: SITE_LEADERBOARD_HEADING });
@@ -810,6 +810,51 @@ test('a page saved before the Leaderboard module reads exactly as it did', () =>
   const old = [{ id: 's1', layout: 'single', modules: [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }] }];
   const [section] = normalizeSiteSections(old);
   assert.deepEqual(section.modules, [{ id: 'h', type: 'heading', cell: 'main', settings: { text: 'Hi', level: 'h2', color: '' } }]);
+});
+
+// WC-265: the Recently completed tasks module.
+test('a Recently completed tasks module can be added beside the other five, and starts with its plain heading', () => {
+  assert.deepEqual(SITE_MODULE_TYPES.map((t) => t.label), ['Heading', 'Text', 'Picture', 'Button', 'Leaderboard', 'Recently completed tasks']);
+  const m = newSiteModule('completed_tasks', 'main');
+  assert.equal(m.type, 'completed_tasks');
+  assert.deepEqual(m.settings, { heading: SITE_COMPLETED_TASKS_HEADING });
+  assert.equal(SITE_COMPLETED_TASKS_HEADING, 'Recently completed tasks');
+  assert.equal(siteModuleProblem(m), null);
+  // It always draws on a live page: it says in words when no task is done yet.
+  assert.equal(siteModuleDrawsLive(m), true);
+  assert.equal(sitePageHasContent([{ ...newSiteSection(), modules: [m] }]), true);
+});
+
+test("a Recently completed tasks module's bad settings are tidied on read, never breaking the page", () => {
+  const read = normalizeSiteModules([
+    { id: 'a', type: 'completed_tasks', cell: 'main', settings: { heading: '  Just finished  ' } },
+    { id: 'b', type: 'completed_tasks', cell: 'main', settings: { heading: 'x'.repeat(SITE_HEADING_MAX + 50) } },
+    { id: 'c', type: 'completed_tasks', cell: 'main', settings: { heading: '' } },
+    { id: 'd', type: 'completed_tasks', cell: 'main' },
+    { id: 'e', type: 'completed_tasks', cell: 'main', settings: { heading: 42, count: 50, team: 'x' } },
+    { id: 'f', type: 'completed_tasks', cell: 'nowhere', settings: 'not settings' },
+  ], 'single');
+  assert.deepEqual(read.map((m) => m.settings), [
+    { heading: 'Just finished' },
+    { heading: 'x'.repeat(SITE_HEADING_MAX) },
+    { heading: '' },
+    { heading: SITE_COMPLETED_TASKS_HEADING },
+    { heading: '' },
+    { heading: SITE_COMPLETED_TASKS_HEADING },
+  ]);
+  assert.equal(read[5].cell, 'main');
+});
+
+test('a Recently completed tasks module saves, reads back and moves between cells like any other', async () => {
+  const deps = setup();
+  const page = await addSitePage(deps, { actorId: 'dane', name: 'Home' }, TOOL);
+  const m: SiteModule = { id: 'done', type: 'completed_tasks', cell: 'main', settings: { heading: 'Done lately' } };
+  const saved = await saveSitePageSections(deps, { actorId: 'dane', id: page.id, sections: [{ ...newSiteSection(), modules: [m] }] }, TOOL);
+  assert.deepEqual(saved.sections[0].modules, [m]);
+  // In a two-column section it sits in the right-hand cell; back to one column, it moves to the only cell, not lost.
+  const [two] = normalizeSiteSections([{ id: 's', layout: 'two-column', modules: [{ ...m, cell: 'right' }] }]);
+  assert.deepEqual(two.modules.map((x) => [x.type, x.cell]), [['completed_tasks', 'right']]);
+  assert.deepEqual(siteModulesInLayout(two.modules, 'single').map((x) => [x.type, x.cell, x.settings]), [['completed_tasks', 'main', { heading: 'Done lately' }]]);
 });
 
 // ── Renaming and deleting a saved section (WC-246) ────────────────────────

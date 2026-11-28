@@ -48,6 +48,7 @@ import {
 } from "../../../../../core/website.ts";
 import { changeReusable, deleteReusable, renameReusable, saveReusable, saveSections, type SavedSectionDeleteResult, type SavedSectionResult } from "../../actions";
 import type { LeaderboardTop } from "../../../../../core/leaderboard.ts";
+import type { RecentlyCompleted } from "../../../../../core/recentlyCompleted.ts";
 import SiteModuleView from "../../SiteModuleView";
 import DevicePreview from "./DevicePreview";
 import ModulePanel from "./ModulePanel";
@@ -62,7 +63,7 @@ function layoutLabel(layout: SiteSectionLayout): string {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem, leaderboard }: {
+export default function SectionEditor({ page: initial, pages, saved: initialSaved, savedProblem, leaderboard, completed }: {
   page: SitePage;
   /** Every page the member sees, to say how many follow a saved section. */
   pages: SitePage[];
@@ -71,6 +72,8 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
   savedProblem: string | null;
   /** The leaderboard's top ten, read on the server, for any Leaderboard module (WC-237). */
   leaderboard?: LeaderboardTop;
+  /** The most recently completed tasks, read on the server, for any Recently completed tasks module (WC-265). */
+  completed?: RecentlyCompleted;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(initial);
@@ -351,7 +354,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
         ))}
         {device && <button type="button" onClick={() => setDevice(null)}>Close preview</button>}
       </div>
-      {device && <DevicePreview sections={sections} device={device} leaderboard={leaderboard} />}
+      {device && <DevicePreview sections={sections} device={device} leaderboard={leaderboard} completed={completed} />}
 
       {sections.length === 0 && (
         <p className="note" role="status">This page has no sections yet. Pick a layout below and click Add section.</p>
@@ -492,7 +495,7 @@ export default function SectionEditor({ page: initial, pages, saved: initialSave
                                   <button type="button" disabled={locked} onClick={() => removeModule(i, m.id)} aria-label={`Remove ${name}`}>Remove</button>
                                 </span>
                               </div>
-                              <SiteModuleView module={m} leaderboard={leaderboard} />
+                              <SiteModuleView module={m} leaderboard={leaderboard} completed={completed} />
                             </div>
                           );
                         })}

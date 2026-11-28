@@ -3,11 +3,19 @@
  * Discussion comments. Both act through the signed-in member's own session,
  * so row-level security decides what comes back. Pass a task id to read only
  * that task's; leave it out to read every one the member may see.
+ *
+ * Also the most recently completed tasks (WC-265), the one read behind
+ * Home's "Recently completed tasks" box and the website manager's module of
+ * the same name, so the two can never disagree.
  */
 import type { TaskComment } from "../../core/comments.ts";
 import { isImage } from "../../core/files.ts";
+import {
+  completedTaskFromRow, RECENTLY_COMPLETED, recentlyCompletedAccess, type CompletedTask, type RecentlyCompleted,
+} from "../../core/recentlyCompleted.ts";
+import type { LeaderboardVisitor } from "../../core/leaderboard.ts";
 import type { ListFile } from "../tasks/TaskList";
-import type { supabaseForRequest } from "./supabase";
+import { SIGN_IN_CHECK_FAILED, type supabaseForRequest } from "./supabase";
 import { commentFromRow } from "./taskCommentStore";
 import { TASK_FILES_BUCKET } from "./taskFileStore";
 
@@ -59,4 +67,41 @@ export async function loadComments(supabase: Client, taskId?: string): Promise<{
   const { data, error } = await query.order("created_at");
   if (error) return { comments: [], error: error.message };
   return { comments: (data ?? []).map(commentFromRow), error: null };
+}
+
+/**
+ * The most recently completed tasks the member may see, newest first: status
+ * `done`, ordered by `completed_at` (a task never stamped goes last), at most
+ * RECENTLY_COMPLETED. Through the member's own session, so row-level security
+ * decides what comes back. A failed read throws the database's own words; it
+ * never becomes an empty list.
+ */
+export async function readRecentlyCompleted(supabase: Client): Promise<CompletedTask[]> {
+  const { data, error } = await supabase.from("tasks").select("id, title, completed_at").eq("status", "done")
+    .order("completed_at", { ascending: false, nullsFirst: false }).limit(RECENTLY_COMPLETED);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(completedTaskFromRow).filter((t): t is CompletedTask => t !== null);
+}
+
+/**
+ * What a website page's Recently completed tasks module draws (WC-265), read
+ * on the server with the visitor's own session (never the service key, rule
+ * 3). A visitor who is not signed in gets `signed-out`, and nothing is read:
+ * the module shows them no task titles. A sign-in check that errored is
+ * `failed` with SIGN_IN_CHECK_FAILED, never "Sign in" to someone who may be
+ * signed in (core recentlyCompletedAccess). A failed read is `failed` in plain
+ * words, never an empty list (rule 7); the database's own words stay in the
+ * server's log.
+ */
+export async function readRecentlyCompletedModule(supabase: Client | null, visitor: LeaderboardVisitor): Promise<RecentlyCompleted> {
+  const access = recentlyCompletedAccess(visitor, Boolean(supabase));
+  if (access === "no-database") return { kind: "failed", problem: "This copy of WaveCenter has no database settings, so there are no tasks to show." };
+  if (access === "check-failed") return { kind: "failed", problem: SIGN_IN_CHECK_FAILED };
+  if (access === "signed-out" || !supabase) return { kind: "signed-out" };
+  try {
+    return { kind: "rows", rows: await readRecentlyCompleted(supabase) };
+  } catch (err) {
+    console.error("The recently completed tasks module could not read the tasks:", err);
+    return { kind: "failed", problem: "The recently completed tasks could not be loaded just now. Try reloading in a minute." };
+  }
 }
