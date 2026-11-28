@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   afterEmailLink, afterRefusedEmailLink, EMAIL_CHANGE_ERRORS, EMAIL_LINK_EXPIRED_PAGE, EMAIL_LINK_PAGE, EMAIL_LINK_SIGNED_OUT, signedInSignInPage, signedOutProfilePage, emailChangeFailure, emailChangeProblem, googleButtonPage, isEmailChangeLink, googleReturnFailure, googleSwitchedOn, looksLikeEmail, MIN_PASSWORD_LENGTH, newPasswordFailure, passwordProblem, registerFailure,
-  resendFailure, resetFailure, signInFailure,
+  RESEND_CONFIRMATION_PAGE, resendFailure, resendFormOpen, resetFailure, signInFailure,
 } from "./authErrors.ts";
 
 test("an email address needs a name, an @ and a domain", () => {
@@ -34,6 +34,24 @@ test("a wrong password and an unconfirmed email are told apart", () => {
   assert.equal(signInFailure({ status: 400, code: "email_not_confirmed" }), "unconfirmed");
   assert.equal(signInFailure({ status: 429 }), "rate");
   assert.equal(signInFailure({ status: 500 }), "failed");
+});
+
+test("the log-in form's resend link opens the resend form, with a fixed address", () => {
+  const url = new URL(RESEND_CONFIRMATION_PAGE, "https://example.com");
+  assert.equal(url.pathname, "/register");
+  assert.equal(url.searchParams.get("sent"), "1");
+  assert.equal(url.searchParams.get("resend"), "1");
+  // Nothing typed by the visitor rides in it: only the two fixed flags.
+  assert.deepEqual([...url.searchParams.keys()].sort(), ["resend", "sent"]);
+  assert.equal(RESEND_CONFIRMATION_PAGE.includes("@"), false);
+  assert.equal(resendFormOpen(Object.fromEntries(url.searchParams)), true);
+});
+
+test("the resend form is open when asked for, after a send and after a failed one", () => {
+  assert.equal(resendFormOpen({}), false);
+  assert.equal(resendFormOpen({ resend: "1" }), true);
+  assert.equal(resendFormOpen({ resent: "1" }), true);
+  assert.equal(resendFormOpen({ error: "resend" }), true);
 });
 
 test("a reset email that could not be sent says why", () => {

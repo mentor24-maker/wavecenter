@@ -48,6 +48,23 @@ export function resetFailure(e: AuthFailure): "rate" | "send" {
   return rateLimited(e) ? "rate" : "send";
 }
 
+/**
+ * Where the log-in form's "not confirmed" message sends a member whose
+ * confirmation email never came: the register page's "Check your email"
+ * screen with its resend form already open. A fixed address: nothing the
+ * visitor typed (above all, never their email) goes into it.
+ */
+export const RESEND_CONFIRMATION_PAGE = "/register?sent=1&resend=1";
+
+/**
+ * Whether the register page shows its resend form already open: when the
+ * member came asking for it (`resend`), and after a send or a failed one,
+ * so its answer sits beside the form.
+ */
+export function resendFormOpen(params: { resend?: string; resent?: string; error?: string }): boolean {
+  return Boolean(params.resend || params.resent || params.error);
+}
+
 /** Sending the confirmation email again (from the register page's "Check your email" screen) failed. */
 export function resendFailure(e: AuthFailure): "rate" | "resend" {
   return rateLimited(e) ? "rate" : "resend";
