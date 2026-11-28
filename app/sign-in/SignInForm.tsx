@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signIn } from "../auth/actions";
+import { RESEND_CONFIRMATION_PAGE } from "../auth/authErrors";
 import GoogleButton, { GOOGLE_ERRORS } from "../auth/GoogleButton";
 import { SIGN_IN_CHECK_FAILED, supabaseSettings } from "../lib/supabase";
 
@@ -40,7 +41,17 @@ export default function SignInForm({
   return (
     <>
       <p className="lede">Log in with Google, or with your email and password.</p>
-      {error && ERRORS[error] && <p className="error" role="alert">{ERRORS[error]}</p>}
+      {error && ERRORS[error] && (
+        <p className="error" role="alert">
+          {ERRORS[error]}
+          {error === "unconfirmed" && (
+            <>
+              {" "}
+              <Link href={RESEND_CONFIRMATION_PAGE}>Never got it? Send the confirmation email again.</Link>
+            </>
+          )}
+        </p>
+      )}
       {checkFailed && <p className="error" role="alert">{SIGN_IN_CHECK_FAILED}</p>}
       {missing.length > 0 ? (
         <p className="error" role="alert">
