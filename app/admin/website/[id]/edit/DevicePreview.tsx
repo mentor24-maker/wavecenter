@@ -18,7 +18,7 @@
  * unsaved work. A screen with nothing on it says why (rule 7).
  */
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { SITE_DEVICES, sitePageHasContent, sitePageHasContentOn, type SiteDevice, type SiteSection } from "../../../../../core/website.ts";
+import { SITE_DEVICES, sitePageHasContent, sitePageHasContentOn, type SiteDevice, type SiteLatestMembers, type SiteSection } from "../../../../../core/website.ts";
 import type { LeaderboardTop } from "../../../../../core/leaderboard.ts";
 import SiteSections from "../../../../site/SiteSections";
 
@@ -32,14 +32,16 @@ function emptyWords(sections: readonly SiteSection[], device: SiteDevice, label:
   if (sitePageHasContentOn(sections, device)) return null;
   if (sections.length === 0) return "This page has no sections yet, so there is nothing to preview. Add a section below.";
   if (sitePageHasContent(sections)) return `Every section with something in it is hidden on a ${label.toLowerCase()}, so a ${label.toLowerCase()} shows an empty page.`;
-  return "Nothing on this page shows to a visitor yet: add a heading, text, a picture, a button or a leaderboard below.";
+  return "Nothing on this page shows to a visitor yet: add a heading, text, a picture, a button, a leaderboard or the latest members below.";
 }
 
-export default function DevicePreview({ sections, device, leaderboard }: {
+export default function DevicePreview({ sections, device, leaderboard, latestMembers }: {
   sections: readonly SiteSection[];
   device: SiteDevice;
   /** The leaderboard read on the server, for a Leaderboard module (WC-237). */
   leaderboard?: LeaderboardTop;
+  /** The newest members read on the server, for a Latest members module (WC-263). */
+  latestMembers?: SiteLatestMembers;
 }) {
   const spec = SITE_DEVICES.find((d) => d.key === device) ?? SITE_DEVICES[0];
   const stage = useRef<HTMLDivElement>(null);
@@ -80,7 +82,7 @@ export default function DevicePreview({ sections, device, leaderboard }: {
       <div ref={stage} className="device-preview-stage" style={{ maxWidth: spec.width + 2, height: height ? Math.ceil(height * scale) : undefined }}>
         <div ref={screen} className="device-preview-screen" data-device={device} onClickCapture={stay}
           style={{ width: spec.width, transform: scale < 1 ? `scale(${scale})` : undefined }}>
-          <SiteSections sections={sections} leaderboard={leaderboard} />
+          <SiteSections sections={sections} leaderboard={leaderboard} latestMembers={latestMembers} />
         </div>
       </div>
     </section>

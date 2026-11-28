@@ -198,3 +198,20 @@ export async function setMemberRole(
   if (saved !== change.role) throw new CoreError('The role did not save. Nothing changed; try again.');
   return change.role;
 }
+
+// ── The newest members (Home's Latest members box; the website's Latest members module, WC-263) ──
+
+/** How many of the newest members Home's box and the website's Latest members module show. */
+export const LATEST_MEMBERS = 5;
+
+/**
+ * The newest `count` members, newest first, by when they joined (an ISO
+ * timestamp, so comparing the words compares the times). Members who joined
+ * at the same moment keep the order they came in. Home's Latest members box
+ * and the website's Latest members module both ask this, so they never
+ * disagree.
+ */
+export function newestMembers<T extends { joinedAt: string }>(members: readonly T[], count: number = LATEST_MEMBERS): T[] {
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  return [...members].sort((a, b) => (a.joinedAt < b.joinedAt ? 1 : a.joinedAt > b.joinedAt ? -1 : 0)).slice(0, n);
+}

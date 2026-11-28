@@ -7,8 +7,9 @@
  * It only translates names and turns a failed database call into a thrown
  * error. Every value it writes was decided and checked in core.
  */
-import { isRole, mayOpenAdmin, roleOf, type MemberRoleStore, type RoleKey } from "../../core/members.ts";
-import type { supabaseForRequest } from "./supabase";
+import { ROLES, isRole, mayOpenAdmin, newestMembers, roleOf, type MemberRoleStore, type RoleKey } from "../../core/members.ts";
+import { latestMembersAccess, type SiteLatestMembers } from "../../core/website.ts";
+import { SIGN_IN_CHECK_FAILED, type supabaseForRequest } from "./supabase";
 
 type Client = NonNullable<Awaited<ReturnType<typeof supabaseForRequest>>>;
 
@@ -117,4 +118,52 @@ export async function readRolesAndPermissions(supabase: Client): Promise<RolesAn
   const byRole: Record<string, string[]> = {};
   for (const g of grants.data ?? []) (byRole[g.role] ??= []).push(g.permission);
   return { roles: roles.data ?? [], permissions: permissions.data ?? [], grants: byRole };
+}
+
+/**
+ * What a website page's Latest members module draws (WC-263), read on the
+ * server with the visitor's own session (never the service key, rule 3), the
+ * same members Home's Latest members box shows (core newestMembers). Core's
+ * latestMembersAccess decides first: a visitor who is not signed in gets
+ * `signed-out` and nothing is read; a failed sign-in check says so, never
+ * "Sign in"; a role without "View members" gets `not-allowed`, as on Home.
+ * Any failed read is `failed` in plain words, never an empty list (rule 7);
+ * the database's own words stay in the server's log.
+ */
+export async function readLatestMembers(
+  supabase: Client | null,
+  visitor: { memberId: string | null; checkFailed: boolean },
+): Promise<SiteLatestMembers> {
+  const signedIn = Boolean(visitor.memberId);
+  let role: RoleKey | null = null;
+  let grants: Record<string, string[]> | undefined;
+  if (supabase && visitor.memberId && !visitor.checkFailed) {
+    const [mine, lists] = await Promise.allSettled([myRole(supabase, visitor.memberId), readRolesAndPermissions(supabase)]);
+    if (mine.status === "fulfilled") role = mine.value;
+    else console.error("The Latest members module could not read the visitor's role:", mine.reason);
+    // The database's grants when they could be read; the starting ones
+    // otherwise, which the database's own check repeats, so nobody sees more.
+    if (lists.status === "fulfilled") grants = lists.value.grants;
+  }
+  const access = latestMembersAccess({ signedIn, checkFailed: visitor.checkFailed, role, grants }, Boolean(supabase));
+  switch (access) {
+    case "no-database":
+      return { kind: "failed", problem: "This copy of WaveCenter has no database settings, so there are no members to show." };
+    case "check-failed":
+      return { kind: "failed", problem: SIGN_IN_CHECK_FAILED };
+    case "signed-out":
+      return { kind: "signed-out" };
+    case "role-failed":
+      return { kind: "failed", problem: "Your role could not be loaded, so the members are not shown. Try reloading in a minute." };
+    case "not-allowed":
+      return { kind: "not-allowed", roleName: ROLES.find((r) => r.key === role)?.name ?? String(role) };
+  }
+  if (!supabase) return { kind: "signed-out" }; // never reached: no database is "no-database" above
+  try {
+    const members = newestMembers(await listMembers(supabase));
+    return { kind: "rows", members: members.map(({ memberId, avatar, displayName, joinedAt }) => ({ memberId, avatar, displayName, joinedAt })) };
+  } catch (err) {
+    console.error("The Latest members module could not list the members:", err);
+    return { kind: "failed", problem: "The members could not be loaded just now. Try reloading in a minute." };
+  }
 }

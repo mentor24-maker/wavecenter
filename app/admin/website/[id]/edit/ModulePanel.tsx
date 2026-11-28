@@ -116,6 +116,16 @@ export default function ModulePanel({
           </>
         )}
 
+        {m.type === "latestMembers" && (
+          <>
+            <label htmlFor={`${id}-heading`}>Heading</label>
+            <input id={`${id}-heading`} type="text" maxLength={SITE_HEADING_MAX} value={m.settings.heading} disabled={disabled} autoFocus
+              placeholder="No heading" onChange={(e) => set({ heading: e.target.value })} />
+            <span />
+            <span className="note">Shows the five newest members, newest first, as Home&apos;s Latest members box does: each one&apos;s avatar, their name if their profile shows it, and the day they joined, with a link to all members. Visitors who are not signed in see only a note to sign in.</span>
+          </>
+        )}
+
         {m.type === "image" && (
           <>
             <label htmlFor={`${id}-url`}>Picture address</label>

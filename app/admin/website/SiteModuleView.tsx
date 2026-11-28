@@ -1,6 +1,7 @@
 /**
  * Draws one module of a page (WC-209): a heading, a block of text, a picture,
- * a button or a leaderboard (WC-237). Nothing is ever drawn as HTML: a
+ * a button, a leaderboard (WC-237) or the latest members (WC-263). Nothing
+ * is ever drawn as HTML: a
  * heading's words go into a text node, which React escapes; text is
  * WaveCenter's rich text, drawn by
  * the same component as a comment (app/tasks/RichText.tsx); a picture's
@@ -15,19 +16,34 @@
  * app/lib/engagementStore.ts readLeaderboardTop): the top ten, name and
  * Total only. A visitor who is not signed in sees only a note to sign in, no
  * names and no scores. A failed read and an empty board each say so.
+ *
+ * Latest members draws the members the page read on the server
+ * (`latestMembers`, app/lib/memberRoleStore.ts readLatestMembers): the same
+ * box as Home's, newest first, each as their profile lets other members see
+ * them. A visitor who is not signed in sees only a note to sign in, no names.
  */
 import type { LeaderboardTop } from "../../../core/leaderboard.ts";
-import { siteButtonHref, siteImageUrl, siteModuleDrawsLive, type SiteModule } from "../../../core/website.ts";
+import { AVATARS } from "../../../core/profiles.ts";
+import { siteButtonHref, siteImageUrl, siteModuleDrawsLive, type SiteLatestMembers, type SiteModule } from "../../../core/website.ts";
+import { shownName } from "../../members/memberView";
 import RichText from "../../tasks/RichText";
 
 /** Where the full leaderboard is. */
 const FULL_LEADERBOARD = "/game/leaderboard";
 
-export default function SiteModuleView({ module: m, live = false, leaderboard }: {
+/** Where every member is listed. */
+const ALL_MEMBERS = "/members";
+
+/** Join dates are shown in Mountain time, Dane's own, as on Home. */
+const DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", month: "short", day: "numeric", year: "numeric" });
+
+export default function SiteModuleView({ module: m, live = false, leaderboard, latestMembers }: {
   module: SiteModule;
   live?: boolean;
   /** The leaderboard read on the server, for a Leaderboard module; missing reads as not loaded. */
   leaderboard?: LeaderboardTop;
+  /** The newest members read on the server, for a Latest members module; missing reads as not loaded. */
+  latestMembers?: SiteLatestMembers;
 }) {
   if (live && !siteModuleDrawsLive(m)) return null;
   const empty = (words: string) => (live ? null : <p className="note">{words}</p>);
@@ -67,7 +83,49 @@ export default function SiteModuleView({ module: m, live = false, leaderboard }:
     }
     case "leaderboard":
       return <LeaderboardModule heading={m.settings.heading} top={leaderboard} live={live} />;
+    case "latestMembers":
+      return <LatestMembersModule heading={m.settings.heading} latest={latestMembers} live={live} />;
   }
+}
+
+/**
+ * The newest members (WC-263), as Home's Latest members box shows them: avatar,
+ * name as their profile allows, the day they joined, then a link to all
+ * members. In the editor (`live` false) the links are drawn as plain words, so
+ * a click never leaves unsaved work.
+ */
+function LatestMembersModule({ heading, latest, live }: { heading: string; latest: SiteLatestMembers | undefined; live: boolean }) {
+  const link = (href: string, words: string) => (live ? <a href={href}>{words}</a> : <span className="site-leaderboard-link">{words}</span>);
+  let body;
+  if (!latest) {
+    body = <p className="error" role="alert">The members could not be loaded just now. Try reloading in a minute.</p>;
+  } else if (latest.kind === "signed-out") {
+    body = <p className="note">{link("/sign-in", "Sign in")} to see the latest members.</p>;
+  } else if (latest.kind === "not-allowed") {
+    body = <p className="note" role="status">Your role, <b>{latest.roleName}</b>, may not see the list of members.</p>;
+  } else if (latest.kind === "failed") {
+    body = <p className="error" role="alert">{latest.problem}</p>;
+  } else if (latest.members.length === 0) {
+    body = <p className="error" role="alert">No members came back, not even you. The members list could not be read; try reloading the page.</p>;
+  } else {
+    body = (
+      <ul className="plain site-latest-members">
+        {latest.members.map((m) => (
+          <li key={m.memberId}>
+            <span aria-hidden="true">{AVATARS.find((a) => a.id === m.avatar)?.symbol ?? "👤"}</span> {shownName(m)}{" "}
+            <span className="note">joined {DAY.format(new Date(m.joinedAt))}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <div className="site-latest">
+      {heading && <h3 className="site-heading">{heading}</h3>}
+      {body}
+      {latest?.kind === "rows" && latest.members.length > 0 && <p className="site-leaderboard-more">{link(ALL_MEMBERS, "All members →")}</p>}
+    </div>
+  );
 }
 
 /**

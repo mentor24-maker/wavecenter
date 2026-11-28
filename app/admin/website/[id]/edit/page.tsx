@@ -2,6 +2,7 @@ import Link from "next/link";
 import { resolveSiteSections, type SiteSavedSection } from "../../../../../core/website.ts";
 import SiteHeader from "../../../../SiteHeader";
 import { readLeaderboardTop } from "../../../../lib/engagementStore";
+import { readLatestMembers } from "../../../../lib/memberRoleStore";
 import { listSavedSections } from "../../../../lib/sitePageStore";
 import { currentUser, supabaseForRequest } from "../../../../lib/supabase";
 import { loadSitePage } from "../loadPage";
@@ -14,11 +15,18 @@ async function readSavedSections(): Promise<SiteSavedSection[] | string> {
   return listSavedSections(supabase).catch((err: unknown) => (err instanceof Error ? err.message : String(err)));
 }
 
-/** The leaderboard's top ten as the signed-in editor sees it (WC-237). */
-async function readEditorLeaderboard() {
+/**
+ * The leaderboard's top ten (WC-237) and the newest members (WC-263), as the
+ * signed-in editor sees them, for any Leaderboard or Latest members module.
+ */
+async function readEditorModuleData() {
   const supabase = await supabaseForRequest();
   const { user, checkFailed } = supabase ? await currentUser(supabase) : { user: null, checkFailed: false };
-  return readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed });
+  const [leaderboard, latestMembers] = await Promise.all([
+    readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }),
+    readLatestMembers(supabase, { memberId: user?.id ?? null, checkFailed }),
+  ]);
+  return { leaderboard, latestMembers };
 }
 
 /**
@@ -28,15 +36,16 @@ async function readEditorLeaderboard() {
  * than leaving a blank (rule 7). Every linked section is shown with its saved
  * original's current content (WC-212, resolveSiteSections); if the saved
  * sections could not be read, the editor says so and offers none.
- * The leaderboard's top ten is read here too, for any Leaderboard module
- * (WC-237), so the editor and its preview show what a signed-in member sees.
+ * The leaderboard's top ten and the newest members are read here too, for
+ * any Leaderboard (WC-237) or Latest members (WC-263) module, so the editor
+ * and its preview show what a signed-in member sees.
  */
 export default async function EditSitePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const load = await loadSitePage(id);
   const saved = load.ok ? await readSavedSections() : [];
   const savedList = typeof saved === "string" ? [] : saved;
-  const leaderboard = load.ok ? await readEditorLeaderboard() : undefined;
+  const moduleData = load.ok ? await readEditorModuleData() : undefined;
 
   return (
     <>
@@ -48,7 +57,8 @@ export default async function EditSitePage({ params }: { params: Promise<{ id: s
             pages={load.pages}
             saved={savedList}
             savedProblem={typeof saved === "string" ? saved : null}
-            leaderboard={leaderboard}
+            leaderboard={moduleData?.leaderboard}
+            latestMembers={moduleData?.latestMembers}
           />
         ) : (
           <>

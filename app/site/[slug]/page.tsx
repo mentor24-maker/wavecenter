@@ -2,7 +2,7 @@ import Link from "next/link";
 import { isLinkedSiteSection, isSitePageSlug, publicSitePage, resolveSiteSections, sitePageHasContent, type SitePage } from "../../../core/website.ts";
 import { headerPoints, readLeaderboardTop } from "../../lib/engagementStore";
 import { headerName } from "../../lib/memberProfileStore";
-import { headerIsAdmin } from "../../lib/memberRoleStore";
+import { headerIsAdmin, readLatestMembers } from "../../lib/memberRoleStore";
 import { readPublishedSitePage, readSavedSectionsByIds } from "../../lib/sitePageStore";
 import { currentUser, supabaseForRequest } from "../../lib/supabase";
 import SiteHeader from "../../SiteHeader";
@@ -38,6 +38,8 @@ async function readPage(supabase: Client, slug: string): Promise<SitePage | null
  * A page with a Leaderboard module (WC-237) reads the leaderboard's top ten
  * here, on the server, with the visitor's own session. A visitor who is not
  * signed in is never read for: the module shows them only a note to sign in.
+ * A page with a Latest members module (WC-263) reads the newest members the
+ * same way, under the same rule.
  */
 export default async function PublicSitePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -62,7 +64,11 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
   ]);
   const page = "page" in read ? read.page : null;
   const hasLeaderboard = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "leaderboard")));
-  const leaderboard = hasLeaderboard ? await readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }) : undefined;
+  const hasLatestMembers = Boolean(page?.sections.some((s) => s.modules.some((m) => m.type === "latestMembers")));
+  const [leaderboard, latestMembers] = await Promise.all([
+    hasLeaderboard ? readLeaderboardTop(supabase, { signedIn: Boolean(user), checkFailed }) : undefined,
+    hasLatestMembers ? readLatestMembers(supabase, { memberId: user?.id ?? null, checkFailed }) : undefined,
+  ]);
 
   return (
     <>
@@ -85,7 +91,7 @@ export default async function PublicSitePage({ params }: { params: Promise<{ slu
             <p className="note" role="status">This page has nothing on it yet.</p>
           </>
         ) : (
-          <SiteSections sections={read.page.sections} leaderboard={leaderboard} />
+          <SiteSections sections={read.page.sections} leaderboard={leaderboard} latestMembers={latestMembers} />
         )}
       </main>
     </>
