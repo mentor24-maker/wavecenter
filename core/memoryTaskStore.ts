@@ -88,7 +88,14 @@ export class MemoryTaskStore implements TaskStore {
     return { ...task };
   }
 
+  /** As the app's store: only the owner's own tasks. */
   async get(id: string): Promise<Task | null> {
+    const task = this.rows.get(id);
+    return task && task.ownerId === this.ownerId ? { ...task } : null;
+  }
+
+  /** Any task, anyone's: every member reads every task. */
+  async find(id: string): Promise<Task | null> {
     const task = this.rows.get(id);
     return task ? { ...task } : null;
   }

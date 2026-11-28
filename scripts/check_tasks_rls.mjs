@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
  * Prove, through the real Supabase API, that every member can read every
- * task and attached file but cannot change or delete another member's tasks
- * (row-level security on `public.tasks`), settings, profile
+ * task and attached file, that a role's task permissions decide who adds,
+ * changes and deletes tasks (a reviewer or viewer adds none, a contributor
+ * changes and deletes only their own, an editor or admin anyone's) and only a
+ * task's owner changes its points (row-level security on `public.tasks`),
+ * that a member cannot change another member's settings, profile
  * (`public.member_profiles`), or attached files (`public.task_files` and the
  * private `task-files` bucket); that a member cannot see or change another
  * member's Discussion comments (`public.task_comments`) or the files attached
@@ -88,7 +91,7 @@ import { ENGAGEMENT_KINDS, RESCORE_TOOL, addScoringRule, castScoringRuleVote, su
 import { saveHomeBox } from '../core/homeBoxes.ts';
 import { addTokenSize, changeTokenSize, removeTokenSize } from '../core/tokens.ts';
 import { createProposal, deleteProposal, updateProposal } from '../core/proposals.ts';
-import { setMemberRole } from '../core/members.ts';
+import { memberPermissions, setMemberRole } from '../core/members.ts';
 import { addTeamMember, createTeam, deleteTeam, removeTeamMember, updateTeam } from '../core/teams.ts';
 import { createMeeting, deleteMeeting, setMeetingInvites, updateMeeting } from '../core/meetings.ts';
 import { loadProfile, saveProfile } from '../core/profiles.ts';
@@ -540,7 +543,7 @@ try {
 
   let mayParent = '';
   try { await createTask(a.store, { title: 'A hangs under B', parentTaskId: taskB }, TOOL); } catch (err) { mayParent = err.message; }
-  check('A still cannot put a sub-task under B’s task through core', /No task .* you may put a sub-task under/.test(mayParent), mayParent || 'the sub-task was added');
+  check('A still cannot put a sub-task under B’s task through core', /No task .* you may put this task under/.test(mayParent), mayParent || 'the sub-task was added');
 
   const upd = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { points: 999 } });
   check('A cannot change B’s task', upd.status === 200 && upd.json.length === 0, `HTTP ${upd.status}, rows changed ${Array.isArray(upd.json) ? upd.json.length : JSON.stringify(upd.json)}`);
@@ -580,7 +583,7 @@ try {
 
   let refused = '';
   try { await updateTask(b.store, insA.id, { title: 'taken over' }, TOOL); } catch (err) { refused = err.message; }
-  check('B cannot change A’s task through core either', /No task .* you may change/.test(refused), refused || 'the change went through');
+  check('B cannot change A’s task through core either', /only your own tasks/.test(refused), refused || 'the change went through');
 
   const still = await admin(`/rest/v1/tasks?id=eq.${taskB}&select=points`);
   check('B’s task is untouched afterwards', still.json?.[0]?.points === 5, `points ${still.json?.[0]?.points}`);
@@ -2416,6 +2419,117 @@ try {
     }
   }
 
+  // The task permissions decide what each role does on tasks
+  // (20261127130000_task_role_permissions.sql, WC-248): a reviewer or viewer
+  // cannot add a task, even straight at the table; a contributor adds tasks
+  // and changes and deletes only their own; an editor and an admin change and
+  // delete anyone's; nobody but a task's owner changes its points, and nobody
+  // changes its owner. One fresh member per role; they and their tasks go
+  // with the other test users at the end.
+  {
+    const ROLE_KEYS = ['admin', 'editor', 'contributor', 'reviewer', 'viewer'];
+    const by = {};
+    for (const role of ROLE_KEYS) {
+      const u = await makeUser(`task-${role}`);
+      if (role !== 'contributor') {
+        const set = await admin('/rest/v1/member_roles', { method: 'POST', body: { member_id: u.id, role, tool: TOOL } });
+        if (set.status >= 300) throw new Error(`could not make the ${role} test member: HTTP ${set.status} ${JSON.stringify(set.json)}`);
+      }
+      by[role] = u;
+    }
+    const perms = (role) => memberPermissions(role);
+    const an = (role) => (role === 'admin' || role === 'editor' ? `an ${role}` : `a ${role}`);
+    const rowOf = async (id) => (await admin(`/rest/v1/tasks?id=eq.${id}&select=id,title,owner_id,points,owner_points`)).json?.[0];
+    /** A task owned by `owner`, made with the service key so even a viewer can own one. */
+    const seed = async (owner, title, points = 4) => {
+      const made = await admin('/rest/v1/tasks', { method: 'POST', prefer: 'return=representation', body: { title, owner_id: owner.id, points, tool: TOOL } });
+      if (made.status >= 300) throw new Error(`could not seed a task for ${owner.tag}: HTTP ${made.status} ${JSON.stringify(made.json)}`);
+      return made.json[0].id;
+    };
+    const coreErr = (p) => p.then(() => '', (e) => e.message);
+
+    // Adding.
+    for (const role of ['reviewer', 'viewer']) {
+      const u = by[role];
+      const direct = await call('/rest/v1/tasks', { method: 'POST', token: u.token, prefer: 'return=representation', body: { title: `A ${role} adds straight at the table` } });
+      const viaCore = await coreErr(createTask(u.store, { title: `A ${role} adds through core` }, TOOL, role, perms(role)));
+      const left = await admin(`/rest/v1/tasks?owner_id=eq.${u.id}&select=id`);
+      check(`a ${role}'s task is refused, straight at the table and through core, and nothing is added`,
+        direct.status >= 400 && /Your role may not add tasks/.test(viaCore) && left.json?.length === 0,
+        `direct HTTP ${direct.status} ${direct.json?.message ?? JSON.stringify(direct.json)}, core "${viaCore}", rows ${JSON.stringify(left.json)}`);
+    }
+    for (const role of ['admin', 'editor', 'contributor']) {
+      const made = await createTask(by[role].store, { title: `A ${role}'s own task` }, TOOL, role, perms(role)).catch((e) => ({ error: e.message }));
+      check(`${an(role)} adds a task through core, in their own name`, made.ownerId === by[role].id, JSON.stringify(made));
+    }
+
+    // Every role reads every task.
+    const cTask = await seed(by.contributor, 'The contributor’s task');
+    for (const role of ROLE_KEYS) {
+      const read = await call(`/rest/v1/tasks?id=eq.${cTask}&select=id`, { token: by[role].token });
+      check(`${an(role)} reads another member's task`, read.status === 200 && read.json?.length === 1, `HTTP ${read.status} ${JSON.stringify(read.json)}`);
+    }
+
+    // A contributor: their own, yes; someone else's, no.
+    const own = await seed(by.contributor, 'Contributor edits this');
+    const ownEdit = await updateTask(by.contributor.store, own, { title: 'Contributor edited this' }, TOOL, perms('contributor')).catch((e) => ({ error: e.message }));
+    check('a contributor changes their own task through core', ownEdit.title === 'Contributor edited this', JSON.stringify(ownEdit));
+    await deleteTask(by.contributor.store, own, TOOL, perms('contributor')).catch(() => {});
+    check('a contributor deletes their own task through core', (await rowOf(own)) === undefined, JSON.stringify(await rowOf(own)));
+    const eTask = await seed(by.editor, 'The editor’s task');
+    const cEdit = await call(`/rest/v1/tasks?id=eq.${eTask}`, { method: 'PATCH', token: by.contributor.token, prefer: 'return=representation', body: { title: 'Contributor was here' } });
+    const cDel = await call(`/rest/v1/tasks?id=eq.${eTask}`, { method: 'DELETE', token: by.contributor.token, prefer: 'return=representation' });
+    const cCore = await coreErr(updateTask(by.contributor.store, eTask, { title: 'Contributor was here' }, TOOL, perms('contributor')));
+    check("a contributor cannot change or delete another member's task, straight at the table or through core",
+      cEdit.status === 200 && cEdit.json?.length === 0 && cDel.status === 200 && cDel.json?.length === 0 && /only your own tasks/.test(cCore) && (await rowOf(eTask))?.title === 'The editor’s task',
+      `edit HTTP ${cEdit.status} ${JSON.stringify(cEdit.json)}, delete HTTP ${cDel.status} ${JSON.stringify(cDel.json)}, core "${cCore}"`);
+
+    // A reviewer and a viewer change and delete nothing, not even their own.
+    for (const role of ['reviewer', 'viewer']) {
+      const theirs = await seed(by[role], `The ${role}’s own task`);
+      const edit = await call(`/rest/v1/tasks?id=eq.${theirs}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { title: 'changed' } });
+      const del = await call(`/rest/v1/tasks?id=eq.${theirs}`, { method: 'DELETE', token: by[role].token, prefer: 'return=representation' });
+      const other = await call(`/rest/v1/tasks?id=eq.${cTask}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { title: 'changed' } });
+      check(`a ${role} cannot change or delete their own task or anyone else's`,
+        edit.json?.length === 0 && del.json?.length === 0 && other.json?.length === 0 && (await rowOf(theirs))?.title === `The ${role}’s own task`,
+        `own edit ${JSON.stringify(edit.json)}, own delete ${JSON.stringify(del.json)}, other edit ${JSON.stringify(other.json)}`);
+    }
+
+    // An editor and an admin change and delete anyone's.
+    for (const role of ['editor', 'admin']) {
+      const target = await seed(by.contributor, `For the ${role} to change`);
+      const changed = await updateTask(by[role].store, target, { title: `Changed by the ${role}`, priority: 'high' }, TOOL, perms(role)).catch((e) => ({ error: e.message }));
+      check(`an ${role} changes another member's task through core, and it stays theirs`,
+        changed.title === `Changed by the ${role}` && changed.ownerId === by.contributor.id, JSON.stringify(changed));
+      const direct = await call(`/rest/v1/tasks?id=eq.${target}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { notes: `notes from the ${role}` } });
+      check(`an ${role} changes another member's task straight at the table too`, direct.status === 200 && direct.json?.length === 1, `HTTP ${direct.status} ${JSON.stringify(direct.json)}`);
+      await deleteTask(by[role].store, target, TOOL, perms(role)).catch(() => {});
+      check(`an ${role} deletes another member's task through core`, (await rowOf(target)) === undefined, JSON.stringify(await rowOf(target)));
+    }
+
+    // Only the owner changes the points; nobody changes the owner.
+    const pointed = await seed(by.contributor, 'Whose points?', 4);
+    for (const role of ['editor', 'admin']) {
+      const bump = await call(`/rest/v1/tasks?id=eq.${pointed}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { points: 40 } });
+      const same = await call(`/rest/v1/tasks?id=eq.${pointed}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { points: 4 } });
+      const steal = await call(`/rest/v1/tasks?id=eq.${pointed}`, { method: 'PATCH', token: by[role].token, prefer: 'return=representation', body: { owner_id: by[role].id } });
+      const row = await rowOf(pointed);
+      check(`an ${role} cannot change another member's task's points, even to the same number, or take it over`,
+        bump.status >= 400 && /Only a task's owner can change its points/.test(bump.json?.message ?? '') && same.status >= 400
+          && steal.status >= 400 && /owner cannot change/.test(steal.json?.message ?? '')
+          && row?.points === 4 && row?.owner_points === 4 && row?.owner_id === by.contributor.id,
+        `bump HTTP ${bump.status} ${bump.json?.message ?? ''}, same HTTP ${same.status}, steal HTTP ${steal.status} ${steal.json?.message ?? ''}, row ${JSON.stringify(row)}`);
+    }
+    const mine = await setPoints(by.contributor.store, pointed, 6, TOOL).then(() => rowOf(pointed), (e) => ({ error: e.message }));
+    check('the owner still changes their own task’s points', mine?.points === 6 && mine?.owner_points === 6, JSON.stringify(mine));
+    const selfSteal = await call(`/rest/v1/tasks?id=eq.${pointed}`, { method: 'PATCH', token: by.contributor.token, prefer: 'return=representation', body: { owner_id: by.editor.id } });
+    check('the owner cannot hand their task to another member either', selfSteal.status >= 400 && (await rowOf(pointed))?.owner_id === by.contributor.id, `HTTP ${selfSteal.status} ${selfSteal.json?.message ?? ''}`);
+    const vote = await castVote(voteStore(by.editor), pointed, { points: 10 }, TOOL).then(() => rowOf(pointed), (e) => ({ error: e.message }));
+    check('a vote on another member’s task still lands on its points, and the owner’s score stays theirs', vote?.points === 8 && vote?.owner_points === 6, JSON.stringify(vote));
+    const svc = await admin(`/rest/v1/tasks?id=eq.${pointed}`, { method: 'PATCH', prefer: 'return=representation', body: { points: 2 } });
+    check('the service key still changes a task’s points', svc.status === 200 && svc.json?.[0]?.owner_points === 2, `HTTP ${svc.status} ${JSON.stringify(svc.json)}`);
+  }
+
   // Changing, publishing and deleting a page (20261124130000_site_pages_edit.sql,
   // WC-207): only a role with site.edit (A) renames a page, gives it a new
   // address or publishes it, and the change time is stamped; nobody changes
@@ -3374,9 +3488,15 @@ try {
   shown = await taskOf(taskB);
   check('the owner’s own points vote is not an other member’s score (still 7), but High and Low make Normal', shown?.points === 7 && shown?.priority === 'normal', JSON.stringify(shown));
   check('the votes leave B’s owner’s score at 5', shown?.owner_points === 5, JSON.stringify(shown));
-  const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${taskB}`, { method: 'PATCH', token: b.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
-  check('even its owner cannot write the owner’s score straight to the column', forgeOwnerScore.status === 200 && (await taskOf(taskB))?.owner_points === 5,
-    `HTTP ${forgeOwnerScore.status} ${JSON.stringify(await taskOf(taskB))}`);
+  // Run as A, an admin who owns insA, not B: B is a viewer by now, so the
+  // row-level rules would refuse B's write before the tasks_owner_points
+  // trigger was reached, and this check would pass even if the trigger broke.
+  // The write must reach the row (one row back) and still leave the score.
+  const scoreBefore = (await taskOf(insA.id))?.owner_points;
+  const forgeOwnerScore = await call(`/rest/v1/tasks?id=eq.${insA.id}`, { method: 'PATCH', token: a.token, prefer: 'return=representation', body: { owner_points: 99, tool: TOOL } });
+  check('even its owner cannot write the owner’s score straight to the column',
+    forgeOwnerScore.status === 200 && forgeOwnerScore.json?.length === 1 && scoreBefore !== 99 && (await taskOf(insA.id))?.owner_points === scoreBefore,
+    `HTTP ${forgeOwnerScore.status} ${JSON.stringify(forgeOwnerScore.json)} before ${scoreBefore} after ${JSON.stringify(await taskOf(insA.id))}`);
 
   const votesSeen = await call(`/rest/v1/task_votes?task_id=eq.${taskB}&select=member_id,points`, { token: a.token });
   check('A can read every vote on B’s task', votesSeen.status === 200 && votesSeen.json.length === 2, JSON.stringify(votesSeen.json));
@@ -3509,7 +3629,8 @@ try {
   await deleteTask(a.store, scored.id, TOOL);
 
   // Deleting the task takes its ratings with it, despite the rows being kept.
-  const ratedTask = await call('/rest/v1/tasks', { method: 'POST', token: b.token, prefer: 'return=representation', body: { title: 'rated, then deleted' } });
+  // A adds it: B is a viewer by now, and a viewer adds no tasks.
+  const ratedTask = await call('/rest/v1/tasks', { method: 'POST', token: a.token, prefer: 'return=representation', body: { title: 'rated, then deleted' } });
   const ratedTaskId = ratedTask.json?.[0]?.id;
   const ratedPassId = (await recordRating(ratingPass({ task: ratedTaskId }))).json;
   const ratedTaskGone = await admin(`/rest/v1/tasks?id=eq.${ratedTaskId}`, { method: 'DELETE' });
@@ -3574,11 +3695,12 @@ try {
   const bAfter = await countOf(b);
   check('the owner earns nothing when another member votes on their task', bBefore === bAfter, `B had ${bBefore} engagements, then ${bAfter}`);
 
-  const doomed = await createTask(b.store, { title: 'B’s task to delete', points: 1 }, TOOL);
+  // A (an admin) owns this one: B is a viewer by now, and adds and deletes no tasks.
+  const doomed = await createTask(a.store, { title: 'A’s task to delete', points: 1 }, TOOL, 'admin');
   await castVote(voteStore(a), doomed.id, { points: 3 }, TOOL);
   await castVote(voteStore(b), doomed.id, { priority: 'high' }, TOOL);
   const votesBefore = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
-  await deleteTask(b.store, doomed.id, TOOL);
+  await deleteTask(a.store, doomed.id, TOOL, memberPermissions('admin'));
   const votesAfter = [await countOf(a, '&kind=eq.voted_on_task'), await countOf(b, '&kind=eq.voted_on_task')];
   check('deleting a task with votes on it scores no votes', JSON.stringify(votesBefore) === JSON.stringify(votesAfter), `before ${JSON.stringify(votesBefore)}, after ${JSON.stringify(votesAfter)}`);
 

@@ -13,6 +13,7 @@ import {
   removeFile,
 } from './files.ts';
 import { createTask } from './tasks.ts';
+import { memberPermissions } from './members.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 import { MemoryTaskCommentStore } from './memoryTaskCommentStore.ts';
 import { MemoryTaskFileStore } from './memoryTaskFileStore.ts';
@@ -122,6 +123,23 @@ test('when storage fails, deleteTaskWithFiles keeps the task to delete again', a
   await assert.rejects(deleteTaskWithFiles(tasks, files, task.id, 'wavecenter'), /storage is down/);
   assert.ok(await tasks.get(task.id));
   await assert.rejects(deleteTaskWithFiles(tasks, files, 'nope', 'wavecenter'), /No task nope .* you may delete/);
+});
+
+test("an editor deletes another member's task, but not one with files yet; a viewer deletes none", async () => {
+  const { tasks, files, task, upload } = await setup();
+  const bare = await createTask(tasks, { title: 'No files' }, 'wavecenter');
+  await attachFile(tasks, files, upload('a.png'), 'wavecenter');
+  // Both tasks become another member's, as an editor signed in as "eddie" sees them.
+  for (const id of [task.id, bare.id]) tasks.rows.set(id, { ...tasks.rows.get(id)!, ownerId: 'someone-else' });
+  const editor = memberPermissions('editor');
+  await assert.rejects(deleteTaskWithFiles(tasks, files, task.id, 'wavecenter', editor),
+    /This task has files attached, and for now only the task's owner can delete a task with files. Nothing was deleted./);
+  assert.ok(tasks.rows.has(task.id), 'the task with files is still there');
+  assert.equal(files.objects.size, 1, 'and so is its file');
+  await assert.rejects(deleteTaskWithFiles(tasks, files, bare.id, 'wavecenter', memberPermissions('viewer')), /Your role may not delete tasks/);
+  await assert.rejects(deleteTaskWithFiles(tasks, files, bare.id, 'wavecenter', memberPermissions('contributor')), /only your own tasks/);
+  await deleteTaskWithFiles(tasks, files, bare.id, 'wavecenter', editor);
+  assert.equal(tasks.rows.has(bare.id), false);
 });
 
 test('filePath keeps the name inside the task folder', () => {

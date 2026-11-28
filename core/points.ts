@@ -22,7 +22,8 @@
  * `PointsChange`'s `after` is the final score, not always the number given.
  */
 import { CoreError, requireTool } from './tool.ts';
-import type { Task, TaskStore } from './tasks.ts';
+import { DEFAULT_ROLE, STARTING_ROLE_PERMISSIONS } from './members.ts';
+import type { Task, TaskPermissions, TaskStore } from './tasks.ts';
 
 // The table stores points as a PostgreSQL `integer`, checked `>= 0`.
 const MAX_POINTS = 2_147_483_647;
@@ -67,10 +68,24 @@ async function changePoints(
   taskId: string,
   tool: string,
   next: (current: Task) => number,
+  permissions: TaskPermissions,
 ): Promise<PointsChange> {
   const named = requireTool(tool);
   const current = await store.get(taskId);
-  if (!current) throw new CoreError(`No task ${taskId} was found that you may change.`);
+  if (!current) {
+    // Points stay the owner's (WC-248): a role that may change anyone's
+    // task still may not change another member's points.
+    if (await store.find(taskId)) {
+      throw new CoreError("Only a task's owner may change its points, and this one is another member's. Nothing was changed.");
+    }
+    throw new CoreError(`No task ${taskId} was found that you may change.`);
+  }
+  // An owner whose role may not change tasks (a member moved down to viewer,
+  // say) is told so up front, not handed a false "try again" when the
+  // database refuses the write.
+  if (!permissions.includes('task.edit') && !permissions.includes('task.edit.any')) {
+    throw new CoreError('Your role may not change tasks. Nothing was changed.');
+  }
   if (current.status === 'done') {
     throw new CoreError('This task is done, so its points are locked. Reopen it to change them.');
   }
@@ -85,21 +100,42 @@ async function changePoints(
   return { taskId, before: current.points, after: task.points, delta: task.points - current.points, tool: named, task };
 }
 
-/** Set a task's points to `points` on behalf of `tool`. */
-export async function setPoints(store: TaskStore, taskId: string, points: number, tool: string): Promise<PointsChange> {
+/**
+ * The permissions a member has when none are given: the default role's, the
+ * same default core/tasks.ts uses.
+ */
+const DEFAULT_PERMISSIONS: TaskPermissions = STARTING_ROLE_PERMISSIONS[DEFAULT_ROLE];
+
+/**
+ * Set a task's points to `points` on behalf of `tool`. Only the task's owner
+ * may, and only while their role's `permissions` let them change tasks.
+ */
+export async function setPoints(
+  store: TaskStore,
+  taskId: string,
+  points: number,
+  tool: string,
+  permissions: TaskPermissions = DEFAULT_PERMISSIONS,
+): Promise<PointsChange> {
   requireTool(tool);
   const value = requirePointsValue(points);
-  return changePoints(store, taskId, tool, () => value);
+  return changePoints(store, taskId, tool, () => value, permissions);
 }
 
 /** Add `amount` points (a whole number above zero) to a task's owner's score on behalf of `tool`. */
-export async function awardPoints(store: TaskStore, taskId: string, amount: number, tool: string): Promise<PointsChange> {
+export async function awardPoints(
+  store: TaskStore,
+  taskId: string,
+  amount: number,
+  tool: string,
+  permissions: TaskPermissions = DEFAULT_PERMISSIONS,
+): Promise<PointsChange> {
   requireTool(tool);
   if (amount <= 0) {
     throw new CoreError(`An award must be more than zero points; got ${amount}. Use setPoints to lower a task's points.`);
   }
   requirePointsValue(amount);
-    // The award adds to the owner's score, the part the owner sets, not to the
+  // The award adds to the owner's score, the part the owner sets, not to the
   // final score, which the store works out from every part (core/taskScore.ts).
-  return changePoints(store, taskId, tool, (current) => (current.ownerPoints ?? 0) + amount);
+  return changePoints(store, taskId, tool, (current) => (current.ownerPoints ?? 0) + amount, permissions);
 }

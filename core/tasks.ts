@@ -18,7 +18,23 @@
  */
 import { CoreError, requireTool } from './tool.ts';
 import { requirePointsValue } from './points.ts';
-import { DEFAULT_ROLE, type RoleKey } from './members.ts';
+import { DEFAULT_ROLE, STARTING_ROLE_PERMISSIONS, memberPermissions, type RoleKey } from './members.ts';
+
+/**
+ * What the member's role lets them do, as permission keys (core/members.ts,
+ * `memberPermissions`): `task.create` adds a task, `task.edit` and
+ * `task.delete` change and delete your own, `task.edit.any` and
+ * `task.delete.any` anyone's (Dane, 2026-11-26, WC-248). The tasks
+ * row-level security asks the same grants.
+ */
+export type TaskPermissions = readonly string[];
+
+/**
+ * What a caller that names no permissions may do: what a member with no role
+ * recorded, a contributor, may do. That is what every member could do before
+ * roles decided anything, so a tool written before them keeps working.
+ */
+export const DEFAULT_TASK_PERMISSIONS: TaskPermissions = STARTING_ROLE_PERMISSIONS[DEFAULT_ROLE];
 
 /**
  * `proposed` is where a task added by a member who is not an admin starts:
@@ -103,11 +119,17 @@ export interface UpdateGuard {
 export interface TaskStore {
   insert(row: NewTaskRow): Promise<Task>;
   /**
-   * One task the caller may change, or null. Every member can read every
+   * One of the caller's own tasks, or null. Every member can read every
    * task (Dane, 2026-10-27), but this returns only the caller's own, so no
-   * rule here ever acts on, or hangs a sub-task under, someone else's task.
+   * rule that reads it ever acts on someone else's task by mistake.
    */
   get(id: string): Promise<Task | null>;
+  /**
+   * One task the caller may read, theirs or anyone's, or null. Core asks it
+   * only when `get` found none, to tell "someone else's task" (which a role
+   * with `task.edit.any` or `task.delete.any` may change) from "no such task".
+   */
+  find(id: string): Promise<Task | null>;
   /**
    * Apply `changes` to one task. When `guard` is given, apply them only if
    * everything it names still holds, and return null if not (someone else
@@ -182,33 +204,99 @@ function requirePosition(position: unknown): number {
 }
 
 /**
- * A parent must be one of the caller's own tasks: the store's `get` only
- * returns those, so a task is never hung under someone else's. When `childId` is given (a task being moved), the parent may not be
- * the task itself or anything beneath it, so the tree never loops.
+ * A parent must belong to the same member as the task under it. For the
+ * caller's own task (or a new one) that means one of the caller's own tasks:
+ * the store's `get` only returns those. For someone else's task, which a role
+ * with `task.edit.any` may move, it means one of that member's tasks. When
+ * `child` is given (a task being moved), the parent may not be the task
+ * itself or anything beneath it, so the tree never loops.
  */
-async function requireParent(store: TaskStore, parentTaskId: string, childId?: string): Promise<string> {
-  if (parentTaskId === childId) throw new CoreError('A task cannot be its own parent.');
-  const parent = await store.get(parentTaskId);
-  if (!parent) throw new CoreError(`No task ${parentTaskId} was found that you may put a sub-task under.`);
+async function requireParent(
+  store: TaskStore,
+  parentTaskId: string,
+  child?: { id: string; ownerId: string; own: boolean },
+): Promise<string> {
+  if (parentTaskId === child?.id) throw new CoreError('A task cannot be its own parent.');
+  const look = (id: string) => (child && !child.own ? store.find(id) : store.get(id));
+  const parent = await look(parentTaskId);
+  if (!parent || (child && !child.own && parent.ownerId !== child.ownerId)) {
+    throw new CoreError(`No task ${parentTaskId} was found that you may put this task under.`);
+  }
   for (let up = parent.parentTaskId, seen = 0; up && seen < 1000; seen += 1) {
-    if (up === childId) throw new CoreError('A task cannot be put under one of its own sub-tasks.');
-    up = (await store.get(up))?.parentTaskId ?? null;
+    if (up === child?.id) throw new CoreError('A task cannot be put under one of its own sub-tasks.');
+    up = (await look(up))?.parentTaskId ?? null;
   }
   return parentTaskId;
 }
 
 /**
+ * The to-do list keeps sub-tasks one level deep: a parent must itself be
+ * top-level. The parent is looked up with `find`, not `get`, so the rule
+ * holds when an editor moves another member's task under one of that
+ * member's tasks (WC-248), which `get` (the caller's own only) never returns.
+ */
+export async function requireTopLevelParent(store: TaskStore, parentTaskId: string): Promise<void> {
+  const parent = await store.find(parentTaskId);
+  if (parent?.parentTaskId) {
+    throw new CoreError(`"${parent.title}" is already a sub-task, and sub-tasks cannot have sub-tasks of their own yet.`);
+  }
+}
+
+const ACTS = {
+  edit: { own: 'task.edit', any: 'task.edit.any', verb: 'change' },
+  delete: { own: 'task.delete', any: 'task.delete.any', verb: 'delete' },
+} as const;
+
+/**
+ * The task `id`, if `permissions` let the member `act` on it: their own with
+ * `task.edit` / `task.delete`, anyone's with `task.edit.any` /
+ * `task.delete.any`. `own` says whether it is the member's. Anything else is
+ * refused in plain words, before anything is changed.
+ */
+export async function taskYouMay(
+  store: TaskStore,
+  id: string,
+  act: keyof typeof ACTS,
+  permissions: TaskPermissions = DEFAULT_TASK_PERMISSIONS,
+): Promise<{ task: Task; own: boolean }> {
+  const { own, any, verb } = ACTS[act];
+  const mine = await store.get(id);
+  if (mine) {
+    if (permissions.includes(own) || permissions.includes(any)) return { task: mine, own: true };
+    throw new CoreError(`Your role may not ${verb} tasks. Nothing was changed.`);
+  }
+  const theirs = await store.find(id);
+  if (!theirs) throw new CoreError(`No task ${id} was found that you may ${verb}.`);
+  if (permissions.includes(any)) return { task: theirs, own: false };
+  throw new CoreError(
+    permissions.includes(own)
+      ? `Your role may ${verb} only your own tasks, and this one is another member's. Nothing was changed.`
+      : `Your role may not ${verb} tasks. Nothing was changed.`,
+  );
+}
+
+/** May a member with these permissions add a task? */
+export function mayAddTasks(permissions: TaskPermissions): boolean {
+  return permissions.includes('task.create');
+}
+
+/**
  * Create a task on behalf of `tool`, for a member whose role is
- * `creatorRole`. An admin's task starts as todo; anyone else's starts as
- * proposed and waits for an admin to approve it. A creator whose role is not
- * given is treated as a member with no role recorded: a contributor.
+ * `creatorRole` and who may do `permissions` (the role's starting grants
+ * unless the client read others from the database). A role without
+ * `task.create` is refused and nothing is added. An admin's task starts as
+ * todo; anyone else's starts as proposed and waits for an admin to approve
+ * it. A creator whose role is not given is treated as a member with no role
+ * recorded: a contributor.
  */
 export async function createTask(
   store: TaskStore,
   input: NewTask,
   tool: string,
   creatorRole: RoleKey = DEFAULT_ROLE,
+  permissions: TaskPermissions = memberPermissions(creatorRole),
 ): Promise<Task> {
+  if (!mayAddTasks(permissions)) throw new CoreError('Your role may not add tasks. Nothing was added.');
   const admin = mayApproveTasks(creatorRole);
   const status = requireStatus(input.status ?? (admin ? 'todo' : 'proposed'));
   if (!admin && status !== 'proposed') {
@@ -231,35 +319,44 @@ export async function createTask(
 
 /**
  * Change a task's title, notes, status, parent, position, priority or AI
- * tick on behalf of `tool`. Points cannot be changed here; use `setPoints` or
- * `awardPoints`.
+ * tick on behalf of `tool`, for a member who may do `permissions`: their own
+ * task with `task.edit`, anyone's with `task.edit.any`. A member who names no
+ * permissions may do what a contributor may. Points cannot be changed here;
+ * use `setPoints` or `awardPoints`, which only the task's owner may.
  */
-export async function updateTask(store: TaskStore, id: string, changes: TaskChanges, tool: string): Promise<Task> {
+export async function updateTask(
+  store: TaskStore,
+  id: string,
+  changes: TaskChanges,
+  tool: string,
+  permissions: TaskPermissions = DEFAULT_TASK_PERMISSIONS,
+): Promise<Task> {
   const named = requireTool(tool);
   if ('points' in changes) {
     throw new CoreError('Points can only be changed with setPoints or awardPoints in core/points.ts, not with updateTask.');
   }
+  const { task: current, own } = await taskYouMay(store, id, 'edit', permissions);
   const row: TaskRowChanges = { tool: named };
   if (changes.title !== undefined) row.title = requireTitle(changes.title);
   if (changes.notes !== undefined) row.notes = changes.notes;
   // A proposed task keeps that status until an admin approves it, and no task goes back to it.
-  let now: Task | null | undefined;
-  const current = async () => (now === undefined ? (now = await store.get(id)) : now);
   if (changes.status !== undefined) {
     row.status = requireStatus(changes.status);
     if (row.status === 'proposed') throw new CoreError('A task is Proposed only when it is added; it cannot be moved back to Proposed.');
-    if ((await current())?.status === 'proposed') {
+    if (current.status === 'proposed') {
       throw new CoreError('This task is still Proposed. An admin needs to approve it before its status can change.');
     }
   }
   if (changes.parentTaskId !== undefined) {
-    row.parentTaskId = changes.parentTaskId ? await requireParent(store, changes.parentTaskId, id) : null;
+    row.parentTaskId = changes.parentTaskId
+      ? await requireParent(store, changes.parentTaskId, { id, ownerId: current.ownerId, own })
+      : null;
   }
   if (changes.position !== undefined) row.position = requirePosition(changes.position);
   if (changes.priority !== undefined) row.priority = requirePriority(changes.priority);
   if (changes.agentSelected !== undefined) {
     if (typeof changes.agentSelected !== 'boolean') throw new CoreError('Ticking a task for AI agents is yes or no.');
-    const status = changes.agentSelected ? row.status ?? (await current())?.status : undefined;
+    const status = changes.agentSelected ? row.status ?? current.status : undefined;
     if (status === 'done') throw new CoreError('A done task cannot be handed to AI agents. Reopen it first.');
     if (status === 'proposed') {
       throw new CoreError('A proposed task cannot be handed to AI agents until an admin approves it.');
@@ -293,10 +390,19 @@ export async function approveTask(store: TaskStore, id: string, approverRole: Ro
 }
 
 /**
- * Delete a task on behalf of `tool`. Its sub-tasks are kept and become
- * top-level, so no record of work disappears with its parent.
+ * Delete a task on behalf of `tool`, for a member who may do `permissions`:
+ * their own task with `task.delete`, anyone's with `task.delete.any`. A
+ * member who names no permissions may do what a contributor may. Its
+ * sub-tasks are kept and become top-level, so no record of work disappears
+ * with its parent.
  */
-export async function deleteTask(store: TaskStore, id: string, tool: string): Promise<void> {
+export async function deleteTask(
+  store: TaskStore,
+  id: string,
+  tool: string,
+  permissions: TaskPermissions = DEFAULT_TASK_PERMISSIONS,
+): Promise<void> {
   const named = requireTool(tool);
+  await taskYouMay(store, id, 'delete', permissions);
   if (!(await store.remove(id, named))) throw new CoreError(`No task ${id} was found that you may delete.`);
 }

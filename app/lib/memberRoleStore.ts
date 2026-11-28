@@ -118,3 +118,16 @@ export async function readRolesAndPermissions(supabase: Client): Promise<RolesAn
   for (const g of grants.data ?? []) (byRole[g.role] ??= []).push(g.permission);
   return { roles: roles.data ?? [], permissions: permissions.data ?? [], grants: byRole };
 }
+
+/**
+ * The signed-in member's role and what it may do, as the database holds it
+ * (core/members.ts `memberPermissions`): what core/tasks.ts asks before a
+ * task is added, changed or deleted. Read failures throw, so a caller says
+ * so rather than guessing.
+ */
+export async function myRoleAndPermissions(supabase: Client, memberId: string): Promise<{ role: RoleKey; permissions: string[] }> {
+  const role = await myRole(supabase, memberId);
+  const { data, error } = await supabase.from("role_permissions").select("permission").eq("role", role);
+  if (error) throw new Error(`The database refused to read what your role may do: ${error.message}`);
+  return { role, permissions: (data ?? []).map((g) => g.permission) };
+}

@@ -108,8 +108,9 @@ export default async function Members() {
           {actions.includes("message") && ` ${messageEnvelopeNote(resendMailer() !== null && serviceAddressBook() !== null)}`}
         </p>
         <p className="note">
-          Task permissions are recorded but do not change what anyone may do on tasks yet: every member still reads
-          every task and changes only their own.
+          Task permissions decide what each role may do on tasks: Read task to see them, Create task to add one, Edit
+          task and Delete task for your own, and Edit anyone&apos;s task and Delete anyone&apos;s task for every
+          member&apos;s. Only a task&apos;s owner changes its points.
         </p>
 
         <div className="panel">

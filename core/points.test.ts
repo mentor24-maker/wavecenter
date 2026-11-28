@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { awardPoints, ownerScore, requirePointsValue, setPoints } from './points.ts';
 import { createTask, updateTask } from './tasks.ts';
+import { memberPermissions } from './members.ts';
 import { CoreError } from './tool.ts';
 import { MemoryTaskStore } from './memoryTaskStore.ts';
 
@@ -145,4 +146,24 @@ test('if the points change between read and write, nothing is saved and it says 
   };
   await assert.rejects(awardPoints(store, task.id, 2, 'wavecenter'), /changed while this change was being made/);
   assert.equal(store.rows.get(task.id)?.points, 50);
+});
+
+test('an owner whose role may not change tasks (a viewer) is told so plainly, never "try again", and nothing changes', async () => {
+  const { store, task } = await oneTask(5);
+  for (const role of ['viewer', 'reviewer'] as const) {
+    await assert.rejects(setPoints(store, task.id, 9, 'wavecenter', memberPermissions(role)), /Your role may not change tasks. Nothing was changed./);
+    await assert.rejects(awardPoints(store, task.id, 2, 'wavecenter', memberPermissions(role)), /Your role may not change tasks/);
+  }
+  assert.equal((await store.get(task.id))?.points, 5);
+  assert.equal((await setPoints(store, task.id, 9, 'wavecenter', memberPermissions('contributor'))).after, 9);
+});
+
+test("an editor or admin may change anyone's task, but not another member's points", async () => {
+  const { store, task } = await oneTask(5);
+  const other = new MemoryTaskStore('someone-else');
+  for (const [id, row] of store.rows) other.rows.set(id, row);
+  for (const role of ['editor', 'admin'] as const) {
+    await assert.rejects(setPoints(other, task.id, 9, 'wavecenter', memberPermissions(role)), /Only a task's owner may change its points/);
+  }
+  assert.equal((await store.get(task.id))?.points, 5);
 });

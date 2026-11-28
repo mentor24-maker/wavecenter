@@ -80,7 +80,8 @@ export function guardQuery(guard = {}) {
  *   `token` is normally the signed-in member's access token, so row-level
  *   security applies exactly as it does in the browser; then pass that
  *   member's `ownerId` too. Every member may read every task, but core's
- *   `get` means "a task the caller may change", so it asks only for theirs.
+ *   `get` means "one of the caller's own tasks", so it asks only for theirs;
+ *   `find` reads anyone's, so core can tell another member's task from none.
  *   The loop-handoff lane on the Mini passes the service key instead, which
  *   sees and changes every member's tasks, and no `ownerId`; that key never
  *   leaves the server (engineering rule 3). With the service key there is no
@@ -115,6 +116,10 @@ export function restTaskStore({ url, apiKey, token, ownerId, owner, fetch: fetch
     async get(id) {
       const mine = ownerId ? `&owner_id=eq.${encodeURIComponent(ownerId)}` : '';
       const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}${mine}&select=*`, 'GET');
+      return row ? fromRow(row) : null;
+    },
+    async find(id) {
+      const [row] = await call(`tasks?id=eq.${encodeURIComponent(id)}&select=*`, 'GET');
       return row ? fromRow(row) : null;
     },
     async update(id, changes, guard) {

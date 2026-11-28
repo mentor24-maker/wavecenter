@@ -16,10 +16,11 @@ function setup() {
   return store;
 }
 
-test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones, the game one, Message members, Edit Home boxes and Manage website', () => {
+test('the five roles Dane listed, the four task permissions, the two member ones, the two team ones, the game one, Message members, Edit Home boxes, Manage website and the two anyone\'s-task ones', () => {
   assert.deepEqual(ROLES.map((r) => r.key), ['admin', 'editor', 'contributor', 'reviewer', 'viewer']);
   assert.deepEqual(PERMISSIONS.map((p) => p.key), [
     'task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit', 'site.edit',
+    'task.edit.any', 'task.delete.any',
   ]);
 });
 
@@ -29,13 +30,13 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
     read('20261029120000_member_roles.sql'), read('20261029210000_member_permissions.sql'),
     read('20261031120000_teams.sql'), read('20261031140000_game_scoring_admin.sql'), read('20261031150000_messages.sql'),
     read('20261101130000_message_every_member.sql'), read('20261102130000_home_boxes.sql'),
-    read('20261124120000_site_pages.sql'),
+    read('20261124120000_site_pages.sql'), read('20261127130000_task_role_permissions.sql'),
   ];
   const roles = [...files[0].matchAll(/^\s*\('([a-z_]+)',\s*'([^']*)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)]
     .map((m) => ({ key: m[1], name: m[2], description: m[3].replace(/''/g, "'") }));
   assert.deepEqual(roles, ROLES);
-  const perms = files.flatMap((sql) => [...sql.matchAll(/^\s*\('([a-z]+\.[a-z_]+)',\s*'([^']*)',\s*(\d+)\)/gm)])
-    .map((m) => ({ key: m[1], label: m[2], position: Number(m[3]) }));
+  const perms = files.flatMap((sql) => [...sql.matchAll(/^\s*\('([a-z]+(?:\.[a-z_]+)+)',\s*'((?:[^']|'')*)',\s*(\d+)\)/gm)])
+    .map((m) => ({ key: m[1], label: m[2].replace(/''/g, "'"), position: Number(m[3]) }));
   assert.deepEqual(perms.map(({ key, label }) => ({ key, label })), PERMISSIONS);
   assert.deepEqual(perms.map((p) => p.position), PERMISSIONS.map((_, i) => i + 1));
   const grants: Record<string, string[]> = {};
@@ -46,10 +47,10 @@ test('the migrations seed exactly the roles, permissions and grants core knows',
   assert.deepEqual(grants, STARTING_ROLE_PERMISSIONS);
 });
 
-test('memberPermissions gives each role its grants; admin has all twelve, editor all four task ones', () => {
+test('memberPermissions gives each role its grants; admin has all fourteen, editor all six task ones', () => {
   assert.deepEqual(memberPermissions('admin'), PERMISSIONS.map((p) => p.key));
-  assert.deepEqual(memberPermissions('editor'), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message']);
-  assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message']);
+  assert.deepEqual(memberPermissions('editor'), ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message', 'task.edit.any', 'task.delete.any']);
+  assert.deepEqual(memberPermissions('contributor'), ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message', 'task.delete']);
   assert.deepEqual(memberPermissions('reviewer'), ['task.read', 'member.read', 'team.read', 'member.message']);
   assert.deepEqual(memberPermissions('viewer'), ['task.read', 'member.read', 'team.read', 'member.message']);
   assert.deepEqual(memberPermissions('viewer', { viewer: ['task.read', 'task.comment'] }), ['task.read', 'task.comment']);
@@ -188,4 +189,17 @@ test('changing a member role records one engagement, credited to the admin who c
   ledger.failInsert = true;
   await assert.rejects(setMemberRole(store, { actorId: 'dane', memberId: 'lee', role: 'reviewer' }, TOOL), /ledger is down/);
   assert.equal(store.rows.get('lee')?.role, 'editor');
+});
+
+test('the task permissions per role: admins and editors change and delete anyone\'s task, contributors add and change their own, reviewers and viewers only read (WC-248)', () => {
+  const want: Record<string, string[]> = {
+    admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'task.edit.any', 'task.delete.any'],
+    editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'task.edit.any', 'task.delete.any'],
+    contributor: ['task.read', 'task.create', 'task.edit', 'task.delete'],
+    reviewer: ['task.read'],
+    viewer: ['task.read'],
+  };
+  for (const r of ROLES) {
+    assert.deepEqual(memberPermissions(r.key).filter((p) => p.startsWith('task.')).sort(), want[r.key].sort(), r.key);
+  }
 });

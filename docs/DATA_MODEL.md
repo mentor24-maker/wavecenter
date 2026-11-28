@@ -270,17 +270,17 @@ their own row, and a signed-out visitor gets nothing.
 
 Every member has a role, and each role has a set of permissions (Dane,
 2026-10-28; on 2026-10-29 he chose the first slice: stored and shown, and an
-admin changes roles). **The task permissions are recorded, not yet
-enforced**: what anyone may do on tasks is still the rule under "Who can see
-what" below. A later ticket makes them count. **The member permissions do
-count** (2026-10-29): `member.read` decides who may list the members, and
+admin changes roles). **The task permissions count** (Dane, 2026-11-26,
+WC-248): `core/tasks.ts` and the tasks row-level security both ask them,
+as "Who can see what" below says. **The member permissions count too**
+(2026-10-29): `member.read` decides who may list the members, and
 `member.edit` decides who gets the buttons on the Members page.
 
 | Table | What it holds |
 |---|---|
 | `roles` | The five roles, each with a name and a plain-words description: **admin**, **editor**, **contributor**, **reviewer**, **viewer**. |
-| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`) **message members** (`member.message`, added by `20261031150000_messages.sql`) and **edit Home boxes** (`home.edit`, added by `20261102130000_home_boxes.sql`). It is meant to grow: a new permission is a new row, added by a migration. |
-| `role_permissions` | Which role has which permission. Admin and editor have all four task ones; contributor reads, creates and edits (their own tasks); reviewer and viewer read. Every role views members; only admin changes member roles, manages game scoring and edits Home's boxes; every role messages members. |
+| `permissions` | What a role may be allowed to do. It starts with **read task**, **create task**, **edit task** and **delete task** (stored as `task.read`, `task.create`, `task.edit`, `task.delete`), plus **view members** and **change member roles** (`member.read`, `member.edit`, added by `20261029210000_member_permissions.sql`), **manage game scoring** (`game.edit`, added by `20261031140000_game_scoring_admin.sql`), **message members** (`member.message`, added by `20261031150000_messages.sql`), **edit Home boxes** (`home.edit`, added by `20261102130000_home_boxes.sql`), **manage website** (`site.edit`, `20261124120000_site_pages.sql`), and **edit anyone's task** and **delete anyone's task** (`task.edit.any`, `task.delete.any`, `20261127130000_task_role_permissions.sql`), which tell "your own task" from "anyone's". It is meant to grow: a new permission is a new row, added by a migration. |
+| `role_permissions` | Which role has which permission. Admin and editor have all six task ones, so they change and delete anyone's task; contributor reads, creates, edits and deletes (their own tasks; `task.delete` was added for them in WC-248, so they keep deleting their own as before); reviewer and viewer only read. Every role views members; only admin changes member roles, manages game scoring and edits Home's boxes; every role messages members. |
 | `member_roles` | Each member's role, with the tool and the admin that last changed it. A member with no row is a **contributor**, which is what every member was before roles existed. Dane's account was made admin when the table was made. |
 
 Every signed-in member can read the first three tables; nobody can change
@@ -630,10 +630,29 @@ Row-level security (the database's own rule about which rows each person may
 touch) was turned on in the same step that created the table, so there was
 never a moment without it. **Every signed-in member can read every task**,
 open and done, with its details and files (Dane, 2026-10-27: "All users will
-have access to the entire todo list — past, present, and future"). A member
-can add, change and delete **only their own** tasks, and cannot add a task in
-someone else's name or hang a sub-task under someone else's task. On anyone's
-task they can vote. A visitor who is not signed in gets nothing at all.
+have access to the entire todo list — past, present, and future"); the rule
+asks for `task.read`, which every role has. What else a member may do on
+tasks is their role's task permissions (WC-248):
+
+| Role | Add a task | Change / delete their own | Change / delete anyone's |
+|---|---|---|---|
+| admin, editor | yes | yes | yes |
+| contributor | yes | yes | no |
+| reviewer, viewer | no | no | no |
+
+Adding needs `task.create`, and the task is always in the member's own
+name. Changing your own needs `task.edit` and deleting it `task.delete`;
+anyone's needs `task.edit.any` or `task.delete.any`. Two things stay the
+owner's alone, whatever the role: **a task's points** (a trigger,
+`tasks_points_owner_only`, refuses anyone else naming them, so the owner's
+score is always the owner's own; votes, the AI rating and the service key
+still move them), and **who owns it** (`tasks_owner_kept`: nobody signed in
+changes a task's owner). A sub-task hangs only under a task of the same
+owner. An editor cannot yet delete another member's task that has files
+attached, because the files sit in the folder of whoever attached them and
+only they may delete them there; `deleteTaskWithFiles` says so and deletes
+nothing. On anyone's task every member can vote. A visitor who is not
+signed in gets nothing at all.
 
 The server holds one key (the "service role" key) that can see everything. It
 never goes to the browser.
@@ -641,6 +660,8 @@ never goes to the browser.
 This is proved, not assumed: `npm run check:tasks-rls` makes two throwaway
 members, has each write a task, checks that each can read the other's but
 neither can change or delete it (tasks, settings and attached files alike),
+makes one more member per role and checks the table above for each, straight
+at the table and through core,
 that neither can read, change or delete the other's Discussion comments or
 the files attached to them, that
 each votes only through their own vote and the average lands on the task,

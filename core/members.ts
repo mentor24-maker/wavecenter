@@ -5,10 +5,11 @@
  * edit task, delete task"). On 2026-10-29 he chose the first slice: roles and
  * permissions are stored and shown, and an admin changes members' roles.
  *
- * The task permissions are recorded, not yet enforced: what a member may do
- * on tasks is still decided by core/tasks.ts and the tasks row-level security
- * (every member reads every task and changes only their own). A later ticket
- * makes them count. The member permissions do count: `member.read` decides
+ * The task permissions count (WC-248): core/tasks.ts and the tasks row-level
+ * security both ask them. `task.read` decides who reads the tasks,
+ * `task.create` who adds one, `task.edit` and `task.delete` who changes and
+ * deletes their own, and `task.edit.any` and `task.delete.any` who changes
+ * and deletes anyone's. The member permissions count too: `member.read` decides
  * who may see the member list (the database's `list_members` asks it too),
  * `member.edit` who gets the role picker in each row, and `member.message`
  * who gets the Message and Chat buttons (the database's `send_message` asks it too),
@@ -43,12 +44,15 @@ export const PERMISSIONS = [
   { key: 'member.message', label: 'Message members' },
   { key: 'home.edit', label: 'Edit Home boxes' },
   { key: 'site.edit', label: 'Manage website' },
+  { key: 'task.edit.any', label: "Edit anyone's task" },
+  { key: 'task.delete.any', label: "Delete anyone's task" },
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
 
 /**
- * Which role starts with which permission. Contributors edit only their own
- * tasks. Every member views the member list; only an admin changes roles
+ * Which role starts with which permission. Admins and editors change and
+ * delete anyone's task; contributors add tasks and change and delete their
+ * own; reviewers and viewers only read them (Dane, 2026-11-26, WC-248). Every member views the member list; only an admin changes roles
  * (Dane, 2026-10-29: "Only admins will get edit/delete functionality under
  * the Actions column. Other members get view functionality"). Every member
  * views the teams; admins and editors manage them (Dane, 2026-10-30, "B").
@@ -59,9 +63,9 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
  * admin manages the website's pages (core/website.ts).
  */
 export const STARTING_ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
-  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit', 'site.edit'],
-  editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message'],
-  contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message'],
+  admin: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'member.edit', 'team.read', 'team.edit', 'game.edit', 'member.message', 'home.edit', 'site.edit', 'task.edit.any', 'task.delete.any'],
+  editor: ['task.read', 'task.create', 'task.edit', 'task.delete', 'member.read', 'team.read', 'team.edit', 'member.message', 'task.edit.any', 'task.delete.any'],
+  contributor: ['task.read', 'task.create', 'task.edit', 'member.read', 'team.read', 'member.message', 'task.delete'],
   reviewer: ['task.read', 'member.read', 'team.read', 'member.message'],
   viewer: ['task.read', 'member.read', 'team.read', 'member.message'],
 };
